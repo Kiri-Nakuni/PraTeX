@@ -57,6 +57,8 @@ use crate::print::Printer;
 use crate::token::Token;
 use crate::token_lists::{str_toks, token_show};
 
+use std::rc::Rc;
+use std::sync::OnceLock;
 use std::cell::RefCell;
 use std::collections::HashMap;
 
@@ -111,7 +113,11 @@ impl Touch {
     }
 }
 
-type Cached = Result<Built, Vec<String>>;
+/// **貸すのであって、渡すのではない。**
+///
+/// 組み上がったものを呼び出しのたびに複製していた。命令列も定数表も位置情報も、
+/// **一度作れば二度と変わらない**のに、毎回写していた——`Rc` で貸せば済む。
+type Cached = Rc<Result<Built, Vec<String>>>;
 
 thread_local! {
     static CACHE: RefCell<HashMap<Vec<u8>, Cached>> = RefCell::new(HashMap::new());
@@ -133,19 +139,23 @@ fn exposed() -> Vec<(String, ValueType)> {
 
 /// 解析・検査・組み立て。**一度だけ行い、覚えておく。**
 fn compile_cached(source: &[u8]) -> Cached {
+    // **環境変数は一度だけ読む。** 呼び出しのたびに環境全体を走査する理由が無い
+    static NO_CACHE: OnceLock<bool> = OnceLock::new();
+    let no_cache = *NO_CACHE.get_or_init(|| std::env::var_os("VAAK_NO_CACHE").is_some());
+
     CACHE.with(|c| {
-        if std::env::var_os("VAAK_NO_CACHE").is_none() {
+        if !no_cache {
             if let Some(hit) = c.borrow().get(source) {
-                return hit.clone();
+                return Rc::clone(hit);
             }
         }
-        let built = build(source);
-        c.borrow_mut().insert(source.to_vec(), built.clone());
+        let built = Rc::new(build(source));
+        c.borrow_mut().insert(source.to_vec(), Rc::clone(&built));
         built
     })
 }
 
-fn build(source: &[u8]) -> Cached {
+fn build(source: &[u8]) -> Result<Built, Vec<String>> {
     let src = String::from_utf8_lossy(source);
     let prog = match vaak::parser::parse(&src) {
         Ok(p) => p,
@@ -179,6 +189,13 @@ pub fn direct_vaak(token: Token, scanner: &mut Scanner, eqtb: &mut Eqtb, logger:
     token_show(&def_ref, &mut printer, eqtb);
     let source = printer.into_string();
 
+    // 測定用の底。**TeX 側だけの費用**を見るために Vaak を飛ばす
+    static NULL: OnceLock<bool> = OnceLock::new();
+    if *NULL.get_or_init(|| std::env::var_os("VAAK_NULL").is_some()) {
+        let toks = str_toks(b"0");
+        scanner.ins_list(toks, eqtb, logger);
+        return;
+    }
     let (code, error) = run_vaak(&source, eqtb, logger);
 
     if let Some(msg) = error {
@@ -194,7 +211,8 @@ pub fn direct_vaak(token: Token, scanner: &mut Scanner, eqtb: &mut Eqtb, logger:
 /// Vaak を走らせ、(終了コード, エラー文) を返す。
 fn run_vaak(source: &[u8], eqtb: &mut Eqtb, logger: &mut Logger) -> (i32, Option<String>) {
     // **組み上がったものは覚えてある。** 二度目からは解析も検査もしない
-    let built = match compile_cached(source) {
+    let cached = compile_cached(source);
+    let built = match &*cached {
         Ok(p) => p,
         Err(errs) => {
             return (0, Some(format!("{} static error(s) before running", errs.len())));
