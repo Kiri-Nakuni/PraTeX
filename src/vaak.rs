@@ -49,6 +49,7 @@
 //! **rtex は 7bit。** 多バイト文字は `^^xx` に展開されて読めなくなる。
 //! Vaak の説明（日本語）は落とし、**種別と位置だけ残す。**
 
+use crate::command::{Command, ExpandableCommand};
 use crate::eqtb::{DimensionVariable, Eqtb, IntegerVariable, RegisterIndex};
 use crate::input::Scanner;
 use crate::logger::Logger;
@@ -121,6 +122,12 @@ type Cached = Rc<Result<Built, Vec<String>>>;
 
 thread_local! {
     static CACHE: RefCell<HashMap<Vec<u8>, Cached>> = RefCell::new(HashMap::new());
+    /// 名前の付いた本体。**番号は本体の内容で共有される。**
+    ///
+    /// 同じ本体に二つの名前を付ければ同じ番号になり、`\ifx` が等しいと言う。
+    /// これは `\def` の意味論（本体が同じなら等しい）に合わせたものである。
+    static NAMED: RefCell<(Vec<(Vec<u8>, Cached)>, HashMap<Vec<u8>, u32>)> =
+        RefCell::new((Vec::new(), HashMap::new()));
     /// 見せる値の入れ物を**使い回す**。
     ///
     /// 呼び出しのたびに 512 個の `Value` を作り直すのは無駄である——
@@ -129,6 +136,93 @@ thread_local! {
     ///
     /// `run_program_with_host` は使い終わった入れ物を返すので、それを取っておく。
     static HOST_BUF: RefCell<Option<Vec<Value>>> = const { RefCell::new(None) };
+}
+
+/// 本体を名前表に入れ、番号を返す。**同じ本体は同じ番号。**
+pub fn intern(source: &[u8]) -> u32 {
+    if let Some(id) = NAMED.with(|n| n.borrow().1.get(source).copied()) {
+        return id;
+    }
+    // **組むのは表の外で。** 借りを持ったまま組み立てを走らせない
+    let built = compile_cached(source);
+    NAMED.with(|n| {
+        let mut n = n.borrow_mut();
+        let id = n.0.len() as u32;
+        n.0.push((source.to_vec(), built));
+        n.1.insert(source.to_vec(), id);
+        id
+    })
+}
+
+/// 番号から本体を引く。`\show` と書き出しに使う。
+pub fn source_of(id: u32) -> Vec<u8> {
+    NAMED.with(|n| n.borrow().0.get(id as usize).map(|e| e.0.clone()).unwrap_or_default())
+}
+
+/// `\vaakdef\名前{本体}` — **定義の時点で組み立てる。**
+///
+/// `\directvaak{…}` との違いは、**呼ぶときに本体を見ないこと**だけである。
+/// 意味論は同じ——同じ本体なら同じ結果を出し、同じ終了コードを展開する。
+///
+/// 組み立ての誤りは**ここで報告する。** 呼ぶたびに同じ誤りを言わない。
+pub fn vaak_def(global: bool, scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Logger) {
+    let cs = crate::command::prefixable::get_r_token(scanner, eqtb, logger);
+    let def_ref = scanner.scan_toks(cs, true, eqtb, logger);
+    let mut printer = StringPrinter::new(eqtb.get_current_escape_character());
+    token_show(&def_ref, &mut printer, eqtb);
+    let source = printer.into_string();
+
+    // **今のうちに組む。** 誤りがあれば、使われる前に分かる
+    let id = intern(&source);
+    let errs = NAMED.with(|n| match &*n.borrow().0[id as usize].1 {
+        Err(e) => e.len(),
+        Ok(_) => 0,
+    });
+    if errs > 0 {
+        report_error(&format!("{errs} static error(s) at definition"), scanner, eqtb, logger);
+    }
+    let command = Command::Expandable(ExpandableCommand::VaakCall(id));
+    eqtb.cs_define(cs, command, global);
+}
+
+/// `\vaakdef` で定義された名前を呼ぶ。**本体は見ない。**
+pub fn vaak_call(id: u32, scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Logger) {
+    static NULL2: OnceLock<bool> = OnceLock::new();
+    if *NULL2.get_or_init(|| std::env::var_os("VAAK_NULL").is_some()) {
+        let toks = str_toks(b"0");
+        scanner.ins_list(toks, eqtb, logger);
+        return;
+    }
+    // **番号で直に引く。** 本体は写さないし、鍵を作って表を引き直しもしない
+    let cached = NAMED.with(|n| n.borrow().0.get(id as usize).map(|e| Rc::clone(&e.1)));
+    let Some(cached) = cached else { return };
+    let (code, error) = run_cached(&cached, id, eqtb, logger);
+    if let Some(msg) = error {
+        report_error(&msg, scanner, eqtb, logger);
+    }
+    let mut buf = [0u8; 12];
+    let toks = str_toks(itoa(code, &mut buf));
+    scanner.ins_list(toks, eqtb, logger);
+}
+
+/// 十進に直す。**確保しない**——`format!` は一回あたり一度の確保である。
+fn itoa(mut n: i32, buf: &mut [u8; 12]) -> &[u8] {
+    let neg = n < 0;
+    let mut i = 12;
+    if n == 0 {
+        i -= 1;
+        buf[i] = b'0';
+    }
+    while n != 0 {
+        i -= 1;
+        buf[i] = b'0' + (n % 10).unsigned_abs() as u8;
+        n /= 10;
+    }
+    if neg {
+        i -= 1;
+        buf[i] = b'-';
+    }
+    &buf[i..]
 }
 
 /// ホストが見せる名前と型。**常に同じ**なので鍵に含めない。
@@ -203,8 +297,8 @@ pub fn direct_vaak(token: Token, scanner: &mut Scanner, eqtb: &mut Eqtb, logger:
     }
 
     // **必ず数字を出す。** 展開が空だと TeX の数値走査が壊れる
-    let digits = format!("{code}");
-    let toks = str_toks(digits.as_bytes());
+    let mut buf = [0u8; 12];
+    let toks = str_toks(itoa(code, &mut buf));
     scanner.ins_list(toks, eqtb, logger);
 }
 
@@ -212,7 +306,41 @@ pub fn direct_vaak(token: Token, scanner: &mut Scanner, eqtb: &mut Eqtb, logger:
 fn run_vaak(source: &[u8], eqtb: &mut Eqtb, logger: &mut Logger) -> (i32, Option<String>) {
     // **組み上がったものは覚えてある。** 二度目からは解析も検査もしない
     let cached = compile_cached(source);
-    let built = match &*cached {
+    run_built(&cached, Src::Bytes(source), eqtb, logger)
+}
+
+/// 本体の在り処。**誤りを報告するときにしか要らない。**
+enum Src<'a> {
+    Bytes(&'a [u8]),
+    /// 名前表の番号。引くのは誤りが起きたときだけ
+    Named(u32),
+}
+
+impl Src<'_> {
+    fn line_col(&self, offset: u32) -> (usize, usize) {
+        match self {
+            Src::Bytes(b) => line_col(b, offset),
+            Src::Named(id) => line_col(&source_of(*id), offset),
+        }
+    }
+}
+
+fn run_cached(
+    cached: &Cached,
+    id: u32,
+    eqtb: &mut Eqtb,
+    logger: &mut Logger,
+) -> (i32, Option<String>) {
+    run_built(cached, Src::Named(id), eqtb, logger)
+}
+
+fn run_built(
+    cached: &Cached,
+    src: Src,
+    eqtb: &mut Eqtb,
+    logger: &mut Logger,
+) -> (i32, Option<String>) {
+    let built = match &**cached {
         Ok(p) => p,
         Err(errs) => {
             return (0, Some(format!("{} static error(s) before running", errs.len())));
@@ -233,7 +361,7 @@ fn run_vaak(source: &[u8], eqtb: &mut Eqtb, logger: &mut Logger) -> (i32, Option
     let (ev, after) = match vaak::vm::run_program_with_host(&built.program, host) {
         Ok(x) => x,
         Err(e) => {
-            let (line, col) = line_col(source, e.span.start);
+            let (line, col) = src.line_col(e.span.start);
             return (0, Some(format!("{line}:{col}: the run did not finish")));
         }
     };
@@ -266,7 +394,7 @@ fn run_vaak(source: &[u8], eqtb: &mut Eqtb, logger: &mut Logger) -> (i32, Option
         // **中身が空で終わればホストに委ねる**（C-31）。エラーではない
         vaak::interp::Eval::Paradox(_) | vaak::interp::Eval::Akasha => (0, None),
         vaak::interp::Eval::Escape(x) => {
-            let (line, col) = line_col(source, x.span.start);
+            let (line, col) = src.line_col(x.span.start);
             (0, Some(format!("{line}:{col}: the run did not finish")))
         }
     }

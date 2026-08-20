@@ -394,6 +394,17 @@ impl Dumpable for ExpandableCommand {
             Self::DirectVaak => {
                 writeln!(target, "DirectVaak")?;
             }
+            &Self::VaakCall(id) => {
+                // **本体を書き出す。** 番号は走らせるたびに付け直されるので、
+                // 書き出すべきは番号ではなく本体である
+                writeln!(target, "VaakCall")?;
+                let src = crate::vaak::source_of(id);
+                let mut hex = String::with_capacity(src.len() * 2);
+                for b in &src {
+                    hex.push_str(&format!("{b:02x}"));
+                }
+                writeln!(target, "{hex}")?;
+            }
         }
         Ok(())
     }
@@ -402,6 +413,15 @@ impl Dumpable for ExpandableCommand {
         let variant = lines.next().ok_or(FormatError::IncompleteFile)?;
         match variant {
             "DirectVaak" => Ok(Self::DirectVaak),
+            "VaakCall" => {
+                let hex = lines.next().ok_or(FormatError::IncompleteFile)?;
+                let mut src = Vec::with_capacity(hex.len() / 2);
+                for pair in hex.as_bytes().chunks(2) {
+                    let t = std::str::from_utf8(pair).map_err(|_| FormatError::IncompleteFile)?;
+                    src.push(u8::from_str_radix(t, 16).map_err(|_| FormatError::IncompleteFile)?);
+                }
+                Ok(Self::VaakCall(crate::vaak::intern(&src)))
+            }
             "Undefined" => Ok(Self::Undefined),
             "ExpandAfter" => Ok(Self::ExpandAfter),
             "NoExpand" => Ok(Self::NoExpand),

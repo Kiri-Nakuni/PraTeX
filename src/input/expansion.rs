@@ -42,6 +42,9 @@ pub fn expand(
         ExpandableCommand::DirectVaak => {
             crate::vaak::direct_vaak(token, scanner, eqtb, logger)
         }
+        ExpandableCommand::VaakCall(id) => {
+            crate::vaak::vaak_call(id, scanner, eqtb, logger)
+        }
         ExpandableCommand::Convert(convert_command) => {
             conv_toks(convert_command, scanner, eqtb, logger)
         }

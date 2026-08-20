@@ -76,6 +76,8 @@ pub enum PrefixableCommand {
     ShorthandDef(ShorthandDef),
     ReadToCs,
     Def(DefCommand),
+    /// `\vaakdef\名前{本体}`。**定義の時点で組み立てる。**
+    VaakDef,
     SetBox,
     Hyphenation,
     Patterns,
@@ -122,6 +124,7 @@ impl PrefixableCommand {
             | Self::ShorthandDef(_)
             | Self::ReadToCs
             | Self::Def(_)
+            | Self::VaakDef
             | Self::SetBox
             | Self::Hyphenation
             | Self::Patterns
@@ -169,6 +172,7 @@ impl PrefixableCommand {
             Self::ShorthandDef(shorthand_def) => shorthand_def.display(printer),
             Self::ReadToCs => printer.print_esc_str(b"read"),
             Self::Def(def_command) => def_command.display(printer),
+            Self::VaakDef => printer.print_esc_str(b"vaakdef"),
             Self::SetBox => printer.print_esc_str(b"setbox"),
             Self::Hyphenation => printer.print_esc_str(b"hyphenation"),
             Self::Patterns => printer.print_esc_str(b"patterns"),
@@ -272,6 +276,9 @@ impl Dumpable for PrefixableCommand {
                 writeln!(target, "Def")?;
                 def_command.dump(target)?;
             }
+            Self::VaakDef => {
+                writeln!(target, "VaakDef")?;
+            }
             Self::SetBox => {
                 writeln!(target, "SetBox")?;
             }
@@ -367,6 +374,7 @@ impl Dumpable for PrefixableCommand {
                 let def_command = DefCommand::undump(lines)?;
                 Ok(Self::Def(def_command))
             }
+            "VaakDef" => Ok(Self::VaakDef),
             "SetBox" => Ok(Self::SetBox),
             "Hyphenation" => Ok(Self::Hyphenation),
             "Patterns" => Ok(Self::Patterns),
@@ -675,6 +683,9 @@ pub fn prefixed_command(
             };
             let command = Command::Expandable(ExpandableCommand::Macro(macro_call));
             eqtb.cs_define(cs, command, global);
+        }
+        PrefixableCommand::VaakDef => {
+            crate::vaak::vaak_def(global, scanner, eqtb, logger);
         }
         // From 1218.
         PrefixableCommand::Def(def_command) => {
@@ -1188,7 +1199,7 @@ fn report_font_wont_be_loaded(
 /// If the next non-space token is not a redefinable ControlSequence, a dummy
 /// ControlSequence is returned instead.
 /// See 1215.
-fn get_r_token(scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Logger) -> ControlSequence {
+pub(crate) fn get_r_token(scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Logger) -> ControlSequence {
     loop {
         let mut token;
         loop {

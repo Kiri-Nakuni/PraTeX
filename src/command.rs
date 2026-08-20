@@ -12,7 +12,7 @@ mod mark;
 mod math_command;
 mod page_dimension;
 mod prefix;
-mod prefixable;
+pub(crate) mod prefixable;
 mod remove_item;
 mod shorthand_def;
 mod show;
@@ -363,6 +363,14 @@ pub enum ExpandableCommand {
     /// `\count0=\directvaak{…}` で展開が空だと走査が壊れる。
     /// したがって**必ず数字を出す**（エラーでも `0`）。
     DirectVaak,
+    /// `\vaakdef\名前{本体}` で作られた命令。**本体は定義の時点で組んである。**
+    ///
+    /// `\directvaak{…}` は呼ぶたびに本体を字句として走査し直す——
+    /// 同じ 24 字を組み直すのに、走らせる費用の倍が掛かっていた。
+    /// **名前を付ければ、呼ぶときに本体を見ない。**
+    ///
+    /// 番号は本体の**内容で共有される**ので、同じ本体の二つの名前は `\ifx` で等しい。
+    VaakCall(u32),
 }
 
 impl ExpandableCommand {
@@ -380,6 +388,12 @@ impl ExpandableCommand {
             Self::Convert(convert_command) => convert_command.display(printer),
             Self::The => printer.print_esc_str(b"the"),
             Self::DirectVaak => printer.print_esc_str(b"directvaak"),
+            &Self::VaakCall(id) => {
+                printer.print_str("vaak:->");
+                for c in crate::vaak::source_of(id) {
+                    printer.print(c);
+                }
+            }
             Self::Mark(mark_command) => mark_command.display(printer),
             Self::Macro(macro_call) => macro_call.display(printer),
             Self::EndTemplate => printer.print_esc_str(b"outer endtemplate"),
