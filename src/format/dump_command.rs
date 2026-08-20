@@ -179,6 +179,10 @@ impl Dumpable for UnexpandableCommand {
             Self::LastKern => writeln!(target, "LastKern")?,
             Self::LastSkip => writeln!(target, "LastSkip")?,
             Self::Badness => writeln!(target, "Badness")?,
+            Self::Expr(kind) => {
+                writeln!(target, "Expr")?;
+                kind.dump(target)?;
+            }
             Self::InputLineNumber => writeln!(target, "InputLineNumber")?,
             Self::End { dumping } => {
                 writeln!(target, "End")?;
@@ -330,6 +334,7 @@ impl Dumpable for UnexpandableCommand {
             "LastKern" => Ok(Self::LastKern),
             "LastSkip" => Ok(Self::LastSkip),
             "Badness" => Ok(Self::Badness),
+            "Expr" => Ok(Self::Expr(crate::scan_internal::ValueType::undump(lines)?)),
             "InputLineNumber" => Ok(Self::InputLineNumber),
             "End" => {
                 let dumping = bool::undump(lines)?;

@@ -10,7 +10,7 @@ use crate::fonts::{find_font_dimen, scan_font_ident};
 use crate::format::{Dumpable, FormatError};
 use crate::input::Scanner;
 use crate::logger::Logger;
-use crate::nodes::GlueSpec;
+use crate::nodes::{GlueSpec, HigherOrderDimension};
 use crate::page_breaking::PageContents;
 use crate::print::Printer;
 use crate::semantic_nest::Mode;
@@ -145,6 +145,7 @@ fn scan_something_internal(
             eqtb,
             logger,
         ),
+        InternalCommand::Expr(kind) => scan_expr(kind, scanner, eqtb, logger),
         InternalCommand::Integer(int_var) => InternalValue::Int(eqtb.integer(int_var)),
         InternalCommand::Dimension(dim_var) => InternalValue::Dimen(eqtb.dimen(dim_var)),
         InternalCommand::Glue(glue_var) => InternalValue::Glue(eqtb.skips.get(glue_var).clone()),
@@ -455,4 +456,277 @@ impl Dumpable for ValueType {
             _ => Err(FormatError::ParseError),
         }
     }
+}
+
+
+// ================= e-TeX の式（`\numexpr` 系）=================
+//
+// **文法は二段だけである。**
+//
+// ```text
+// expr ::= term | expr + term | expr - term
+// term ::= factor | term * integer | term / integer
+// ```
+//
+// `\relax` があれば食う。無ければ戻す——**e-TeX がそう決めている。**
+//
+// # なぜ乗除が特別か
+//
+// `\numexpr 7*8/3\relax` は **56/3 を丸めて 19** である。**23 ではない。**
+// 掛けてから割るあいだ、**中間結果は 32 ビットに収まらなくてよい。**
+// これが `\numexpr` の存在理由であり、
+// `\multiply` `\divide` を並べるのとの違いである。
+//
+// 丸めは**四捨五入**（半分は絶対値の大きい方へ）。TeX の `xn_over_d` と同じ向き。
+
+/// 掛けてから割る。**中間は 64 ビット、丸めは四捨五入。**
+fn mult_and_add(x: i64, n: i64, d: i64, max: i64) -> Result<i64, ()> {
+    if d == 0 {
+        return Err(());
+    }
+    let prod = x.checked_mul(n).ok_or(())?;
+    // **半分は絶対値の大きい方へ寄せる**
+    let half = d / 2;
+    let q = if prod >= 0 { (prod + half) / d } else { -((-prod + half) / d) };
+    if q.abs() > max {
+        return Err(());
+    }
+    Ok(q)
+}
+
+fn expr_max(kind: ValueType) -> i64 {
+    match kind {
+        ValueType::Int => 0x7FFF_FFFF,
+        _ => crate::dimension::MAX_DIMEN as i64,
+    }
+}
+
+/// 一つの式を読む。
+fn scan_expr(
+    kind: ValueType,
+    scanner: &mut Scanner,
+    eqtb: &mut Eqtb,
+    logger: &mut Logger,
+) -> InternalValue {
+    let mut overflow = false;
+    let v = scan_expr_sum(kind, &mut overflow, scanner, eqtb, logger);
+    // **末尾の `\relax` は食う。** 無ければ戻す
+    let (cmd, token) = scanner.get_next_non_blank_non_call_token(eqtb, logger);
+    if !matches!(cmd, crate::command::UnexpandableCommand::Relax { .. }) {
+        scanner.back_input(token, eqtb, logger);
+    }
+    if overflow {
+        arith_overflow(scanner, eqtb, logger);
+    }
+    match kind {
+        ValueType::Int => InternalValue::Int(v.width as i32),
+        ValueType::Dimen => InternalValue::Dimen(v.width),
+        ValueType::Glue => InternalValue::Glue(std::rc::Rc::new(v)),
+        ValueType::Mu => InternalValue::MuGlue(std::rc::Rc::new(v)),
+    }
+}
+
+fn arith_overflow(scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Logger) {
+    logger.print_err("Arithmetic overflow");
+    let help = &[
+        "I can't evaluate this expression,",
+        "since the result is out of range.",
+    ];
+    logger.error(help, scanner, eqtb);
+}
+
+/// `expr ::= term | expr + term | expr - term`
+fn scan_expr_sum(
+    kind: ValueType,
+    overflow: &mut bool,
+    scanner: &mut Scanner,
+    eqtb: &mut Eqtb,
+    logger: &mut Logger,
+) -> GlueSpec {
+    let mut acc = scan_expr_term(kind, overflow, scanner, eqtb, logger);
+    loop {
+        let (cmd, token) = scanner.get_next_non_blank_non_call_token(eqtb, logger);
+        let plus = match cmd {
+            crate::command::UnexpandableCommand::Other(b'+') => true,
+            crate::command::UnexpandableCommand::Other(b'-') => false,
+            _ => {
+                scanner.back_input(token, eqtb, logger);
+                return acc;
+            }
+        };
+        let rhs = scan_expr_term(kind, overflow, scanner, eqtb, logger);
+        acc = add_spec(acc, rhs, plus, kind, overflow);
+    }
+}
+
+fn add_spec(
+    a: GlueSpec,
+    b: GlueSpec,
+    plus: bool,
+    kind: ValueType,
+    overflow: &mut bool,
+) -> GlueSpec {
+    let max = expr_max(kind);
+    let add = |x: i32, y: i32, o: &mut bool| -> i32 {
+        let r = x as i64 + if plus { y as i64 } else { -(y as i64) };
+        if r.abs() > max {
+            *o = true;
+            return if r < 0 { -(max as i32) } else { max as i32 };
+        }
+        r as i32
+    };
+    let mut out = a.clone();
+    out.width = add(a.width, b.width, overflow);
+    // **伸縮は `\glueexpr` と `\muexpr` でだけ意味を持つ。**
+    // 次数が違えば**大きい次数が勝つ**——TeX の糊の規則そのものである
+    if matches!(kind, ValueType::Glue | ValueType::Mu) {
+        out.stretch = combine(a.stretch.clone(), b.stretch.clone(), plus, overflow, max);
+        out.shrink = combine(a.shrink.clone(), b.shrink.clone(), plus, overflow, max);
+    }
+    out
+
+}
+
+fn combine(
+    a: HigherOrderDimension,
+    b: HigherOrderDimension,
+    plus: bool,
+    overflow: &mut bool,
+    max: i64,
+) -> HigherOrderDimension {
+    let bv = if plus { b.value } else { -b.value };
+    if a.value == 0 {
+        return HigherOrderDimension { order: b.order, value: bv };
+    }
+    if bv == 0 {
+        return a;
+    }
+    match order_rank(a.order).cmp(&order_rank(b.order)) {
+        std::cmp::Ordering::Greater => a,
+        std::cmp::Ordering::Less => HigherOrderDimension { order: b.order, value: bv },
+        std::cmp::Ordering::Equal => {
+            let r = a.value as i64 + bv as i64;
+            if r.abs() > max {
+                *overflow = true;
+            }
+            HigherOrderDimension { order: a.order, value: r.clamp(-max, max) as i32 }
+        }
+    }
+}
+
+/// 次数の強さ。**`DimensionOrder` に順序が入っていない**ので、ここで与える
+fn order_rank(o: crate::nodes::DimensionOrder) -> u8 {
+    use crate::nodes::DimensionOrder::*;
+    match o {
+        Normal => 0,
+        Fil => 1,
+        Fill => 2,
+        Filll => 3,
+    }
+}
+
+/// `term ::= factor | term * integer | term / integer`
+fn scan_expr_term(
+    kind: ValueType,
+    overflow: &mut bool,
+    scanner: &mut Scanner,
+    eqtb: &mut Eqtb,
+    logger: &mut Logger,
+) -> GlueSpec {
+    let mut acc = scan_expr_factor(kind, overflow, scanner, eqtb, logger);
+    // **掛けと割りは溜めてから一度に行う**——中間結果を 32 ビットに落とさないため
+    let mut num: i64 = 1;
+    let mut den: i64 = 1;
+    loop {
+        let (cmd, token) = scanner.get_next_non_blank_non_call_token(eqtb, logger);
+        let mul = match cmd {
+            crate::command::UnexpandableCommand::Other(b'*') => true,
+            crate::command::UnexpandableCommand::Other(b'/') => false,
+            _ => {
+                scanner.back_input(token, eqtb, logger);
+                break;
+            }
+        };
+        // **掛ける数・割る数の側にも括弧を書ける。** `(1+2)*(3+4)`
+        let n = scan_expr_int_operand(overflow, scanner, eqtb, logger) as i64;
+        if mul {
+            num *= n;
+        } else {
+            den *= n;
+        }
+    }
+    if num != 1 || den != 1 {
+        let max = expr_max(kind);
+        let mut apply = |x: i32, o: &mut bool| -> i32 {
+            match mult_and_add(x as i64, num, den, max) {
+                Ok(v) => v as i32,
+                Err(()) => {
+                    *o = true;
+                    0
+                }
+            }
+        };
+        acc.width = apply(acc.width, overflow);
+        if matches!(kind, ValueType::Glue | ValueType::Mu) {
+            acc.stretch.value = apply(acc.stretch.value, overflow);
+            acc.shrink.value = apply(acc.shrink.value, overflow);
+        }
+    }
+    acc
+}
+
+/// 掛ける数・割る数。**整数だが、括弧なら中は式である。**
+fn scan_expr_int_operand(
+    overflow: &mut bool,
+    scanner: &mut Scanner,
+    eqtb: &mut Eqtb,
+    logger: &mut Logger,
+) -> i32 {
+    let (cmd, token) = scanner.get_next_non_blank_non_call_token(eqtb, logger);
+    if matches!(cmd, crate::command::UnexpandableCommand::Other(b'(')) {
+        let v = scan_expr_sum(ValueType::Int, overflow, scanner, eqtb, logger);
+        let (cmd, token) = scanner.get_next_non_blank_non_call_token(eqtb, logger);
+        if !matches!(cmd, crate::command::UnexpandableCommand::Other(b')')) {
+            scanner.back_input(token, eqtb, logger);
+            missing_paren(scanner, eqtb, logger);
+        }
+        return v.width;
+    }
+    scanner.back_input(token, eqtb, logger);
+    <i32 as crate::integer::IntegerExt>::scan_int(scanner, eqtb, logger)
+}
+
+fn missing_paren(scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Logger) {
+    logger.print_err("Missing ) inserted for expression");
+    let help = &["I was expecting to see `+', `-', `*', `/', or `)'. Didn't."];
+    logger.error(help, scanner, eqtb);
+}
+
+/// `factor ::= <値> | ( expr )`
+fn scan_expr_factor(
+    kind: ValueType,
+    overflow: &mut bool,
+    scanner: &mut Scanner,
+    eqtb: &mut Eqtb,
+    logger: &mut Logger,
+) -> GlueSpec {
+    let (cmd, token) = scanner.get_next_non_blank_non_call_token(eqtb, logger);
+    if matches!(cmd, crate::command::UnexpandableCommand::Other(b'(')) {
+        let v = scan_expr_sum(kind, overflow, scanner, eqtb, logger);
+        let (cmd, token) = scanner.get_next_non_blank_non_call_token(eqtb, logger);
+        if !matches!(cmd, crate::command::UnexpandableCommand::Other(b')')) {
+            scanner.back_input(token, eqtb, logger);
+            missing_paren(scanner, eqtb, logger);
+        }
+        return v;
+    }
+    scanner.back_input(token, eqtb, logger);
+    let mut spec = GlueSpec::ZERO_GLUE;
+    match kind {
+        ValueType::Int => spec.width = <i32 as crate::integer::IntegerExt>::scan_int(scanner, eqtb, logger),
+        ValueType::Dimen => spec.width = crate::dimension::scan_normal_dimen(scanner, eqtb, logger),
+        ValueType::Glue => spec = crate::glue::scan_glue(false, scanner, eqtb, logger).as_ref().clone(),
+        ValueType::Mu => spec = crate::glue::scan_glue(true, scanner, eqtb, logger).as_ref().clone(),
+    }
+    spec
 }

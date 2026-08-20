@@ -683,6 +683,15 @@ impl Eqtb {
         );
         self.primitive_expandable(b"the", ExpandableCommand::The);
         // Vaak を走らせる。See docs/vaak-integration.md.
+        // e-TeX の式。**内部量として振る舞う**
+        for (name, kind) in [
+            (b"numexpr".as_slice(), crate::scan_internal::ValueType::Int),
+            (b"dimexpr".as_slice(), crate::scan_internal::ValueType::Dimen),
+            (b"glueexpr".as_slice(), crate::scan_internal::ValueType::Glue),
+            (b"muexpr".as_slice(), crate::scan_internal::ValueType::Mu),
+        ] {
+            self.primitive_unexpandable(name, UnexpandableCommand::Expr(kind));
+        }
         self.primitive_expandable(b"directvaak", ExpandableCommand::DirectVaak);
         self.primitive_unexpandable(
             b"vaakdef",
