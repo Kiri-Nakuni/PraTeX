@@ -1,0 +1,18 @@
+This is rtex, Version 3.141592653 (INITEX)  4 JUL 1776 12:00
+**/tmp/claude-1000/-home-suima-Documents-mydsl/51499744-60f9-454c-a92e-d57e8e2b
+0cbc/scratchpad/jd.tex
+
+(/tmp/claude-1000/-home-suima-Documents-mydsl/51499744-60f9-454c-a92e-d57e8e2b0
+cbc/scratchpad/jd.tex
+[Q=0.7113pt][H=0.7113pt][mm=2.84526pt][4Q=2.84526pt][12.3Q=8.74922pt]
+! Undefined control sequence.
+l.7 \message{[10Q=\the\dimen0 \space
+                                     x10]}
+The control sequence at the end of the top line
+of your error message was never \def'ed. If you have
+misspelled it (e.g., `\hobx'), type `I' and the correct
+spelling (e.g., `I\hbox'). Otherwise just continue,
+and I'll forget about whatever was undefined.
+
+[10Q=0.7113ptx10] )
+No pages of output.

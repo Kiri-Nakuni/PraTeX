@@ -403,6 +403,22 @@ fn scan_for_units_that_are_internal_dimensions(
             eqtb.em_width_for_cur_font()
         } else if scanner.scan_keyword(b"ex", eqtb, logger) {
             eqtb.x_height_for_cur_font()
+        }
+        // `zw`（全角幅）と `zh`（全角高）。**和文フォントの全角の寸法**である。
+        //
+        // pTeX ではこれは JFM が決める。rtex にはまだ和文フォントが無いので、
+        // **いまは欧文フォントの `em` を代わりに使う。**
+        //
+        // これは仮の措置である。JFM が入れば、**ここだけを差し替えればよい**——
+        // `zw` と `zh` が「和文フォントに尋ねる単位」であることは変わらない。
+        //
+        // `zw` を先に見ること。`scan_keyword` は前方一致で進むので、
+        // 一文字目が同じ二つは長さの順に関係なく別々に書けばよいが、
+        // **順序を変えても意味が変わらないように、共通の接頭辞を持つものは隣に置く。**
+        else if scanner.scan_keyword(b"zw", eqtb, logger) {
+            eqtb.em_width_for_cur_font()
+        } else if scanner.scan_keyword(b"zh", eqtb, logger) {
+            eqtb.em_width_for_cur_font()
         } else {
             return None;
         };
@@ -478,6 +494,15 @@ fn scan_for_other_units(
         (1238, 1157)
     } else if scanner.scan_keyword(b"cc", eqtb, logger) {
         (14856, 1157)
+    }
+    // 和文の寸法（pTeX 由来）。**どちらも 0.25 mm ちょうど**である。
+    //
+    // `Q`（級）は文字の大きさ、`H`（歯）は送りに使う——写植機の目盛りに由来し、
+    // 単位としては同じ長さである。`mm` が (7227, 2540) なので、その四分の一。
+    else if scanner.scan_keyword(b"q", eqtb, logger) {
+        (7227, 10160)
+    } else if scanner.scan_keyword(b"h", eqtb, logger) {
+        (7227, 10160)
     } else {
         return None;
     };
@@ -489,8 +514,8 @@ fn complain_about_unknown_unit(scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &
     logger.print_err("Illegal unit of measure (");
     logger.print_str("pt inserted)");
     let help = &[
-        "Dimensions can be in units of em, ex, in, pt, pc,",
-        "cm, mm, dd, cc, bp, or sp; but yours is a new one!",
+        "Dimensions can be in units of em, ex, zw, zh, in, pt,",
+        "pc, cm, mm, dd, cc, bp, Q, H, or sp; but yours is a new one!",
         "I'll assume that you meant to say pt, for printer's points.",
         "To recover gracefully from this error, it's best to",
         "delete the erroneous units; e.g., type `2' to delete",
