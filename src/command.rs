@@ -77,6 +77,8 @@ pub enum UnexpandableCommand {
     Endv,
     CharNum,
     Math(MathCommand),
+    /// e-TeX の式（`\numexpr` 系）。**内部量として振る舞う**
+    Expr(crate::scan_internal::ValueType),
     Kern,
     ShipOut,
     Leaders(LeaderKind),
@@ -212,6 +214,7 @@ impl UnexpandableCommand {
             Self::Badness => Some(InternalCommand::Badness),
             Self::InputLineNumber => Some(InternalCommand::InputLineNumber),
             Self::Prefixable(prefixable_command) => prefixable_command.try_to_internal(),
+            &Self::Expr(kind) => Some(InternalCommand::Expr(kind)),
         }
     }
 
@@ -329,6 +332,12 @@ impl UnexpandableCommand {
             Self::LastKern => printer.print_esc_str(b"lastkern"),
             Self::LastSkip => printer.print_esc_str(b"lastskip"),
             Self::Badness => printer.print_esc_str(b"badness"),
+            Self::Expr(kind) => printer.print_esc_str(match kind {
+                crate::scan_internal::ValueType::Int => b"numexpr".as_slice(),
+                crate::scan_internal::ValueType::Dimen => b"dimexpr".as_slice(),
+                crate::scan_internal::ValueType::Glue => b"glueexpr".as_slice(),
+                crate::scan_internal::ValueType::Mu => b"muexpr".as_slice(),
+            }),
             Self::InputLineNumber => printer.print_esc_str(b"inputlineno"),
             Self::End { dumping } => {
                 if *dumping {

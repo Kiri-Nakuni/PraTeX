@@ -63,7 +63,8 @@ Rust なら疎な表（`HashMap` か区画表）で引けるので、**UTF-16 �
 | 段 | もの | 状態 |
 |---|---|---|
 | **0** | **和文の寸法単位 `Q` `H` `zw` `zh`** | **済**（枝 `jdimen`、試験 7 本） |
-| 1 | e-TeX の**式**（`\numexpr` `\dimexpr` `\glueexpr` `\muexpr`）と疎レジスタ | 未 |
+| 1a | e-TeX の**式**（`\numexpr` `\dimexpr` `\glueexpr` `\muexpr`） | **済**（枝 `etex-expr`、試験 12 本） |
+| 1b | 疎レジスタ（0–32767） | 未 |
 | 2 | e-TeX の**字句系**（`\detokenize` `\unexpanded` `\scantokens` `\readline` `\protected` `\everyeof`） | 未 |
 | 3 | e-TeX の**内省**（`\currentgrouplevel` `\lastnodetype` `\fontchar*` `\showgroups` …） | 未 |
 | 4 | **UTF-8 の文字分類**（`\kcatcode` を疎な表で。和文かどうかだけ） | 未 |
@@ -92,3 +93,22 @@ Rust なら疎な表（`HashMap` か区画表）で引けるので、**UTF-16 �
 
 **無い。** rtex vaak（`\directvaak` / `\vaakdef`）とは別の枝である。
 ただし**どちらも rtex の GPLv3 の下にある。**
+
+## 7. 段 1a でやったこと（`\numexpr` 系）
+
+**`\multiply` と `\divide` を並べるのとの違いは、中間結果である。**
+
+```tex
+\count0=7 \multiply\count0 by 8 \divide\count0 by 3   % 18（56/3 を切り捨て）
+\count0=\numexpr 7*8/3\relax                          % 19（56/3 を四捨五入）
+```
+
+- **掛けと割りは溜めてから一度に行う。** 中間結果を 32 ビットに落とさない
+- 丸めは**四捨五入**、半分は絶対値の大きい方へ
+- 括弧は**掛ける数・割る数の側にも書ける**（`(1+2)*(3+4)`）
+- 糊の式は**伸縮も足す**。次数が違えば**大きい次数が勝つ**——TeX の糊の規則そのもの
+- 末尾の `\relax` は食う。無ければ戻す
+- `\dimexpr 4Q*2\relax` のように**段 0 の和文単位とそのまま組み合わさる**
+
+**内部量として実装した**（`InternalCommand::Expr`）ので、
+値が要る場所ならどこにでも書ける——`\ifnum`、`\hskip`、レジスタへの代入。

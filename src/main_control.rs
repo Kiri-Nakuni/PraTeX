@@ -336,6 +336,7 @@ pub fn main_control(
                 | UnexpandableCommand::LastKern
                 | UnexpandableCommand::LastSkip
                 | UnexpandableCommand::Badness
+                | UnexpandableCommand::Expr(_)
                 | UnexpandableCommand::InputLineNumber
                 | UnexpandableCommand::EqNo { .. }
                 | UnexpandableCommand::MoveLeft
@@ -592,6 +593,7 @@ pub fn main_control(
                 | UnexpandableCommand::LastKern
                 | UnexpandableCommand::LastSkip
                 | UnexpandableCommand::Badness
+                | UnexpandableCommand::Expr(_)
                 | UnexpandableCommand::InputLineNumber
                 | UnexpandableCommand::EqNo { .. }
                 | UnexpandableCommand::ItalCorr
@@ -993,6 +995,7 @@ pub fn main_control(
                 | UnexpandableCommand::LastKern
                 | UnexpandableCommand::LastSkip
                 | UnexpandableCommand::Badness
+                | UnexpandableCommand::Expr(_)
                 | UnexpandableCommand::InputLineNumber
                 | UnexpandableCommand::MoveLeft
                 | UnexpandableCommand::MoveRight

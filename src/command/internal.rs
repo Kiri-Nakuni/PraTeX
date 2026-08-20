@@ -34,6 +34,11 @@ pub enum InternalCommand {
     CatCode,
     Code(CodeType),
     Register(ValueType),
+    /// e-TeX の `\numexpr` `\dimexpr` `\glueexpr` `\muexpr`。
+    ///
+    /// **内部量として振る舞う。** `\count0=\numexpr 1+2\relax` のように、
+    /// 値が要る場所ならどこにでも書ける。
+    Expr(ValueType),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
