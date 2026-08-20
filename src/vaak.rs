@@ -136,6 +136,15 @@ thread_local! {
     ///
     /// `run_program_with_host` は使い終わった入れ物を返すので、それを取っておく。
     static HOST_BUF: RefCell<Option<Vec<Value>>> = const { RefCell::new(None) };
+    /// 走らせる前のレジスタを控える場所。**呼び出しごとに作り直さない。**
+    ///
+    /// `[i32; 256]` を二つ、呼び出しのたびに零で埋めて値で返していた——
+    /// **一回あたり 4 KB を写していた**ことになる。
+    /// 見ている添字しか書かないし、見ている添字しか読まないので、
+    /// **残っている古い値は誰にも観測されない。**
+    static BEFORE: RefCell<[[i32; N_REGS]; 2]> = const { RefCell::new([[0; N_REGS]; 2]) };
+    /// 実行の入れ物。**場・積み・枠を呼び出しをまたいで使い回す。**
+    static RUNNER: RefCell<vaak::vm::Runner> = RefCell::new(vaak::vm::Runner::new());
 }
 
 /// 本体を名前表に入れ、番号を返す。**同じ本体は同じ番号。**
@@ -353,12 +362,16 @@ fn run_built(
         vec![regs_to_value(&[0; N_REGS]), regs_to_value(&[0; N_REGS])]
     });
 
-    let counts_before = snapshot_counts(&built.count, eqtb);
-    let dimens_before = snapshot_dimens(&built.dimen, eqtb);
-    sync(&mut host[0], &built.count, &counts_before);
-    sync(&mut host[1], &built.dimen, &dimens_before);
+    BEFORE.with(|b| {
+        let mut b = b.borrow_mut();
+        let (c, d) = b.split_at_mut(1);
+        snapshot_counts(&built.count, eqtb, &mut c[0]);
+        snapshot_dimens(&built.dimen, eqtb, &mut d[0]);
+        sync(&mut host[0], &built.count, &c[0]);
+        sync(&mut host[1], &built.dimen, &d[0]);
+    });
 
-    let (ev, after) = match vaak::vm::run_program_with_host(&built.program, host) {
+    let (ev, after) = match RUNNER.with(|r| r.borrow_mut().run(&built.program, host)) {
         Ok(x) => x,
         Err(e) => {
             let (line, col) = src.line_col(e.span.start);
@@ -367,19 +380,22 @@ fn run_built(
     };
 
     // 変わった分だけ書き戻す。**`int_define` を通す**——保存スタックと `\global` のため
-    each(&built.count, |n| {
-        if let Some(x) = elem(&after[0], n) {
-            if x != counts_before[n] {
-                eqtb.int_define(IntegerVariable::Count(n as RegisterIndex), x, false, logger);
+    BEFORE.with(|b| {
+        let b = b.borrow();
+        each(&built.count, |n| {
+            if let Some(x) = elem(&after[0], n) {
+                if x != b[0][n] {
+                    eqtb.int_define(IntegerVariable::Count(n as RegisterIndex), x, false, logger);
+                }
             }
-        }
-    });
-    each(&built.dimen, |n| {
-        if let Some(x) = elem(&after[1], n) {
-            if x != dimens_before[n] {
-                eqtb.dimen_define(DimensionVariable::Dimen(n as RegisterIndex), x, false);
+        });
+        each(&built.dimen, |n| {
+            if let Some(x) = elem(&after[1], n) {
+                if x != b[1][n] {
+                    eqtb.dimen_define(DimensionVariable::Dimen(n as RegisterIndex), x, false);
+                }
             }
-        }
+        });
     });
 
     // 入れ物を取っておく。次の呼び出しで使い回す
@@ -424,30 +440,27 @@ fn each(t: &Touch, mut f: impl FnMut(usize)) {
     }
 }
 
-fn snapshot_counts(t: &Touch, eqtb: &Eqtb) -> [i32; N_REGS] {
-    let mut out = [0i32; N_REGS];
+/// 見ている添字だけ控える。**返さない**——渡された場所に書く。
+fn snapshot_counts(t: &Touch, eqtb: &Eqtb, out: &mut [i32; N_REGS]) {
     each(t, |n| out[n] = eqtb.integer(IntegerVariable::Count(n as RegisterIndex)));
-    out
 }
 
-fn snapshot_dimens(t: &Touch, eqtb: &Eqtb) -> [i32; N_REGS] {
-    let mut out = [0i32; N_REGS];
+fn snapshot_dimens(t: &Touch, eqtb: &Eqtb, out: &mut [i32; N_REGS]) {
     each(t, |n| out[n] = eqtb.dimen(DimensionVariable::Dimen(n as RegisterIndex)));
-    out
 }
 
 fn elem(v: &Value, n: usize) -> Option<i32> {
-    let Value::Array { items, .. } = v else { return None };
-    items.get(n).and_then(|x| x.as_int()).map(|x| x as i32)
+    let Value::Array(a) = v else { return None };
+    a.items.get(n).and_then(|x| x.as_int()).map(|x| x as i32)
 }
 
 /// 入れ物の中身を、**見ている添字だけ**いまのレジスタに合わせる。
 fn sync(v: &mut Value, t: &Touch, now: &[i32; N_REGS]) {
-    let Value::Array { items, .. } = v else { return };
-    if items.len() != N_REGS {
-        items.resize(N_REGS, Value::I32(0));
+    let Value::Array(a) = v else { return };
+    if a.items.len() != N_REGS {
+        a.items.resize(N_REGS, Value::I32(0));
     }
-    each(t, |n| items[n] = Value::I32(now[n]));
+    each(t, |n| a.items[n] = Value::I32(now[n]));
 }
 
 /// 入れ物の中身を、いまのレジスタに合わせる。**作り直さない。**
@@ -455,15 +468,15 @@ fn sync(v: &mut Value, t: &Touch, now: &[i32; N_REGS]) {
 /// レジスタはたいてい変わっていないので、**512 回の比較**で済む——
 /// 512 個の `Value` を作るより桁違いに安い。
 fn sync_regs(v: &mut Value, now: &[i32; N_REGS]) {
-    let Value::Array { items, .. } = v else {
+    let Value::Array(a) = v else {
         *v = regs_to_value(now);
         return;
     };
     // スクリプトが伸ばしたり縮めたりした場合に備える
-    if items.len() != N_REGS {
-        items.resize(N_REGS, Value::I32(0));
+    if a.items.len() != N_REGS {
+        a.items.resize(N_REGS, Value::I32(0));
     }
-    for (slot, n) in items.iter_mut().zip(now.iter()) {
+    for (slot, n) in a.items.iter_mut().zip(now.iter()) {
         match slot {
             Value::I32(x) if *x == *n => {}
             _ => *slot = Value::I32(*n),
@@ -473,20 +486,17 @@ fn sync_regs(v: &mut Value, now: &[i32; N_REGS]) {
 
 /// レジスタの束を `i32 array` として作る。
 fn regs_to_value(before: &[i32; N_REGS]) -> Value {
-    Value::Array {
-        elem: ValueType::I32,
-        items: before.iter().map(|v| Value::I32(*v)).collect(),
-    }
+    Value::array(ValueType::I32, before.iter().map(|v| Value::I32(*v)).collect())
 }
 
 /// 走った後の値を取り出す。足りない分は元のままとする。
 fn value_to_regs(v: &Value, before: &[i32; N_REGS]) -> [i32; N_REGS] {
     let mut out = *before;
-    let Value::Array { items, .. } = v else {
+    let Value::Array(a) = v else {
         return out;
     };
     for (n, slot) in out.iter_mut().enumerate() {
-        if let Some(x) = items.get(n).and_then(|x| x.as_int()) {
+        if let Some(x) = a.items.get(n).and_then(|x| x.as_int()) {
             *slot = x as i32;
         }
     }

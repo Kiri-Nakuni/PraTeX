@@ -8,10 +8,7 @@ use vaak::host::{Host, Outcome};
 use vaak::value::Value;
 
 fn regs(vals: &[i32]) -> Value {
-    Value::Array {
-        elem: ValueType::I32,
-        items: vals.iter().map(|v| Value::I32(*v)).collect(),
-    }
+    Value::array(ValueType::I32, vals.iter().map(|v| Value::I32(*v)).collect())
 }
 
 fn run(src: &str, before: &[i32]) -> (Outcome, Vec<i32>) {
@@ -19,8 +16,8 @@ fn run(src: &str, before: &[i32]) -> (Outcome, Vec<i32>) {
     h.expose_value("count", regs(before));
     let out = h.run(src);
     let after = match h.get("count").map(|b| b.read()) {
-        Some(Value::Array { items, .. }) => {
-            items.iter().filter_map(|x| x.as_int()).map(|x| x as i32).collect()
+        Some(Value::Array(a)) => {
+            a.items.iter().filter_map(|x| x.as_int()).map(|x| x as i32).collect()
         }
         _ => before.to_vec(),
     };
