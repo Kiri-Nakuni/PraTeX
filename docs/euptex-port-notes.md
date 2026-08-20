@@ -1,24 +1,94 @@
-# e-upTeX を rTeX へ — 着手前の覚え書き
+# e-upTeX を rTeX へ — 移植可否の評価
 
-**まだ調べていない。** 着手時に消す。
+**結論：可能だが、段階を分けなければ終わらない。** そして**コードは移植しない。**
 
-## 制約（依頼者の指定）
+## 1. 権利（先に片付ける）
 
-- **可能なら UTF-8 基底にする。** e-upTeX の内部は UTF-16 相当
-  （`upTeX` の内部文字コードは Unicode をコードポイントで持ち、
-  `kcatcode` の表もその前提で組まれている）
-- **safe-Rust で書く**——rTeX の方針をそのまま守る
-- 別ブランチを切る
+**「e-upTeX は BSD だから大丈夫」と判断してはいけない。**
 
-## 先に確かめること
+| | 権利 |
+|---|---|
+| **rtex 自身** | **GPL-3.0**（`LICENSE` は GNU GPL v3 の全文）。派生物もそれで通す |
+| `uptexdir`（upTeX / e-upTeX 本体） | **一括りにできない。** pTeX 由来・upTeX 由来・e-TeX 由来が混ざる |
+| `ptexdir` の `COPYRIGHT` | ASCII MEDIA WORKS ＋ Japanese TeX Development Community。**独自の再配布条項** |
+| `texjporg/uptex-base` | **BSD-3-Clause**（format・文書・見本であって本体ではない） |
 
-1. **LICENSE**：e-TeX 拡張と e-upTeX それぞれ。取り込めるか
-2. rTeX の現状（tyti 氏の名前空間の作業と衝突しないか）
-3. UTF-8 基底にしたとき何が壊れるか——
-   `\kcatcode`、`\ucs`、`\kansuji`、`\inhibitxspcode` あたりが
-   コードポイントで添字を取るはずなので、**表の引き方が変わる**
+CTAN の `uptex` 項の license は `Free license not otherwise listed`。
 
-## Vaak との関係
+### したがって：**仕様から書き直す**
 
-**無い。** rTeX vaak（`\directvaak` / `\vaakdef`）は凍結中であり、
-この作業とは別のブランチである。
+**rtex 自身がそうしている。** TeX82 を Rust で書き直したのであって、
+`tex.web` を翻訳したのではない。同じやり方を踏襲する——
+`uptexdir` のソースではなく、**upTeX / e-TeX の振る舞いの記述**を見て書く。
+
+権利の問題を避けるためだけではない。**rtex の中で一貫した実装になる**からでもある。
+
+## 2. 何を足すことになるか
+
+**e-upTeX = upTeX + e-TeX** であり、**upTeX = pTeX の内部コードを Unicode にしたもの**。
+つまり**三層**を足すことになる。
+
+| 層 | 中身 | 侵襲度 |
+|---|---|---|
+| **e-TeX** | `\protected` `\detokenize` `\unexpanded` `\scantokens` `\readline` `\middle` `\lastnodetype` `\currentgrouplevel` `\currentiftype` `\fontchar*` `\parshape*` `\interactionmode` `\everyeof` 疎レジスタ（0–32767） `\marks` `\showgroups` `\showtokens` TeX--XeT | **中**。ほとんどが新しい原始命令。既存の道を壊さない |
+| **pTeX** | JFM・`\kanjiskip`・`\xkanjiskip`・`\inhibitxspcode`・`\prebreakpenalty`・`\postbreakpenalty`・`\kcatcode`・縦組（`\tate`）・dir ノード・`\jfont`/`\tfont`・`\kansuji` | **大**。ノードの種類が増え、主ループと行分割が変わる |
+| **upTeX** | 内部コードを Unicode に。`\kchar` `\kchardef` `\ucs` `\forcecjktoken`、kcatcode を Unicode 区画で引く | **大**。文字の表現そのものが変わる |
+
+## 3. UTF-8 基底にできるか — **できる。そして望ましい**
+
+依頼の指定は「可能なら UTF-8 基底」。**e-upTeX の内部は Unicode のコード点**
+（`kcatcode` の表もその前提）である。
+
+**rtex は既に `u8` のバイト列で動いている。** だから選択肢は二つ:
+
+| | |
+|---|---|
+| **A. 内部を `char`（コード点）に** | e-upTeX に近い。**rtex の全域に触る**——`Token`・`eqtb`・字句・DVI |
+| **B. 内部は UTF-8 のまま、境界で復号** | **触る範囲が小さい。** 文字分類だけがコード点を見る |
+
+**B を推す。**
+
+- rtex の `catcode` 表は 256 個。**UTF-8 の後続バイトは `catcode` 12（other）で通る**——
+  TeX82 の枠内で「多バイト文字は複数の other トークン」として既に扱える
+- 和文かどうかの判定（`kcatcode`）は**復号してから引く**。表はコード点で引く
+- **DVI は変わらない。** 和文フォントの符号化に合わせて書き出すだけ
+
+**upTeX が UTF-16 相当なのは、Knuth の `eqtb` が固定長の表だからである。**
+Rust なら疎な表（`HashMap` か区画表）で引けるので、**UTF-16 に落とす理由が無い。**
+
+## 4. 段取り
+
+**一段ずつ、それぞれ独立に価値がある。**
+
+| 段 | もの | 状態 |
+|---|---|---|
+| **0** | **和文の寸法単位 `Q` `H` `zw` `zh`** | **済**（枝 `jdimen`、試験 7 本） |
+| 1 | e-TeX の**式**（`\numexpr` `\dimexpr` `\glueexpr` `\muexpr`）と疎レジスタ | 未 |
+| 2 | e-TeX の**字句系**（`\detokenize` `\unexpanded` `\scantokens` `\readline` `\protected` `\everyeof`） | 未 |
+| 3 | e-TeX の**内省**（`\currentgrouplevel` `\lastnodetype` `\fontchar*` `\showgroups` …） | 未 |
+| 4 | **UTF-8 の文字分類**（`\kcatcode` を疎な表で。和文かどうかだけ） | 未 |
+| 5 | **JFM**（和文フォントの寸法表）と `\jfont` | 未 |
+| 6 | **`\kanjiskip` / `\xkanjiskip`** を主ループに差し込む | 未 |
+| 7 | **禁則**（`\prebreakpenalty` / `\postbreakpenalty` / `\inhibitxspcode`） | 未 |
+| 8 | **縦組**（dir ノード） | 未。**ここが一番遠い** |
+
+**1〜3 で e-TeX 相当になる。** LaTeX2e が要求するのはほぼここまでなので、
+**「LaTeX2e が動くか」は段 3 の後で試せる。**
+
+**4〜7 で「横組みの日本語が組める」。** 段 8 は別の山である。
+
+## 5. 見立て
+
+| | |
+|---|---|
+| **段 1〜3（e-TeX）** | 現実的。既存の道をほとんど壊さない |
+| **段 4〜7（横組み和文）** | 大きいが筋は通っている。JFM が要 |
+| **段 8（縦組）** | **これだけ別格。** ノードの向きが増えると行分割も箱組みも変わる |
+
+**「e-upTeX を丸ごと」を目標にすると終わらない。**
+段ごとに切って、**それぞれで LaTeX2e なり日本語組版なりが一歩進む**形にする。
+
+## 6. Vaak との関係
+
+**無い。** rtex vaak（`\directvaak` / `\vaakdef`）とは別の枝である。
+ただし**どちらも rtex の GPLv3 の下にある。**
