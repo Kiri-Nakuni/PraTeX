@@ -1,131 +1,187 @@
-# rtex に Vaak を組み込む — 調査と計画
+# rtex に Vaak を組み込む — 調査と計画（第二版）
 
-**結論：可能。** `\directvaak{…}` を追加してレジスタを別名で触れる。
-**Vaak の未決定部分に触れずに済む**（ただし後述の一点だけ、決めたものを使う）。
+**結論：可能。** `\directvaak{…}` を**展開可能命令**として足し、
+**起動時点で全ての数値レジスタへの別名を持たせる。**
+展開結果は**終了コードの10進表記**。
 
 ---
 
-## 1. 何が必要で、rtex に何があるか
+## 0. 先に直すもの：`i32 array` の要素に注釈が届いていない
 
-| 要ること | rtex にあるもの | |
-|---|---|---|
-| 命令を足す | `Eqtb::primitive_unexpandable(b"…", UnexpandableCommand::…)` | ○ |
-| `{…}` の中身を取る | `scanner.scan_toks(cs, true, …)` → `token_show` → バイト列 | ○ |
-| count レジスタを読む | `eqtb.integer(IntegerVariable::Count(n)) -> Integer` | ○ |
-| count レジスタに書く | `eqtb.int_define(IntegerVariable::Count(n), v, global, logger)` | ○ |
-| dimen も同様 | `eqtb.dimen(...)` / `eqtb.dimen_define(...)` | ○ |
+**Vaak の欠陥。rtex に直接効く。**
 
-**`\message` がそのまま雛形になる**（`src/mode_independent.rs:79`）。
-やることは同じ——一般テキストを走査して文字列にし、それを渡す。**渡す先が違うだけ。**
+```
+var a : i32 array := [1, 2, 3]; a[1]     →  I64(2)     ← i32 のはず
+var a : i32 := 5; a mod 3                →  I32(2)     ← こちらは正しい
+```
 
-## 2. `\directvaak` の形
+`coerce` が**配列と写像の中へ降りていない**。要素は注釈を受け取らずに既定（`i64`）のまま。
+型検査は通る（リテラルは置かれた場所の型を受け取る）ので、**検査器と評価器で食い違っている。**
 
-**展開可能にしない。** `\directlua` は展開可能だが、
-**レジスタを触るだけなら不要**であり、展開可能にすると入力スタックへの
-トークン差し戻しが要る。`\message` `\special` と同じ**非展開命令**にする。
+> **`coerce` を再帰させる。** 配列なら要素へ、写像なら鍵と値へ。
+
+**これを直さないと、レジスタが `i32` である意味が無い。** 最初にやる。
+
+## 1. レジスタは `i32 array`
+
+TeX の `Integer` は `i32`（`src/eqtb/integers.rs`）。**`i64` で見せるのは嘘である。**
+
+```
+count    i32 array   256 個   \count0 … \count255
+dimen    i32 array   256 個   \dimen0 … \dimen255（scaled point のまま）
+```
+
+**溢れの問題が消える。** `i32` どうしなら 2^32 を法として折り返し（C-79）、
+TeX の整数と同じ振る舞いになる。**変換が要らないので、変換の誤りも起きない。**
+
+## 2. 起動時点で別名を持たせる
+
+**スクリプトが `&=` を書かなくてよい。**
 
 ```tex
 \count5=10
-\directvaak{
-  var c : i64 array alias &= count;
-  c[5] := c[5] * 2;
+\directvaak{ count[5] := count[5] * 2; }
+```
+
+`count` と `dimen` は**最上位のスコープに `var` の別名として置かれた状態で始まる。**
+S-4 の `expose` がやっていることそのもので、**名前がそのまま配列を指す。**
+
+**書かなくてよいだけで、書いてもよい**——`var c : i32 array alias &= count;` は通る。
+
+## 3. コールバックは要らない
+
+**要らない。** 理由：
+
+| Vaak が要りうるもの | どう足りているか |
+|---|---|
+| レジスタを読む | 起動時の別名 |
+| レジスタを書く | 同上。走り終わってから書き戻す |
+| TeX へ値を返す | **終了コードの展開**（§4） |
+| 出力する | **TeX の仕事**（S-3：`print` を持たない） |
+
+**呼び戻す先が無い。** Vaak は走って終わり、結果は展開される一つの数だけである。
+
+`\message` を Vaak から呼びたくなったら、そのときコールバックを考える。**今は不要。**
+
+## 4. 展開可能にする。終了コードを10進で展開する
+
+`expand()` は `&mut Eqtb` と `&mut Logger` を受け取る（`src/input/expansion.rs:16`）。
+**展開の途中でレジスタを書ける。**
+
+差し戻しは `str_toks(&s)` → `scanner.ins_list(toks, eqtb, logger)`。
+`\number` などと同じ道具。
+
+### 終了コードの決め方
+
+| 最上位の外界面 | 展開されるもの |
+|---|---|
+| **整数の値** | その10進表記（負なら `-` を付ける） |
+| **アーカーシャ**（中身が空） | **`0`** |
+| **paradox** | TeX のエラーを出して **`0`** |
+| フレームを越える脱出 | 同上 |
+| 静的エラー・構文エラー | 同上 |
+| 整数でない値 | 同上 |
+
+**必ず数字を出す。** 理由は一つ：
+
+> **展開可能なら、数値の走査中に呼ばれうる。**
+> `\count0=\directvaak{…}` で展開が空だと、TeX の数値走査が壊れる。
+
+**エラーを出しても数字は出す**——TeX の流儀（報告して、もっともらしい既定で続ける）に合う。
+
+C-31 が「最上位の外界面は言語の意味論ではない。ホストに委ねる」としているので、
+**この表は rtex が決めてよい。** Vaak の側は何も変えない。
+
+## 5. ホスト界面を抽象化する
+
+**差し替え可能にする。** 今は `HostCell` という具体的な列挙で、
+`I64` `F64` `U8Array` `I64Array` `Str` しか無い（S-4）。
+
+```rust
+/// ホストが見せる名前。**Vaak は中身の実体を知らない。**
+pub trait HostBinding {
+    /// この名前の型。検査器に渡す。
+    fn type_of(&self) -> ValueType;
+    /// 走らせる前に値を渡す。
+    fn read(&self) -> Value;
+    /// 走り終わってから受け取る。**変わっていなければ呼ばれない。**
+    fn write(&mut self, v: &Value);
 }
-% \count5 は 20
 ```
 
-## 3. レジスタの見せ方
+`Host` は `Vec<(String, Box<dyn HostBinding>)>` を持つ。
 
-**Vaak の別名（`&=`）はセルを指す**（C-20 / C-53）。
-ホスト界面（S-4）は**名前とセルを登録し、走り終わってから書き戻す**。
+**rtex 側は `CountRegisters` / `DimenRegisters` を実装するだけ。**
+`read` は 256 個を `i32 array` にして返し、`write` は**変わった分だけ**
+`int_define` を通して書き戻す。
 
-したがって:
+**`Box<dyn>` の一回の呼び出しは、実行の前後に一度ずつ**なので、費用は無視できる。
 
-```
-count   i64 array  （256 個）
-dimen   i64 array  （256 個。scaled point のまま）
-```
-
-**配列一つを別名で受けて添字で触る。** これは C-89 の「`f(arr, i)`」という
-イディオムそのものであり、**別名の判定を緩めずに済む**（段階 1 のまま）。
-
-```
-var c : i64 array alias &= count;
-c[5] := 42;
-```
-
-## 4. 書き戻しは `int_define` を通す
+## 6. 書き戻しは `int_define` を通す
 
 **直接書かない。** `int_define` は `Eqtb::define` を呼び、
-**保存スタック（グループ）と `\global` を扱う。** ここを迂回すると
+**保存スタック（グループ）と `\global` を扱う。** 迂回すると
 `{\directvaak{…}}` がグループを抜けたときに戻らない。
 
 ```rust
 for n in 0..=255u8 {
     if new[n] != old[n] {
-        eqtb.int_define(IntegerVariable::Count(n), new[n], global, logger);
+        eqtb.int_define(IntegerVariable::Count(n), new[n], false, logger);
     }
 }
 ```
 
-**変わった分だけ書く。** 全部書くと保存スタックが 256 個積まれる。
+**変わった分だけ。** 全部書くと保存スタックが 256 個積まれる。
 
-## 5. 触る箇所
+**`\global` をどう渡すかは後回し。** `\global\directvaak{…}` は今回扱わない。
+
+## 7. 触る箇所
 
 | ファイル | 変更 |
 |---|---|
-| `src/command.rs` | `UnexpandableCommand::DirectVaak` を足す |
-| `src/eqtb/primitives.rs` | `primitive_unexpandable(b"directvaak", …)` |
-| `src/main_control.rs` | **三箇所**（縦・横・数式）に分岐を足す。`Message` と同じ位置 |
-| `src/format/dump_command.rs` | **`UnexpandableCommand` は format に落ちる。** 番号を足す |
-| `src/vaak.rs`（新規） | 走査・実行・書き戻し |
+| **mydsl** `src/interp.rs` | **`coerce` を再帰させる**（§0） |
+| **mydsl** `src/host.rs` | `HostBinding` トレイトに抽象化（§5） |
 | `Cargo.toml` | `vaak = { path = "../mydsl" }` |
+| `src/command.rs` | `ExpandableCommand::DirectVaak` |
+| `src/eqtb/primitives.rs` | `primitive(b"directvaak", …)`（**展開可能の側**） |
+| `src/input/expansion.rs` | `expand()` に分岐一つ |
+| `src/format/dump_command.rs` | **`ExpandableCommand` の番号を足す** |
+| `src/vaak.rs`（新規） | 走査・実行・書き戻し・展開 |
 
-**`dump_command.rs` を忘れないこと。** 命令は format ファイルに落ちるので、
-番号を足さないと `\dump` した format が読めなくなる。
-
-## 6. Vaak の未決定部分に触れるか
-
-**触れない。** 使うのは:
-
-| | |
-|---|---|
-| 別名（`&=`）と配列 | **C-20 / C-53 / C-54。決定済み** |
-| ホスト界面 | **S-4。私が決めた分**——`main` 枝には無い |
-| 標準ライブラリ | `.len()` だけ。**C の範囲** |
-
-> **一点だけ、決めたものを使う。** ホスト界面（`src/host.rs`）は
-> `speculative` 枝にしかない。`main` 枝に組み込むなら、**約 150 行を移植する**。
-> 移植する分は「名前とセルを登録し、走り終わって書き戻す」だけで、
-> S-4 の契約の全部は要らない。
-
-## 7. できないこと（今回の範囲外）
-
-- **展開可能な `\directvaak`**——トークンを返す形。入力スタックへの差し戻しが要る
-- **トークンリストレジスタ（`\toks`）**——Vaak に「トークン」の型が無い
-- **ボックスレジスタ**——同上。**ホスト方言で基底型を足す**という道はある（C-2）
-- **TeX の側から Vaak の値を読む**——`\vaakvalue` のようなものは別の設計
-- **エラーの合流**——Vaak の paradox を TeX のエラーにどう出すか
+**`dump_command.rs` を忘れないこと。** 命令は format ファイルに落ちる。
 
 ## 8. 段取り
 
 | | | 確かめ方 |
 |---|---|---|
-| 1 | `vaak` を依存に足し、`cargo build` が通る | ビルド |
-| 2 | `UnexpandableCommand::DirectVaak` を足す（dump も） | 既存のテストが通る |
-| 3 | `\directvaak{}` が空で走る | 何も起きない |
-| 4 | count を見せて読めるようにする | `\directvaak{ var c : i64 array alias &= count; }` |
-| 5 | 書き戻す | `\count5` が変わる |
-| 6 | dimen も同様に | |
-| 7 | グループの中で書いて、抜けたら戻ることを確かめる | `{\directvaak{…}}` |
+| 0 | **`coerce` を再帰させる**（mydsl 側） | `var a : i32 array := [1]; a[0]` が I32 |
+| 1 | **`HostBinding` に抽象化**（mydsl 側） | 既存の 189 件が通る |
+| 2 | `vaak` を依存に足す | ビルド |
+| 3 | `ExpandableCommand::DirectVaak` を足す（dump も） | 既存のテストが通る |
+| 4 | `\directvaak{}` が `0` に展開される | `\count0=\directvaak{}` |
+| 5 | `count` を見せて読める | `\directvaak{count[5]}` が値を展開 |
+| 6 | 書き戻す | `\directvaak{count[5] := 42;}` |
+| 7 | `dimen` も同様 | |
+| 8 | グループの中で書いて、抜けたら戻る | `{\directvaak{…}}` |
+| 9 | `\edef` の中で展開される | 展開可能であることの確認 |
 
-**4 まで行けば「読める」、5 まで行けば「触れる」。**
+**4 まで行けば「展開される」、6 まで行けば「触れる」。**
 
-## 9. 危ないところ
+## 9. 範囲外（今回やらない）
 
-- **`Integer` は `i32`。Vaak の `i64` から戻すとき、範囲外は折り返す**（C-79）。
-  TeX の整数は ±2^31 未満なので、**溢れたら paradox にする方が誠実かもしれない**
-- **`scaled point` の単位は Vaak が知らない。** dimen は生の整数として見せる
-- **走っている間、Vaak はホストのセルを移動も解放もしないことを要求する**（S-4 の契約 1）。
-  写しを渡して書き戻す形なので**この契約は自動的に守られる**
-- **`\directvaak` の中で無限ループを書ける。** TeX 側に止める手段が無い。
-  Vaak の VM には歩数の上限があるが、木を辿る実装には無い
+- **`\toks` `\box`**——Vaak にトークン・ボックスの型が無い。方言で基底型を足す道はある（C-2）
+- **`\skip` `\muskip`**——glue は三つ組。`i32 array` では表せない
+- **`\global\directvaak`**
+- **コールバック**——§3
+- **Vaak から TeX のエラーを起こす**——今は paradox が `0` に潰れるだけ
+
+## 10. 危ないところ
+
+- **無限ループを書ける。** TeX 側に止める手段が無い。
+  VM には歩数の上限があるが、木を辿る実装には無い。**どちらで走らせるかを決める**
+- **`dimen` の単位を Vaak は知らない。** scaled point の生の整数として見せる。
+  `65536` が `1pt`——**スクリプトの側が知っていなければならない**
+- **展開の途中で `Eqtb` を書く。** `\the` は読むだけだが、これは書く。
+  **`\edef` の中で呼ばれたら、展開の順に副作用が起きる。** TeX 使いには馴染みがあるはず（`\directlua` と同じ）だが、記録しておく
+- **paradox が `0` に潰れると、失敗が見えなくなる。** エラーは出すが、
+  **`\count0=\directvaak{…}` は `0` を代入して続く。** これでよいか、要判断
