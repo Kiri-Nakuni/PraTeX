@@ -19,3 +19,4 @@ stats = []
 trip = ["stats"]
 
 [dependencies]
+vaak = { path = "../mydsl" }

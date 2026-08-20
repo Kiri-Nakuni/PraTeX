@@ -357,6 +357,12 @@ pub enum ExpandableCommand {
     Mark(MarkCommand),
     Macro(MacroCall),
     EndTemplate,
+    /// `\directvaak{…}`。**中身を Vaak として走らせ、終了コードを10進で展開する。**
+    ///
+    /// 展開可能なのは、数値の走査中に呼ばれうるからである——
+    /// `\count0=\directvaak{…}` で展開が空だと走査が壊れる。
+    /// したがって**必ず数字を出す**（エラーでも `0`）。
+    DirectVaak,
 }
 
 impl ExpandableCommand {
@@ -373,6 +379,7 @@ impl ExpandableCommand {
             Self::CsName => printer.print_esc_str(b"csname"),
             Self::Convert(convert_command) => convert_command.display(printer),
             Self::The => printer.print_esc_str(b"the"),
+            Self::DirectVaak => printer.print_esc_str(b"directvaak"),
             Self::Mark(mark_command) => mark_command.display(printer),
             Self::Macro(macro_call) => macro_call.display(printer),
             Self::EndTemplate => printer.print_esc_str(b"outer endtemplate"),

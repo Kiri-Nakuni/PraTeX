@@ -39,6 +39,9 @@ pub fn expand(
             terminate_current_conditional_and_skip_to_fi(fi_or_else, token, scanner, eqtb, logger)
         }
         ExpandableCommand::CsName => manufacture_control_sequence_name(scanner, eqtb, logger),
+        ExpandableCommand::DirectVaak => {
+            crate::vaak::direct_vaak(token, scanner, eqtb, logger)
+        }
         ExpandableCommand::Convert(convert_command) => {
             conv_toks(convert_command, scanner, eqtb, logger)
         }

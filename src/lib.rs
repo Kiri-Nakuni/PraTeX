@@ -36,6 +36,8 @@ mod token_lists;
 mod vertical_mode;
 mod vsplit;
 mod write_streams;
+pub mod vaak;
+
 
 use alignment::AlignState;
 use eqtb::{CatCode, Eqtb, IntegerVariable};

@@ -682,6 +682,8 @@ impl Eqtb {
             UnexpandableCommand::Prefixable(PrefixableCommand::SetBox),
         );
         self.primitive_expandable(b"the", ExpandableCommand::The);
+        // Vaak を走らせる。See docs/vaak-integration.md.
+        self.primitive_expandable(b"directvaak", ExpandableCommand::DirectVaak);
         self.primitive_unexpandable(
             b"toks",
             UnexpandableCommand::Prefixable(PrefixableCommand::TokenListRegister),

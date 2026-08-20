@@ -391,6 +391,9 @@ impl Dumpable for ExpandableCommand {
             Self::EndTemplate => {
                 writeln!(target, "EndTemplate")?;
             }
+            Self::DirectVaak => {
+                writeln!(target, "DirectVaak")?;
+            }
         }
         Ok(())
     }
@@ -398,6 +401,7 @@ impl Dumpable for ExpandableCommand {
     fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
         let variant = lines.next().ok_or(FormatError::IncompleteFile)?;
         match variant {
+            "DirectVaak" => Ok(Self::DirectVaak),
             "Undefined" => Ok(Self::Undefined),
             "ExpandAfter" => Ok(Self::ExpandAfter),
             "NoExpand" => Ok(Self::NoExpand),
