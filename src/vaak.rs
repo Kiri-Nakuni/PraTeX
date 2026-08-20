@@ -71,10 +71,58 @@ const N_REGS: usize = 256;
 ///
 /// 一つの文書で `\directvaak` は何百回も呼ばれうるが、**書かれている文字列は
 /// たいてい少ない**——マクロの中に一度書かれ、そこから呼ばれるので。
-type Cached = Result<Program2, Vec<String>>;
+/// 覚えておくもの。**組んだ結果と、どの名前を使うか。**
+///
+/// `host_used()` は命令列を全部見るので、**呼び出しのたびにやってはいけない。**
+#[derive(Clone)]
+struct Built {
+    program: Program2,
+    /// **どの添字を見ているか。**
+    ///
+    /// 「別名として見えている」ことと「実際に見ている」ことは別である——
+    /// `count[5] * 2` は `count` が見えているが、**見ているのは 5 番だけ。**
+    ///
+    /// - `Touch::None` — 触らない
+    /// - `Touch::Some(v)` — その添字だけ
+    /// - `Touch::All` — 全部（動く添字、丸ごとの用途、別名で受け直し）
+    count: Touch,
+    dimen: Touch,
+}
+
+#[derive(Clone)]
+enum Touch {
+    None,
+    Some(Vec<usize>),
+    All,
+}
+
+impl Touch {
+    fn of(p: &Program2, i: usize, used: bool) -> Self {
+        if !used {
+            return Touch::None;
+        }
+        match p.host_touched(i) {
+            None => Touch::All,
+            Some(v) if v.is_empty() => Touch::None,
+            Some(v) => Touch::Some(
+                v.into_iter().filter(|n| *n >= 0 && (*n as usize) < N_REGS).map(|n| n as usize).collect(),
+            ),
+        }
+    }
+}
+
+type Cached = Result<Built, Vec<String>>;
 
 thread_local! {
     static CACHE: RefCell<HashMap<Vec<u8>, Cached>> = RefCell::new(HashMap::new());
+    /// 見せる値の入れ物を**使い回す**。
+    ///
+    /// 呼び出しのたびに 512 個の `Value` を作り直すのは無駄である——
+    /// **レジスタはたいてい変わっていない。**
+    /// 前回の入れ物を持っておき、**変わった分だけ書き換えて**渡す。
+    ///
+    /// `run_program_with_host` は使い終わった入れ物を返すので、それを取っておく。
+    static HOST_BUF: RefCell<Option<Vec<Value>>> = const { RefCell::new(None) };
 }
 
 /// ホストが見せる名前と型。**常に同じ**なので鍵に含めない。
@@ -110,7 +158,14 @@ fn build(source: &[u8]) -> Cached {
     if !errs.is_empty() {
         return Err(errs);
     }
-    vaak::vm::compile_with_host(&prog, &ex).map_err(|e| vec![e.msg])
+    let program = vaak::vm::compile_with_host(&prog, &ex).map_err(|e| vec![e.msg])?;
+    // **一度だけ調べる。** 命令列を全部見るので、呼び出しのたびにはできない
+    let used = program.host_used();
+    Ok(Built {
+        count: Touch::of(&program, 0, used.first().copied().unwrap_or(false)),
+        dimen: Touch::of(&program, 1, used.get(1).copied().unwrap_or(false)),
+        program,
+    })
 }
 
 /// `\directvaak{…}` を実行し、終了コードを展開する。
@@ -139,28 +194,25 @@ pub fn direct_vaak(token: Token, scanner: &mut Scanner, eqtb: &mut Eqtb, logger:
 /// Vaak を走らせ、(終了コード, エラー文) を返す。
 fn run_vaak(source: &[u8], eqtb: &mut Eqtb, logger: &mut Logger) -> (i32, Option<String>) {
     // **組み上がったものは覚えてある。** 二度目からは解析も検査もしない
-    let program = match compile_cached(source) {
+    let built = match compile_cached(source) {
         Ok(p) => p,
         Err(errs) => {
             return (0, Some(format!("{} static error(s) before running", errs.len())));
         }
     };
 
-    // 走らせる前の値を控える。**変わった分だけ書き戻す**ため
-    let mut counts_before = [0i32; N_REGS];
-    for (n, slot) in counts_before.iter_mut().enumerate() {
-        *slot = eqtb.integer(IntegerVariable::Count(n as RegisterIndex));
-    }
-    let mut dimens_before = [0i32; N_REGS];
-    for (n, slot) in dimens_before.iter_mut().enumerate() {
-        *slot = eqtb.dimen(DimensionVariable::Dimen(n as RegisterIndex));
-    }
+    // **見ている添字だけ用意する。**
+    // `count[5] * 2` なら 5 番だけ——256 個を見る必要が無い
+    let mut host = HOST_BUF.with(|b| b.borrow_mut().take()).unwrap_or_else(|| {
+        vec![regs_to_value(&[0; N_REGS]), regs_to_value(&[0; N_REGS])]
+    });
 
-    // **起動時点で全ての数値レジスタへの別名を持たせる。**
-    // スクリプトは `&=` を書かなくてよい
-    let host = vec![regs_to_value(&counts_before), regs_to_value(&dimens_before)];
+    let counts_before = snapshot_counts(&built.count, eqtb);
+    let dimens_before = snapshot_dimens(&built.dimen, eqtb);
+    sync(&mut host[0], &built.count, &counts_before);
+    sync(&mut host[1], &built.dimen, &dimens_before);
 
-    let (ev, after) = match vaak::vm::run_program_with_host(&program, host) {
+    let (ev, after) = match vaak::vm::run_program_with_host(&built.program, host) {
         Ok(x) => x,
         Err(e) => {
             let (line, col) = line_col(source, e.span.start);
@@ -169,22 +221,23 @@ fn run_vaak(source: &[u8], eqtb: &mut Eqtb, logger: &mut Logger) -> (i32, Option
     };
 
     // 変わった分だけ書き戻す。**`int_define` を通す**——保存スタックと `\global` のため
-    if let Some(v) = after.first() {
-        let a = value_to_regs(v, &counts_before);
-        for n in 0..N_REGS {
-            if counts_before[n] != a[n] {
-                eqtb.int_define(IntegerVariable::Count(n as RegisterIndex), a[n], false, logger);
+    each(&built.count, |n| {
+        if let Some(x) = elem(&after[0], n) {
+            if x != counts_before[n] {
+                eqtb.int_define(IntegerVariable::Count(n as RegisterIndex), x, false, logger);
             }
         }
-    }
-    if let Some(v) = after.get(1) {
-        let a = value_to_regs(v, &dimens_before);
-        for n in 0..N_REGS {
-            if dimens_before[n] != a[n] {
-                eqtb.dimen_define(DimensionVariable::Dimen(n as RegisterIndex), a[n], false);
+    });
+    each(&built.dimen, |n| {
+        if let Some(x) = elem(&after[1], n) {
+            if x != dimens_before[n] {
+                eqtb.dimen_define(DimensionVariable::Dimen(n as RegisterIndex), x, false);
             }
         }
-    }
+    });
+
+    // 入れ物を取っておく。次の呼び出しで使い回す
+    HOST_BUF.with(|b| *b.borrow_mut() = Some(after));
 
     // **最上位の外界面は言語の意味論ではない**（C-31）。ここで決める
     match ev {
@@ -214,6 +267,62 @@ fn line_col(src: &[u8], offset: u32) -> (usize, usize) {
         }
     }
     (line, col)
+}
+
+/// 見ている添字を順に。
+fn each(t: &Touch, mut f: impl FnMut(usize)) {
+    match t {
+        Touch::None => {}
+        Touch::Some(v) => v.iter().for_each(|n| f(*n)),
+        Touch::All => (0..N_REGS).for_each(f),
+    }
+}
+
+fn snapshot_counts(t: &Touch, eqtb: &Eqtb) -> [i32; N_REGS] {
+    let mut out = [0i32; N_REGS];
+    each(t, |n| out[n] = eqtb.integer(IntegerVariable::Count(n as RegisterIndex)));
+    out
+}
+
+fn snapshot_dimens(t: &Touch, eqtb: &Eqtb) -> [i32; N_REGS] {
+    let mut out = [0i32; N_REGS];
+    each(t, |n| out[n] = eqtb.dimen(DimensionVariable::Dimen(n as RegisterIndex)));
+    out
+}
+
+fn elem(v: &Value, n: usize) -> Option<i32> {
+    let Value::Array { items, .. } = v else { return None };
+    items.get(n).and_then(|x| x.as_int()).map(|x| x as i32)
+}
+
+/// 入れ物の中身を、**見ている添字だけ**いまのレジスタに合わせる。
+fn sync(v: &mut Value, t: &Touch, now: &[i32; N_REGS]) {
+    let Value::Array { items, .. } = v else { return };
+    if items.len() != N_REGS {
+        items.resize(N_REGS, Value::I32(0));
+    }
+    each(t, |n| items[n] = Value::I32(now[n]));
+}
+
+/// 入れ物の中身を、いまのレジスタに合わせる。**作り直さない。**
+///
+/// レジスタはたいてい変わっていないので、**512 回の比較**で済む——
+/// 512 個の `Value` を作るより桁違いに安い。
+fn sync_regs(v: &mut Value, now: &[i32; N_REGS]) {
+    let Value::Array { items, .. } = v else {
+        *v = regs_to_value(now);
+        return;
+    };
+    // スクリプトが伸ばしたり縮めたりした場合に備える
+    if items.len() != N_REGS {
+        items.resize(N_REGS, Value::I32(0));
+    }
+    for (slot, n) in items.iter_mut().zip(now.iter()) {
+        match slot {
+            Value::I32(x) if *x == *n => {}
+            _ => *slot = Value::I32(*n),
+        }
+    }
 }
 
 /// レジスタの束を `i32 array` として作る。
