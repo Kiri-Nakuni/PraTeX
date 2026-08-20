@@ -36,6 +36,14 @@
 //! 書き戻すときに変換が要る——**変換が要らなければ、変換の誤りも起きない。**
 //! 溢れは Vaak も TeX も 2^32 を法として折り返す。
 //!
+//! # 覚え書き（キャッシュ）
+//!
+//! **同じ `\directvaak{…}` が何度も呼ばれる。** マクロの中に書かれるからである。
+//! 解析・検査・組み立ては**ソースが同じなら同じ結果**なので、一度だけ行う。
+//!
+//! 鍵はソースのバイト列。**ホストが見せる名前と型は常に同じ**（`count` と `dimen`）
+//! なので、鍵に含めなくてよい。
+//!
 //! # なぜエラー文が英語か
 //!
 //! **rtex は 7bit。** 多バイト文字は `^^xx` に展開されて読めなくなる。
@@ -49,12 +57,61 @@ use crate::print::Printer;
 use crate::token::Token;
 use crate::token_lists::{str_toks, token_show};
 
+use std::cell::RefCell;
+use std::collections::HashMap;
+
 use vaak::ast::ValueType;
-use vaak::host::{Host, Outcome};
 use vaak::value::Value;
+use vaak::vm::Program2;
 
 /// レジスタの数。TeX82 は 256 個（`RegisterIndex = u8`）。
 const N_REGS: usize = 256;
+
+/// 組み上がったものの覚え書き。**ソースが同じなら同じ結果。**
+///
+/// 一つの文書で `\directvaak` は何百回も呼ばれうるが、**書かれている文字列は
+/// たいてい少ない**——マクロの中に一度書かれ、そこから呼ばれるので。
+type Cached = Result<Program2, Vec<String>>;
+
+thread_local! {
+    static CACHE: RefCell<HashMap<Vec<u8>, Cached>> = RefCell::new(HashMap::new());
+}
+
+/// ホストが見せる名前と型。**常に同じ**なので鍵に含めない。
+fn exposed() -> Vec<(String, ValueType)> {
+    let arr = ValueType::Array(Box::new(ValueType::I32));
+    vec![("count".to_string(), arr.clone()), ("dimen".to_string(), arr)]
+}
+
+/// 解析・検査・組み立て。**一度だけ行い、覚えておく。**
+fn compile_cached(source: &[u8]) -> Cached {
+    CACHE.with(|c| {
+        if std::env::var_os("VAAK_NO_CACHE").is_none() {
+            if let Some(hit) = c.borrow().get(source) {
+                return hit.clone();
+            }
+        }
+        let built = build(source);
+        c.borrow_mut().insert(source.to_vec(), built.clone());
+        built
+    })
+}
+
+fn build(source: &[u8]) -> Cached {
+    let src = String::from_utf8_lossy(source);
+    let prog = match vaak::parser::parse(&src) {
+        Ok(p) => p,
+        Err(e) => return Err(vec![e.msg]),
+    };
+    let ex = exposed();
+    let mut errs: Vec<String> =
+        vaak::check::check_with_host(&prog, &ex).into_iter().map(|e| e.msg).collect();
+    errs.extend(vaak::types::check_types_with_host(&prog, &ex).into_iter().map(|e| e.msg));
+    if !errs.is_empty() {
+        return Err(errs);
+    }
+    vaak::vm::compile_with_host(&prog, &ex).map_err(|e| vec![e.msg])
+}
 
 /// `\directvaak{…}` を実行し、終了コードを展開する。
 pub fn direct_vaak(token: Token, scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Logger) {
@@ -81,7 +138,13 @@ pub fn direct_vaak(token: Token, scanner: &mut Scanner, eqtb: &mut Eqtb, logger:
 
 /// Vaak を走らせ、(終了コード, エラー文) を返す。
 fn run_vaak(source: &[u8], eqtb: &mut Eqtb, logger: &mut Logger) -> (i32, Option<String>) {
-    let src = String::from_utf8_lossy(source).into_owned();
+    // **組み上がったものは覚えてある。** 二度目からは解析も検査もしない
+    let program = match compile_cached(source) {
+        Ok(p) => p,
+        Err(errs) => {
+            return (0, Some(format!("{} static error(s) before running", errs.len())));
+        }
+    };
 
     // 走らせる前の値を控える。**変わった分だけ書き戻す**ため
     let mut counts_before = [0i32; N_REGS];
@@ -93,52 +156,64 @@ fn run_vaak(source: &[u8], eqtb: &mut Eqtb, logger: &mut Logger) -> (i32, Option
         *slot = eqtb.dimen(DimensionVariable::Dimen(n as RegisterIndex));
     }
 
-    let mut host = Host::new();
     // **起動時点で全ての数値レジスタへの別名を持たせる。**
     // スクリプトは `&=` を書かなくてよい
-    host.expose_value("count", regs_to_value(&counts_before));
-    host.expose_value("dimen", regs_to_value(&dimens_before));
+    let host = vec![regs_to_value(&counts_before), regs_to_value(&dimens_before)];
 
-    let outcome = host.run(&src);
+    let (ev, after) = match vaak::vm::run_program_with_host(&program, host) {
+        Ok(x) => x,
+        Err(e) => {
+            let (line, col) = line_col(source, e.span.start);
+            return (0, Some(format!("{line}:{col}: the run did not finish")));
+        }
+    };
 
     // 変わった分だけ書き戻す。**`int_define` を通す**——保存スタックと `\global` のため
-    if let Some(v) = host.get("count").map(|b| b.read()) {
-        let after = value_to_regs(&v, &counts_before);
+    if let Some(v) = after.first() {
+        let a = value_to_regs(v, &counts_before);
         for n in 0..N_REGS {
-            if counts_before[n] != after[n] {
-                eqtb.int_define(
-                    IntegerVariable::Count(n as RegisterIndex),
-                    after[n],
-                    false,
-                    logger,
-                );
+            if counts_before[n] != a[n] {
+                eqtb.int_define(IntegerVariable::Count(n as RegisterIndex), a[n], false, logger);
             }
         }
     }
-    if let Some(v) = host.get("dimen").map(|b| b.read()) {
-        let after = value_to_regs(&v, &dimens_before);
+    if let Some(v) = after.get(1) {
+        let a = value_to_regs(v, &dimens_before);
         for n in 0..N_REGS {
-            if dimens_before[n] != after[n] {
-                eqtb.dimen_define(DimensionVariable::Dimen(n as RegisterIndex), after[n], false);
+            if dimens_before[n] != a[n] {
+                eqtb.dimen_define(DimensionVariable::Dimen(n as RegisterIndex), a[n], false);
             }
         }
     }
 
     // **最上位の外界面は言語の意味論ではない**（C-31）。ここで決める
-    match outcome {
-        Outcome::Value(v) => match v.as_int() {
+    match ev {
+        vaak::interp::Eval::Value(v) => match v.as_int() {
             Some(n) => (n as i32, None),
             None => (0, Some("the result is not an integer".to_string())),
         },
         // **中身が空で終わればホストに委ねる**（C-31）。エラーではない
-        Outcome::Empty | Outcome::Paradox { .. } => (0, None),
-        Outcome::Runtime { line, col, .. } => {
+        vaak::interp::Eval::Paradox(_) | vaak::interp::Eval::Akasha => (0, None),
+        vaak::interp::Eval::Escape(x) => {
+            let (line, col) = line_col(source, x.span.start);
             (0, Some(format!("{line}:{col}: the run did not finish")))
         }
-        Outcome::Static(errs) => {
-            (0, Some(format!("{} static error(s) before running", errs.len())))
+    }
+}
+
+/// 位置を行と桁に。エラーの表示にだけ使う。
+fn line_col(src: &[u8], offset: u32) -> (usize, usize) {
+    let mut line = 1;
+    let mut col = 1;
+    for b in src.iter().take(offset as usize) {
+        if *b == b'\n' {
+            line += 1;
+            col = 1;
+        } else {
+            col += 1;
         }
     }
+    (line, col)
 }
 
 /// レジスタの束を `i32 array` として作る。
