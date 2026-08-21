@@ -237,3 +237,12 @@ fn pdffilesizeは一般テキストを名前として読む() {
     let log = join_log(&dir.join("t.log"));
     assert!(log.contains("[size=4]"), "{log}");
 }
+
+#[test]
+fn pdfstrcmpは展開した文字列を比較する() {
+    let log = run_tex(
+        "pdfstrcmp",
+        "\\def\\a{abc}\\message{[\\pdfstrcmp{\\a}{abc}/\\pdfstrcmp{abc}{abd}/\\pdfstrcmp{abd}{abc}]}",
+    );
+    assert!(log.contains("[0/-1/1]"), "{log}");
+}

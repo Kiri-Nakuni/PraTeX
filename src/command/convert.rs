@@ -13,6 +13,8 @@ pub enum ConvertCommand {
     PdfFileSize,
     /// `\pdfmdfivesum{文字列}` — MD5 を十六進で
     PdfMdFiveSum,
+    /// `\pdfstrcmp{文字列1}{文字列2}` — 辞書順を -1 / 0 / 1 で
+    PdfStrCmp,
     /// `\pdfescapehex` / `\pdfunescapehex` / `\pdfescapestring` / `\pdfescapename`
     PdfEscapeHex,
     PdfUnescapeHex,
@@ -33,6 +35,7 @@ impl ConvertCommand {
             Self::JobName => b"jobname",
             Self::PdfFileSize => b"pdffilesize",
             Self::PdfMdFiveSum => b"pdfmdfivesum",
+            Self::PdfStrCmp => b"pdfstrcmp",
             Self::PdfEscapeHex => b"pdfescapehex",
             Self::PdfUnescapeHex => b"pdfunescapehex",
             Self::PdfEscapeString => b"pdfescapestring",

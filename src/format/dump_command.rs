@@ -647,6 +647,9 @@ impl Dumpable for ConvertCommand {
             Self::PdfMdFiveSum => {
                 writeln!(target, "PdfMdFiveSum")?;
             }
+            Self::PdfStrCmp => {
+                writeln!(target, "PdfStrCmp")?;
+            }
             Self::PdfEscapeHex => {
                 writeln!(target, "PdfEscapeHex")?;
             }
@@ -677,6 +680,7 @@ impl Dumpable for ConvertCommand {
             "JobName" => Ok(Self::JobName),
             "PdfFileSize" => Ok(Self::PdfFileSize),
             "PdfMdFiveSum" => Ok(Self::PdfMdFiveSum),
+            "PdfStrCmp" => Ok(Self::PdfStrCmp),
             "PdfEscapeHex" => Ok(Self::PdfEscapeHex),
             "PdfUnescapeHex" => Ok(Self::PdfUnescapeHex),
             "PdfEscapeString" => Ok(Self::PdfEscapeString),
@@ -975,6 +979,29 @@ mod tests {
         assert_eq!(meaning, meaning_undumped);
         assert_eq!(font_name, font_name_undumped);
         assert_eq!(job_name, job_name_undumped);
+    }
+
+    #[test]
+    fn pdf変換命令を書き出して読める() {
+        let commands = [
+            ConvertCommand::PdfFileSize,
+            ConvertCommand::PdfMdFiveSum,
+            ConvertCommand::PdfStrCmp,
+            ConvertCommand::PdfEscapeHex,
+            ConvertCommand::PdfUnescapeHex,
+            ConvertCommand::PdfEscapeString,
+            ConvertCommand::PdfEscapeName,
+            ConvertCommand::PdfCreationDate,
+        ];
+        let mut file = Vec::new();
+        for command in &commands {
+            command.dump(&mut file).unwrap();
+        }
+        let input = String::from_utf8(file).unwrap();
+        let mut lines = input.lines();
+        for command in commands {
+            assert_eq!(command, ConvertCommand::undump(&mut lines).unwrap());
+        }
     }
 
     #[test]

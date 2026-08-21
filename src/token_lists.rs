@@ -235,6 +235,16 @@ fn scan_and_print_argument_for_convert_command(
                 string_printer.slow_print_str(format!("{b:02X}").as_bytes());
             }
         }
+        ConvertCommand::PdfStrCmp => {
+            let left = scan_general_text_as_string(scanner, eqtb, logger);
+            let right = scan_general_text_as_string(scanner, eqtb, logger);
+            let ordering = match left.cmp(&right) {
+                std::cmp::Ordering::Less => -1,
+                std::cmp::Ordering::Equal => 0,
+                std::cmp::Ordering::Greater => 1,
+            };
+            string_printer.print_int(ordering);
+        }
         ConvertCommand::PdfEscapeHex => {
             let s = scan_general_text_as_string(scanner, eqtb, logger);
             for b in s {

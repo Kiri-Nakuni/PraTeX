@@ -917,6 +917,7 @@ impl Eqtb {
         for (n, c) in [
             (b"pdffilesize".as_slice(), ConvertCommand::PdfFileSize),
             (b"pdfmdfivesum".as_slice(), ConvertCommand::PdfMdFiveSum),
+            (b"pdfstrcmp".as_slice(), ConvertCommand::PdfStrCmp),
             (b"pdfescapehex".as_slice(), ConvertCommand::PdfEscapeHex),
             (b"pdfunescapehex".as_slice(), ConvertCommand::PdfUnescapeHex),
             (b"pdfescapestring".as_slice(), ConvertCommand::PdfEscapeString),
