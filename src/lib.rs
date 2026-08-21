@@ -29,6 +29,7 @@ mod page_breaking;
 // 直接出力へ接続する前から serializer 単体で試験する。
 #[allow(dead_code)]
 mod pdf;
+mod pdf_document;
 mod print;
 mod scaled;
 mod scan_boxes;

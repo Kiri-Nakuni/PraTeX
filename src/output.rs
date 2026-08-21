@@ -1,5 +1,4 @@
 use crate::dimension::{is_running, Dimension, MAX_DIMEN};
-use crate::dvi;
 use crate::eqtb::{
     ControlSequence, DimensionVariable, Eqtb, FontIndex, IntegerVariable, RegisterIndex, NULL_FONT,
 };
@@ -17,21 +16,26 @@ use crate::scaled::Scaled;
 use crate::token::Token;
 use crate::token_lists::{show_token_list, token_show};
 use crate::{open_out, round};
-use dvi::DviWriter;
 
 use std::ffi::OsString;
 use std::fs::File;
 use std::io::BufWriter;
 use std::path::PathBuf;
 
-type DviFileWriter = DviWriter<BufWriter<File>>;
+#[path = "output_backend.rs"]
+mod output_backend;
+
+use output_backend::{DviBackend, ShipoutBackend};
+
+type DviFileBackend = DviBackend<BufWriter<File>>;
+type DviDocument = Document<DviFileBackend>;
 
 const END_WRITE_TOKEN: Token = Token::CSToken {
     cs: ControlSequence::EndWrite,
 };
 
 pub struct Output {
-    document: Option<Document>,
+    document: Option<DviDocument>,
 
     /// 1342.
     pub write_files: [Option<BufWriter<File>>; 16],
@@ -110,8 +114,8 @@ impl Output {
     /// See 642.
     pub fn finish_dvi_file(self, logger: &mut Logger) {
         if let Some(document) = self.document {
-            let page_count = document.dvi_writer.get_total_pages();
-            let byte_count = document.dvi_writer.write_postamble().unwrap();
+            let page_count = document.backend.page_count();
+            let byte_count = document.backend.finish().unwrap();
             logger.print_nl_str("Output written on ");
             logger.slow_print_str(document.output_file_name.as_encoded_bytes());
             logger.print_str(" (");
@@ -189,19 +193,19 @@ fn check_page_dimensions(
 
 /// See 532. and 617.
 fn ensure_dvi_open(
-    document: Option<Document>,
+    document: Option<DviDocument>,
     scanner: &mut Scanner,
     eqtb: &mut Eqtb,
     logger: &mut Logger,
-) -> Document {
+) -> DviDocument {
     match document {
         Some(output) => output,
         None => Document::create_document(scanner, eqtb, logger),
     }
 }
 
-pub struct Document {
-    dvi_writer: DviFileWriter,
+struct Document<B: ShipoutBackend> {
+    backend: B,
     /// See 532.
     output_file_name: OsString,
 
@@ -221,7 +225,7 @@ pub struct Document {
     cur_s: i32,
 }
 
-impl Document {
+impl Document<DviFileBackend> {
     fn create_document(scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Logger) -> Self {
         if logger.job_name.is_none() {
             logger.open_log_file(&scanner.input_stack, eqtb);
@@ -257,14 +261,14 @@ impl Document {
             eqtb.integer(IntegerVariable::Time) % 60
         );
 
-        let dvi_writer = DviWriter::new(
+        let backend = DviBackend::new(
             dvi_file,
             eqtb.integer(IntegerVariable::Mag),
             comment.as_bytes(),
         )
         .unwrap();
         Self {
-            dvi_writer,
+            backend,
             output_file_name,
             cur_h: 0,
             cur_v: 0,
@@ -274,7 +278,9 @@ impl Document {
             cur_s: -1,
         }
     }
+}
 
+impl<B: ShipoutBackend> Document<B> {
     /// See 617. and 640.
     fn ship_box_out(&mut self, list_node: &ListNode, eqtb: &mut Eqtb) -> Vec<WhatsitNode> {
         self.dvi_h = 0;
@@ -290,7 +296,7 @@ impl Document {
         for k in 0..10 {
             counts[k] = eqtb.integer(IntegerVariable::Count(k as RegisterIndex));
         }
-        self.dvi_writer
+        self.backend
             .start_page(&counts, page_height, page_width)
             .unwrap();
         self.cur_v = list_node.height + eqtb.dimen(DimensionVariable::VOffset);
@@ -299,7 +305,7 @@ impl Document {
             HlistOrVlist::Vlist(_) => self.vlist_out(list_node, &mut whatsit_list, eqtb),
             HlistOrVlist::Hlist(_) => self.hlist_out(list_node, &mut whatsit_list, eqtb),
         };
-        self.dvi_writer.end_page().unwrap();
+        self.backend.end_page().unwrap();
         self.cur_s = -1;
         whatsit_list
     }
@@ -307,7 +313,7 @@ impl Document {
     /// See 616.
     fn synch_h(&mut self) {
         if self.cur_h != self.dvi_h {
-            self.dvi_writer.right(self.cur_h - self.dvi_h).unwrap();
+            self.backend.move_right(self.cur_h - self.dvi_h).unwrap();
             self.dvi_h = self.cur_h;
         }
     }
@@ -315,7 +321,7 @@ impl Document {
     /// See 616.
     fn synch_v(&mut self) {
         if self.cur_v != self.dvi_v {
-            self.dvi_writer.down(self.cur_v - self.dvi_v).unwrap();
+            self.backend.move_down(self.cur_v - self.dvi_v).unwrap();
             self.dvi_v = self.cur_v;
         }
     }
@@ -337,7 +343,7 @@ impl Document {
         };
         self.cur_s += 1;
         if self.cur_s > 0 {
-            self.dvi_writer.dvi_push().unwrap();
+            self.backend.push().unwrap();
         }
         let base_line = self.cur_v;
         let left_edge = self.cur_h;
@@ -356,7 +362,7 @@ impl Document {
             );
         }
         if self.cur_s > 0 {
-            self.dvi_writer.dvi_pop().unwrap();
+            self.backend.pop().unwrap();
         }
         self.cur_s -= 1;
     }
@@ -451,7 +457,7 @@ impl Document {
         if font_index != self.dvi_f {
             self.change_font_dvi(font_index, eqtb);
         }
-        self.dvi_writer.set_char(chr).unwrap();
+        self.backend.set_char(chr, width).unwrap();
         self.cur_h += width;
     }
 
@@ -466,13 +472,13 @@ impl Document {
             let design_size = eqtb.fonts[font_index as usize].dsize;
             let area = &eqtb.fonts[font_index as usize].area;
             let name = &eqtb.fonts[font_index as usize].name;
-            self.dvi_writer
-                .dvi_font_def(font_number, checksum, at_size, design_size, area, name)
+            self.backend
+                .define_font(font_number, checksum, at_size, design_size, area, name)
                 .unwrap();
 
             eqtb.fonts[font_index as usize].used = true;
         }
-        self.dvi_writer.set_font(font_number).unwrap();
+        self.backend.set_font(font_number).unwrap();
         self.dvi_f = font_index;
     }
 
@@ -536,7 +542,7 @@ impl Document {
             self.synch_h();
             self.cur_v = base_line + depth;
             self.synch_v();
-            self.dvi_writer.set_rule(height, width).unwrap();
+            self.backend.set_rule(height, width).unwrap();
             self.cur_v = base_line;
             self.dvi_h += width;
         }
@@ -684,7 +690,7 @@ impl Document {
         };
         self.cur_s += 1;
         if self.cur_s > 0 {
-            self.dvi_writer.dvi_push().unwrap();
+            self.backend.push().unwrap();
         }
         let left_edge = self.cur_h;
         self.cur_v -= this_box.height;
@@ -704,7 +710,7 @@ impl Document {
             );
         }
         if self.cur_s > 0 {
-            self.dvi_writer.dvi_pop().unwrap();
+            self.backend.pop().unwrap();
         }
         self.cur_s -= 1;
     }
@@ -803,7 +809,7 @@ impl Document {
         if (height > 0) && (width > 0) {
             self.synch_h();
             self.synch_v();
-            self.dvi_writer.put_rule(height, width).unwrap();
+            self.backend.put_rule(height, width).unwrap();
         }
     }
 
@@ -940,7 +946,7 @@ impl Document {
         // don't use anymore.
         show_token_list(&special_node.tokens, 1_000_000, &mut string_printer, eqtb);
         let s = string_printer.into_string();
-        self.dvi_writer.write_special(&s).unwrap();
+        self.backend.write_special(&s).unwrap();
     }
 }
 

@@ -1,6 +1,6 @@
 # Claude への連絡
 
-更新: 2026-08-22 / 枝 `codex/etex-glue-components`
+更新: 2026-08-22 / 枝 `codex/pdf-page-backend`
 
 ## 現在地
 
@@ -12,8 +12,10 @@
 - e-TeX公式マニュアルの公開仕様だけから `\everyeof` を実装した。
 - 同じ境界から `\readline` と読み書き可能な `\interactionmode` を実装した。
 - 制御綴検索を借用検索へ分け、既存名ごとの `Vec` 一時確保を safe Rust で除いた。
-- PDF 1.4 の object / stream / xref / trailer serializer を safe Rust で作った。
-  DVIのページ走査へはまだ接続していない。
+- PDF 1.4 の object / stream / xref / trailer serializer に加え、Catalog / Pages / Page /
+  Contentsの一段page treeと固定小数のsp→bp変換をsafe Rustで作った。組版木を一度だけ
+  走査する `ShipoutBackend` 境界を抽出し、DVI adapterは従来writerと全byte一致する。
+  PDF backend本体と出力形式選択、font resourceは次段である。
 - e-TeXの通常レジスタ6種（box/count/dimen/skip/muskip/toks）を0〜32767へ拡張した。
   0〜255は密配列、高位は触れた番号だけの疎表であり、すべてsafe Rustである。
 - `\insert` は通常レジスタから別型へ分離し、0〜254のままにした。box 255と
@@ -29,14 +31,22 @@
   `\glueshrinkorder` を内部量として追加した。通常・fil・fill・filll、負値、0係数、
   `\glueexpr`、数式糊の単位不一致回復を公式e-upTeX黒箱と照合した。
 - 既存fmtは疎表を含む新表現と非互換なので、この枝では再生成が必要。
-- release **208件通過**、失敗0（doc-test 1件は既存どおりignored）。高位6種、群、
+- release **213件通過**、失敗0（doc-test 1件は既存どおりignored）。高位6種、群、
   global、別名、範囲外、挿入境界、box 255、fmt往復に加え、mark classのpage遷移、
   `\vsplit`、保護macro、`\meaning`、境界と、shell状態の値・展開性・読み取り専用性・
   fmt往復に加え、糊成分の全次数・負値・0係数・式・数式糊回復を統合試験で固定した。
 
-作業枝は機能単位で切り、`origin/codex/etex-glue-components` まで定期的にpushする。
+作業枝は機能単位で切り、`origin/codex/pdf-page-backend` まで定期的にpushする。
 値ストレージの土台は `a218c28`、6種への統合と挿入番号分離は `d7c121e`、TRIP runnerは
-`728d899`、mark classは `270c731`、shell状態は `2b2a1d1`。
+`728d899`、mark classは `270c731`、shell状態は `2b2a1d1`、糊成分は `3cc6e6f`。
+
+## PDF backend
+
+公開Adobe PDF Reference 1.4の文書構造だけから、低水準serializerの上に最小の有効な
+page treeを加えた。DVIをいったん書いて読み直すのではなく、既存hlist/vlist走査から
+backend eventを一度だけ発行する。これにより遅延 `\write` を二重実行せず、nodeごとの
+dynamic dispatchも避ける。sp→bpはchecked integerと10^-6 bp固定小数で変換し、`f64`の
+指数表記やplatform差をPDFへ流さない。設計と権利境界は `docs/pdf-backend-notes.md`。
 
 ## LaTeX実測
 
