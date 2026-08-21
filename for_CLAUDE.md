@@ -314,3 +314,20 @@ OTFはRustyBuzzより前に、safe Rustの`ttf-parser`と`subsetter`を別branch
 8-bit TFM codeからGIDへの対応、Type 0/CIDFont、遅延subset、ToUnicodeを段階分離する。
 RustyBuzz 0.20.1は公式READMEがunsafe一箇所を明記するため、導入時は
 `codex/unsafe-rustybuzz-shaping`を明示的に切り、default-off featureだけに置く。
+
+### 追記 `75ec64f` / `4ae0ad2`
+
+perfの子process混入訂正と、Linux DVItypeによるPraTeX改名前後の命令列差0を受け取った。
+大きなnode arena化やunsafe化を性能対策にしない。100 pageでは本体のcycle差が約2%であり、
+長文の限界費profileは探索とPDF実資材の後へ下げる。
+
+`codex/kpse-persistent-filesize`では `\pdffilesize` を既存`FileKind::Tex` resolverへ接続した。
+cwdにない論理名、brace内空白名、不在、kpsewhich起動失敗の4 unit testsと既存process testが
+releaseで通っている。これにより報告されたexpl3の資材存在確認blockerを解消する。
+
+一方、常駐kpsewhich案はTeX Live trunkの公開`kpsewhich.c`とKpathsea manualを確認して撤回した。
+`--interactive`はformatをprocess全体へ固定し、stdin lookupの未発見時に応答行を出さない。
+成功時も各`puts`後に`fflush`がなく、pipe stdoutでは要求ごとの応答を安全に待てない。
+PTY、`stdbuf`、timeout、bufferを埋めるsentinelは非portableなので採用しない。次枝では公開書式から
+`ls-R`をrun中に一度だけ索引化し、未対応のpath expressionやmktex生成だけ現行one-shot
+kpsewhichへfallbackする。直接path最優先とrun-local positive/negative cacheは維持する。

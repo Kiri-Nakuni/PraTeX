@@ -6,6 +6,8 @@ pub mod input_stack;
 pub mod line_lexer;
 mod macro_expand;
 mod macro_reader;
+#[cfg(test)]
+mod pdffilesize_resolver_tests;
 mod scan_tokens;
 mod scanning;
 pub mod token_source;
