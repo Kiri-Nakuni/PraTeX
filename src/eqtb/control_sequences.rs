@@ -37,6 +37,31 @@ pub enum ControlSequence {
     Undefined,
 }
 
+/// 名前空間の印と名前を出す。**返り値は活性文字なら その文字。**
+///
+/// `namespacechar` が範囲外（既定は −1）なら**何も出さない**——
+/// 名前空間を使わない文書では見えない。
+fn print_namespace_prefix(
+    cs: ControlSequence,
+    eqtb: &Eqtb,
+    printer: &mut impl Printer,
+) -> Option<u8> {
+    if let Some(ns) = eqtb.control_sequences.namespace_of(cs) {
+        let nc = eqtb.integer(crate::eqtb::IntegerVariable::NamespaceChar);
+        if (0..=255).contains(&nc) {
+            printer.print(nc as u8);
+            // **名前を写さずに出す。** 借りたまま印字する
+            let n = eqtb.control_sequences.namespace_name(ns).to_vec();
+            for b in n {
+                printer.print(b);
+            }
+        }
+    }
+    eqtb.control_sequences.active_char(cs).filter(|_| {
+        matches!(cs, ControlSequence::Escaped(_))
+    })
+}
+
 impl ControlSequence {
     /// See 262.
     pub fn print_cs(self, eqtb: &Eqtb, printer: &mut impl Printer) {
@@ -56,7 +81,12 @@ impl ControlSequence {
                 printer.print_char(b' ');
             }
             _ => {
-                printer.print_esc_str(eqtb.control_sequences.text(self));
+                let active = print_namespace_prefix(self, eqtb, printer);
+                match active {
+                    // 名前空間つきの活性文字。**`escapechar` を挟まない**
+                    Some(c) => printer.print(c),
+                    None => printer.print_esc_str(eqtb.control_sequences.text(self)),
+                }
                 printer.print_char(b' ');
             }
         }
@@ -77,6 +107,11 @@ impl ControlSequence {
                 printer.print_esc_str(b"endcsname");
             }
             _ => {
+                let active = print_namespace_prefix(self, eqtb, printer);
+                if let Some(c) = active {
+                    printer.print(c);
+                    return;
+                }
                 printer.print_esc_str(eqtb.control_sequences.text(self));
             }
         }

@@ -119,6 +119,7 @@ pub struct VariableLevels {
     global_defs: Level,
     cur_fam: Level,
     escape_char: Level,
+    namespace_char: Level,
     default_hyphen_char: Level,
     default_skew_char: Level,
     end_line_char: Level,
@@ -278,6 +279,7 @@ impl VariableLevels {
             global_defs: 0,
             cur_fam: 0,
             escape_char: 0,
+            namespace_char: 0,
             default_hyphen_char: 0,
             default_skew_char: 0,
             end_line_char: 0,
@@ -442,6 +444,7 @@ impl VariableLevels {
                 IntegerVariable::GlobalDefs => self.global_defs,
                 IntegerVariable::CurFam => self.cur_fam,
                 IntegerVariable::EscapeChar => self.escape_char,
+                IntegerVariable::NamespaceChar => self.namespace_char,
                 IntegerVariable::DefaultHyphenChar => self.default_hyphen_char,
                 IntegerVariable::DefaultSkewChar => self.default_skew_char,
                 IntegerVariable::EndLineChar => self.end_line_char,
@@ -602,6 +605,7 @@ impl VariableLevels {
                 IntegerVariable::GlobalDefs => &mut self.global_defs,
                 IntegerVariable::CurFam => &mut self.cur_fam,
                 IntegerVariable::EscapeChar => &mut self.escape_char,
+                IntegerVariable::NamespaceChar => &mut self.namespace_char,
                 IntegerVariable::DefaultHyphenChar => &mut self.default_hyphen_char,
                 IntegerVariable::DefaultSkewChar => &mut self.default_skew_char,
                 IntegerVariable::EndLineChar => &mut self.end_line_char,
@@ -764,6 +768,7 @@ impl Dumpable for VariableLevels {
         self.global_defs.dump(target)?;
         self.cur_fam.dump(target)?;
         self.escape_char.dump(target)?;
+        self.namespace_char.dump(target)?;
         self.default_hyphen_char.dump(target)?;
         self.default_skew_char.dump(target)?;
         self.end_line_char.dump(target)?;
@@ -923,6 +928,7 @@ impl Dumpable for VariableLevels {
         let global_defs = Dumpable::undump(lines)?;
         let cur_fam = Dumpable::undump(lines)?;
         let escape_char = Dumpable::undump(lines)?;
+        let namespace_char = Dumpable::undump(lines)?;
         let default_hyphen_char = Dumpable::undump(lines)?;
         let default_skew_char = Dumpable::undump(lines)?;
         let end_line_char = Dumpable::undump(lines)?;
@@ -1066,6 +1072,7 @@ impl Dumpable for VariableLevels {
             global_defs,
             cur_fam,
             escape_char,
+            namespace_char,
             default_hyphen_char,
             default_skew_char,
             end_line_char,

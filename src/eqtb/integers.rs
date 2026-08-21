@@ -52,6 +52,8 @@ pub struct IntegerParameters {
     global_defs: Integer,
     cur_fam: Integer,
     escape_char: Integer,
+    /// **名前空間の印。** `\escapechar` と同じ役割を名前空間側で持つ
+    namespace_char: Integer,
     default_hyphen_char: Integer,
     default_skew_char: Integer,
     end_line_char: Integer,
@@ -77,6 +79,8 @@ impl IntegerParameters {
             hang_after: 1,
             max_dead_cycles: 25,
             escape_char: b'\\' as Integer,
+            // **既定は −1。** 印字しない——名前空間を使わない文書では見えない
+            namespace_char: -1,
             end_line_char: CARRIAGE_RETURN as Integer,
 
             // The rest is all zeroes.
@@ -181,6 +185,7 @@ impl IntegerParameters {
             IntegerVariable::GlobalDefs => &self.global_defs,
             IntegerVariable::CurFam => &self.cur_fam,
             IntegerVariable::EscapeChar => &self.escape_char,
+            IntegerVariable::NamespaceChar => &self.namespace_char,
             IntegerVariable::DefaultHyphenChar => &self.default_hyphen_char,
             IntegerVariable::DefaultSkewChar => &self.default_skew_char,
             IntegerVariable::EndLineChar => &self.end_line_char,
@@ -242,6 +247,7 @@ impl IntegerParameters {
             IntegerVariable::GlobalDefs => &mut self.global_defs,
             IntegerVariable::CurFam => &mut self.cur_fam,
             IntegerVariable::EscapeChar => &mut self.escape_char,
+            IntegerVariable::NamespaceChar => &mut self.namespace_char,
             IntegerVariable::DefaultHyphenChar => &mut self.default_hyphen_char,
             IntegerVariable::DefaultSkewChar => &mut self.default_skew_char,
             IntegerVariable::EndLineChar => &mut self.end_line_char,
@@ -316,6 +322,7 @@ pub enum IntegerVariable {
     GlobalDefs,
     CurFam,
     EscapeChar,
+    NamespaceChar,
     DefaultHyphenChar,
     DefaultSkewChar,
     EndLineChar,
@@ -379,6 +386,7 @@ impl IntegerVariable {
             Self::GlobalDefs => b"globaldefs".to_vec(),
             Self::CurFam => b"fam".to_vec(),
             Self::EscapeChar => b"escapechar".to_vec(),
+            Self::NamespaceChar => b"namespacechar".to_vec(),
             Self::DefaultHyphenChar => b"defaulthyphenchar".to_vec(),
             Self::DefaultSkewChar => b"defaultskewchar".to_vec(),
             Self::EndLineChar => b"endlinechar".to_vec(),
@@ -441,6 +449,7 @@ impl Dumpable for IntegerParameters {
         self.global_defs.dump(target)?;
         self.cur_fam.dump(target)?;
         self.escape_char.dump(target)?;
+        self.namespace_char.dump(target)?;
         self.default_hyphen_char.dump(target)?;
         self.default_skew_char.dump(target)?;
         self.end_line_char.dump(target)?;
@@ -501,6 +510,7 @@ impl Dumpable for IntegerParameters {
         let global_defs = <Integer>::undump(lines)?;
         let cur_fam = <Integer>::undump(lines)?;
         let escape_char = <Integer>::undump(lines)?;
+        let namespace_char = <Integer>::undump(lines)?;
         let default_hyphen_char = <Integer>::undump(lines)?;
         let default_skew_char = <Integer>::undump(lines)?;
         let end_line_char = <Integer>::undump(lines)?;
@@ -559,6 +569,7 @@ impl Dumpable for IntegerParameters {
             global_defs,
             cur_fam,
             escape_char,
+            namespace_char,
             default_hyphen_char,
             default_skew_char,
             end_line_char,
@@ -622,6 +633,7 @@ impl Dumpable for IntegerVariable {
             Self::GlobalDefs => writeln!(target, "GlobalDefs")?,
             Self::CurFam => writeln!(target, "CurFam")?,
             Self::EscapeChar => writeln!(target, "EscapeChar")?,
+            Self::NamespaceChar => writeln!(target, "NamespaceChar")?,
             Self::DefaultHyphenChar => writeln!(target, "DefaultHyphenChar")?,
             Self::DefaultSkewChar => writeln!(target, "DefaultSkewChar")?,
             Self::EndLineChar => writeln!(target, "EndLineChar")?,
@@ -688,6 +700,7 @@ impl Dumpable for IntegerVariable {
             "GlobalDefs" => Ok(IntegerVariable::GlobalDefs),
             "CurFam" => Ok(IntegerVariable::CurFam),
             "EscapeChar" => Ok(IntegerVariable::EscapeChar),
+            "NamespaceChar" => Ok(IntegerVariable::NamespaceChar),
             "DefaultHyphenChar" => Ok(IntegerVariable::DefaultHyphenChar),
             "DefaultSkewChar" => Ok(IntegerVariable::DefaultSkewChar),
             "EndLineChar" => Ok(IntegerVariable::EndLineChar),

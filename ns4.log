@@ -1,0 +1,15 @@
+This is rtex, Version 3.141592653 (INITEX)  4 JUL 1776 12:00
+**/tmp/claude-1000/-home-suima-Documents-mydsl/51499744-60f9-454c-a92e-d57e8e2b
+0cbc/scratchpad/ns4.tex
+
+(/tmp/claude-1000/-home-suima-Documents-mydsl/51499744-60f9-454c-a92e-d57e8e2b0
+cbc/scratchpad/ns4.tex
+[^^e6^^97^^a2^^e5^^ae^^9a=\bar] [^^e5^^8d^^b0^^e3^^81^^82^^e3^^82^^8a=*foo\bar]
+[global=\bar]
+> *foo\bar=macro:
+->X.
+l.10 \show*foo\bar
+                  
+
+[meaning=macro:->X] )
+No pages of output.

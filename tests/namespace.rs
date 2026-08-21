@@ -193,3 +193,37 @@ fn csname以外が来れば誤り() {
     assert!(log.contains("Missing"), "{log}");
     assert!(log.contains("[done]"), "{log}");
 }
+
+// ===== Phase 4：印字と `\namespacechar` =====
+
+#[test]
+fn 既定では名前空間を印字しない() {
+    // **`\namespacechar` の既定は −1。** 名前空間を使わない文書では見えない
+    let log = run_tex("既定", "\\def*foo\\bar{X}\n\\message{[\\string*foo\\bar]}");
+    assert!(log.contains("[\\bar]"), "{log}");
+}
+
+#[test]
+fn 印を決めれば名前空間も印字する() {
+    let log = run_tex(
+        "印あり",
+        "\\def*foo\\bar{X}\\namespacechar=`\\*\n\\message{[\\string*foo\\bar][\\string\\bar]}",
+    );
+    assert!(log.contains("[*foo\\bar][\\bar]"), "{log}");
+}
+
+#[test]
+fn showが名前空間つきで出す() {
+    let log = run_tex("show", "\\def*foo\\bar{X}\\namespacechar=`\\*\n\\show*foo\\bar");
+    assert!(log.contains("> *foo\\bar=macro:"), "{log}");
+}
+
+#[test]
+fn 名前空間の印は逆読みできる() {
+    // §5 の reflection：**最初の escapechar で割れる**
+    let log = run_tex(
+        "逆読み",
+        "\\def*foo\\bar{X}\\namespacechar=`\\*\\escapechar=`\\\\\n\\message{[\\string*foo\\bar]}",
+    );
+    assert!(log.contains("[*foo\\bar]"), "{log}");
+}

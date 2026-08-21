@@ -408,6 +408,12 @@ impl Eqtb {
             UnexpandableCommand::Prefixable(PrefixableCommand::Integer(IntegerVariable::CurFam)),
         );
         self.primitive_unexpandable(
+            b"namespacechar",
+            UnexpandableCommand::Prefixable(PrefixableCommand::Integer(
+                IntegerVariable::NamespaceChar,
+            )),
+        );
+        self.primitive_unexpandable(
             b"escapechar",
             UnexpandableCommand::Prefixable(PrefixableCommand::Integer(
                 IntegerVariable::EscapeChar,
