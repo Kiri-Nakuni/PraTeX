@@ -240,6 +240,7 @@ impl ControlSequenceStore {
                 Command::Expandable(ExpandableCommand::Macro(MacroCall {
                     long: false,
                     outer: true,
+                    protected: false,
                     macro_def: std::rc::Rc::new(Macro::default()),
                 })),
                 b"endwrite".to_vec(),

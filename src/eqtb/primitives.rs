@@ -408,6 +408,66 @@ impl Eqtb {
             UnexpandableCommand::Prefixable(PrefixableCommand::Integer(IntegerVariable::CurFam)),
         );
         self.primitive_unexpandable(
+            b"tracingassigns",
+            UnexpandableCommand::Prefixable(PrefixableCommand::Integer(
+                IntegerVariable::TracingAssigns,
+            )),
+        );
+        self.primitive_unexpandable(
+            b"tracinggroups",
+            UnexpandableCommand::Prefixable(PrefixableCommand::Integer(
+                IntegerVariable::TracingGroups,
+            )),
+        );
+        self.primitive_unexpandable(
+            b"tracingifs",
+            UnexpandableCommand::Prefixable(PrefixableCommand::Integer(
+                IntegerVariable::TracingIfs,
+            )),
+        );
+        self.primitive_unexpandable(
+            b"tracingscantokens",
+            UnexpandableCommand::Prefixable(PrefixableCommand::Integer(
+                IntegerVariable::TracingScanTokens,
+            )),
+        );
+        self.primitive_unexpandable(
+            b"tracingnesting",
+            UnexpandableCommand::Prefixable(PrefixableCommand::Integer(
+                IntegerVariable::TracingNesting,
+            )),
+        );
+        self.primitive_unexpandable(
+            b"predisplaydirection",
+            UnexpandableCommand::Prefixable(PrefixableCommand::Integer(
+                IntegerVariable::PredisplayDirection,
+            )),
+        );
+        self.primitive_unexpandable(
+            b"lastlinefit",
+            UnexpandableCommand::Prefixable(PrefixableCommand::Integer(
+                IntegerVariable::LastLineFit,
+            )),
+        );
+        self.primitive_unexpandable(
+            b"savingvdiscards",
+            UnexpandableCommand::Prefixable(PrefixableCommand::Integer(
+                IntegerVariable::SavingVDiscards,
+            )),
+        );
+        self.primitive_unexpandable(
+            b"savinghyphcodes",
+            UnexpandableCommand::Prefixable(PrefixableCommand::Integer(
+                IntegerVariable::SavingHyphCodes,
+            )),
+        );
+        self.primitive_unexpandable(
+            b"TeXXeTstate",
+            UnexpandableCommand::Prefixable(PrefixableCommand::Integer(
+                IntegerVariable::TeXXeTState,
+            )),
+        );
+        self.primitive_unexpandable(
             b"namespacechar",
             UnexpandableCommand::Prefixable(PrefixableCommand::Integer(
                 IntegerVariable::NamespaceChar,
@@ -790,6 +850,17 @@ impl Eqtb {
         self.primitive_unexpandable(b"lastskip", UnexpandableCommand::LastSkip);
         self.primitive_unexpandable(b"inputlineno", UnexpandableCommand::InputLineNumber);
         self.primitive_unexpandable(b"badness", UnexpandableCommand::Badness);
+        // ==== e-TeX の問い合わせ ====
+        self.primitive_unexpandable(b"eTeXversion", UnexpandableCommand::ETeXVersion);
+        self.primitive_unexpandable(
+            b"currentgrouplevel",
+            UnexpandableCommand::CurrentGroupLevel,
+        );
+        self.primitive_unexpandable(b"currentgrouptype", UnexpandableCommand::CurrentGroupType);
+        self.primitive_unexpandable(b"currentiflevel", UnexpandableCommand::CurrentIfLevel);
+        self.primitive_unexpandable(b"currentiftype", UnexpandableCommand::CurrentIfType);
+        self.primitive_unexpandable(b"currentifbranch", UnexpandableCommand::CurrentIfBranch);
+        self.primitive_unexpandable(b"lastnodetype", UnexpandableCommand::LastNodeType);
 
         // See 468.
         self.primitive_expandable(
@@ -835,6 +906,10 @@ impl Eqtb {
         self.primitive_expandable(b"iftrue", ExpandableCommand::IfTest(IfTest::IfTrue));
         self.primitive_expandable(b"iffalse", ExpandableCommand::IfTest(IfTest::IfFalse));
         self.primitive_expandable(b"ifcase", ExpandableCommand::IfTest(IfTest::IfCase));
+        self.primitive_expandable(b"ifdefined", ExpandableCommand::IfTest(IfTest::IfDefined));
+        self.primitive_expandable(b"ifcsname", ExpandableCommand::IfTest(IfTest::IfCsName));
+        self.primitive_expandable(b"iffontchar", ExpandableCommand::IfTest(IfTest::IfFontChar));
+        self.primitive_expandable(b"unless", ExpandableCommand::Unless);
 
         // See 491.
         self.primitive_expandable(b"fi", ExpandableCommand::FiOrElse(FiOrElse::Fi));
@@ -1139,6 +1214,11 @@ impl Eqtb {
         self.primitive_unexpandable(
             b"long",
             UnexpandableCommand::Prefixable(PrefixableCommand::Prefix(Prefix::Long)),
+        );
+        // ==== e-TeX ====
+        self.primitive_unexpandable(
+            b"protected",
+            UnexpandableCommand::Prefixable(PrefixableCommand::Prefix(Prefix::Protected)),
         );
         self.primitive_unexpandable(
             b"outer",

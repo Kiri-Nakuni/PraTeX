@@ -46,6 +46,7 @@ pub fn expand(
             crate::vaak::direct_vaak(token, scanner, eqtb, logger)
         }
         ExpandableCommand::VaakInput => crate::vaak::vaak_input(scanner, eqtb, logger),
+        ExpandableCommand::Unless => negate_next_conditional(scanner, eqtb, logger),
         ExpandableCommand::VaakCall(id) => {
             crate::vaak::vaak_call(id, scanner, eqtb, logger)
         }
@@ -382,4 +383,26 @@ fn show_expandable(
     expandable_command.display(logger);
     logger.print_char(b'}');
     logger.end_diagnostic(false);
+}
+
+/// `\unless\if…` — **次の条件を反転する。**
+///
+/// 取れるのは真偽を出す条件だけである。`\ifcase` は腕が複数あるので取れない。
+fn negate_next_conditional(scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Logger) {
+    let (command, token) = scanner.get_next(false, eqtb, logger);
+    match command {
+        Command::Expandable(ExpandableCommand::IfTest(if_test))
+            if !matches!(if_test, crate::command::IfTest::IfCase) =>
+        {
+            crate::input::conditional::conditional_negated(if_test, scanner, eqtb, logger)
+        }
+        _ => {
+            logger.print_err("You can't use `");
+            logger.print_esc_str(b"unless");
+            logger.print_str("' here");
+            let help = &["Continue, and I'll forget that it ever happened."];
+            scanner.back_input(token, eqtb, logger);
+            logger.error(help, scanner, eqtb);
+        }
+    }
 }

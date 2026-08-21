@@ -8,6 +8,11 @@ pub enum Prefix {
     Long,
     Outer,
     Global,
+    /// e-TeX の `\protected`。
+    ///
+    /// **`\edef` の中で展開されない。** 展開する走査（`\edef` `\message`
+    /// `\write` `\mark`）では、そのまま写される。
+    Protected,
 }
 
 impl Prefix {
@@ -16,6 +21,7 @@ impl Prefix {
             Self::Long => b"long",
             Self::Outer => b"outer",
             Self::Global => b"global",
+            Self::Protected => b"protected",
         };
         printer.print_esc_str(s);
     }
@@ -27,6 +33,7 @@ impl Dumpable for Prefix {
             Self::Long => writeln!(target, "Long")?,
             Self::Outer => writeln!(target, "Outer")?,
             Self::Global => writeln!(target, "Global")?,
+            Self::Protected => writeln!(target, "Protected")?,
         }
         Ok(())
     }
@@ -37,6 +44,7 @@ impl Dumpable for Prefix {
             "Long" => Ok(Self::Long),
             "Outer" => Ok(Self::Outer),
             "Global" => Ok(Self::Global),
+            "Protected" => Ok(Self::Protected),
             _ => Err(FormatError::ParseError),
         }
     }

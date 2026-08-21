@@ -15,6 +15,21 @@ pub enum InternalCommand {
     LastSkip,
     Toks(ToksCommand),
     Badness,
+    // ==== e-TeX の問い合わせ ====
+    /// `\eTeXversion`
+    ETeXVersion,
+    /// `\currentgrouplevel`
+    CurrentGroupLevel,
+    /// `\currentgrouptype`
+    CurrentGroupType,
+    /// `\currentiflevel`
+    CurrentIfLevel,
+    /// `\currentiftype`
+    CurrentIfType,
+    /// `\currentifbranch`
+    CurrentIfBranch,
+    /// `\lastnodetype`
+    LastNodeType,
     InputLineNumber,
     Integer(IntegerVariable),
     Dimension(DimensionVariable),

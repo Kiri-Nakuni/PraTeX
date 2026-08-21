@@ -336,6 +336,13 @@ pub fn main_control(
                 | UnexpandableCommand::LastKern
                 | UnexpandableCommand::LastSkip
                 | UnexpandableCommand::Badness
+                | UnexpandableCommand::ETeXVersion
+                | UnexpandableCommand::CurrentGroupLevel
+                | UnexpandableCommand::CurrentGroupType
+                | UnexpandableCommand::CurrentIfLevel
+                | UnexpandableCommand::CurrentIfType
+                | UnexpandableCommand::CurrentIfBranch
+                | UnexpandableCommand::LastNodeType
                 | UnexpandableCommand::Expr(_)
                 | UnexpandableCommand::InputLineNumber
                 | UnexpandableCommand::EqNo { .. }
@@ -593,6 +600,13 @@ pub fn main_control(
                 | UnexpandableCommand::LastKern
                 | UnexpandableCommand::LastSkip
                 | UnexpandableCommand::Badness
+                | UnexpandableCommand::ETeXVersion
+                | UnexpandableCommand::CurrentGroupLevel
+                | UnexpandableCommand::CurrentGroupType
+                | UnexpandableCommand::CurrentIfLevel
+                | UnexpandableCommand::CurrentIfType
+                | UnexpandableCommand::CurrentIfBranch
+                | UnexpandableCommand::LastNodeType
                 | UnexpandableCommand::Expr(_)
                 | UnexpandableCommand::InputLineNumber
                 | UnexpandableCommand::EqNo { .. }
@@ -995,6 +1009,13 @@ pub fn main_control(
                 | UnexpandableCommand::LastKern
                 | UnexpandableCommand::LastSkip
                 | UnexpandableCommand::Badness
+                | UnexpandableCommand::ETeXVersion
+                | UnexpandableCommand::CurrentGroupLevel
+                | UnexpandableCommand::CurrentGroupType
+                | UnexpandableCommand::CurrentIfLevel
+                | UnexpandableCommand::CurrentIfType
+                | UnexpandableCommand::CurrentIfBranch
+                | UnexpandableCommand::LastNodeType
                 | UnexpandableCommand::Expr(_)
                 | UnexpandableCommand::InputLineNumber
                 | UnexpandableCommand::MoveLeft

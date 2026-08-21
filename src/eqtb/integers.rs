@@ -54,6 +54,16 @@ pub struct IntegerParameters {
     escape_char: Integer,
     /// **名前空間の印。** `\escapechar` と同じ役割を名前空間側で持つ
     namespace_char: Integer,
+    tracingassigns: Integer,
+    tracinggroups: Integer,
+    tracingifs: Integer,
+    tracingscantokens: Integer,
+    tracingnesting: Integer,
+    predisplaydirection: Integer,
+    lastlinefit: Integer,
+    savingvdiscards: Integer,
+    savinghyphcodes: Integer,
+    texxetstate: Integer,
     default_hyphen_char: Integer,
     default_skew_char: Integer,
     end_line_char: Integer,
@@ -81,6 +91,16 @@ impl IntegerParameters {
             escape_char: b'\\' as Integer,
             // **既定は −1。** 印字しない——名前空間を使わない文書では見えない
             namespace_char: -1,
+            tracingassigns: 0,
+            tracinggroups: 0,
+            tracingifs: 0,
+            tracingscantokens: 0,
+            tracingnesting: 0,
+            predisplaydirection: 0,
+            lastlinefit: 0,
+            savingvdiscards: 0,
+            savinghyphcodes: 0,
+            texxetstate: 0,
             end_line_char: CARRIAGE_RETURN as Integer,
 
             // The rest is all zeroes.
@@ -186,6 +206,16 @@ impl IntegerParameters {
             IntegerVariable::CurFam => &self.cur_fam,
             IntegerVariable::EscapeChar => &self.escape_char,
             IntegerVariable::NamespaceChar => &self.namespace_char,
+            IntegerVariable::TracingAssigns => &self.tracingassigns,
+            IntegerVariable::TracingGroups => &self.tracinggroups,
+            IntegerVariable::TracingIfs => &self.tracingifs,
+            IntegerVariable::TracingScanTokens => &self.tracingscantokens,
+            IntegerVariable::TracingNesting => &self.tracingnesting,
+            IntegerVariable::PredisplayDirection => &self.predisplaydirection,
+            IntegerVariable::LastLineFit => &self.lastlinefit,
+            IntegerVariable::SavingVDiscards => &self.savingvdiscards,
+            IntegerVariable::SavingHyphCodes => &self.savinghyphcodes,
+            IntegerVariable::TeXXeTState => &self.texxetstate,
             IntegerVariable::DefaultHyphenChar => &self.default_hyphen_char,
             IntegerVariable::DefaultSkewChar => &self.default_skew_char,
             IntegerVariable::EndLineChar => &self.end_line_char,
@@ -248,6 +278,16 @@ impl IntegerParameters {
             IntegerVariable::CurFam => &mut self.cur_fam,
             IntegerVariable::EscapeChar => &mut self.escape_char,
             IntegerVariable::NamespaceChar => &mut self.namespace_char,
+            IntegerVariable::TracingAssigns => &mut self.tracingassigns,
+            IntegerVariable::TracingGroups => &mut self.tracinggroups,
+            IntegerVariable::TracingIfs => &mut self.tracingifs,
+            IntegerVariable::TracingScanTokens => &mut self.tracingscantokens,
+            IntegerVariable::TracingNesting => &mut self.tracingnesting,
+            IntegerVariable::PredisplayDirection => &mut self.predisplaydirection,
+            IntegerVariable::LastLineFit => &mut self.lastlinefit,
+            IntegerVariable::SavingVDiscards => &mut self.savingvdiscards,
+            IntegerVariable::SavingHyphCodes => &mut self.savinghyphcodes,
+            IntegerVariable::TeXXeTState => &mut self.texxetstate,
             IntegerVariable::DefaultHyphenChar => &mut self.default_hyphen_char,
             IntegerVariable::DefaultSkewChar => &mut self.default_skew_char,
             IntegerVariable::EndLineChar => &mut self.end_line_char,
@@ -323,6 +363,17 @@ pub enum IntegerVariable {
     CurFam,
     EscapeChar,
     NamespaceChar,
+    // ==== e-TeX ====
+    TracingAssigns,
+    TracingGroups,
+    TracingIfs,
+    TracingScanTokens,
+    TracingNesting,
+    PredisplayDirection,
+    LastLineFit,
+    SavingVDiscards,
+    SavingHyphCodes,
+    TeXXeTState,
     DefaultHyphenChar,
     DefaultSkewChar,
     EndLineChar,
@@ -387,6 +438,16 @@ impl IntegerVariable {
             Self::CurFam => b"fam".to_vec(),
             Self::EscapeChar => b"escapechar".to_vec(),
             Self::NamespaceChar => b"namespacechar".to_vec(),
+            Self::TracingAssigns => b"tracingassigns".to_vec(),
+            Self::TracingGroups => b"tracinggroups".to_vec(),
+            Self::TracingIfs => b"tracingifs".to_vec(),
+            Self::TracingScanTokens => b"tracingscantokens".to_vec(),
+            Self::TracingNesting => b"tracingnesting".to_vec(),
+            Self::PredisplayDirection => b"predisplaydirection".to_vec(),
+            Self::LastLineFit => b"lastlinefit".to_vec(),
+            Self::SavingVDiscards => b"savingvdiscards".to_vec(),
+            Self::SavingHyphCodes => b"savinghyphcodes".to_vec(),
+            Self::TeXXeTState => b"TeXXeTstate".to_vec(),
             Self::DefaultHyphenChar => b"defaulthyphenchar".to_vec(),
             Self::DefaultSkewChar => b"defaultskewchar".to_vec(),
             Self::EndLineChar => b"endlinechar".to_vec(),
@@ -450,6 +511,16 @@ impl Dumpable for IntegerParameters {
         self.cur_fam.dump(target)?;
         self.escape_char.dump(target)?;
         self.namespace_char.dump(target)?;
+        self.tracingassigns.dump(target)?;
+        self.tracinggroups.dump(target)?;
+        self.tracingifs.dump(target)?;
+        self.tracingscantokens.dump(target)?;
+        self.tracingnesting.dump(target)?;
+        self.predisplaydirection.dump(target)?;
+        self.lastlinefit.dump(target)?;
+        self.savingvdiscards.dump(target)?;
+        self.savinghyphcodes.dump(target)?;
+        self.texxetstate.dump(target)?;
         self.default_hyphen_char.dump(target)?;
         self.default_skew_char.dump(target)?;
         self.end_line_char.dump(target)?;
@@ -511,6 +582,16 @@ impl Dumpable for IntegerParameters {
         let cur_fam = <Integer>::undump(lines)?;
         let escape_char = <Integer>::undump(lines)?;
         let namespace_char = <Integer>::undump(lines)?;
+        let tracingassigns = <Integer>::undump(lines)?;
+        let tracinggroups = <Integer>::undump(lines)?;
+        let tracingifs = <Integer>::undump(lines)?;
+        let tracingscantokens = <Integer>::undump(lines)?;
+        let tracingnesting = <Integer>::undump(lines)?;
+        let predisplaydirection = <Integer>::undump(lines)?;
+        let lastlinefit = <Integer>::undump(lines)?;
+        let savingvdiscards = <Integer>::undump(lines)?;
+        let savinghyphcodes = <Integer>::undump(lines)?;
+        let texxetstate = <Integer>::undump(lines)?;
         let default_hyphen_char = <Integer>::undump(lines)?;
         let default_skew_char = <Integer>::undump(lines)?;
         let end_line_char = <Integer>::undump(lines)?;
@@ -570,6 +651,16 @@ impl Dumpable for IntegerParameters {
             cur_fam,
             escape_char,
             namespace_char,
+            tracingassigns,
+            tracinggroups,
+            tracingifs,
+            tracingscantokens,
+            tracingnesting,
+            predisplaydirection,
+            lastlinefit,
+            savingvdiscards,
+            savinghyphcodes,
+            texxetstate,
             default_hyphen_char,
             default_skew_char,
             end_line_char,
@@ -634,6 +725,16 @@ impl Dumpable for IntegerVariable {
             Self::CurFam => writeln!(target, "CurFam")?,
             Self::EscapeChar => writeln!(target, "EscapeChar")?,
             Self::NamespaceChar => writeln!(target, "NamespaceChar")?,
+            Self::TracingAssigns => writeln!(target, "TracingAssigns")?,
+            Self::TracingGroups => writeln!(target, "TracingGroups")?,
+            Self::TracingIfs => writeln!(target, "TracingIfs")?,
+            Self::TracingScanTokens => writeln!(target, "TracingScanTokens")?,
+            Self::TracingNesting => writeln!(target, "TracingNesting")?,
+            Self::PredisplayDirection => writeln!(target, "PredisplayDirection")?,
+            Self::LastLineFit => writeln!(target, "LastLineFit")?,
+            Self::SavingVDiscards => writeln!(target, "SavingVDiscards")?,
+            Self::SavingHyphCodes => writeln!(target, "SavingHyphCodes")?,
+            Self::TeXXeTState => writeln!(target, "TeXXeTState")?,
             Self::DefaultHyphenChar => writeln!(target, "DefaultHyphenChar")?,
             Self::DefaultSkewChar => writeln!(target, "DefaultSkewChar")?,
             Self::EndLineChar => writeln!(target, "EndLineChar")?,
@@ -701,6 +802,16 @@ impl Dumpable for IntegerVariable {
             "CurFam" => Ok(IntegerVariable::CurFam),
             "EscapeChar" => Ok(IntegerVariable::EscapeChar),
             "NamespaceChar" => Ok(IntegerVariable::NamespaceChar),
+            "TracingAssigns" => Ok(IntegerVariable::TracingAssigns),
+            "TracingGroups" => Ok(IntegerVariable::TracingGroups),
+            "TracingIfs" => Ok(IntegerVariable::TracingIfs),
+            "TracingScanTokens" => Ok(IntegerVariable::TracingScanTokens),
+            "TracingNesting" => Ok(IntegerVariable::TracingNesting),
+            "PredisplayDirection" => Ok(IntegerVariable::PredisplayDirection),
+            "LastLineFit" => Ok(IntegerVariable::LastLineFit),
+            "SavingVDiscards" => Ok(IntegerVariable::SavingVDiscards),
+            "SavingHyphCodes" => Ok(IntegerVariable::SavingHyphCodes),
+            "TeXXeTState" => Ok(IntegerVariable::TeXXeTState),
             "DefaultHyphenChar" => Ok(IntegerVariable::DefaultHyphenChar),
             "DefaultSkewChar" => Ok(IntegerVariable::DefaultSkewChar),
             "EndLineChar" => Ok(IntegerVariable::EndLineChar),

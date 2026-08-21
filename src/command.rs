@@ -133,6 +133,14 @@ pub enum UnexpandableCommand {
     LastKern,
     LastSkip,
     Badness,
+    // ==== e-TeX の問い合わせ ====
+    ETeXVersion,
+    CurrentGroupLevel,
+    CurrentGroupType,
+    CurrentIfLevel,
+    CurrentIfType,
+    CurrentIfBranch,
+    LastNodeType,
     InputLineNumber,
     End { dumping: bool },
     Prefixable(PrefixableCommand),
@@ -212,6 +220,13 @@ impl UnexpandableCommand {
             Self::LastKern => Some(InternalCommand::LastKern),
             Self::LastSkip => Some(InternalCommand::LastSkip),
             Self::Badness => Some(InternalCommand::Badness),
+            Self::ETeXVersion => Some(InternalCommand::ETeXVersion),
+            Self::CurrentGroupLevel => Some(InternalCommand::CurrentGroupLevel),
+            Self::CurrentGroupType => Some(InternalCommand::CurrentGroupType),
+            Self::CurrentIfLevel => Some(InternalCommand::CurrentIfLevel),
+            Self::CurrentIfType => Some(InternalCommand::CurrentIfType),
+            Self::CurrentIfBranch => Some(InternalCommand::CurrentIfBranch),
+            Self::LastNodeType => Some(InternalCommand::LastNodeType),
             Self::InputLineNumber => Some(InternalCommand::InputLineNumber),
             Self::Prefixable(prefixable_command) => prefixable_command.try_to_internal(),
             &Self::Expr(kind) => Some(InternalCommand::Expr(kind)),
@@ -332,6 +347,13 @@ impl UnexpandableCommand {
             Self::LastKern => printer.print_esc_str(b"lastkern"),
             Self::LastSkip => printer.print_esc_str(b"lastskip"),
             Self::Badness => printer.print_esc_str(b"badness"),
+            Self::ETeXVersion => printer.print_esc_str(b"eTeXversion"),
+            Self::CurrentGroupLevel => printer.print_esc_str(b"currentgrouplevel"),
+            Self::CurrentGroupType => printer.print_esc_str(b"currentgrouptype"),
+            Self::CurrentIfLevel => printer.print_esc_str(b"currentiflevel"),
+            Self::CurrentIfType => printer.print_esc_str(b"currentiftype"),
+            Self::CurrentIfBranch => printer.print_esc_str(b"currentifbranch"),
+            Self::LastNodeType => printer.print_esc_str(b"lastnodetype"),
             Self::Expr(kind) => printer.print_esc_str(match kind {
                 crate::scan_internal::ValueType::Int => b"numexpr".as_slice(),
                 crate::scan_internal::ValueType::Dimen => b"dimexpr".as_slice(),
@@ -403,6 +425,10 @@ pub enum ExpandableCommand {
     /// **`\csname` が global に作ってしまう**からである——
     /// 登録は `\endcsname` に達した一箇所で起きるので、そこへ名前空間を渡すしかない。
     Namespace,
+    /// e-TeX の `\unless` — **次の条件を反転する。**
+    ///
+    /// 取れるのは `\if…` だけである（`\ifcase` は取れない——腕が複数あるので）。
+    Unless,
 }
 
 impl ExpandableCommand {
@@ -422,6 +448,7 @@ impl ExpandableCommand {
             Self::DirectVaak => printer.print_esc_str(b"directvaak"),
             Self::VaakInput => printer.print_esc_str(b"vaakinput"),
             Self::Namespace => printer.print_esc_str(b"namespace"),
+            Self::Unless => printer.print_esc_str(b"unless"),
             &Self::VaakCall(id) => {
                 printer.print_str("vaak:->");
                 for c in crate::vaak::source_of(id) {

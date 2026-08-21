@@ -179,6 +179,13 @@ impl Dumpable for UnexpandableCommand {
             Self::LastKern => writeln!(target, "LastKern")?,
             Self::LastSkip => writeln!(target, "LastSkip")?,
             Self::Badness => writeln!(target, "Badness")?,
+            Self::ETeXVersion => writeln!(target, "ETeXVersion")?,
+            Self::CurrentGroupLevel => writeln!(target, "CurrentGroupLevel")?,
+            Self::CurrentGroupType => writeln!(target, "CurrentGroupType")?,
+            Self::CurrentIfLevel => writeln!(target, "CurrentIfLevel")?,
+            Self::CurrentIfType => writeln!(target, "CurrentIfType")?,
+            Self::CurrentIfBranch => writeln!(target, "CurrentIfBranch")?,
+            Self::LastNodeType => writeln!(target, "LastNodeType")?,
             Self::Expr(kind) => {
                 writeln!(target, "Expr")?;
                 kind.dump(target)?;
@@ -334,6 +341,13 @@ impl Dumpable for UnexpandableCommand {
             "LastKern" => Ok(Self::LastKern),
             "LastSkip" => Ok(Self::LastSkip),
             "Badness" => Ok(Self::Badness),
+            "ETeXVersion" => Ok(Self::ETeXVersion),
+            "CurrentGroupLevel" => Ok(Self::CurrentGroupLevel),
+            "CurrentGroupType" => Ok(Self::CurrentGroupType),
+            "CurrentIfLevel" => Ok(Self::CurrentIfLevel),
+            "CurrentIfType" => Ok(Self::CurrentIfType),
+            "CurrentIfBranch" => Ok(Self::CurrentIfBranch),
+            "LastNodeType" => Ok(Self::LastNodeType),
             "Expr" => Ok(Self::Expr(crate::scan_internal::ValueType::undump(lines)?)),
             "InputLineNumber" => Ok(Self::InputLineNumber),
             "End" => {
@@ -405,6 +419,9 @@ impl Dumpable for ExpandableCommand {
             Self::VaakInput => {
                 writeln!(target, "VaakInput")?;
             }
+            Self::Unless => {
+                writeln!(target, "Unless")?;
+            }
             &Self::VaakCall(id) => {
                 // **本体を書き出す。** 番号は走らせるたびに付け直されるので、
                 // 書き出すべきは番号ではなく本体である
@@ -426,6 +443,7 @@ impl Dumpable for ExpandableCommand {
             "DirectVaak" => Ok(Self::DirectVaak),
             "Namespace" => Ok(Self::Namespace),
             "VaakInput" => Ok(Self::VaakInput),
+            "Unless" => Ok(Self::Unless),
             "VaakCall" => {
                 let hex = lines.next().ok_or(FormatError::IncompleteFile)?;
                 let mut src = Vec::with_capacity(hex.len() / 2);
@@ -522,6 +540,15 @@ impl Dumpable for IfTest {
             Self::IfCase => {
                 writeln!(target, "IfCase")?;
             }
+            Self::IfDefined => {
+                writeln!(target, "IfDefined")?;
+            }
+            Self::IfCsName => {
+                writeln!(target, "IfCsName")?;
+            }
+            Self::IfFontChar => {
+                writeln!(target, "IfFontChar")?;
+            }
         }
         Ok(())
     }
@@ -546,6 +573,9 @@ impl Dumpable for IfTest {
             "IfTrue" => Ok(Self::IfTrue),
             "IfFalse" => Ok(Self::IfFalse),
             "IfCase" => Ok(Self::IfCase),
+            "IfDefined" => Ok(Self::IfDefined),
+            "IfCsName" => Ok(Self::IfCsName),
+            "IfFontChar" => Ok(Self::IfFontChar),
             _ => Err(FormatError::ParseError),
         }
     }
@@ -656,6 +686,7 @@ impl Dumpable for MacroCall {
     fn dump(&self, target: &mut impl Write) -> Result<(), std::io::Error> {
         self.long.dump(target)?;
         self.outer.dump(target)?;
+        self.protected.dump(target)?;
         self.macro_def.dump(target)?;
         Ok(())
     }
@@ -663,10 +694,12 @@ impl Dumpable for MacroCall {
     fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
         let long = bool::undump(lines)?;
         let outer = bool::undump(lines)?;
+        let protected = bool::undump(lines)?;
         let macro_def = std::rc::Rc::undump(lines)?;
         Ok(Self {
             long,
             outer,
+            protected,
             macro_def,
         })
     }
