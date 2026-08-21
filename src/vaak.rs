@@ -63,7 +63,7 @@ use std::sync::OnceLock;
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-use vaak::ast::ValueType;
+use vaak::ast::{HostItem, ValueType};
 use vaak::value::Value;
 use vaak::vm::Program2;
 
@@ -235,9 +235,12 @@ fn itoa(mut n: i32, buf: &mut [u8; 12]) -> &[u8] {
 }
 
 /// ホストが見せる名前と型。**常に同じ**なので鍵に含めない。
-fn exposed() -> Vec<(String, ValueType)> {
+fn exposed() -> Vec<(String, HostItem)> {
     let arr = ValueType::Array(Box::new(ValueType::I32));
-    vec![("count".to_string(), arr.clone()), ("dimen".to_string(), arr)]
+    vec![
+        ("count".to_string(), HostItem::Value(arr.clone())),
+        ("dimen".to_string(), HostItem::Value(arr)),
+    ]
 }
 
 /// 解析・検査・組み立て。**一度だけ行い、覚えておく。**
