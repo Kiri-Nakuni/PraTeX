@@ -10,6 +10,12 @@ use std::io::Write;
 type CommandStoreEntry = (Command, Vec<u8>);
 pub type ControlSequenceId = u16;
 
+/// 名前空間の番号。**名前そのものは持ち回らない。**
+///
+/// `\namespace foo\csname bar\endcsname` の `foo` を一度だけ番号に直し、
+/// 以後は番号で引く。
+pub type NamespaceId = u16;
+
 /// Specifies a control sequence in the Eqtb.
 /// See 222.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -88,8 +94,20 @@ pub struct ControlSequenceStore {
     single: Vec<(Command, Vec<u8>)>,
     null_cs: (Command, Vec<u8>),
 
-    hash: HashMap<Vec<u8>, ControlSequenceId>,
+    /// **鍵は (名前空間, 名前) の対である。** `None` が global——
+    /// 既存の振る舞いは `None` の鍵で完全に再現される
+    hash: HashMap<(Option<NamespaceId>, Vec<u8>), ControlSequenceId>,
     escaped: Vec<(Command, Vec<u8>)>,
+    /// `escaped` と並ぶ。**どの名前空間の出自か。** `None` が global
+    escaped_ns: Vec<Option<NamespaceId>>,
+    /// `escaped` と並ぶ。**名前空間つきの active char なら、その文字。**
+    ///
+    /// 名前空間つきの active char も同じ番号空間に載せる——
+    /// そうすると save stack も群も `\global` も**そのまま付いてくる**
+    escaped_active: Vec<Option<u8>>,
+    /// 名前空間の名前。番号が添字
+    namespaces: Vec<Vec<u8>>,
+    ns_index: HashMap<Vec<u8>, NamespaceId>,
     pub cs_count: usize,
 
     frozen_protection: (Command, Vec<u8>),
@@ -133,6 +151,10 @@ impl ControlSequenceStore {
         Self {
             active,
             single,
+            escaped_ns: Vec::new(),
+            escaped_active: Vec::new(),
+            namespaces: Vec::new(),
+            ns_index: HashMap::new(),
             null_cs: (
                 Command::Expandable(ExpandableCommand::Undefined),
                 Vec::new(),
@@ -194,7 +216,56 @@ impl ControlSequenceStore {
 
     /// See 259.
     pub fn id_lookup(&self, key: &[u8]) -> Option<ControlSequenceId> {
-        self.hash.get(key).copied()
+        self.id_lookup_ns(None, key)
+    }
+
+    /// 名前空間つきで引く。`None` は global。
+    pub fn id_lookup_ns(
+        &self,
+        ns: Option<NamespaceId>,
+        key: &[u8],
+    ) -> Option<ControlSequenceId> {
+        self.hash.get(&(ns, key.to_vec())).copied()
+    }
+
+    /// 名前空間の名前を番号に直す。**同じ名前なら同じ番号。**
+    pub fn intern_namespace(&mut self, name: &[u8]) -> NamespaceId {
+        if let Some(&id) = self.ns_index.get(name) {
+            return id;
+        }
+        let id = self.namespaces.len() as NamespaceId;
+        self.namespaces.push(name.to_vec());
+        self.ns_index.insert(name.to_vec(), id);
+        id
+    }
+
+    pub fn namespace_name(&self, id: NamespaceId) -> &[u8] {
+        self.namespaces.get(id as usize).map(|v| &v[..]).unwrap_or(b"")
+    }
+
+    /// **この制御綴はどの名前空間のものか。** global なら `None`。
+    pub fn namespace_of(&self, cs: ControlSequence) -> Option<NamespaceId> {
+        match cs {
+            ControlSequence::Escaped(n) => {
+                self.escaped_ns.get(n as usize).copied().flatten()
+            }
+            _ => None,
+        }
+    }
+
+    /// **これは active char か。** そうならその文字。
+    ///
+    /// `ControlSequence::Active(c)` を分解する代わりにここへ尋ねる——
+    /// 名前空間つきの active char は `Escaped` の番号空間に載っているので、
+    /// **分解では見つからない**（Phase 5）。
+    pub fn active_char(&self, cs: ControlSequence) -> Option<u8> {
+        match cs {
+            ControlSequence::Active(c) => Some(c),
+            ControlSequence::Escaped(n) => {
+                self.escaped_active.get(n as usize).copied().flatten()
+            }
+            _ => None,
+        }
     }
 
     /// See 259.
@@ -203,13 +274,29 @@ impl ControlSequenceStore {
         key: &[u8],
         variable_levels: &mut VariableLevels,
     ) -> Result<ControlSequenceId, ()> {
+        self.add_command_ns(None, key, None, variable_levels)
+    }
+
+    /// 名前空間つきで作る。`active` はその文字（名前空間つき active char のとき）。
+    ///
+    /// **同じ番号空間に載せるのが肝である。** `escaped` が伸びれば
+    /// `VariableLevels` も伸びるので、**save stack と群と `\global` がただで付いてくる。**
+    pub fn add_command_ns(
+        &mut self,
+        ns: Option<NamespaceId>,
+        key: &[u8],
+        active: Option<u8>,
+        variable_levels: &mut VariableLevels,
+    ) -> Result<ControlSequenceId, ()> {
         let Ok(n) = ControlSequenceId::try_from(self.cs_count) else {
             return Err(());
         };
         self.cs_count += 1;
-        self.hash.insert(key.to_vec(), n);
+        self.hash.insert((ns, key.to_vec()), n);
         let cmd = Command::Expandable(ExpandableCommand::Undefined);
         self.escaped.push((cmd, key.to_vec()));
+        self.escaped_ns.push(ns);
+        self.escaped_active.push(active);
         // NOTE: We need to extend the memory slots for levels as well.
         variable_levels.add_new_escaped_command();
         Ok(n)
@@ -279,6 +366,9 @@ impl Dumpable for ControlSequenceStore {
         self.null_cs.dump(target)?;
         self.hash.dump(target)?;
         self.escaped.dump(target)?;
+        self.escaped_ns.dump(target)?;
+        self.escaped_active.dump(target)?;
+        self.namespaces.dump(target)?;
         self.cs_count.dump(target)?;
         self.frozen_protection.dump(target)?;
         self.frozen_cr.dump(target)?;
@@ -300,6 +390,15 @@ impl Dumpable for ControlSequenceStore {
         let null_cs = CommandStoreEntry::undump(lines)?;
         let hash = HashMap::undump(lines)?;
         let escaped = Vec::undump(lines)?;
+        let escaped_ns: Vec<Option<NamespaceId>> = Vec::undump(lines)?;
+        let escaped_active: Vec<Option<u8>> = Vec::undump(lines)?;
+        let namespaces: Vec<Vec<u8>> = Vec::undump(lines)?;
+        // **番号から名前を引く表は書き出す。逆は組み直す**——写す意味が無い
+        let ns_index = namespaces
+            .iter()
+            .enumerate()
+            .map(|(i, n)| (n.clone(), i as NamespaceId))
+            .collect();
         let cs_count = usize::undump(lines)?;
         let frozen_protection = CommandStoreEntry::undump(lines)?;
         let frozen_cr = CommandStoreEntry::undump(lines)?;
@@ -318,6 +417,10 @@ impl Dumpable for ControlSequenceStore {
             null_cs,
             hash,
             escaped,
+            escaped_ns,
+            escaped_active,
+            namespaces,
+            ns_index,
             cs_count,
             frozen_protection,
             frozen_cr,
@@ -498,4 +601,98 @@ mod tests {
         assert_eq!(font_id, font_id_undumped);
         assert_eq!(undefined, undefined_undumped);
     }
+}
+
+#[cfg(test)]
+mod namespace_tests {
+    use super::*;
+    use crate::eqtb::Eqtb;
+
+    fn e() -> Eqtb {
+        Eqtb::new()
+    }
+
+    #[test]
+    fn 名前空間の番号は名前で共有される() {
+        let mut e = e();
+        let a = e.control_sequences.intern_namespace(b"foo");
+        let b = e.control_sequences.intern_namespace(b"foo");
+        let c = e.control_sequences.intern_namespace(b"bar");
+        assert_eq!(a, b);
+        assert_ne!(a, c);
+        assert_eq!(e.control_sequences.namespace_name(a), b"foo");
+    }
+
+    #[test]
+    fn 名前空間が違えば別の制御綴になる() {
+        let mut e = e();
+        let foo = e.control_sequences.intern_namespace(b"foo");
+        let bar = e.control_sequences.intern_namespace(b"bar");
+        let a = e.lookup_or_create_ns(Some(foo), b"x", None).unwrap();
+        let b = e.lookup_or_create_ns(Some(bar), b"x", None).unwrap();
+        let g = e.lookup_or_create(b"x").unwrap();
+        assert_ne!(a, b);
+        assert_ne!(a, g);
+        assert_ne!(b, g);
+    }
+
+    #[test]
+    fn 同じ名前空間の同じ名前は同じ制御綴() {
+        let mut e = e();
+        let foo = e.control_sequences.intern_namespace(b"foo");
+        let a = e.lookup_or_create_ns(Some(foo), b"x", None).unwrap();
+        let b = e.lookup_or_create_ns(Some(foo), b"x", None).unwrap();
+        assert_eq!(a, b);
+        assert_eq!(e.lookup_ns(Some(foo), b"x"), Some(a));
+    }
+
+    #[test]
+    fn 一文字も名前空間に入る() {
+        // **一文字の短絡は名前空間版では行わない。** `Single` は global 専用である
+        let mut e = e();
+        let foo = e.control_sequences.intern_namespace(b"foo");
+        let a = e.lookup_or_create_ns(Some(foo), b"x", None).unwrap();
+        assert!(matches!(a, ControlSequence::Escaped(_)));
+        assert_eq!(e.lookup_or_create(b"x").unwrap(), ControlSequence::Single(b'x'));
+    }
+
+    #[test]
+    fn 空の名前はグローバルへ落ちる() {
+        // **「空は global へ落ちる」を統一規則とする。** エラーにしない
+        let mut e = e();
+        let foo = e.control_sequences.intern_namespace(b"foo");
+        assert_eq!(
+            e.lookup_or_create_ns(Some(foo), b"", None).unwrap(),
+            ControlSequence::NullCs
+        );
+        assert_eq!(e.lookup_ns(Some(foo), b""), Some(ControlSequence::NullCs));
+    }
+
+    #[test]
+    fn 出自を問い合わせられる() {
+        let mut e = e();
+        let foo = e.control_sequences.intern_namespace(b"foo");
+        let a = e.lookup_or_create_ns(Some(foo), b"x", None).unwrap();
+        let g = e.lookup_or_create(b"yy").unwrap();
+        assert_eq!(e.control_sequences.namespace_of(a), Some(foo));
+        assert_eq!(e.control_sequences.namespace_of(g), None);
+    }
+
+    #[test]
+    fn 名前空間つきの活性文字は種別を答える() {
+        // **`ControlSequence::Active(c)` の分解では見つからない**（Phase 5）
+        let mut e = e();
+        let foo = e.control_sequences.intern_namespace(b"foo");
+        let a = e.lookup_or_create_ns(Some(foo), b"~", Some(b'~')).unwrap();
+        assert_eq!(e.control_sequences.active_char(a), Some(b'~'));
+        let n = e.lookup_or_create_ns(Some(foo), b"x", None).unwrap();
+        assert_eq!(e.control_sequences.active_char(n), None);
+        assert_eq!(
+            e.control_sequences.active_char(ControlSequence::Active(b'~')),
+            Some(b'~')
+        );
+    }
+
+    // **群を抜けたら戻ること**は Phase 3 で TeX を走らせて確かめる——
+    // `Logger` を組み立てるより、`\namespace` を書いた方が早い
 }

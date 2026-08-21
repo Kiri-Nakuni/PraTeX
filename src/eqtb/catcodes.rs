@@ -24,6 +24,11 @@ pub enum CatCode {
     ActiveChar = 13,
     Comment = 14,
     InvalidChar = 15,
+    /// 名前空間の印。**この文字で始まる制御綴は名前空間に入る。**
+    ///
+    /// TeX82 には無い。番号は 16——`kcatcode` を吸収する構想から
+    /// 19 を逆算していたが、順序が逆になったので撤回した。
+    Namespace = 16,
 }
 
 impl TryFrom<i32> for CatCode {
@@ -47,6 +52,7 @@ impl TryFrom<i32> for CatCode {
             13 => Self::ActiveChar,
             14 => Self::Comment,
             15 => Self::InvalidChar,
+            16 => Self::Namespace,
             _ => return Err(()),
         };
         Ok(cat_code)
@@ -72,6 +78,7 @@ impl Dumpable for CatCode {
             Self::ActiveChar => writeln!(target, "ActiveChar")?,
             Self::Comment => writeln!(target, "Comment")?,
             Self::InvalidChar => writeln!(target, "InvalidChar")?,
+            Self::Namespace => writeln!(target, "Namespace")?,
         }
         Ok(())
     }
@@ -95,6 +102,7 @@ impl Dumpable for CatCode {
             "ActiveChar" => Ok(Self::ActiveChar),
             "Comment" => Ok(Self::Comment),
             "InvalidChar" => Ok(Self::InvalidChar),
+            "Namespace" => Ok(Self::Namespace),
             _ => Err(FormatError::ParseError),
         }
     }

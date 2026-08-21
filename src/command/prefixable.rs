@@ -42,7 +42,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-const MAX_CAT_CODE: i32 = 15;
+// **16 は名前空間の印**（TeX82 には無い）
+const MAX_CAT_CODE: i32 = 16;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PrefixableCommand {

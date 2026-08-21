@@ -39,7 +39,7 @@ use catcodes::CARRIAGE_RETURN;
 use codes::CodeParameters;
 pub use codes::{CodeType, CodeVariable, VAR_CODE};
 use control_sequences::ControlSequenceStore;
-pub use control_sequences::{ControlSequence, ControlSequenceId};
+pub use control_sequences::{ControlSequence, ControlSequenceId, NamespaceId};
 use dimensions::DimensionParameters;
 pub use dimensions::DimensionVariable;
 use fonts::FontParameters;
@@ -925,8 +925,50 @@ impl Eqtb {
             _ => self
                 .control_sequences
                 .id_lookup(name)
-                .map(|n| ControlSequence::Escaped(n)),
+                .map(ControlSequence::Escaped),
         }
+    }
+
+    /// 名前空間つきで引く。`None` は global で、上と同じ。
+    ///
+    /// **一文字と空の短絡は名前空間版では行わない。**
+    /// 一文字は対の鍵に入れねばならず、空は `NullCs` へ退化させる（決定事項）。
+    pub fn lookup_ns(
+        &self,
+        ns: Option<crate::eqtb::NamespaceId>,
+        name: &[u8],
+    ) -> Option<ControlSequence> {
+        let Some(ns) = ns else { return self.lookup(name) };
+        if name.is_empty() {
+            // **空は global へ落ちる。** これを統一規則とする
+            return Some(ControlSequence::NullCs);
+        }
+        self.control_sequences
+            .id_lookup_ns(Some(ns), name)
+            .map(ControlSequence::Escaped)
+    }
+
+    /// 名前空間つきで引くか、無ければ作る。
+    pub fn lookup_or_create_ns(
+        &mut self,
+        ns: Option<crate::eqtb::NamespaceId>,
+        name: &[u8],
+        active: Option<u8>,
+    ) -> Result<ControlSequence, ()> {
+        let Some(ns) = ns else { return self.lookup_or_create(name) };
+        if name.is_empty() {
+            return Ok(ControlSequence::NullCs);
+        }
+        if let Some(n) = self.control_sequences.id_lookup_ns(Some(ns), name) {
+            return Ok(ControlSequence::Escaped(n));
+        }
+        let n = self.control_sequences.add_command_ns(
+            Some(ns),
+            name,
+            active,
+            &mut self.variable_levels,
+        )?;
+        Ok(ControlSequence::Escaped(n))
     }
 
     /// Gets the `ControlSequence` corresponding to the name or creates a new

@@ -352,6 +352,13 @@ fn run_built(
     let built = match &**cached {
         Ok(p) => p,
         Err(errs) => {
+            // **数しか出せない**——rtex の記録は 7 ビットで、Vaak の文言は日本語である。
+            // 中身を見たいときは `VAAK_DEBUG=1` を立てると標準エラーへ出る
+            if std::env::var_os("VAAK_DEBUG").is_some() {
+                for e in errs {
+                    eprintln!("vaak: {e}");
+                }
+            }
             return (0, Some(format!("{} static error(s) before running", errs.len())));
         }
     };

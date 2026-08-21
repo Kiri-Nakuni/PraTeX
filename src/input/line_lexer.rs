@@ -118,6 +118,14 @@ impl LineLexer {
                 // A control sequence.
                 (_, Escape) => self.scan_control_sequence(cat_code),
 
+                // **名前空間の印。** Phase 2 でここを実装する。
+                // それまでは other として扱う——catcode 16 を持つ文字が
+                // 無ければ到達しないので、既存の振る舞いは変わらない
+                (_, Namespace) => {
+                    self.state = Midline;
+                    LexerToken::OtherChar(chr)
+                }
+
                 // An end-of-line character while not skipping spaces.
                 (Midline, CarRet) => {
                     // Skip rest of line.
