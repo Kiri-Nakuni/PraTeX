@@ -291,10 +291,20 @@ fn get_x_token_or_active_char(
                 _ => panic!("Impossible"),
             };
             // If the control sequence is an active char
-            if let ControlSequence::Active(c) = cs {
-                (CatCode::ActiveChar, c as u16)
-            } else {
-                (CatCode::Escape, 256)
+            //
+            // **分解ではなく問い合わせる。** 名前空間つきの活性文字は
+            // `Escaped` の番号空間に載っているので、`Active(c)` の分解では見つからない。
+            //
+            // `\if` / `\ifcat` は catcode と charcode の**問い合わせ**であって
+            // 文字への**変換**ではない——だからここだけを置き換える。
+            // `\uppercase` や `` ` `` は複合トークンを文字にする操作なので置き換えない。
+            //
+            // 帰結として **`*ns~` と `~` は `\if` / `\ifcat` で区別できない。**
+            // これは正しい——TeX82 の `\if` はもともと非活性な制御綴を
+            // すべて `(Escape, 256)` に潰す設計で、同一性の判定は `\ifx` の仕事である
+            match eqtb.control_sequences.active_char(cs) {
+                Some(c) => (CatCode::ActiveChar, c as u16),
+                None => (CatCode::Escape, 256),
             }
         }
         UnexpandableCommand::TabMark(c) => (CatCode::TabMark, c as u16),

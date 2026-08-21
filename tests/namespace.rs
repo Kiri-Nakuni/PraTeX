@@ -7,7 +7,13 @@ use std::io::Write;
 use std::process::Command;
 
 fn run_tex(name: &str, body: &str) -> String {
-    let dir = std::env::temp_dir().join(format!("ns-{}-{name}", std::process::id()));
+    // **場所の名前は ASCII にする。** rtex の記録は 7 ビットで、
+    // 日本語の道が `^^e6` に化けて読めなくなる。
+    // 名前を潰すと**試験どうしがぶつかる**ので、写しではなく畳んだ値を使う
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    name.hash(&mut h);
+    let dir = std::env::temp_dir().join(format!("ns-{}-{:x}", std::process::id(), h.finish()));
     std::fs::create_dir_all(&dir).unwrap();
     let src = dir.join("t.tex");
     let mut f = std::fs::File::create(&src).unwrap();
@@ -226,4 +232,81 @@ fn 名前空間の印は逆読みできる() {
         "\\def*foo\\bar{X}\\namespacechar=`\\*\\escapechar=`\\\\\n\\message{[\\string*foo\\bar]}",
     );
     assert!(log.contains("[*foo\\bar]"), "{log}");
+}
+
+// ===== Phase 5：`\if` / `\ifcat` =====
+
+#[test]
+fn 名前空間つきの活性文字も活性である() {
+    // **分解ではなく問い合わせる。** `Active(c)` の分解では見つからない
+    let log = run_tex(
+        "活性",
+        "\\catcode`\\~=13 \\def~{TILDE}\\def*foo~{NSTILDE}\n\
+         \\message{[\\ifcat\\noexpand*foo~\\noexpand~ Y\\else N\\fi]}",
+    );
+    // `\noexpand~` の後の空白は読み飛ばされるので、記録には ` Y` と出る
+    assert!(log.contains("Y]"), "{log}");
+    assert!(!log.contains("N]"), "{log}");
+}
+
+#[test]
+fn 活性文字の同一性はifxの仕事() {
+    // `\ifcat` は catcode の**問い合わせ**であって同一性の判定ではない。
+    // **`*ns~` と `~` を区別するのは `\ifx` である**
+    let log = run_tex(
+        "同一性",
+        "\\catcode`\\~=13 \\def~{TILDE}\\def*foo~{NSTILDE}\n\
+         \\message{[\\ifx*foo~~Y\\else N\\fi][~][*foo~]}",
+    );
+    assert!(log.contains("[N][TILDE][NSTILDE]"), "{log}");
+}
+
+#[test]
+fn 名前空間つきの活性文字はエスケープを挟まない() {
+    let log = run_tex(
+        "活性の印字",
+        "\\catcode`\\~=13 \\def*foo~{X}\\namespacechar=`\\*\n\\message{[\\string*foo~]}",
+    );
+    assert!(log.contains("[*foo~]"), "{log}");
+}
+
+// ===== Phase 7：fmt =====
+
+#[test]
+fn 書き出して読み直せる() {
+    // **新しい欄が dump/undump を往復すること。** 名前空間の表も含む
+    let dir = std::env::temp_dir().join(format!("ns-fmt-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let ini = dir.join("mk.tex");
+    let mut f = std::fs::File::create(&ini).unwrap();
+    write!(
+        f,
+        "\\catcode`\\{{=1\n\\catcode`\\}}=2\n\\batchmode\n\\catcode`\\*=16\n\
+         \\def*foo\\bar{{FMT}}\\namespacechar=`\\*\n\\dump\n"
+    )
+    .unwrap();
+    drop(f);
+    let out = Command::new(env!("CARGO_BIN_EXE_rtex"))
+        .arg(&ini)
+        .current_dir(&dir)
+        .output()
+        .unwrap();
+    let fmt = dir.join("mk.fmt");
+    if !fmt.exists() {
+        // このビルドが `\dump` を持たないなら飛ばす
+        eprintln!("`\\dump` が使えないので飛ばす: {}", String::from_utf8_lossy(&out.stderr));
+        return;
+    }
+    let use_ = dir.join("use.tex");
+    let mut f = std::fs::File::create(&use_).unwrap();
+    write!(f, "\\message{{[\\string*foo\\bar][*foo\\bar]}}\n\\end\n").unwrap();
+    drop(f);
+    Command::new(env!("CARGO_BIN_EXE_rtex"))
+        .arg("&mk")
+        .arg(&use_)
+        .current_dir(&dir)
+        .output()
+        .unwrap();
+    let log = std::fs::read_to_string(dir.join("use.log")).unwrap_or_default();
+    assert!(log.contains("[*foo\\bar][FMT]"), "{log}");
 }
