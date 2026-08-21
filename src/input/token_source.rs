@@ -8,21 +8,89 @@ use crate::token_lists::{token_show, RcTokenList};
 /// See 307.
 #[derive(Debug)]
 pub struct TokenListReader {
-    pub token_list: RcTokenList,
-    pub pos: usize,
+    storage: TokenListStorage,
+    pos: usize,
+}
+
+#[derive(Debug)]
+enum TokenListStorage {
+    Shared(RcTokenList),
+    Inline(Token),
 }
 
 impl TokenListReader {
+    pub fn from_shared(token_list: RcTokenList) -> Self {
+        Self {
+            storage: TokenListStorage::Shared(token_list),
+            pos: 0,
+        }
+    }
+
+    pub fn from_token(token: Token) -> Self {
+        Self {
+            storage: TokenListStorage::Inline(token),
+            pos: 0,
+        }
+    }
+
     /// Get the next token from the token list.
     /// See 357.
     pub fn get_next_token(&mut self) -> Option<Token> {
-        match self.token_list.get(self.pos) {
+        match self.as_slice().get(self.pos).copied() {
             Some(token) => {
                 self.pos += 1;
-                Some(*token)
+                Some(token)
             }
             None => None,
         }
+    }
+
+    pub fn is_finished(&self) -> bool {
+        self.pos >= self.as_slice().len()
+    }
+
+    pub fn deplete(&mut self) {
+        self.pos = self.as_slice().len();
+    }
+
+    pub fn as_slice(&self) -> &[Token] {
+        match &self.storage {
+            TokenListStorage::Shared(token_list) => token_list.as_slice(),
+            TokenListStorage::Inline(token) => std::slice::from_ref(token),
+        }
+    }
+
+    pub fn position(&self) -> usize {
+        self.pos
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{TokenListReader, TokenListStorage};
+    use crate::token::Token;
+
+    use std::rc::Rc;
+
+    #[test]
+    fn 一字だけはインラインで通常列はrcを共有する() {
+        let token = Token::OtherChar(b'x');
+        let mut inline = TokenListReader::from_token(token);
+        assert!(matches!(
+            &inline.storage,
+            TokenListStorage::Inline(stored) if *stored == token
+        ));
+        assert_eq!(inline.get_next_token(), Some(token));
+        assert!(inline.is_finished());
+        assert_eq!(inline.get_next_token(), None);
+
+        let shared = Rc::new(vec![Token::Letter(b'a'), Token::Letter(b'b')]);
+        let reader = TokenListReader::from_shared(shared.clone());
+        let TokenListStorage::Shared(stored) = &reader.storage else {
+            panic!("通常のトークン列が共有されていない");
+        };
+        assert!(Rc::ptr_eq(stored, &shared));
+        assert_eq!(reader.as_slice(), shared.as_slice());
     }
 }
 

@@ -146,10 +146,7 @@ impl InputStack {
             source_type.print_named_token_list_trace(&rc_token_list, eqtb, logger);
         }
 
-        let reader = TokenListReader {
-            token_list: rc_token_list,
-            pos: 0,
-        };
+        let reader = TokenListReader::from_shared(rc_token_list);
 
         self.push_input(
             InputSource::TokenSource {
@@ -418,10 +415,7 @@ impl InputStack {
     fn insert_macro_parameter(&mut self, parameter: RcTokenList, eqtb: &Eqtb, logger: &mut Logger) {
         // NOTE To avoid calling begin_token_list here as it is in the parent
         // module, we just copy the logic here.
-        let reader = TokenListReader {
-            token_list: parameter,
-            pos: 0,
-        };
+        let reader = TokenListReader::from_shared(parameter);
         let input = InputSource::TokenSource {
             reader,
             source_type: TokenSourceType::Parameter,
@@ -467,10 +461,7 @@ impl InputStack {
     /// See 323.
     pub fn back_list(&mut self, token_list: Vec<Token>, eqtb: &Eqtb, logger: &mut Logger) {
         let rc_token_list = std::rc::Rc::new(token_list);
-        let reader = TokenListReader {
-            token_list: rc_token_list,
-            pos: 0,
-        };
+        let reader = TokenListReader::from_shared(rc_token_list);
         self.push_input(
             InputSource::TokenSource {
                 reader,
@@ -533,7 +524,7 @@ impl InputStack {
                     reader,
                     source_type,
                 } => {
-                    if reader.pos < reader.token_list.len() {
+                    if !reader.is_finished() {
                         break;
                     }
                     if let TokenSourceType::VTemplate { .. } | TokenSourceType::UTemplate =
@@ -570,7 +561,7 @@ impl InputStack {
                         source_type,
                         reader,
                     }) => {
-                        if reader.pos < reader.token_list.len() {
+                        if !reader.is_finished() {
                             fatal_error(error_string, self, eqtb, logger);
                         }
                         if let &TokenSourceType::VTemplate { ending_command } = source_type {
@@ -606,7 +597,7 @@ impl InputStack {
             InputSource::TokenSource {
                 source_type: TokenSourceType::OutputText | TokenSourceType::BackedUp,
                 reader,
-            } if reader.pos >= reader.token_list.len() => true,
+            } if reader.is_finished() => true,
             // Otherwise something is out of balance with the output routine.
             _ => false,
         }
@@ -620,7 +611,7 @@ impl InputStack {
         let InputSource::TokenSource { reader, .. } = self.current_source_mut() else {
             return;
         };
-        reader.pos = reader.token_list.len();
+        reader.deplete();
     }
 
     /// Shows an input stack trace down to the first TextSource.
@@ -661,7 +652,7 @@ impl InputStack {
                     reader,
                 } = source
                 {
-                    if reader.pos >= reader.token_list.len() {
+                    if reader.is_finished() {
                         continue;
                     }
                 }
@@ -718,7 +709,12 @@ impl InputStack {
             } => {
                 Self::print_type_of_token_list(source_type, reader, logger);
                 location_len = logger.get_tally();
-                show_token_list_pseudo(&reader.token_list, reader.pos, &mut pseudo_printer, eqtb);
+                show_token_list_pseudo(
+                    reader.as_slice(),
+                    reader.position(),
+                    &mut pseudo_printer,
+                    eqtb,
+                );
             }
             &InputSource::DontExpand { cs, has_been_read } => {
                 // We need to ensure here that this produces the same output as a the backup list
@@ -791,7 +787,7 @@ impl InputStack {
             Parameter => "<argument> ",
             UTemplate | VTemplate { .. } => "<template> ",
             BackedUp => {
-                if reader.pos >= reader.token_list.len() {
+                if reader.is_finished() {
                     "<recently read> "
                 } else {
                     "<to be read again> "
@@ -870,4 +866,106 @@ pub enum NextResult {
     TokenListEnded,
     /// **字句層の誤り。** 今までは invalid char しか無かった
     LexError(crate::input::line_lexer::LexError),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{InputSource, TokenSourceType};
+    use crate::eqtb::{ControlSequence, Eqtb};
+    use crate::input::Scanner;
+    use crate::logger::{InteractionMode, Logger};
+    use crate::macros::{Macro, MacroToken};
+    use crate::token::Token;
+
+    use std::rc::Rc;
+
+    fn 入力器を作る() -> (Scanner, Eqtb, Logger) {
+        (
+            Scanner::new(Vec::new(), 0),
+            Eqtb::new(),
+            Logger::new(String::new(), InteractionMode::Batch),
+        )
+    }
+
+    #[test]
+    fn 一字の再挿入をマクロと区別して後入れ先出しで読む() {
+        let (mut scanner, mut eqtb, mut logger) = 入力器を作る();
+        let macro_token = Token::Letter(b'm');
+        scanner.input_stack.begin_macro_call(
+            ControlSequence::Undefined,
+            Rc::new(Macro {
+                parameter_text: Vec::new(),
+                replacement_text: vec![MacroToken::Normal(macro_token)],
+            }),
+            Vec::new(),
+            &eqtb,
+            &mut logger,
+        );
+
+        let inserted = Token::Letter(b'i');
+        scanner.input_token(TokenSourceType::Inserted, inserted, &mut eqtb, &mut logger);
+        let backed_up = Token::Letter(b'b');
+        scanner.back_input(backed_up, &mut eqtb, &mut logger);
+
+        assert!(matches!(
+            scanner.input_stack.current_source(),
+            InputSource::TokenSource {
+                source_type: TokenSourceType::BackedUp,
+                ..
+            }
+        ));
+        assert_eq!(scanner.get_token(&mut eqtb, &mut logger), backed_up);
+        assert_eq!(scanner.get_token(&mut eqtb, &mut logger), inserted);
+        assert_eq!(scanner.get_token(&mut eqtb, &mut logger), macro_token);
+        assert!(matches!(
+            scanner.input_stack.current_source(),
+            InputSource::MacroCall { .. }
+        ));
+    }
+
+    #[test]
+    fn 読み終えた一字入力源は次の挿入前に取り除く() {
+        let (mut scanner, mut eqtb, mut logger) = 入力器を作る();
+        let first = Token::Letter(b'a');
+        scanner.back_input(first, &mut eqtb, &mut logger);
+        assert_eq!(scanner.get_token(&mut eqtb, &mut logger), first);
+        assert_eq!(scanner.input_stack.stack.len(), 1);
+
+        scanner.input_token(
+            TokenSourceType::Inserted,
+            Token::Letter(b'b'),
+            &mut eqtb,
+            &mut logger,
+        );
+        assert_eq!(scanner.input_stack.stack.len(), 1);
+        assert!(matches!(
+            scanner.input_stack.current_source(),
+            InputSource::TokenSource {
+                source_type: TokenSourceType::Inserted,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn 差し戻した波括弧を読むと整列状態が元に戻る() {
+        let (mut scanner, mut eqtb, mut logger) = 入力器を作る();
+        let initial = scanner.align_state;
+
+        scanner.back_input(Token::LEFT_BRACE_TOKEN, &mut eqtb, &mut logger);
+        assert_eq!(scanner.align_state, initial - 1);
+        assert_eq!(
+            scanner.get_token(&mut eqtb, &mut logger),
+            Token::LEFT_BRACE_TOKEN
+        );
+        assert_eq!(scanner.align_state, initial);
+
+        scanner.back_input(Token::RIGHT_BRACE_TOKEN, &mut eqtb, &mut logger);
+        assert_eq!(scanner.align_state, initial + 1);
+        assert_eq!(
+            scanner.get_token(&mut eqtb, &mut logger),
+            Token::RIGHT_BRACE_TOKEN
+        );
+        assert_eq!(scanner.align_state, initial);
+    }
 }

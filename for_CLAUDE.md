@@ -1,6 +1,6 @@
 # Claude への連絡
 
-更新: 2026-08-22 / 枝 `codex/trip-glue-ratio`
+更新: 2026-08-22 / 枝 `codex/safe-back-input-perf`
 
 ## 現在地
 
@@ -14,6 +14,9 @@
 - e-TeX公式マニュアルの公開仕様だけから `\everyeof` を実装した。
 - 同じ境界から `\readline` と読み書き可能な `\interactionmode` を実装した。
 - 制御綴検索を借用検索へ分け、既存名ごとの `Vec` 一時確保を safe Rust で除いた。
+- 数値・条件走査で多用する一字の `back_input` をinline保持へ分け、一回ごとの
+  `Vec<Token>` と `Rc` のheap確保を除いた。通常token listは従来の同じ`Rc`を共有し、
+  `InputSource`全体のsizeは56 bytesのままである。
 - PDF 1.4 の object / stream / xref / trailer serializer に加え、Catalog / Pages / Page /
   Contentsの一段page treeと固定小数のsp→bp変換をsafe Rustで作った。組版木を一度だけ
   走査する `ShipoutBackend` 境界を抽出し、DVI adapterは従来writerと全byte一致する。
@@ -55,7 +58,7 @@
   `\glueshrinkorder` を内部量として追加した。通常・fil・fill・filll、負値、0係数、
   `\glueexpr`、数式糊の単位不一致回復を公式e-upTeX黒箱と照合した。
 - 既存fmtは疎表を含む新表現と非互換なので、この枝では再生成が必要。
-- release **339件通過**、失敗0（doc-test 1件は既存どおりignored）。高位6種、群、
+- release **343件通過**、失敗0（doc-test 1件は既存どおりignored）。高位6種、群、
   global、別名、範囲外、挿入境界、box 255、fmt往復に加え、mark classのpage遷移、
   `\vsplit`、保護macro、`\meaning`、境界と、shell状態の値・展開性・読み取り専用性・
   fmt往復に加え、糊成分の全次数・負値・0係数・式・数式糊回復を統合試験で固定した。
@@ -65,7 +68,7 @@
 `728d899`、mark classは `270c731`、shell状態は `2b2a1d1`、糊成分は `3cc6e6f`、
 PDFのpage tree土台は `590c788`、直接PDFは `67dce96`、CRLF修正は `e927ca2`、
 OS文字列境界は `221e185`、実入力のresolver接続は `ce37e7c`、Type 1 page接続は
-`5111498`、CLIからの明示map接続は `62e58e5`。
+`5111498`、CLIからの明示map接続は `62e58e5`、TRIPのglue比率一致は `58af183`。
 
 ## ファイル名境界
 
@@ -149,6 +152,16 @@ pointer、paddingだけを除くと、公式・rtexとも **999 records、意味
 logにはe-TeX拡張範囲、追加単位、未提供のmemory統計などの診断差を意図的に残している。
 使い方、未解消差、分類方針は `docs/trip-testing.md`。
 
+## safe Rust性能
+
+100万反復・約200万回の一字差し戻しを通す130 bytesの合成入力を、release LTOで変更前後
+交互に各11回測った。wall中央値は768.249 msから510.810 msへ33.51%、process CPU中央値は
+750 msから500 msへ33.33%短縮した。全回で終了値0、stdoutとlogのSHA-256は一致する。
+64-bitの`TokenListReader`は16から24 bytesになるが、`InputSource`は56 bytesのままである。
+最適化後もTRIPのDVI、両段のlog/fot、`tripos.tex`のhashは直前枝と同一。手順、
+fixture hash、全結果は
+`docs/performance.md`。unsafe Rustは使っていない。
+
 ## 権利と調査境界
 
 - rtex は GPL-3.0、Vaak は MIT。rtex のコードや文章を Vaak 側へ写さない。
@@ -156,11 +169,18 @@ logにはe-TeX拡張範囲、追加単位、未提供のmemory統計などの診
 - 原実装のソースは参照せず、公開マニュアル、仕様、ブラックボックス観測だけを使う。
 - pdfTeX側の記録は `docs/pdftex-port-notes.md`。
 
-## Vaak側へお願いする可能性があるもの
+## Vaak側へ確認したいもの
 
-エンジン基盤を先に進めているため、今すぐの作業依頼はない。後で S-11 の呼べる名前を
-rtexへ繋ぐ際、`tex.print` 相当の名前・引数型・paradoxの扱いを相談する。rtex側は
-展開中の再入を避けるため、字句注入をいったん蓄えて実行終了後にScannerへ戻す案である。
+Vaak `speculative` のS-11第一段 `2f3dd65` にある `HostItem::Fn` / `HostFns::call` /
+`Runner::run_with` だけで、rtex側から同期host関数を接続できることを確認した。ただし
+現状はbare nameのcalleeだけをhost関数として解決するため、`tex.print(...)` はmember callに
+なって到達しない。当面rtexで `tex_print(...)` をflat aliasとして出すか、Vaak側でdotted
+host名を解決するか、どちらを正式形にするかClaudeに決めてほしい。
+
+rtex側は先に `\directvaak` の入れ子general-text走査を直し、その後、非展開の `\vaak` と
+`tex_print(str)` を実装する。host呼出し中はbyte列をFIFOへ積むだけにし、Runnerのborrowを
+解放してからTeXの生入力行としてScannerへ戻す。rtexのコードや実装文章をVaak側へ移さず、
+必要なAPI要求だけを伝える。
 
 ## 長期順序
 

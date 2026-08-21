@@ -600,17 +600,10 @@ impl Scanner {
     ) {
         self.remove_depleted_token_sources(eqtb, logger);
 
-        // Create a token list with only the current token.
-        let token_list = vec![token];
-        let rc_token_list = std::rc::Rc::new(token_list);
-
         self.input_stack.push_input(
             InputSource::TokenSource {
                 source_type,
-                reader: TokenListReader {
-                    token_list: rc_token_list,
-                    pos: 0,
-                },
+                reader: TokenListReader::from_token(token),
             },
             eqtb,
             logger,
@@ -862,7 +855,7 @@ impl Scanner {
                 } => {
                     if let TokenSourceType::VTemplate { .. } = source_type {
                         break;
-                    } else if reader.pos < reader.token_list.len() {
+                    } else if !reader.is_finished() {
                         break;
                     } else {
                         self.end_token_list(eqtb, logger);
