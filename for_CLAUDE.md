@@ -1,12 +1,14 @@
 # Claude への連絡
 
-更新: 2026-08-22 / 枝 `codex/pdf-page-backend`
+更新: 2026-08-22 / 枝 `codex/windows-crlf-filenames`
 
 ## 現在地
 
 - `origin/etex-latex` の5コミットを `full` の上へ統合済み。
 - Vaak の現行 `speculative` API（`HostItem`）へ rtex を追従済み。
 - Windowsでも release 全試験を走らせられるよう、ファイル名のOS境界を共通化した。
+  CRLFを一つの行末として読み、CLIは `args_os`、TeXの8bit名は `OsString` へ移す。
+  `\input`、`\openout`、font、fmt表示、Vaak、promptからUTF-8断定panicを除いた。
 - pdfTeX互換の general text 走査を `nested_scan_toks` に統一した。
 - pdfTeX公式マニュアルの公開仕様だけから `\pdfstrcmp` を実装した。
 - e-TeX公式マニュアルの公開仕様だけから `\everyeof` を実装した。
@@ -33,15 +35,24 @@
   `\glueshrinkorder` を内部量として追加した。通常・fil・fill・filll、負値、0係数、
   `\glueexpr`、数式糊の単位不一致回復を公式e-upTeX黒箱と照合した。
 - 既存fmtは疎表を含む新表現と非互換なので、この枝では再生成が必要。
-- release **232件通過**、失敗0（doc-test 1件は既存どおりignored）。高位6種、群、
+- release **237件通過**、失敗0（doc-test 1件は既存どおりignored）。高位6種、群、
   global、別名、範囲外、挿入境界、box 255、fmt往復に加え、mark classのpage遷移、
   `\vsplit`、保護macro、`\meaning`、境界と、shell状態の値・展開性・読み取り専用性・
   fmt往復に加え、糊成分の全次数・負値・0係数・式・数式糊回復を統合試験で固定した。
 
-作業枝は機能単位で切り、`origin/codex/pdf-page-backend` まで定期的にpushする。
+作業枝は機能単位で切り、`origin/codex/windows-crlf-filenames` まで定期的にpushする。
 値ストレージの土台は `a218c28`、6種への統合と挿入番号分離は `d7c121e`、TRIP runnerは
 `728d899`、mark classは `270c731`、shell状態は `2b2a1d1`、糊成分は `3cc6e6f`、
-PDFのpage tree土台は `590c788`。
+PDFのpage tree土台は `590c788`、直接PDFは `67dce96`、CRLF修正は `e927ca2`。
+
+## ファイル名境界
+
+Windowsのoutput promptへCRLFで答えると末尾 `\r` が名前へ混ざる問題をprocess試験で
+再現して修正した。Unicode名のCLI入力、内部 `\input`、`\openout` も実ファイルで通した。
+Unixでは非UTF-8 argv/pathをbyteのまま保つcompile-gated試験を置いた。残る別課題は、
+単一CLI argv内の空白が現在の「引数をTeX入力行へjoin」する設計で引用情報を失うことと、
+Windows絶対pathのbackslashがTeX escapeとして読まれること。resolver導入時にCLIの
+filename引数とTeXコード引数を分ける。
 
 ## PDF backend
 
@@ -53,6 +64,12 @@ dynamic dispatchも避ける。sp→bpはchecked integerと10^-6 bp固定小数�
 宣言boxが負幅でも、実際に描く文字・ruleの範囲までMediaBoxを拡張してclipを避ける。
 生の `\special` はcontentへ注入せず捨てる。設計と権利境界は
 `docs/pdf-backend-notes.md`。
+
+次のfont段階は公開PDF/Type 1/AFM仕様だけを使う。PFB wrapperを外してASCII/binary/ASCII
+payloadを `/FontFile` へ全埋込みし、AFMからdescriptorとPDF widthsを作る。通常mapの
+`<font.pfb` はsubset指定なので、subset未実装中に黙ってfull embedへ昇格させない。
+初期実測の `cmr10 CMR10 <cmr10.pfb` はこの制約に該当する。資材はTEXMFから実行時探索し、
+版方へコピーしない。
 
 ## LaTeX実測
 

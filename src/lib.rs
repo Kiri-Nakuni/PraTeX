@@ -61,7 +61,7 @@ use print::Printer;
 use run_options::{parse_arguments, OutputFormat};
 use semantic_nest::SemanticState;
 
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::{BufRead, Write};
@@ -81,6 +81,22 @@ pub(crate) fn os_string_from_bytes(bytes: Vec<u8>) -> OsString {
     #[cfg(not(unix))]
     {
         OsString::from(String::from_utf8_lossy(&bytes).into_owned())
+    }
+}
+
+/// OSのファイル名をTeX内部の8bit列へ移す。
+///
+/// Unixでは任意byteを往復し、Windowsでは安全なUnicode表現をUTF-8へする。Windowsの
+/// unpaired surrogateだけはsafe RustでTeXの8bit列へ可逆化できないため、代替文字になる。
+pub(crate) fn os_str_to_bytes(value: &OsStr) -> Vec<u8> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        value.as_bytes().to_vec()
+    }
+    #[cfg(not(unix))]
+    {
+        value.to_string_lossy().into_owned().into_bytes()
     }
 }
 
@@ -169,7 +185,7 @@ pub fn tex_main() -> Result<(), ()> {
 /// See 1337.
 fn read_format_name_and_first_line() -> Result<(OutputFormat, Option<OsString>, Vec<u8>, usize), ()>
 {
-    let arguments = parse_arguments(std::env::args().skip(1)).map_err(|error| {
+    let arguments = parse_arguments(std::env::args_os().skip(1)).map_err(|error| {
         eprintln!("rtex: {error}");
     })?;
 
@@ -207,18 +223,24 @@ fn read_format_name_and_first_line() -> Result<(OutputFormat, Option<OsString>, 
 /// the user complies or closes stdin (in which case we shut down).
 /// See 37.
 pub fn get_first_input_line() -> (Vec<u8>, usize) {
-    get_first_input_line_from_arguments(std::env::args().skip(1))
+    get_first_input_line_from_arguments(std::env::args_os().skip(1))
 }
 
 fn get_first_input_line_from_arguments(
-    arguments: impl IntoIterator<Item = String>,
+    arguments: impl IntoIterator<Item = OsString>,
 ) -> (Vec<u8>, usize) {
     // If we have command line arguments, we take those as the first line of input instead of
     // interactively asking the user for input.
-    let arguments: Vec<String> = arguments.into_iter().collect();
+    let arguments: Vec<OsString> = arguments.into_iter().collect();
     if !arguments.is_empty() {
         // NOTE We do not check for null bytes and new lines.
-        let input_line: Vec<u8> = arguments.join(" ").bytes().collect();
+        let mut input_line = Vec::new();
+        for (index, argument) in arguments.iter().enumerate() {
+            if index != 0 {
+                input_line.push(b' ');
+            }
+            input_line.extend_from_slice(&os_str_to_bytes(argument));
+        }
         // Find first non-space character position.
         let first_non_space = input_line.iter().position(|&x| x != b' ');
 
@@ -471,5 +493,34 @@ mod read_line_tests {
         assert_eq!(line, b"last");
         line.clear();
         assert!(!read_line(&mut source, &mut line));
+    }
+}
+
+#[cfg(test)]
+mod os_string_tests {
+    #[cfg(unix)]
+    use super::get_first_input_line_from_arguments;
+    use super::{os_str_to_bytes, os_string_from_bytes};
+    use std::ffi::OsString;
+
+    #[test]
+    fn unicodeのos文字列をtexのbyte列へ移す() {
+        let name = OsString::from("日本語.tex");
+        let bytes = os_str_to_bytes(&name);
+        assert_eq!(bytes, "日本語.tex".as_bytes());
+        assert_eq!(os_string_from_bytes(bytes), name);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unixの非utf8引数を欠落させない() {
+        use std::os::unix::ffi::OsStringExt;
+
+        let raw = vec![b'n', 0xff, b'.', b't', b'e', b'x'];
+        let argument = OsString::from_vec(raw.clone());
+        assert_eq!(os_str_to_bytes(&argument), raw);
+        let (line, first_non_space) = get_first_input_line_from_arguments([argument]);
+        assert_eq!(line, raw);
+        assert_eq!(first_non_space, 0);
     }
 }

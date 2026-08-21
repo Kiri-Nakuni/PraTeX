@@ -9,6 +9,7 @@ use crate::input::Scanner;
 use crate::integer::{Integer, IntegerExt};
 use crate::logger::Logger;
 use crate::nodes::{CharNode, GlueSpec};
+use crate::os_str_to_bytes;
 use crate::print::Printer;
 use crate::scaled::{xn_over_d, Scaled, UNITY};
 
@@ -102,20 +103,8 @@ impl FontInfo {
             _ => bchar,
         };
 
-        let name = path
-            .file_name()
-            .unwrap()
-            .to_str()
-            .unwrap()
-            .as_bytes()
-            .to_vec();
-        let area = path
-            .parent()
-            .unwrap_or(Path::new(""))
-            .to_str()
-            .unwrap()
-            .as_bytes()
-            .to_vec();
+        let name = os_str_to_bytes(path.file_name().unwrap());
+        let area = os_str_to_bytes(path.parent().unwrap_or(Path::new("")).as_os_str());
 
         Ok(Self {
             check: font_check,

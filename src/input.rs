@@ -20,7 +20,7 @@ use crate::error::fatal_error;
 use crate::integer::{Integer, IntegerExt};
 use crate::logger::Logger;
 use crate::macros::{show_macro_def, Macro};
-use crate::open_in;
+use crate::{open_in, os_string_from_bytes};
 use crate::print::{Printer, ERROR_LINE};
 use crate::token::Token;
 use crate::token_lists::{show_token_list, RcTokenList};
@@ -746,7 +746,7 @@ impl Scanner {
     /// See 537.
     pub fn start_input(&mut self, eqtb: &mut Eqtb, logger: &mut Logger) {
         let file_name = self.scan_file_name(eqtb, logger);
-        let mut path = PathBuf::from(String::from_utf8(file_name).unwrap());
+        let mut path = PathBuf::from(os_string_from_bytes(file_name));
         if path.extension().is_none() {
             path.set_extension("tex");
         }

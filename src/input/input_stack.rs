@@ -217,13 +217,14 @@ impl InputStack {
         eqtb: &mut Eqtb,
         logger: &mut Logger,
     ) {
-        if logger.term_offset + path.to_str().unwrap().len() > MAX_PRINT_LINE - 2 {
+        let path_bytes = path.as_os_str().as_encoded_bytes();
+        if logger.term_offset + path_bytes.len() > MAX_PRINT_LINE - 2 {
             logger.print_ln();
         } else if logger.term_offset > 0 || logger.file_offset > 0 {
             logger.print_char(b' ');
         }
         logger.print_char(b'(');
-        logger.slow_print_str(path.to_str().unwrap().as_bytes());
+        logger.slow_print_str(path_bytes);
         logger.update_terminal();
 
         self.line_number_stack.push(self.line_number);

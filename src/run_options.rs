@@ -1,5 +1,6 @@
 //! TeXへ渡す入力行から、rtex自身の少数のoptionだけを分ける。
 
+use std::ffi::OsString;
 use std::fmt;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -21,7 +22,7 @@ impl OutputFormat {
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) struct ParsedArguments {
     pub(crate) output_format: OutputFormat,
-    pub(crate) tex_arguments: Vec<String>,
+    pub(crate) tex_arguments: Vec<OsString>,
 }
 
 /// web2c系で一般的な `-output-format=pdf` と、そのlong-option表記を読む。
@@ -29,7 +30,7 @@ pub(crate) struct ParsedArguments {
 /// rtexが知らない引数は従来どおりTeXの最初の入力行へ残す。`--` より後ろもすべて
 /// TeXへ渡すので、optionに似たファイル名や制御綴も失わない。
 pub(crate) fn parse_arguments(
-    arguments: impl IntoIterator<Item = String>,
+    arguments: impl IntoIterator<Item = OsString>,
 ) -> Result<ParsedArguments, RunOptionError> {
     let mut output_format = OutputFormat::Dvi;
     let mut tex_arguments = Vec::new();
@@ -42,18 +43,24 @@ pub(crate) fn parse_arguments(
             continue;
         }
         if parsing_options {
-            if let Some(value) = argument
-                .strip_prefix("-output-format=")
-                .or_else(|| argument.strip_prefix("--output-format="))
-            {
-                output_format = OutputFormat::parse(value)?;
-                continue;
+            if let Some(argument_text) = argument.to_str() {
+                if let Some(value) = argument_text
+                    .strip_prefix("-output-format=")
+                    .or_else(|| argument_text.strip_prefix("--output-format="))
+                {
+                    output_format = OutputFormat::parse(value)?;
+                    continue;
+                }
             }
             if argument == "-output-format" || argument == "--output-format" {
                 let value = arguments
                     .next()
                     .ok_or(RunOptionError::MissingOutputFormat)?;
-                output_format = OutputFormat::parse(&value)?;
+                output_format = value.to_str().map(OutputFormat::parse).unwrap_or_else(|| {
+                    Err(RunOptionError::UnknownOutputFormat(
+                        value.to_string_lossy().into_owned(),
+                    ))
+                })?;
                 continue;
             }
         }
@@ -89,9 +96,10 @@ impl fmt::Display for RunOptionError {
 #[cfg(test)]
 mod tests {
     use super::{parse_arguments, OutputFormat, RunOptionError};
+    use std::ffi::OsString;
 
-    fn strings(values: &[&str]) -> Vec<String> {
-        values.iter().map(|value| (*value).to_owned()).collect()
+    fn strings(values: &[&str]) -> Vec<OsString> {
+        values.iter().map(OsString::from).collect()
     }
 
     #[test]
@@ -142,5 +150,16 @@ mod tests {
             parse_arguments(strings(&["--output-format"])),
             Err(RunOptionError::MissingOutputFormat)
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn 非utf8の未知引数をtex側へそのまま残す() {
+        use std::os::unix::ffi::OsStringExt;
+
+        let argument = OsString::from_vec(vec![b'n', 0xff, b'.', b't', b'e', b'x']);
+        let parsed = parse_arguments([argument.clone()]).unwrap();
+        assert_eq!(parsed.output_format, OutputFormat::Dvi);
+        assert_eq!(parsed.tex_arguments, vec![argument]);
     }
 }

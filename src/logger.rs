@@ -6,7 +6,7 @@ use crate::print::pseudo::PseudoPrinter;
 use crate::print::{cannot_be_printed, to_hex_char, Printer, MAX_PRINT_LINE};
 use crate::semantic_nest::Mode;
 use crate::token_lists::token_show;
-use crate::{open_out, read_line};
+use crate::{open_out, os_string_from_bytes, read_line};
 
 use std::ffi::OsString;
 use std::fs::File;
@@ -599,7 +599,7 @@ impl Logger {
 
     /// See 518.
     pub fn print_file_name(&mut self, path: &Path) {
-        self.slow_print_str(path.to_str().unwrap().as_bytes());
+        self.slow_print_str(path.as_os_str().as_encoded_bytes());
     }
 
     /// Get path from the user.
@@ -695,7 +695,7 @@ impl Logger {
             }
             k += 1;
         }
-        PathBuf::from(std::str::from_utf8(&line[first..k]).unwrap())
+        PathBuf::from(os_string_from_bytes(line[first..k].to_vec()))
     }
 
     /// See 534.

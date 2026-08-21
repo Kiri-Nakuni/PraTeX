@@ -53,6 +53,7 @@ use crate::command::{Command, ExpandableCommand};
 use crate::eqtb::{DimensionVariable, Eqtb, IntegerVariable, RegisterIndex};
 use crate::input::Scanner;
 use crate::logger::Logger;
+use crate::os_string_from_bytes;
 use crate::print::string::StringPrinter;
 use crate::print::Printer;
 use crate::token::Token;
@@ -316,7 +317,7 @@ fn build(source: &[u8]) -> Result<Built, Vec<String>> {
 /// 拡張子が無ければ `.vaak` を足す。
 pub fn vaak_input(scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Logger) {
     let name = scanner.scan_file_name(eqtb, logger);
-    let mut path = std::path::PathBuf::from(String::from_utf8_lossy(&name).into_owned());
+    let mut path = std::path::PathBuf::from(os_string_from_bytes(name));
     if path.extension().is_none() {
         path.set_extension("vaak");
     }

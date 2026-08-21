@@ -10,7 +10,7 @@ use crate::input::InputStack;
 use crate::logger::{InteractionMode, Logger};
 use crate::nodes::GlueRatio;
 use crate::print::Printer;
-use crate::{open_in, open_out};
+use crate::{open_in, open_out, os_string_from_bytes};
 
 use std::collections::HashMap;
 use std::ffi::OsString;
@@ -218,7 +218,7 @@ fn create_format_ident_and_open_file(
         }
     };
     logger.print_nl_str("Beginning to dump on file ");
-    logger.slow_print_str(path.to_str().unwrap().as_bytes());
+    logger.slow_print_str(path.as_os_str().as_encoded_bytes());
     logger.print_nl_str("");
     logger.slow_print_str(format_ident.as_bytes());
     logger.format_ident = format_ident;
@@ -248,7 +248,7 @@ fn dump_font_information(eqtb: &Eqtb, logger: &mut Logger) -> Result<(), std::io
         logger.print_char(b'=');
         let mut file_name = font.area.clone();
         file_name.append(&mut font.name.clone());
-        let path = PathBuf::from(std::str::from_utf8(&file_name).unwrap());
+        let path = PathBuf::from(os_string_from_bytes(file_name));
         logger.print_file_name(&path);
         if font.size != font.dsize {
             logger.print_str(" at ");

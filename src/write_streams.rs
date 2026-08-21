@@ -5,6 +5,7 @@ use crate::input::Scanner;
 use crate::integer::{Integer, IntegerExt};
 use crate::logger::Logger;
 use crate::nodes::{CloseNode, Node, OpenNode, WhatsitNode, WriteNode};
+use crate::os_string_from_bytes;
 use crate::output::{open_write_file, write_out, Output};
 use crate::semantic_nest::SemanticState;
 use crate::token::Token;
@@ -55,7 +56,7 @@ fn implement_openout(scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Logger
 
     scanner.scan_optional_equals(eqtb, logger);
     let file_name = scanner.scan_file_name(eqtb, logger);
-    let path = PathBuf::from(std::str::from_utf8(&file_name).unwrap());
+    let path = PathBuf::from(os_string_from_bytes(file_name));
     OpenNode {
         write_stream: stream_number as usize,
         path,

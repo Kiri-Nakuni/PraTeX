@@ -36,7 +36,7 @@ use crate::scan_boxes::scan_box;
 use crate::scan_internal::ValueType;
 use crate::semantic_nest::{RichMode, SemanticState};
 use crate::token::Token;
-use crate::INIT;
+use crate::{os_string_from_bytes, INIT};
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -1077,7 +1077,7 @@ fn new_font(global: bool, scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut L
     eqtb.cs_define(cs, command, global);
     scanner.scan_optional_equals(eqtb, logger);
     let file_name = scanner.scan_file_name(eqtb, logger);
-    let mut path = PathBuf::from(String::from_utf8(file_name).unwrap());
+    let mut path = PathBuf::from(os_string_from_bytes(file_name));
     path.set_extension("");
     let s = scan_font_size_specification(scanner, eqtb, logger);
     let font_index = if let Some(font_index) = font_had_already_been_loaded(&path, s, &eqtb.fonts) {
@@ -1148,8 +1148,8 @@ fn put_positive_at_size(scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Log
 fn font_had_already_been_loaded(path: &Path, s: Scaled, fonts: &[FontInfo]) -> Option<FontIndex> {
     for f in 1..fonts.len() {
         // If `f` has the same path as the currently requested font
-        let mut font_path = PathBuf::from(std::str::from_utf8(&fonts[f].area).unwrap());
-        font_path.push(std::str::from_utf8(&fonts[f].name).unwrap());
+        let mut font_path = PathBuf::from(os_string_from_bytes(fonts[f].area.clone()));
+        font_path.push(os_string_from_bytes(fonts[f].name.clone()));
         if path == font_path {
             // A positive s denotes an "at" size.
             if s > 0 {
