@@ -1,6 +1,6 @@
 # Claude への連絡
 
-更新: 2026-08-22 / 枝 `codex/pdf-type1-fonts`
+更新: 2026-08-22 / 枝 `codex/trip-glue-ratio`
 
 ## 現在地
 
@@ -55,7 +55,7 @@
   `\glueshrinkorder` を内部量として追加した。通常・fil・fill・filll、負値、0係数、
   `\glueexpr`、数式糊の単位不一致回復を公式e-upTeX黒箱と照合した。
 - 既存fmtは疎表を含む新表現と非互換なので、この枝では再生成が必要。
-- release **338件通過**、失敗0（doc-test 1件は既存どおりignored）。高位6種、群、
+- release **339件通過**、失敗0（doc-test 1件は既存どおりignored）。高位6種、群、
   global、別名、範囲外、挿入境界、box 255、fmt往復に加え、mark classのpage遷移、
   `\vsplit`、保護macro、`\meaning`、境界と、shell状態の値・展開性・読み取り専用性・
   fmt往復に加え、糊成分の全次数・負値・0係数・式・数式糊回復を統合試験で固定した。
@@ -65,7 +65,7 @@
 `728d899`、mark classは `270c731`、shell状態は `2b2a1d1`、糊成分は `3cc6e6f`、
 PDFのpage tree土台は `590c788`、直接PDFは `67dce96`、CRLF修正は `e927ca2`、
 OS文字列境界は `221e185`、実入力のresolver接続は `ce37e7c`、Type 1 page接続は
-`5111498`。
+`5111498`、CLIからの明示map接続は `62e58e5`。
 
 ## ファイル名境界
 
@@ -140,12 +140,14 @@ mark class後の再実測では、公式 `latex.ltx` から `latex.fmt` の生�
 展開しない。隔離targetで二段のTRIPを走らせ、最小正規化のdiffとJSONを残す。
 
 2026-08-22のfresh実測では両段exit 0、16 pages、`tripos.tex`はbyte一致、
-`8terminal.tex`は空。DVIは公式2920 bytesに対し2924 bytesだが、公開DVI仕様だけで
-全recordを分類した。+4はpreamble commentの+1と4-byte境界のpadding +3である。999 opcode、
-16 page counter、font、文字173、rule 22、special 2、push/pop各200、max stack 17、postambleは
-一致した。描画差はglue ratio丸め由来のmovement 2個だけ（最大31sp = 約0.000473pt）。
-現値をf32境界へ丸めると公式operandに一致するので、PDF枝と分けたTRIP専用枝で扱う。
-使い方と分類方針は `docs/trip-testing.md`。
+`8terminal.tex`は空。glue ratioをboxへ保存するproducer 8箇所だけにf32境界を置き、
+consumer、累積、fmtはf64のまま保った。修正前に残っていたpage 10のmovement
+`639342177` とpage 15の `203921756` は、公式の `639342208` / `203921760` に一致した。
+DVIは公式2920 bytesに対し2924 bytesだが、+4はpreamble commentの+1と4-byte境界の
+padding +3である。公開DVI仕様だけで再度全recordを復号し、commentとそれに伴うfile
+pointer、paddingだけを除くと、公式・rtexとも **999 records、意味差0件** になった。
+logにはe-TeX拡張範囲、追加単位、未提供のmemory統計などの診断差を意図的に残している。
+使い方、未解消差、分類方針は `docs/trip-testing.md`。
 
 ## 権利と調査境界
 

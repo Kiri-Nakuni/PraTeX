@@ -87,3 +87,25 @@ Appendix A の完全な手順には `PLtoTF`、`TFtoPL`、`DVItype` が要る。
 - 無い検査は成功扱いに偽装せず、`missing-tools.txt` と `comparison.json` に残す。
 
 PATH にない実行ファイルは `-PlToTfPath`、`-TfToPlPath`、`-DviTypePath` で明示できる。
+
+## 2026-08-22 の実測基準
+
+`codex/trip-glue-ratio` では、両段とも終了値 0 で完走し、16 page を出力した。
+`tripos.tex` は byte 単位で公式結果と一致し、`8terminal.tex` は空である。
+
+公式 DVI は 2920 bytes、rtex は 2924 bytes であり、ファイル全体の hash は一致しない。
+公開 DVI 仕様に従って全 record を復号し、次の位置情報だけを比較から外した結果、
+公式・rtex とも **999 records**、意味上の差は **0 records** だった。
+
+- preamble の engine comment（27 bytes に対して28 bytes）
+- comment が1 byte長いことに伴う BOP / post / post_post の file pointer
+- post_post 後の4-byte境界 padding（rtex側が3 bytes多い）
+
+以前残っていた page 10 の movement `639342177` と page 15 の
+`203921756` は、glue ratio を box へ保存するときだけ単精度境界へ揃えることで、
+公式 operand `639342208` と `203921760` に一致した。ratio の consumer、glue の累積、
+fmt の表現は倍精度のまま変えていない。
+
+log / terminal transcript には、e-TeX拡張レジスタの範囲、追加単位、memory統計を
+実装していないこと、入力promptの整形などの診断差が残る。runner はこれらを許容差へ
+隠さず `different` として保存するため、DVIの意味一致とlogの未解消差を混同しないこと。

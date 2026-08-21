@@ -17,6 +17,45 @@ use std::rc::Rc;
 
 pub type GlueRatio = f64;
 
+/// Box に保存する glue ratio へ、公式 TRIP の DVI で観測される単精度境界を置く。
+///
+/// 商を求めるまでの既存の倍精度計算と、出力時に glue を累積する倍精度計算は変えない。
+pub(crate) fn make_glue_ratio(numerator: Dimension, denominator: Dimension) -> GlueRatio {
+    debug_assert_ne!(denominator, 0);
+    f64::from((f64::from(numerator) / f64::from(denominator)) as f32)
+}
+
+#[cfg(test)]
+mod glue_ratio_tests {
+    use super::make_glue_ratio;
+    use crate::round;
+
+    fn movement(base: i32, ratio: f64, cumulative_glue: i32) -> i32 {
+        base + round(ratio * f64::from(cumulative_glue))
+    }
+
+    #[test]
+    fn tripで残った二つの移動量は保存時の単精度丸めで一致する() {
+        let page10_full_precision = 638_162_529_f64 / 65_536_f64;
+        assert_eq!(
+            movement(1_179_648, page10_full_precision, 65_536),
+            639_342_177
+        );
+        let page10_ratio = make_glue_ratio(638_162_529, 65_536);
+        assert_eq!(page10_ratio, 9_737.587_890_625);
+        assert_eq!(movement(1_179_648, page10_ratio, 65_536), 639_342_208);
+
+        let page15_full_precision = 406_532_792_f64 / 131_072_f64;
+        assert_eq!(
+            movement(655_360, page15_full_precision, 65_536),
+            203_921_756
+        );
+        let page15_ratio = make_glue_ratio(406_532_792, 131_072);
+        assert_eq!(page15_ratio, 3_101.599_121_093_75);
+        assert_eq!(movement(655_360, page15_ratio, 65_536), 203_921_760);
+    }
+}
+
 #[derive(Debug, Clone)]
 #[cfg_attr(test, derive(PartialEq))]
 pub enum Node {

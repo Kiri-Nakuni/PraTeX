@@ -17,8 +17,8 @@ use crate::math::{check_that_another_mathshift_symbol_follows, resume_after_disp
 use crate::math_mode::MathMode;
 use crate::mode_independent::do_assignments;
 use crate::nodes::{
-    DimensionOrder, GlueNode, GlueSign, GlueSpec, GlueType, HigherOrderDimension, HlistOrVlist,
-    ListNode, Node, PenaltyNode, RuleNode, UnsetNode,
+    make_glue_ratio, DimensionOrder, GlueNode, GlueSign, GlueSpec, GlueType, HigherOrderDimension,
+    HlistOrVlist, ListNode, Node, PenaltyNode, RuleNode, UnsetNode,
 };
 use crate::output::Output;
 use crate::packaging::{
@@ -1173,7 +1173,7 @@ fn make_unset_node_into_hlist_node(
         if cell.stretch.value == 0 {
             glue_set = 0.0;
         } else {
-            glue_set = (inner_cell_size - cell.width) as f64 / cell.stretch.value as f64;
+            glue_set = make_glue_ratio(inner_cell_size - cell.width, cell.stretch.value);
         }
     } else {
         glue_sign = GlueSign::Shrinking;
@@ -1185,7 +1185,7 @@ fn make_unset_node_into_hlist_node(
         {
             glue_set = 1.0;
         } else {
-            glue_set = (cell.width - inner_cell_size) as f64 / cell.shrink.value as f64;
+            glue_set = make_glue_ratio(cell.width - inner_cell_size, cell.shrink.value);
         }
     }
     ListNode {
@@ -1220,7 +1220,7 @@ fn make_unset_node_into_vlist_node(
         if cell.stretch.value == 0 {
             glue_set = 0.0;
         } else {
-            glue_set = (inner_cell_size - cell.height) as f64 / cell.stretch.value as f64;
+            glue_set = make_glue_ratio(inner_cell_size - cell.height, cell.stretch.value);
         }
     } else {
         glue_sign = GlueSign::Shrinking;
@@ -1232,7 +1232,7 @@ fn make_unset_node_into_vlist_node(
         {
             glue_set = 1.0;
         } else {
-            glue_set = (cell.height - inner_cell_size) as f64 / cell.shrink.value as f64;
+            glue_set = make_glue_ratio(cell.height - inner_cell_size, cell.shrink.value);
         }
     }
     ListNode {

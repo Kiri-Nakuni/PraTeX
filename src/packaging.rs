@@ -3,9 +3,9 @@ use crate::eqtb::{DimensionVariable, Eqtb, IntegerVariable, NULL_FONT};
 use crate::input::Scanner;
 use crate::logger::Logger;
 use crate::nodes::{
-    short_display, show_box, AdjustNode, CharNode, DimensionOrder, GlueNode, GlueSign, GlueType,
-    HigherOrderDimension, HlistOrVlist, KernNode, LigatureNode, ListNode, MathNode, Node, RuleNode,
-    UnsetNode,
+    make_glue_ratio, short_display, show_box, AdjustNode, CharNode, DimensionOrder, GlueNode,
+    GlueSign, GlueType, HigherOrderDimension, HlistOrVlist, KernNode, LigatureNode, ListNode,
+    MathNode, Node, RuleNode, UnsetNode,
 };
 use crate::print::Printer;
 use crate::scaled::{calculate_badness, Scaled};
@@ -302,7 +302,7 @@ fn determine_horizontal_glue_stretch_setting(
     logger: &mut Logger,
 ) -> i32 {
     if stretch.value != 0 {
-        hbox.glue_set = x as f64 / stretch.value as f64;
+        hbox.glue_set = make_glue_ratio(x, stretch.value);
         hbox.glue_order = stretch.order;
         hbox.glue_sign = GlueSign::Stretching;
     }
@@ -381,7 +381,7 @@ fn determine_horizontal_glue_shrink_setting(
     logger: &mut Logger,
 ) -> i32 {
     if shrink.value != 0 {
-        hbox.glue_set = x as f64 / shrink.value as f64;
+        hbox.glue_set = make_glue_ratio(x, shrink.value);
         hbox.glue_order = shrink.order;
         hbox.glue_sign = GlueSign::Shrinking;
     }
@@ -613,7 +613,7 @@ fn determine_vertical_glue_stretch_setting(
     logger: &mut Logger,
 ) -> i32 {
     if stretch.value != 0 {
-        vbox.glue_set = x as f64 / stretch.value as f64;
+        vbox.glue_set = make_glue_ratio(x, stretch.value);
         vbox.glue_sign = GlueSign::Stretching;
         vbox.glue_order = stretch.order
     }
@@ -676,7 +676,7 @@ fn determine_vertical_glue_shrink_setting(
     logger: &mut Logger,
 ) -> i32 {
     if shrink.value != 0 {
-        vbox.glue_set = x as f64 / shrink.value as f64;
+        vbox.glue_set = make_glue_ratio(x, shrink.value);
         vbox.glue_sign = GlueSign::Shrinking;
         vbox.glue_order = shrink.order;
     }
