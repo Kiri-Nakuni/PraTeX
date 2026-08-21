@@ -20,7 +20,8 @@
   `-output-format=pdf` / `--output-format=pdf` でstandalone PDFを直接選べる。ruleと
   printable ASCIIは既定でStandard 14 Courierによる可視smokeを保つ。一方、明示loaderを
   注入した経路ではTeX font定義からType 1資材、page resource、hex文字命令まで一続きに
-  埋め込める。通常CLIからのmap選択、subset、ToUnicodeは次段である。
+  埋め込める。`--pdf-font-map` でこの経路を通常CLIから明示的に選べる。subsetと
+  ToUnicodeは次段である。
 - Type 1資材を実行せず読むpure parser層を追加した。PFBはAdobe #5040のsegment順と
   Length1/2/3を検査し、wrapperだけを除く。AFMは浮動小数を使わず10^-6固定小数で
   descriptorと文字幅を読む。pdfTeX mapは `<` の部分埋込みと `<<` の全体埋込み、
@@ -38,7 +39,7 @@
   昇格せず、AFMにStemVがない場合も呼び出し側の明示fallbackだけを受ける。mapを一度だけ
   読むbounded loaderとshipoutの `define_font` を接続し、TFMに実在するcodeだけを固定長
   maskへ写してpage間で同じhandleを再利用する。文書固有IDも持たせ、別PDFの同一object
-  番号をhandleとして受け入れない。現状は明示constructorから有効にする段階である。
+  番号をhandleとして受け入れない。CLIのmap指定がない既定PDFは従来Courierを保つ。
 - e-TeXの通常レジスタ6種（box/count/dimen/skip/muskip/toks）を0〜32767へ拡張した。
   0〜255は密配列、高位は触れた番号だけの疎表であり、すべてsafe Rustである。
 - `\insert` は通常レジスタから別型へ分離し、0〜254のままにした。box 255と
@@ -54,7 +55,7 @@
   `\glueshrinkorder` を内部量として追加した。通常・fil・fill・filll、負値、0係数、
   `\glueexpr`、数式糊の単位不一致回復を公式e-upTeX黒箱と照合した。
 - 既存fmtは疎表を含む新表現と非互換なので、この枝では再生成が必要。
-- release **332件通過**、失敗0（doc-test 1件は既存どおりignored）。高位6種、群、
+- release **338件通過**、失敗0（doc-test 1件は既存どおりignored）。高位6種、群、
   global、別名、範囲外、挿入境界、box 255、fmt往復に加え、mark classのpage遷移、
   `\vsplit`、保護macro、`\meaning`、境界と、shell状態の値・展開性・読み取り専用性・
   fmt往復に加え、糊成分の全次数・負値・0係数・式・数式糊回復を統合試験で固定した。
@@ -63,7 +64,8 @@
 値ストレージの土台は `a218c28`、6種への統合と挿入番号分離は `d7c121e`、TRIP runnerは
 `728d899`、mark classは `270c731`、shell状態は `2b2a1d1`、糊成分は `3cc6e6f`、
 PDFのpage tree土台は `590c788`、直接PDFは `67dce96`、CRLF修正は `e927ca2`、
-OS文字列境界は `221e185`。
+OS文字列境界は `221e185`、実入力のresolver接続は `ce37e7c`、Type 1 page接続は
+`5111498`。
 
 ## ファイル名境界
 
@@ -91,9 +93,11 @@ font parserと型付きPDF object段階は公開PDF/Type 1/AFM仕様だけで完
 `<font.pfb` はsubset指定なので、
 subset未実装中に黙ってfull embedへ昇格させない。初期実測の
 `cmr10 CMR10 <cmr10.pfb` はこの制約に該当する。resolver、bounded font資材loader、
-page resource、shipoutは明示constructor上で接続した。合成full-mapのE2EではPFB payload、
-FontDescriptor、Font resource、`<41> Tj` を同じPDFで確認した。次は通常CLIへmap選択方針を
-通し、subset、flags/StemVの明示policy、同一物理fontのsize間object共有を実装する。
+page resource、shipoutを接続し、`--pdf-font-map=<name>` または分離値で通常CLIから
+明示的に有効化できる。合成full-mapのprocess E2EではPFB payload、FontDescriptor、
+Font resource、`<41> Tj` を同じstandalone PDFで確認した。map初期化、parse、資材欠落も
+panicせずfatal診断へ戻す。次はsubset、flags/StemVの明示policy、同一物理fontのsize間
+object共有を実装する。
 資材はTEXMFから実行時探索し、版方へコピーしない。
 
 公式CTAN `amsfonts.zip` は一時領域だけへ展開して実資材を照合した。`cmr10.pfb` は

@@ -1,6 +1,6 @@
 //! TeXへ渡す入力行から、rtex自身の少数のoptionだけを分ける。
 
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::fmt;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -22,7 +22,41 @@ impl OutputFormat {
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) struct ParsedArguments {
     pub(crate) output_format: OutputFormat,
+    /// Type 1 埋込みを明示的に有効にする map の論理名または物理 path。
+    pub(crate) pdf_font_map: Option<OsString>,
     pub(crate) tex_arguments: Vec<OsString>,
+}
+
+/// OS文字列からASCIIのoption prefixだけを外す。
+///
+/// `--pdf-font-map=...` の値はファイル名なので、UTF-8へ変換してから分割しない。
+#[cfg(unix)]
+fn strip_os_prefix(value: &OsStr, prefix: &str) -> Option<OsString> {
+    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+
+    value
+        .as_bytes()
+        .strip_prefix(prefix.as_bytes())
+        .map(|remainder| OsString::from_vec(remainder.to_vec()))
+}
+
+#[cfg(windows)]
+fn strip_os_prefix(value: &OsStr, prefix: &str) -> Option<OsString> {
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+
+    let value: Vec<u16> = value.encode_wide().collect();
+    let prefix: Vec<u16> = prefix.encode_utf16().collect();
+    value
+        .strip_prefix(prefix.as_slice())
+        .map(OsString::from_wide)
+}
+
+#[cfg(not(any(unix, windows)))]
+fn strip_os_prefix(value: &OsStr, prefix: &str) -> Option<OsString> {
+    value
+        .to_str()
+        .and_then(|value| value.strip_prefix(prefix))
+        .map(OsString::from)
 }
 
 /// web2c系で一般的な `-output-format=pdf` と、そのlong-option表記を読む。
@@ -33,6 +67,7 @@ pub(crate) fn parse_arguments(
     arguments: impl IntoIterator<Item = OsString>,
 ) -> Result<ParsedArguments, RunOptionError> {
     let mut output_format = OutputFormat::Dvi;
+    let mut pdf_font_map = None;
     let mut tex_arguments = Vec::new();
     let mut arguments = arguments.into_iter();
     let mut parsing_options = true;
@@ -63,12 +98,32 @@ pub(crate) fn parse_arguments(
                 })?;
                 continue;
             }
+            if let Some(value) = strip_os_prefix(&argument, "--pdf-font-map=") {
+                if value.is_empty() {
+                    return Err(RunOptionError::MissingPdfFontMap);
+                }
+                pdf_font_map = Some(value);
+                continue;
+            }
+            if argument == "--pdf-font-map" {
+                let value = arguments
+                    .next()
+                    .filter(|value| !value.is_empty())
+                    .ok_or(RunOptionError::MissingPdfFontMap)?;
+                pdf_font_map = Some(value);
+                continue;
+            }
         }
         tex_arguments.push(argument);
     }
 
+    if pdf_font_map.is_some() && output_format != OutputFormat::Pdf {
+        return Err(RunOptionError::PdfFontMapRequiresPdf);
+    }
+
     Ok(ParsedArguments {
         output_format,
+        pdf_font_map,
         tex_arguments,
     })
 }
@@ -77,6 +132,8 @@ pub(crate) fn parse_arguments(
 pub(crate) enum RunOptionError {
     MissingOutputFormat,
     UnknownOutputFormat(String),
+    MissingPdfFontMap,
+    PdfFontMapRequiresPdf,
 }
 
 impl fmt::Display for RunOptionError {
@@ -88,6 +145,10 @@ impl fmt::Display for RunOptionError {
                     formatter,
                     "unknown output format `{format}` (expected dvi or pdf)"
                 )
+            }
+            Self::MissingPdfFontMap => formatter.write_str("missing value for --pdf-font-map"),
+            Self::PdfFontMapRequiresPdf => {
+                formatter.write_str("--pdf-font-map requires --output-format=pdf")
             }
         }
     }
@@ -106,6 +167,7 @@ mod tests {
     fn 既定はdviで入力順を変えない() {
         let parsed = parse_arguments(strings(&["&plain", "hello.tex"])).unwrap();
         assert_eq!(parsed.output_format, OutputFormat::Dvi);
+        assert_eq!(parsed.pdf_font_map, None);
         assert_eq!(parsed.tex_arguments, strings(&["&plain", "hello.tex"]));
     }
 
@@ -119,6 +181,7 @@ mod tests {
         ] {
             let parsed = parse_arguments(arguments).unwrap();
             assert_eq!(parsed.output_format, OutputFormat::Pdf);
+            assert_eq!(parsed.pdf_font_map, None);
             assert_eq!(parsed.tex_arguments, strings(&["hello.tex"]));
         }
     }
@@ -134,9 +197,57 @@ mod tests {
         ]))
         .unwrap();
         assert_eq!(parsed.output_format, OutputFormat::Dvi);
+        assert_eq!(parsed.pdf_font_map, None);
         assert_eq!(
             parsed.tex_arguments,
             strings(&["--output-format=pdf", "hello.tex"])
+        );
+    }
+
+    #[test]
+    fn pdf_font_mapは結合値と分離値をos文字列のまま受け取る() {
+        for arguments in [
+            strings(&[
+                "--output-format=pdf",
+                "--pdf-font-map=地図/pdftex.map",
+                "hello.tex",
+            ]),
+            strings(&[
+                "--pdf-font-map",
+                "地図/pdftex.map",
+                "--output-format",
+                "pdf",
+                "hello.tex",
+            ]),
+        ] {
+            let parsed = parse_arguments(arguments).unwrap();
+            assert_eq!(parsed.output_format, OutputFormat::Pdf);
+            assert_eq!(parsed.pdf_font_map, Some(OsString::from("地図/pdftex.map")));
+            assert_eq!(parsed.tex_arguments, strings(&["hello.tex"]));
+        }
+    }
+
+    #[test]
+    fn pdf_font_mapはpdf以外や空値へ黙って効かせない() {
+        assert_eq!(
+            parse_arguments(strings(&["--pdf-font-map=fonts.map"])),
+            Err(RunOptionError::PdfFontMapRequiresPdf)
+        );
+        assert_eq!(
+            parse_arguments(strings(&[
+                "--output-format=pdf",
+                "--pdf-font-map=fonts.map",
+                "--output-format=dvi",
+            ])),
+            Err(RunOptionError::PdfFontMapRequiresPdf)
+        );
+        assert_eq!(
+            parse_arguments(strings(&["--output-format=pdf", "--pdf-font-map="])),
+            Err(RunOptionError::MissingPdfFontMap)
+        );
+        assert_eq!(
+            parse_arguments(strings(&["--output-format=pdf", "--pdf-font-map"])),
+            Err(RunOptionError::MissingPdfFontMap)
         );
     }
 
@@ -160,6 +271,19 @@ mod tests {
         let argument = OsString::from_vec(vec![b'n', 0xff, b'.', b't', b'e', b'x']);
         let parsed = parse_arguments([argument.clone()]).unwrap();
         assert_eq!(parsed.output_format, OutputFormat::Dvi);
+        assert_eq!(parsed.pdf_font_map, None);
         assert_eq!(parsed.tex_arguments, vec![argument]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn 非utf8の結合map値もbyteのまま保つ() {
+        use std::os::unix::ffi::OsStringExt;
+
+        let map_name = OsString::from_vec(vec![b'm', 0xff, b'.', b'm', b'a', b'p']);
+        let mut option = OsString::from("--pdf-font-map=");
+        option.push(&map_name);
+        let parsed = parse_arguments([OsString::from("--output-format=pdf"), option]).unwrap();
+        assert_eq!(parsed.pdf_font_map, Some(map_name));
     }
 }

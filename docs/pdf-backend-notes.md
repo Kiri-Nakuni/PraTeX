@@ -55,6 +55,11 @@ fontの定義済み状態はbackend文書ごとの `Vec<bool>` に持ち、fmt�
 `-output-format=pdf` と `--output-format=pdf`（値を次の引数へ分ける形も可）でPDFを選ぶ。
 指定がなければ従来どおりDVIである。ページがなければどちらの出力ファイルも作らない。
 
+`--pdf-font-map=<map>` または `--pdf-font-map <map>` をPDF指定と併用すると、mapを
+論理名のままresolverへ渡し、Type 1全埋込みを明示的に有効にする。指定しないPDFは
+Courier smokeを保つ。DVIとの併用、空値、壊れたmap、欠けた資材は黙って無視せず診断して
+終了する。mapのsubset指定をfullへ昇格せず、flagsやStemVも暗黙には補わない。
+
 - TeX座標は左上・下向き、PDFは左下・上向きなので、物理1inch余白を含むMediaBoxの
   高さから現在の縦位置を引く。
 - 余白72bpは `\mag` で拡大せず、内容座標とfont sizeだけへmagを掛ける。
@@ -63,7 +68,8 @@ fontの定義済み状態はbackend文書ごとの `Vec<bool>` に持ち、fmt�
 - set/put ruleは `re f` へ写す。setだけが横位置を進める。
 - printable ASCIIはStandard 14 Courierを `/F1` とし、文字ごとの絶対 `Tm` で置く。
   括弧とbackslashはPDF literal stringとしてescapeする。その他の8-bit文字は配置幅だけ
-  進め、まだ描かない。
+  進め、まだ描かない。明示map経路では、TFMに実在するcodeだけをType 1 fontの連続
+  `/Widths` と許可maskへ写し、文字をhex stringで出力する。
 - raw `\special` はcontent streamへ注入せず捨てる。
 
 最小LaTeX文書の実測は1 page / 2169 bytes。Popplerとstrict pypdfが構造を読め、renderで
@@ -73,8 +79,8 @@ text extractionは暫定であり、ここでの「standalone」は外部DVI dri
 
 ## 6. 次の段階
 
-1. 公開map/encoding/PFB探索とTeX Type 1 fontの全埋込みへ進む。TFMだけではbyte codeから
-   glyph名を決められない。
+1. 通常mapのsubset埋込み、flags/StemVの明示fallback、同じ物理fontを異なるsizeで使う時の
+   object共有へ進む。
 2. `\pdfpagewidth` / `\pdfpageheight` 相当または認識済みpapersize specialで物理媒体を
    指定できるようにする。
 3. Type 1が揃ってから `\pdfoutput` を登録し、LaTeXのpdfTeX backend判定を有効にする。

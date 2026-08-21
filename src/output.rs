@@ -2,6 +2,9 @@ use crate::dimension::{is_running, Dimension, MAX_DIMEN};
 use crate::eqtb::{
     ControlSequence, DimensionVariable, Eqtb, FontIndex, IntegerVariable, RegisterIndex, NULL_FONT,
 };
+use crate::error::fatal_error;
+use crate::file_search::{KpsewhichResolver, LogicalFileName};
+use crate::font_resources::loader::FontResourceLoader;
 use crate::input::token_source::TokenSourceType;
 use crate::input::Scanner;
 use crate::logger::Logger;
@@ -18,7 +21,7 @@ use crate::token::Token;
 use crate::token_lists::{show_token_list, token_show};
 use crate::{open_out, round};
 
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::fs::File;
 use std::io::BufWriter;
 use std::path::PathBuf;
@@ -43,10 +46,18 @@ enum OutputDocument {
 }
 
 impl OutputDocument {
-    fn ship_box_out(&mut self, list_node: &ListNode, eqtb: &mut Eqtb) -> Vec<WhatsitNode> {
+    fn ship_box_out(
+        &mut self,
+        list_node: &ListNode,
+        eqtb: &mut Eqtb,
+    ) -> Result<Vec<WhatsitNode>, String> {
         match self {
-            Self::Dvi(document) => document.ship_box_out(list_node, eqtb),
-            Self::Pdf(document) => document.ship_box_out(list_node, eqtb),
+            Self::Dvi(document) => document
+                .ship_box_out(list_node, eqtb)
+                .map_err(|error| format!("DVI output failed: {error:?}")),
+            Self::Pdf(document) => document
+                .ship_box_out(list_node, eqtb)
+                .map_err(|error| format!("PDF output failed: {error}")),
         }
     }
 
@@ -64,6 +75,8 @@ const END_WRITE_TOKEN: Token = Token::CSToken {
 
 pub struct Output {
     output_format: OutputFormat,
+    /// `None` のときは従来どおりCourierだけを使い、font資材を探索しない。
+    pdf_font_map: Option<OsString>,
     document: Option<OutputDocument>,
 
     /// 1342.
@@ -71,9 +84,10 @@ pub struct Output {
 }
 
 impl Output {
-    pub const fn new(output_format: OutputFormat) -> Self {
+    pub fn new(output_format: OutputFormat, pdf_font_map: Option<OsString>) -> Self {
         Self {
             output_format,
+            pdf_font_map,
             document: None,
             write_files: [
                 None, None, None, None, None, None, None, None, None, None, None, None, None, None,
@@ -123,11 +137,14 @@ impl Output {
             let mut document = ensure_output_open(
                 self.document.take(),
                 self.output_format,
+                self.pdf_font_map.as_deref(),
                 scanner,
                 eqtb,
                 logger,
             );
-            let whatsit_list = document.ship_box_out(&list_node, eqtb);
+            let whatsit_list = document
+                .ship_box_out(&list_node, eqtb)
+                .unwrap_or_else(|error| fatal_error(&error, &scanner.input_stack, eqtb, logger));
             for whatsit_node in whatsit_list {
                 self.out_what(&whatsit_node, scanner, eqtb, logger);
             }
@@ -230,6 +247,7 @@ fn check_page_dimensions(
 fn ensure_output_open(
     document: Option<OutputDocument>,
     output_format: OutputFormat,
+    pdf_font_map: Option<&OsStr>,
     scanner: &mut Scanner,
     eqtb: &mut Eqtb,
     logger: &mut Logger,
@@ -250,7 +268,10 @@ fn ensure_output_open(
                     OutputDocument::Dvi(Document::create_dvi(output_file_name, output_file, eqtb))
                 }
                 OutputFormat::Pdf => {
-                    OutputDocument::Pdf(Document::create_pdf(output_file_name, output_file, eqtb))
+                    match Document::create_pdf(output_file_name, output_file, pdf_font_map, eqtb) {
+                        Ok(document) => OutputDocument::Pdf(document),
+                        Err(error) => fatal_error(&error, &scanner.input_stack, eqtb, logger),
+                    }
                 }
             }
         }
@@ -289,6 +310,8 @@ fn open_output_file(
 
 struct Document<B: ShipoutBackend> {
     backend: B,
+    /// node走査中のbackend errorを最初の一件だけ保持し、TeXのfatal診断境界へ返す。
+    backend_error: Option<B::Error>,
     /// See 532.
     output_file_name: OsString,
 
@@ -332,9 +355,26 @@ impl Document<DviFileBackend> {
 }
 
 impl Document<PdfFileBackend> {
-    fn create_pdf(output_file_name: OsString, pdf_file: BufWriter<File>, eqtb: &Eqtb) -> Self {
-        let backend = PdfBackend::new(pdf_file, eqtb.integer(IntegerVariable::Mag)).unwrap();
-        Self::new(backend, output_file_name)
+    fn create_pdf(
+        output_file_name: OsString,
+        pdf_file: BufWriter<File>,
+        pdf_font_map: Option<&OsStr>,
+        eqtb: &Eqtb,
+    ) -> Result<Self, String> {
+        let backend = match pdf_font_map {
+            Some(map_name) => {
+                let loader = FontResourceLoader::with_map(
+                    KpsewhichResolver::default(),
+                    LogicalFileName::from(map_name),
+                )
+                .map_err(|error| format!("PDF font map initialization failed: {error}"))?;
+                PdfBackend::with_type1_loader(pdf_file, eqtb.integer(IntegerVariable::Mag), loader)
+                    .map_err(|error| format!("PDF output initialization failed: {error}"))?
+            }
+            None => PdfBackend::new(pdf_file, eqtb.integer(IntegerVariable::Mag))
+                .map_err(|error| format!("PDF output initialization failed: {error}"))?,
+        };
+        Ok(Self::new(backend, output_file_name))
     }
 }
 
@@ -342,6 +382,7 @@ impl<B: ShipoutBackend> Document<B> {
     fn new(backend: B, output_file_name: OsString) -> Self {
         Self {
             backend,
+            backend_error: None,
             output_file_name,
             cur_h: 0,
             cur_v: 0,
@@ -360,7 +401,11 @@ impl<B: ShipoutBackend> Document<B> {
     }
 
     /// See 617. and 640.
-    fn ship_box_out(&mut self, list_node: &ListNode, eqtb: &mut Eqtb) -> Vec<WhatsitNode> {
+    fn ship_box_out(
+        &mut self,
+        list_node: &ListNode,
+        eqtb: &mut Eqtb,
+    ) -> Result<Vec<WhatsitNode>, B::Error> {
         self.dvi_h = 0;
         self.dvi_v = 0;
         self.cur_h = eqtb.dimen(DimensionVariable::HOffset);
@@ -374,24 +419,35 @@ impl<B: ShipoutBackend> Document<B> {
         for k in 0..10 {
             counts[k] = eqtb.integer(IntegerVariable::Count(k as RegisterIndex));
         }
-        self.backend
-            .start_page(&counts, page_height, page_width)
-            .unwrap();
+        self.backend.start_page(&counts, page_height, page_width)?;
         self.cur_v = list_node.height + eqtb.dimen(DimensionVariable::VOffset);
         let mut whatsit_list = Vec::new();
         match &list_node.list {
             HlistOrVlist::Vlist(_) => self.vlist_out(list_node, &mut whatsit_list, eqtb),
             HlistOrVlist::Hlist(_) => self.hlist_out(list_node, &mut whatsit_list, eqtb),
         };
-        self.backend.end_page().unwrap();
+        if let Some(error) = self.backend_error.take() {
+            return Err(error);
+        }
+        self.backend.end_page()?;
         self.cur_s = -1;
-        whatsit_list
+        Ok(whatsit_list)
+    }
+
+    /// 再帰的なnode走査の署名を増やさず、最初のbackend errorを外側へ戻す。
+    fn call_backend(&mut self, call: impl FnOnce(&mut B) -> Result<(), B::Error>) {
+        if self.backend_error.is_none() {
+            if let Err(error) = call(&mut self.backend) {
+                self.backend_error = Some(error);
+            }
+        }
     }
 
     /// See 616.
     fn synch_h(&mut self) {
         if self.cur_h != self.dvi_h {
-            self.backend.move_right(self.cur_h - self.dvi_h).unwrap();
+            let amount = self.cur_h - self.dvi_h;
+            self.call_backend(|backend| backend.move_right(amount));
             self.dvi_h = self.cur_h;
         }
     }
@@ -399,7 +455,8 @@ impl<B: ShipoutBackend> Document<B> {
     /// See 616.
     fn synch_v(&mut self) {
         if self.cur_v != self.dvi_v {
-            self.backend.move_down(self.cur_v - self.dvi_v).unwrap();
+            let amount = self.cur_v - self.dvi_v;
+            self.call_backend(|backend| backend.move_down(amount));
             self.dvi_v = self.cur_v;
         }
     }
@@ -421,7 +478,7 @@ impl<B: ShipoutBackend> Document<B> {
         };
         self.cur_s += 1;
         if self.cur_s > 0 {
-            self.backend.push().unwrap();
+            self.call_backend(ShipoutBackend::push);
         }
         let base_line = self.cur_v;
         let left_edge = self.cur_h;
@@ -440,7 +497,7 @@ impl<B: ShipoutBackend> Document<B> {
             );
         }
         if self.cur_s > 0 {
-            self.backend.pop().unwrap();
+            self.call_backend(ShipoutBackend::pop);
         }
         self.cur_s -= 1;
     }
@@ -535,12 +592,15 @@ impl<B: ShipoutBackend> Document<B> {
         if font_index != self.dvi_f {
             self.change_font(font_index, eqtb);
         }
-        self.backend.set_char(chr, width).unwrap();
+        self.call_backend(|backend| backend.set_char(chr, width));
         self.cur_h += width;
     }
 
     /// See 621.
     fn change_font(&mut self, font_index: FontIndex, eqtb: &mut Eqtb) {
+        if self.backend_error.is_some() {
+            return;
+        }
         let Some(font_number) = font_index.checked_sub(1).map(u32::from) else {
             panic!("Null font cannot be selected for output");
         };
@@ -562,23 +622,29 @@ impl<B: ShipoutBackend> Document<B> {
                     }
                 }
             }
-            self.backend
-                .define_font(OutputFontDefinition {
-                    font_number,
-                    checksum: font.check,
-                    at_size: font.size,
-                    design_size: font.dsize,
-                    area: &font.area,
-                    name: &font.name,
-                    first_char: font.bc,
-                    last_char: font.ec,
-                    existing_codes: &existing_codes[..existing_code_count],
-                })
-                .unwrap();
-            self.defined_fonts[font_position] = true;
+            let result = self.backend.define_font(OutputFontDefinition {
+                font_number,
+                checksum: font.check,
+                at_size: font.size,
+                design_size: font.dsize,
+                area: &font.area,
+                name: &font.name,
+                first_char: font.bc,
+                last_char: font.ec,
+                existing_codes: &existing_codes[..existing_code_count],
+            });
+            match result {
+                Ok(()) => self.defined_fonts[font_position] = true,
+                Err(error) => {
+                    self.backend_error = Some(error);
+                    return;
+                }
+            }
         }
-        self.backend.set_font(font_number).unwrap();
-        self.dvi_f = font_index;
+        match self.backend.set_font(font_number) {
+            Ok(()) => self.dvi_f = font_index,
+            Err(error) => self.backend_error = Some(error),
+        }
     }
 
     /// See 623.
@@ -641,7 +707,7 @@ impl<B: ShipoutBackend> Document<B> {
             self.synch_h();
             self.cur_v = base_line + depth;
             self.synch_v();
-            self.backend.set_rule(height, width).unwrap();
+            self.call_backend(|backend| backend.set_rule(height, width));
             self.cur_v = base_line;
             self.dvi_h += width;
         }
@@ -789,7 +855,7 @@ impl<B: ShipoutBackend> Document<B> {
         };
         self.cur_s += 1;
         if self.cur_s > 0 {
-            self.backend.push().unwrap();
+            self.call_backend(ShipoutBackend::push);
         }
         let left_edge = self.cur_h;
         self.cur_v -= this_box.height;
@@ -809,7 +875,7 @@ impl<B: ShipoutBackend> Document<B> {
             );
         }
         if self.cur_s > 0 {
-            self.backend.pop().unwrap();
+            self.call_backend(ShipoutBackend::pop);
         }
         self.cur_s -= 1;
     }
@@ -908,7 +974,7 @@ impl<B: ShipoutBackend> Document<B> {
         if (height > 0) && (width > 0) {
             self.synch_h();
             self.synch_v();
-            self.backend.put_rule(height, width).unwrap();
+            self.call_backend(|backend| backend.put_rule(height, width));
         }
     }
 
@@ -1045,7 +1111,7 @@ impl<B: ShipoutBackend> Document<B> {
         // don't use anymore.
         show_token_list(&special_node.tokens, 1_000_000, &mut string_printer, eqtb);
         let s = string_printer.into_string();
-        self.backend.write_special(&s).unwrap();
+        self.call_backend(|backend| backend.write_special(&s));
     }
 }
 

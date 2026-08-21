@@ -56,6 +56,80 @@ fn assert_success(output: &Output, directory: &Path) {
     );
 }
 
+fn synthetic_pfb() -> Vec<u8> {
+    fn segment(kind: u8, payload: &[u8]) -> Vec<u8> {
+        let mut bytes = vec![0x80, kind];
+        bytes.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(payload);
+        bytes
+    }
+
+    let mut bytes = segment(1, b"%!PS synthetic CLI font\n");
+    bytes.extend_from_slice(&segment(2, &[1, 2, 3, 4]));
+    bytes.extend_from_slice(&segment(1, b"cleartomark\n"));
+    bytes.extend_from_slice(&[0x80, 3]);
+    bytes
+}
+
+fn synthetic_afm() -> &'static [u8] {
+    b"StartFontMetrics 4.1\n\
+FontName CliSynthetic\n\
+EncodingScheme FontSpecific\n\
+FontBBox -40 -250 1000 750\n\
+ItalicAngle 0\n\
+IsFixedPitch false\n\
+CapHeight 680\n\
+XHeight 430\n\
+Ascender 700\n\
+Descender -200\n\
+StdVW 80\n\
+StartCharMetrics 1\n\
+C 65 ; WX 1000 ; N A ;\n\
+EndCharMetrics\n\
+EndFontMetrics\n"
+}
+
+fn synthetic_single_a_tfm() -> Vec<u8> {
+    let mut bytes = Vec::new();
+    // 6 size words, 2 header words, 1 char-info, 2 widths, 3 zero dimensions, 7 params.
+    for value in [21_u16, 2, 65, 65, 2, 1, 1, 1, 0, 0, 0, 7] {
+        bytes.extend_from_slice(&value.to_be_bytes());
+    }
+    bytes.extend_from_slice(&0_u32.to_be_bytes());
+    // Design size 10pt in TFM's 12.20 fixed-point representation.
+    bytes.extend_from_slice(&[0x00, 0xa0, 0x00, 0x00]);
+    // A exists and selects width table entry 1.
+    bytes.extend_from_slice(&[1, 0, 0, 0]);
+    bytes.extend_from_slice(&0_u32.to_be_bytes());
+    bytes.extend_from_slice(&[0, 16, 0, 0]);
+    bytes.extend_from_slice(&[0; 3 * 4]);
+    bytes.extend_from_slice(&[0; 7 * 4]);
+    assert_eq!(bytes.len(), 21 * 4);
+    bytes
+}
+
+fn write_synthetic_font(directory: &Path) {
+    std::fs::write(directory.join("synthetic.tfm"), synthetic_single_a_tfm()).unwrap();
+    std::fs::write(directory.join("synthetic.pfb"), synthetic_pfb()).unwrap();
+    std::fs::write(directory.join("synthetic.afm"), synthetic_afm()).unwrap();
+}
+
+fn assert_not_panicked(output: &Output) {
+    let mut diagnostic = output.stdout.clone();
+    diagnostic.extend_from_slice(&output.stderr);
+    assert!(!contains(&diagnostic, b"panicked at"));
+    assert!(!contains(&diagnostic, b"thread 'main' panicked"));
+}
+
+/// TeXの記録は79桁で折れるため、資材名や診断を照合する前に改行を除く。
+fn joined_log(path: &Path) -> Vec<u8> {
+    std::fs::read(path)
+        .unwrap()
+        .into_iter()
+        .filter(|byte| !matches!(byte, b'\r' | b'\n'))
+        .collect()
+}
+
 #[test]
 fn pdfを直接二page書きruleだけをcontentへ入れる() {
     let (directory, output) = run_tex(
@@ -83,8 +157,108 @@ fn pdfを直接二page書きruleだけをcontentへ入れる() {
     assert!(contains(&pdf, b"/BaseFont /Courier"));
     assert_eq!(count(&pdf, b" re f\n"), 2);
     assert!(!contains(&pdf, b"RAW-SPECIAL-MUST-NOT-APPEAR"));
-    let log = std::fs::read(directory.join("t.log")).unwrap();
+    let log = joined_log(&directory.join("t.log"));
     assert!(contains(&log, b"Output written on t.pdf"));
+}
+
+#[test]
+fn 明示したfull_mapだけがtype1をstandalone_pdfへ埋め込む() {
+    let directory = test_directory("CLI Type1埋込み");
+    std::fs::create_dir_all(&directory).unwrap();
+    for extension in ["dvi", "log", "pdf"] {
+        let _ = std::fs::remove_file(directory.join(format!("t.{extension}")));
+    }
+    write_synthetic_font(&directory);
+    let map_path = directory.join("埋込み.map");
+    std::fs::write(&map_path, b"synthetic CliSynthetic 6 <<synthetic.pfb\n").unwrap();
+    std::fs::write(
+        directory.join("t.tex"),
+        "\\catcode123=1\n\\catcode125=2\n\\batchmode\n\
+         \\font\\embedded=synthetic\n\
+         \\setbox0=\\hbox{\\embedded A}\n\
+         \\shipout\\box0\n\\end\n",
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rtex"))
+        .arg("--output-format=pdf")
+        .arg("--pdf-font-map")
+        .arg(&map_path)
+        .arg("t.tex")
+        .current_dir(&directory)
+        .output()
+        .unwrap();
+    assert_success(&output, &directory);
+
+    let pdf = std::fs::read(directory.join("t.pdf")).unwrap();
+    assert!(contains(&pdf, b"/BaseFont /CliSynthetic"));
+    assert!(contains(&pdf, b"/FontFile "));
+    assert!(contains(&pdf, b"/Length1 "));
+    assert!(contains(&pdf, b"%!PS synthetic CLI font\n"));
+    assert!(contains(&pdf, b"/F2 "));
+    assert!(contains(&pdf, b"<41> Tj"));
+    assert!(!directory.join("t.dvi").exists());
+}
+
+#[test]
+fn 存在しないfont_mapはpanicせず原因を残して終了する() {
+    let (directory, output) = run_tex(
+        "missing font map",
+        &[
+            "--output-format=pdf",
+            "--pdf-font-map=rtex-definitely-missing-font-map.map",
+        ],
+        "\\shipout\\hbox{\\vrule width1pt height1pt}",
+    );
+
+    assert!(!output.status.success());
+    assert_not_panicked(&output);
+    let log = joined_log(&directory.join("t.log"));
+    assert!(contains(&log, b"PDF font map initialization failed"));
+    assert!(contains(&log, b"rtex-definitely-missing-font-map.map"));
+}
+
+#[test]
+fn 壊れたfont_mapはpanicせずparse位置を残して終了する() {
+    let directory = test_directory("broken font map");
+    std::fs::create_dir_all(&directory).unwrap();
+    std::fs::write(directory.join("broken.map"), b"<<not-a-tfm-name\n").unwrap();
+    let (directory, output) = run_tex(
+        "broken font map",
+        &["--output-format=pdf", "--pdf-font-map=broken.map"],
+        "\\shipout\\hbox{\\vrule width1pt height1pt}",
+    );
+
+    assert!(!output.status.success());
+    assert_not_panicked(&output);
+    let log = joined_log(&directory.join("t.log"));
+    assert!(contains(&log, b"PDF font map initialization failed"));
+    assert!(contains(&log, b"line 1"));
+}
+
+#[test]
+fn 欠けたtype1資材はshipoutからpanicせず原因を残して終了する() {
+    let directory = test_directory("missing Type1 resource");
+    std::fs::create_dir_all(&directory).unwrap();
+    std::fs::write(directory.join("synthetic.tfm"), synthetic_single_a_tfm()).unwrap();
+    std::fs::write(
+        directory.join("missing-resource.map"),
+        b"synthetic CliSynthetic 6 <<missing-resource.pfb\n",
+    )
+    .unwrap();
+    let (directory, output) = run_tex(
+        "missing Type1 resource",
+        &["--output-format=pdf", "--pdf-font-map=missing-resource.map"],
+        "\\font\\embedded=synthetic\n\
+         \\setbox0=\\hbox{\\embedded A}\n\
+         \\shipout\\box0",
+    );
+
+    assert!(!output.status.success());
+    assert_not_panicked(&output);
+    let log = joined_log(&directory.join("t.log"));
+    assert!(contains(&log, b"PDF output failed"));
+    assert!(contains(&log, b"missing-resource.pfb"));
 }
 
 #[test]

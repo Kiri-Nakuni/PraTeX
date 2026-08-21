@@ -119,7 +119,7 @@ pub fn tex_main() -> Result<(), ()> {
     }
 
     // Start the input
-    let (output_format, format_name, mut first_line, first_non_space_pos) =
+    let (output_format, pdf_font_map, format_name, mut first_line, first_non_space_pos) =
         read_format_name_and_first_line()?;
 
     let (mut logger, mut hyphenator, mut eqtb) = if let Some(format_name) = format_name {
@@ -146,7 +146,7 @@ pub fn tex_main() -> Result<(), ()> {
         && eqtb.cat_code(first_line[first_non_space_pos]) != CatCode::Escape;
 
     // Initialize global variables and data structures.
-    let mut output = Output::new(output_format);
+    let mut output = Output::new(output_format, pdf_font_map);
     let mut page_builder = PageBuilder::new();
     let mut nest = SemanticState::new();
 
@@ -189,8 +189,16 @@ pub fn tex_main() -> Result<(), ()> {
 
 /// Read the first line, and look for a format name.
 /// See 1337.
-fn read_format_name_and_first_line() -> Result<(OutputFormat, Option<OsString>, Vec<u8>, usize), ()>
-{
+fn read_format_name_and_first_line() -> Result<
+    (
+        OutputFormat,
+        Option<OsString>,
+        Option<OsString>,
+        Vec<u8>,
+        usize,
+    ),
+    (),
+> {
     let arguments = parse_arguments(std::env::args_os().skip(1)).map_err(|error| {
         eprintln!("rtex: {error}");
     })?;
@@ -219,7 +227,13 @@ fn read_format_name_and_first_line() -> Result<(OutputFormat, Option<OsString>, 
     } else {
         None
     };
-    Ok((arguments.output_format, format_name, first_line, pos))
+    Ok((
+        arguments.output_format,
+        arguments.pdf_font_map,
+        format_name,
+        first_line,
+        pos,
+    ))
 }
 
 /// Gets the first input line and first non-space index.
