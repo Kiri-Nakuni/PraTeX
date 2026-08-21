@@ -623,20 +623,16 @@ impl Dumpable for UnsetNode {
 
 impl Dumpable for OpenNode {
     fn dump(&self, target: &mut impl Write) -> Result<(), std::io::Error> {
-        use std::os::unix::ffi::OsStrExt;
-
         self.write_stream.dump(target)?;
-        let path_bytes = self.path.as_os_str().as_bytes().to_vec();
+        let path_bytes = self.path.as_os_str().as_encoded_bytes().to_vec();
         path_bytes.dump(target)?;
         Ok(())
     }
 
     fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
-        use std::os::unix::ffi::OsStrExt;
         let write_stream = usize::undump(lines)?;
         let path_bytes: Vec<u8> = Vec::undump(lines)?;
-        let path_str = std::ffi::OsStr::from_bytes(&path_bytes);
-        let path = PathBuf::from(path_str);
+        let path = PathBuf::from(crate::os_string_from_bytes(path_bytes));
         Ok(Self { write_stream, path })
     }
 }

@@ -23,7 +23,11 @@ fn run_tex(name: &str, body: &str) -> String {
     )
     .unwrap();
     drop(f);
-    Command::new(env!("CARGO_BIN_EXE_rtex")).arg(&src).current_dir(&dir).output().unwrap();
+    Command::new(env!("CARGO_BIN_EXE_rtex"))
+        .arg("t.tex")
+        .current_dir(&dir)
+        .output()
+        .unwrap();
     std::fs::read_to_string(dir.join("t.log")).unwrap()
 }
 
@@ -124,7 +128,11 @@ fn 印を置かなければ何も変わらない() {
     )
     .unwrap();
     drop(f);
-    Command::new(env!("CARGO_BIN_EXE_rtex")).arg(&src).current_dir(&dir).output().unwrap();
+    Command::new(env!("CARGO_BIN_EXE_rtex"))
+        .arg("t.tex")
+        .current_dir(&dir)
+        .output()
+        .unwrap();
     let log = std::fs::read_to_string(dir.join("t.log")).unwrap();
     assert!(log.contains("[X][*]"), "{log}");
 }
@@ -459,7 +467,11 @@ fn vaakと名前空間が同居する() {
     )
     .unwrap();
     drop(f);
-    Command::new(env!("CARGO_BIN_EXE_rtex")).arg(&src).current_dir(&dir).output().unwrap();
+    Command::new(env!("CARGO_BIN_EXE_rtex"))
+        .arg("t.tex")
+        .current_dir(&dir)
+        .output()
+        .unwrap();
     let log = std::fs::read_to_string(dir.join("t.log")).unwrap();
     // Vaak が走り、e-TeX の式が和文単位を受け、名前空間つきの名前が印字される
     assert!(log.contains("[23]"), "{log}");
@@ -481,7 +493,11 @@ fn 名前空間の印はvaakの綴りと衝突しうる() {
     )
     .unwrap();
     drop(f);
-    Command::new(env!("CARGO_BIN_EXE_rtex")).arg(&src).current_dir(&dir).output().unwrap();
+    Command::new(env!("CARGO_BIN_EXE_rtex"))
+        .arg("t.tex")
+        .current_dir(&dir)
+        .output()
+        .unwrap();
     let log = std::fs::read_to_string(dir.join("t.log")).unwrap();
     assert!(log.contains("Runaway namespace name"), "{log}");
     // **落ちない。** 読み飛ばして続く

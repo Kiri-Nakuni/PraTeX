@@ -16,9 +16,7 @@ use crate::token::Token;
 use crate::token_lists::{print_meaning, the_toks, token_show};
 use crate::{norm_min, open_in};
 
-use std::ffi::OsString;
 use std::io::BufReader;
-use std::os::unix::ffi::OsStringExt;
 use std::path::PathBuf;
 
 /// See 1270.
@@ -59,7 +57,7 @@ pub fn open_read_file(scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Logge
     scanner.read_file[n] = None;
     scanner.scan_optional_equals(eqtb, logger);
     let file_name = scanner.scan_file_name(eqtb, logger);
-    let mut path = PathBuf::from(OsString::from_vec(file_name));
+    let mut path = PathBuf::from(crate::os_string_from_bytes(file_name));
 
     if path.extension().is_none() {
         path.set_extension("tex");

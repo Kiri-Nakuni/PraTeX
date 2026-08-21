@@ -60,8 +60,24 @@ use std::ffi::OsString;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::{BufRead, Write};
-use std::os::unix::ffi::OsStringExt;
 use std::path::Path;
+
+/// TeX が集めた8ビットのファイル名を OS の文字列へ移す。
+///
+/// Unix では任意のバイト列がファイル名なので、そのまま保つ。Windows の
+/// `OsString` はワイド文字列なので、安全に扱える UTF-8 は保ち、不正な列だけを
+/// 代替文字へ直す。ファイル名を扱う箇所ごとにOS差を持たせないための境界である。
+pub(crate) fn os_string_from_bytes(bytes: Vec<u8>) -> OsString {
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStringExt;
+        OsString::from_vec(bytes)
+    }
+    #[cfg(not(unix))]
+    {
+        OsString::from(String::from_utf8_lossy(&bytes).into_owned())
+    }
+}
 
 // We use a global flag for now to indicate whether this version is INITEX.
 const INIT: bool = true;
@@ -165,7 +181,7 @@ fn read_format_name_and_first_line() -> (Option<OsString>, Vec<u8>, usize) {
         while pos < first_line.len() && first_line[pos] == b' ' {
             pos += 1;
         }
-        Some(OsString::from_vec(first_line[start..end].to_vec()))
+        Some(os_string_from_bytes(first_line[start..end].to_vec()))
     } else {
         None
     };

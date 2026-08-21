@@ -12,8 +12,6 @@ use crate::print::Printer;
 use crate::scan_internal::{scan_internal_toks, InternalValue};
 use crate::token::Token;
 
-use std::os::unix::ffi::OsStrExt;
-
 pub type RcTokenList = std::rc::Rc<Vec<Token>>;
 
 /// See 295.
@@ -215,7 +213,8 @@ fn scan_and_print_argument_for_convert_command(
             if logger.job_name.is_none() {
                 logger.open_log_file(&scanner.input_stack, eqtb);
             }
-            string_printer.slow_print_str(logger.job_name.as_ref().unwrap().as_bytes());
+            string_printer
+                .slow_print_str(logger.job_name.as_ref().unwrap().as_encoded_bytes());
         }
         // ==== pdfTeX 由来。**組版に触らない道具** ====
         //

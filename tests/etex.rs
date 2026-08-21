@@ -15,7 +15,13 @@ fn run_tex(name: &str, body: &str) -> String {
     let mut f = std::fs::File::create(&src).unwrap();
     write!(f, "\\catcode`\\{{=1\n\\catcode`\\}}=2\n\\batchmode\n{body}\n\\end\n").unwrap();
     drop(f);
-    Command::new(env!("CARGO_BIN_EXE_rtex")).arg(&src).current_dir(&dir).output().unwrap();
+    // 作業ディレクトリを指定しているので相対名で渡す。TeX の入力名走査へ
+    // Windows のドライブ文字 (`C:`) を持ち込まず、Unix と同じ条件で確かめる。
+    Command::new(env!("CARGO_BIN_EXE_rtex"))
+        .arg("t.tex")
+        .current_dir(&dir)
+        .output()
+        .unwrap();
     join_log(&dir.join("t.log"))
 }
 

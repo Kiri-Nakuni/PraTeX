@@ -14,7 +14,11 @@ fn run_tex(name: &str, body: &str) -> String {
     let mut f = std::fs::File::create(&src).unwrap();
     write!(f, "\\catcode`\\{{=1\n\\catcode`\\}}=2\n\\batchmode\n{body}\n\\end\n").unwrap();
     drop(f);
-    Command::new(env!("CARGO_BIN_EXE_rtex")).arg(&src).current_dir(&dir).output().unwrap();
+    Command::new(env!("CARGO_BIN_EXE_rtex"))
+        .arg("t.tex")
+        .current_dir(&dir)
+        .output()
+        .unwrap();
     std::fs::read_to_string(dir.join("t.log")).unwrap()
 }
 

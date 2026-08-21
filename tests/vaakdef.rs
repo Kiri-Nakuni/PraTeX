@@ -17,7 +17,7 @@ fn run_tex(name: &str, body: &str) -> String {
     write!(f, "\\catcode`\\{{=1\n\\catcode`\\}}=2\n\\batchmode\n{body}\n\\end\n").unwrap();
     drop(f);
     let exe = env!("CARGO_BIN_EXE_rtex");
-    Command::new(exe).arg(&src).current_dir(&dir).output().unwrap();
+    Command::new(exe).arg("t.tex").current_dir(&dir).output().unwrap();
     std::fs::read_to_string(dir.join("t.log")).unwrap()
 }
 

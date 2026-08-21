@@ -22,7 +22,6 @@ use dvi::DviWriter;
 use std::ffi::OsString;
 use std::fs::File;
 use std::io::BufWriter;
-use std::os::unix::ffi::OsStrExt;
 use std::path::PathBuf;
 
 type DviFileWriter = DviWriter<BufWriter<File>>;
@@ -114,7 +113,7 @@ impl Output {
             let page_count = document.dvi_writer.get_total_pages();
             let byte_count = document.dvi_writer.write_postamble().unwrap();
             logger.print_nl_str("Output written on ");
-            logger.slow_print_str(document.output_file_name.as_bytes());
+            logger.slow_print_str(document.output_file_name.as_encoded_bytes());
             logger.print_str(" (");
             logger.print_int(page_count as i32);
             logger.print_str(" page");
