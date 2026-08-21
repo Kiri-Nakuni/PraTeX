@@ -259,3 +259,28 @@ rtex側では `\directvaak` の入れ子general-text走査を修正済み。次�
 4. DVI backend分離、既存PDF serializer接続、スタンドアロンPDF
 5. UTF-8文字分類、JFM、和文間隔、禁則、縦組
 6. Vaakホスト関数
+
+## 拡張文字分類器と生文字列（Codex作業中）
+
+`codex/euptex-utf8-cjk-token` の `9af3f19` はremoteへpush済み。次の
+`codex/extensible-char-classifier` では、catcode/kcatcodeの保存表と公開番号を混ぜず、
+字句解析器の問い合わせだけを `CharacterClassifier` trait に統一している。catcode 14/16 と
+kcatcode 14/16 は意味が衝突するため内部 `CharClassId` の別領域に置く。ASCIIは従来の
+256要素表を直接引き、provider無効時にUnicode表引きやcallback分岐を足さない。
+設計は `docs/character-classifier-extension.md`。
+
+生文字列レジスタは `Rc<Vec<u8>>` とし、`\the`の現在分類によるsnapshot字句化、
+`\therawstring`の全Other化、`\showthe`の非字句化raw診断を別consumerにする。特に現行の
+`showthe -> the_toks -> token_show`へraw値を流すとcomment/active/escapeが変質し得るため、
+専用printerが必要。NUL/LF/CR/不正UTF-8も副作用なくescape表示する。詳細と試験表は
+`docs/raw-string-registers.md`。
+
+統一分類器は直接の親 `9af3f19` と300万反復fixtureを交互に各11回測定し、wall中央値
+1642.206→1636.016ms、CPU中央値1625.000→1593.750msだった。小差は高速化扱いしないが、
+stdout/log hash一致でASCII退行なし。組込み `CatCode` は明示 `repr(u8)`、拡張class IDは
+中央registryが割り当てる別 `u32` 領域とした。2026-08-22のfetch時点ではrtex/vaakとも
+remote `claude/*` branchはまだ無かった。
+
+この枝の最終確認はrelease 409 tests、TRIP二段exit 0。TRIP DVI SHA-256は親枝と同じ
+`27B79B612B94A1D2815A8747D09B6BA665F2ADFB9F521FCFE7020C6347A29342`。unsafe Rustは
+追加していない。
