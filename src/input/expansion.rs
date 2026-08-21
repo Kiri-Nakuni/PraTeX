@@ -47,14 +47,21 @@ pub fn expand(
         }
         ExpandableCommand::VaakInput => crate::vaak::vaak_input(scanner, eqtb, logger),
         ExpandableCommand::Unless => negate_next_conditional(scanner, eqtb, logger),
+        // **中身を展開せずに、字句へ直す**（e-TeX）。`\string` を全部に掛けたのと同じ
+        ExpandableCommand::Detokenize => {
+            let toks = crate::token_lists::detokenize_toks(scanner, eqtb, logger);
+            scanner.ins_list(toks, eqtb, logger);
+        }
+        // **展開する走査の中でも展開しない**（e-TeX）。そのまま置き直す
+        ExpandableCommand::Unexpanded => {
+            let toks = crate::token_lists::unexpanded_toks(scanner, eqtb, logger);
+            scanner.ins_list(toks, eqtb, logger);
+        }
         ExpandableCommand::Expanded => {
             // **展開しきってから、その場に置き直す。**
-            // `\edef` の走査と同じものを使う——意味を二箇所に書かない
-            let cs = match token {
-                Token::CSToken { cs } => cs,
-                _ => ControlSequence::NullCs,
-            };
-            let toks = scanner.scan_toks(cs, true, eqtb, logger);
+            // `\edef` の走査と同じものを使う——意味を二箇所に書かない。
+            // **走査の途中で呼ばれうる**ので、外側の溜めを控える
+            let toks = crate::token_lists::nested_scan_toks(scanner, true, eqtb, logger);
             scanner.ins_list(toks, eqtb, logger);
         }
         ExpandableCommand::VaakCall(id) => {

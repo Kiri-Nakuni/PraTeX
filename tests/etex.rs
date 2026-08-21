@@ -16,7 +16,12 @@ fn run_tex(name: &str, body: &str) -> String {
     write!(f, "\\catcode`\\{{=1\n\\catcode`\\}}=2\n\\batchmode\n{body}\n\\end\n").unwrap();
     drop(f);
     Command::new(env!("CARGO_BIN_EXE_rtex")).arg(&src).current_dir(&dir).output().unwrap();
-    std::fs::read_to_string(dir.join("t.log")).unwrap()
+    join_log(&dir.join("t.log"))
+}
+
+/// **記録は 79 桁で折り返される。** 印の途中でも折れるので、繋ぎ直してから見る。
+fn join_log(path: &std::path::Path) -> String {
+    std::fs::read_to_string(path).unwrap().replace('\n', "")
 }
 
 #[test]
@@ -136,4 +141,59 @@ fn 追跡の整数を持つ() {
 fn numexprは式である() {
     let log = run_tex("numexpr", "\\count0=\\numexpr 7*8/3\\relax \\message{[\\the\\count0]}");
     assert!(log.contains("[19]"), "{log}");
+}
+
+#[test]
+fn expandedは展開しきる() {
+    let log = run_tex(
+        "expanded",
+        "\\def\\a{A}\\def\\b{\\a B}\\count0=42\n\
+         \\message{[\\expanded{\\b}][\\expanded{x\\the\\count0 y}]}",
+    );
+    assert!(log.contains("[AB][x42y]"), "{log}");
+}
+
+#[test]
+fn detokenizeは字句に直す() {
+    let log = run_tex("detokenize", "\\def\\a{A}\\message{[\\detokenize{\\a b}]}");
+    // **展開しない。** `\a` がそのまま文字になる
+    assert!(log.contains("[\\a b]"), "{log}");
+}
+
+#[test]
+fn unexpandedは展開しない() {
+    let log = run_tex(
+        "unexpanded",
+        "\\def\\a{A}\\edef\\b{\\unexpanded{\\a}}\\message{[\\meaning\\b]}",
+    );
+    assert!(log.contains("[macro:->\\a ]"), "{log}");
+}
+
+#[test]
+fn 引用符つきのファイル名を読む() {
+    // **LaTeX2e が `\openin\@inputcheck"expl3.ltx" ` と書く。**
+    // これが無いと `\IfFileExists` が必ず偽になる
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    "引用符".hash(&mut h);
+    let dir = std::env::temp_dir().join(format!("etex-{}-{:x}", std::process::id(), h.finish()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("target file.tex"), "\\relax\n").unwrap();
+    std::fs::write(dir.join("plain.tex"), "\\relax\n").unwrap();
+    let src = dir.join("t.tex");
+    let mut f = std::fs::File::create(&src).unwrap();
+    write!(
+        f,
+        "\\catcode`\\{{=1\n\\catcode`\\}}=2\n\\batchmode\n\
+         \\openin0=\"plain.tex\" \\message{{[q=\\ifeof0 N\\else Y\\fi]}}\\closein0\n\
+         \\openin0=\"target file.tex\" \\message{{[sp=\\ifeof0 N\\else Y\\fi]}}\\closein0\n\
+         \\openin0=nosuch.tex \\message{{[no=\\ifeof0 N\\else Y\\fi]}}\n\\end\n"
+    )
+    .unwrap();
+    drop(f);
+    Command::new(env!("CARGO_BIN_EXE_rtex")).arg("t.tex").current_dir(&dir).output().unwrap();
+    let log = join_log(&dir.join("t.log"));
+    assert!(log.contains("[q=Y]"), "{log}");
+    assert!(log.contains("[sp=Y]"), "{log}");
+    assert!(log.contains("[no=N]"), "{log}");
 }

@@ -280,6 +280,39 @@ fn scan_and_print_argument_for_convert_command(
     }
 }
 
+/// `\detokenize{…}` の中身。**展開せずに字句へ直す**（e-TeX）。
+pub fn detokenize_toks(scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Logger) -> Vec<Token> {
+    let toks = nested_scan_toks(scanner, false, eqtb, logger);
+    let mut p = StringPrinter::new(eqtb.get_current_escape_character());
+    token_show(&toks, &mut p, eqtb);
+    str_toks(&p.into_string())
+}
+
+/// `\unexpanded{…}` の中身。**そのまま返す**（e-TeX）。
+pub fn unexpanded_toks(scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Logger) -> Vec<Token> {
+    nested_scan_toks(scanner, false, eqtb, logger)
+}
+
+/// 走査の**途中で**もう一度走査する。
+///
+/// **`scan_toks` は `def_ref` を作り直す。** 外側が溜めていたものが消えるので、
+/// 控えてから呼び、戻す——`\message{[\detokenize{…}]}` の `[` が消えた原因である。
+pub fn nested_scan_toks(
+    scanner: &mut Scanner,
+    xpand: bool,
+    eqtb: &mut Eqtb,
+    logger: &mut Logger,
+) -> Vec<Token> {
+    let saved_def_ref = std::mem::take(&mut scanner.def_ref);
+    let saved_status = scanner.scanner_status;
+    let saved_index = scanner.warning_index;
+    let toks = scanner.scan_toks(ControlSequence::NullCs, xpand, eqtb, logger);
+    scanner.def_ref = saved_def_ref;
+    scanner.scanner_status = saved_status;
+    scanner.warning_index = saved_index;
+    toks
+}
+
 /// See 428.
 fn complain_that_the_cant_do_this(
     unexpandable_command: UnexpandableCommand,
