@@ -7,6 +7,8 @@ mod dvi;
 mod eqtb;
 mod error;
 mod fonts;
+#[allow(dead_code)]
+mod font_resources;
 mod format;
 mod glue;
 mod horizontal_mode;

@@ -1,6 +1,6 @@
 # Claude への連絡
 
-更新: 2026-08-22 / 枝 `codex/windows-crlf-filenames`
+更新: 2026-08-22 / 枝 `codex/pdf-type1-fonts`
 
 ## 現在地
 
@@ -20,6 +20,11 @@
   `-output-format=pdf` / `--output-format=pdf` でstandalone PDFを直接選べる。ruleと
   printable ASCIIは出力できるが、文字は現在Standard 14 Courierによる可視smokeであり、
   TeX fontのType 1埋込み・encoding・ToUnicodeは次段である。
+- Type 1資材を実行せず読むpure parser層を追加した。PFBはAdobe #5040のsegment順と
+  Length1/2/3を検査し、wrapperだけを除く。AFMは浮動小数を使わず10^-6固定小数で
+  descriptorと文字幅を読む。pdfTeX mapは `<` の部分埋込みと `<<` の全体埋込み、
+  encoding、quoted specialを区別する。`.enc` はPostScriptを実行せず、限定された
+  256 glyph name vectorだけを受理する。すべてsafe Rustと合成fixtureだけである。
 - e-TeXの通常レジスタ6種（box/count/dimen/skip/muskip/toks）を0〜32767へ拡張した。
   0〜255は密配列、高位は触れた番号だけの疎表であり、すべてsafe Rustである。
 - `\insert` は通常レジスタから別型へ分離し、0〜254のままにした。box 255と
@@ -35,15 +40,16 @@
   `\glueshrinkorder` を内部量として追加した。通常・fil・fill・filll、負値、0係数、
   `\glueexpr`、数式糊の単位不一致回復を公式e-upTeX黒箱と照合した。
 - 既存fmtは疎表を含む新表現と非互換なので、この枝では再生成が必要。
-- release **237件通過**、失敗0（doc-test 1件は既存どおりignored）。高位6種、群、
+- release **280件通過**、失敗0（doc-test 1件は既存どおりignored）。高位6種、群、
   global、別名、範囲外、挿入境界、box 255、fmt往復に加え、mark classのpage遷移、
   `\vsplit`、保護macro、`\meaning`、境界と、shell状態の値・展開性・読み取り専用性・
   fmt往復に加え、糊成分の全次数・負値・0係数・式・数式糊回復を統合試験で固定した。
 
-作業枝は機能単位で切り、`origin/codex/windows-crlf-filenames` まで定期的にpushする。
+作業枝は機能単位で切り、`origin/codex/pdf-type1-fonts` まで定期的にpushする。
 値ストレージの土台は `a218c28`、6種への統合と挿入番号分離は `d7c121e`、TRIP runnerは
 `728d899`、mark classは `270c731`、shell状態は `2b2a1d1`、糊成分は `3cc6e6f`、
-PDFのpage tree土台は `590c788`、直接PDFは `67dce96`、CRLF修正は `e927ca2`。
+PDFのpage tree土台は `590c788`、直接PDFは `67dce96`、CRLF修正は `e927ca2`、
+OS文字列境界は `221e185`。
 
 ## ファイル名境界
 
@@ -65,11 +71,12 @@ dynamic dispatchも避ける。sp→bpはchecked integerと10^-6 bp固定小数�
 生の `\special` はcontentへ注入せず捨てる。設計と権利境界は
 `docs/pdf-backend-notes.md`。
 
-次のfont段階は公開PDF/Type 1/AFM仕様だけを使う。PFB wrapperを外してASCII/binary/ASCII
-payloadを `/FontFile` へ全埋込みし、AFMからdescriptorとPDF widthsを作る。通常mapの
-`<font.pfb` はsubset指定なので、subset未実装中に黙ってfull embedへ昇格させない。
-初期実測の `cmr10 CMR10 <cmr10.pfb` はこの制約に該当する。資材はTEXMFから実行時探索し、
-版方へコピーしない。
+font parser段階は公開PDF/Type 1/AFM仕様だけで完了した。PFB wrapperを外した
+ASCII/binary/ASCII payload、AFM descriptor/width、map、限定encoding vectorを構造化して
+いるが、まだPDF objectへは接続していない。通常mapの `<font.pfb` はsubset指定なので、
+subset未実装中に黙ってfull embedへ昇格させない。初期実測の
+`cmr10 CMR10 <cmr10.pfb` はこの制約に該当する。次はsafe Rustのresolverと型付き
+FontFile/FontDescriptor/Font objectを結ぶ。資材はTEXMFから実行時探索し、版方へコピーしない。
 
 ## LaTeX実測
 
