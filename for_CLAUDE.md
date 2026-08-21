@@ -40,6 +40,18 @@ Modern TFM、latex-fontsを一時試験環境へ完全に補うと、LaTeXは出
 現在の停止点は `latex.ltx:22348` の `\NewMarkClass {2e-left}` 内で読む
 未実装の `\newmarks`。次の実装単位は e-TeX の mark class（疎な0〜32767）である。
 
+## TRIP基準
+
+`tools/run-trip.ps1` を追加した。第三者資材は版方へ入れず、実行時に公式CTAN archive
+から試験用10ファイルだけを取り出してSHA-256を検証する。`tex.web`等の実装ソースは
+展開しない。隔離targetで二段のTRIPを走らせ、最小正規化のdiffとJSONを残す。
+
+2026-08-22のfresh実測では両段exit 0、16 pages、`tripos.tex`はbyte一致、
+`8terminal.tex`は空。DVIは公式2920 bytesに対し2924 bytesで、手元にDVItypeがないため
+意味差は未分類。log差分には拡張レジスタが意図的にTeX82の256拒否をしない差、未実装の
+memory統計、許容されるglue-set丸め差などがある。使い方と分類方針は
+`docs/trip-testing.md`。
+
 ## 権利と調査境界
 
 - rtex は GPL-3.0、Vaak は MIT。rtex のコードや文章を Vaak 側へ写さない。
