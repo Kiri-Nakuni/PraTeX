@@ -136,6 +136,18 @@ fn scan_something_internal(
         InternalCommand::LastKern => fetch_last_kern(scanner, eqtb),
         InternalCommand::LastSkip => fetch_last_skip(scanner, eqtb),
         InternalCommand::Badness => InternalValue::Int(eqtb.last_badness),
+        // ==== e-TeX の問い合わせ ====
+        InternalCommand::ETeXVersion => InternalValue::Int(2),
+        InternalCommand::CurrentGroupLevel => {
+            InternalValue::Int(eqtb.cur_level_for_etex())
+        }
+        InternalCommand::CurrentGroupType => InternalValue::Int(eqtb.cur_group_for_etex()),
+        InternalCommand::CurrentIfLevel => InternalValue::Int(scanner.cur_if_level_for_etex()),
+        InternalCommand::CurrentIfType => InternalValue::Int(scanner.cur_if_type_for_etex()),
+        InternalCommand::CurrentIfBranch => {
+            InternalValue::Int(scanner.cur_if_branch_for_etex())
+        }
+        InternalCommand::LastNodeType => InternalValue::Int(eqtb.last_node_type_for_etex()),
         InternalCommand::InputLineNumber => InternalValue::Int(eqtb.line_number() as i32),
         InternalCommand::Toks(toks_command) => fetch_token_list_or_font_identifier(
             toks_command,

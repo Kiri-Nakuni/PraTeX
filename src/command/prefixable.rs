@@ -411,6 +411,7 @@ pub fn prefixed_command(
     let mut long = false;
     let mut outer = false;
     let mut global = false;
+    let mut protected = false;
     while let PrefixableCommand::Prefix(prefix) = prefixable_command {
         match prefix {
             Prefix::Long => {
@@ -421,6 +422,9 @@ pub fn prefixed_command(
             }
             Prefix::Global => {
                 global = true;
+            }
+            Prefix::Protected => {
+                protected = true;
             }
         }
         let (unexpandable_command, token) =
@@ -688,6 +692,7 @@ pub fn prefixed_command(
             let macro_call = MacroCall {
                 long: false,
                 outer: false,
+                protected: false,
                 macro_def: Rc::new(macro_def),
             };
             let command = Command::Expandable(ExpandableCommand::Macro(macro_call));
@@ -720,6 +725,7 @@ pub fn prefixed_command(
             let macro_call = MacroCall {
                 long,
                 outer,
+                protected,
                 macro_def: Rc::new(macro_def),
             };
             let command = Command::Expandable(ExpandableCommand::Macro(macro_call));

@@ -120,6 +120,16 @@ pub struct VariableLevels {
     cur_fam: Level,
     escape_char: Level,
     namespace_char: Level,
+    tracingassigns: Level,
+    tracinggroups: Level,
+    tracingifs: Level,
+    tracingscantokens: Level,
+    tracingnesting: Level,
+    predisplaydirection: Level,
+    lastlinefit: Level,
+    savingvdiscards: Level,
+    savinghyphcodes: Level,
+    texxetstate: Level,
     default_hyphen_char: Level,
     default_skew_char: Level,
     end_line_char: Level,
@@ -281,6 +291,16 @@ impl VariableLevels {
             cur_fam: 0,
             escape_char: 0,
             namespace_char: 0,
+            tracingassigns: 0,
+            tracinggroups: 0,
+            tracingifs: 0,
+            tracingscantokens: 0,
+            tracingnesting: 0,
+            predisplaydirection: 0,
+            lastlinefit: 0,
+            savingvdiscards: 0,
+            savinghyphcodes: 0,
+            texxetstate: 0,
             default_hyphen_char: 0,
             default_skew_char: 0,
             end_line_char: 0,
@@ -447,6 +467,16 @@ impl VariableLevels {
                 IntegerVariable::CurFam => self.cur_fam,
                 IntegerVariable::EscapeChar => self.escape_char,
                 IntegerVariable::NamespaceChar => self.namespace_char,
+                IntegerVariable::TracingAssigns => self.tracingassigns,
+                IntegerVariable::TracingGroups => self.tracinggroups,
+                IntegerVariable::TracingIfs => self.tracingifs,
+                IntegerVariable::TracingScanTokens => self.tracingscantokens,
+                IntegerVariable::TracingNesting => self.tracingnesting,
+                IntegerVariable::PredisplayDirection => self.predisplaydirection,
+                IntegerVariable::LastLineFit => self.lastlinefit,
+                IntegerVariable::SavingVDiscards => self.savingvdiscards,
+                IntegerVariable::SavingHyphCodes => self.savinghyphcodes,
+                IntegerVariable::TeXXeTState => self.texxetstate,
                 IntegerVariable::DefaultHyphenChar => self.default_hyphen_char,
                 IntegerVariable::DefaultSkewChar => self.default_skew_char,
                 IntegerVariable::EndLineChar => self.end_line_char,
@@ -609,6 +639,16 @@ impl VariableLevels {
                 IntegerVariable::CurFam => &mut self.cur_fam,
                 IntegerVariable::EscapeChar => &mut self.escape_char,
                 IntegerVariable::NamespaceChar => &mut self.namespace_char,
+                IntegerVariable::TracingAssigns => &mut self.tracingassigns,
+                IntegerVariable::TracingGroups => &mut self.tracinggroups,
+                IntegerVariable::TracingIfs => &mut self.tracingifs,
+                IntegerVariable::TracingScanTokens => &mut self.tracingscantokens,
+                IntegerVariable::TracingNesting => &mut self.tracingnesting,
+                IntegerVariable::PredisplayDirection => &mut self.predisplaydirection,
+                IntegerVariable::LastLineFit => &mut self.lastlinefit,
+                IntegerVariable::SavingVDiscards => &mut self.savingvdiscards,
+                IntegerVariable::SavingHyphCodes => &mut self.savinghyphcodes,
+                IntegerVariable::TeXXeTState => &mut self.texxetstate,
                 IntegerVariable::DefaultHyphenChar => &mut self.default_hyphen_char,
                 IntegerVariable::DefaultSkewChar => &mut self.default_skew_char,
                 IntegerVariable::EndLineChar => &mut self.end_line_char,
@@ -773,6 +813,16 @@ impl Dumpable for VariableLevels {
         self.cur_fam.dump(target)?;
         self.escape_char.dump(target)?;
         self.namespace_char.dump(target)?;
+        self.tracingassigns.dump(target)?;
+        self.tracinggroups.dump(target)?;
+        self.tracingifs.dump(target)?;
+        self.tracingscantokens.dump(target)?;
+        self.tracingnesting.dump(target)?;
+        self.predisplaydirection.dump(target)?;
+        self.lastlinefit.dump(target)?;
+        self.savingvdiscards.dump(target)?;
+        self.savinghyphcodes.dump(target)?;
+        self.texxetstate.dump(target)?;
         self.default_hyphen_char.dump(target)?;
         self.default_skew_char.dump(target)?;
         self.end_line_char.dump(target)?;
@@ -934,6 +984,16 @@ impl Dumpable for VariableLevels {
         let cur_fam = Dumpable::undump(lines)?;
         let escape_char = Dumpable::undump(lines)?;
         let namespace_char = Dumpable::undump(lines)?;
+        let tracingassigns = Dumpable::undump(lines)?;
+        let tracinggroups = Dumpable::undump(lines)?;
+        let tracingifs = Dumpable::undump(lines)?;
+        let tracingscantokens = Dumpable::undump(lines)?;
+        let tracingnesting = Dumpable::undump(lines)?;
+        let predisplaydirection = Dumpable::undump(lines)?;
+        let lastlinefit = Dumpable::undump(lines)?;
+        let savingvdiscards = Dumpable::undump(lines)?;
+        let savinghyphcodes = Dumpable::undump(lines)?;
+        let texxetstate = Dumpable::undump(lines)?;
         let default_hyphen_char = Dumpable::undump(lines)?;
         let default_skew_char = Dumpable::undump(lines)?;
         let end_line_char = Dumpable::undump(lines)?;
@@ -1079,6 +1139,16 @@ impl Dumpable for VariableLevels {
             cur_fam,
             escape_char,
             namespace_char,
+            tracingassigns,
+            tracinggroups,
+            tracingifs,
+            tracingscantokens,
+            tracingnesting,
+            predisplaydirection,
+            lastlinefit,
+            savingvdiscards,
+            savinghyphcodes,
+            texxetstate,
             default_hyphen_char,
             default_skew_char,
             end_line_char,

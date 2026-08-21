@@ -36,6 +36,39 @@ pub struct ConditionState {
 }
 
 impl Scanner {
+    /// `\currentiflevel`（e-TeX）。
+    pub fn cur_if_level_for_etex(&self) -> i32 {
+        self.cond_stack.len() as i32
+    }
+
+    /// `\currentiftype`（e-TeX）。**開いている条件が無ければ 0。**
+    ///
+    /// `IfTest` の並びは TeX の順そのままなので、番号を足すだけでよい。
+    pub fn cur_if_type_for_etex(&self) -> i32 {
+        // **いま開いている条件は `cur_if` にある。**
+        // `cond_stack` に積まれているのは**外側の控え**である（TeX の構造そのまま）
+        if self.cond_stack.is_empty() {
+            return 0;
+        }
+        self.cur_if.etex_code() + 1
+    }
+
+    /// `\currentifbranch`（e-TeX）。
+    ///
+    /// **1 は真の側、−1 は `\else` の側、0 はどちらでもない。**
+    pub fn cur_if_branch_for_etex(&self) -> i32 {
+        if self.cond_stack.is_empty() {
+            return 0;
+        }
+        match self.if_limit {
+            // 真の側にいる——`\else` か `\or` を待っている
+            IfLimit::Or | IfLimit::Else => 1,
+            // `\else` の側にいる——`\fi` しか待っていない
+            IfLimit::Fi => -1,
+            _ => 0,
+        }
+    }
+
     /// Consumes all Token until an \or, \else, or \fi at the current if-depth is found. Any \if's
     /// appearing before that matching FiOrElse token are "closed" by finding their corresponding
     /// \fi's. Returns matching FiOrElse.
@@ -98,6 +131,26 @@ impl Scanner {
 
 /// See 498.
 pub fn conditional(if_test: IfTest, scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Logger) {
+    conditional_maybe_negated(if_test, false, scanner, eqtb, logger)
+}
+
+/// `\unless\if…` — **判定を反転する。**
+pub fn conditional_negated(
+    if_test: IfTest,
+    scanner: &mut Scanner,
+    eqtb: &mut Eqtb,
+    logger: &mut Logger,
+) {
+    conditional_maybe_negated(if_test, true, scanner, eqtb, logger)
+}
+
+fn conditional_maybe_negated(
+    if_test: IfTest,
+    negate: bool,
+    scanner: &mut Scanner,
+    eqtb: &mut Eqtb,
+    logger: &mut Logger,
+) {
     scanner.push_condition_stack(if_test, eqtb);
     let condition_level = scanner.cond_stack.len();
     let this_if = if_test;
@@ -107,7 +160,7 @@ pub fn conditional(if_test: IfTest, scanner: &mut Scanner, eqtb: &mut Eqtb, logg
             Some(finishing_chr) => finishing_chr,
         }
     } else {
-        let b = process_ifcase(this_if, scanner, eqtb, logger);
+        let b = process_ifcase(this_if, scanner, eqtb, logger) != negate;
         if eqtb.integer(IntegerVariable::TracingCommands) > 1 {
             display_value_of_b(b, eqtb, logger);
         }
@@ -187,7 +240,68 @@ fn process_ifcase(
         }
         IfTest::IfTrue => true,
         IfTest::IfFalse => false,
+        // ==== e-TeX ====
+        // **未定義でも作らない。** `\csname` と違って穴を開けない
+        IfTest::IfDefined => {
+            let (command, _) = scanner.get_next(false, eqtb, logger);
+            !matches!(command, Command::Expandable(ExpandableCommand::Undefined))
+        }
+        IfTest::IfCsName => test_if_cs_name_is_defined(scanner, eqtb, logger),
+        IfTest::IfFontChar => {
+            let font = crate::fonts::scan_font_ident(scanner, eqtb, logger);
+            let n = i32::scan_int(scanner, eqtb, logger);
+            // **範囲外は「無い」。** 落とさない
+            (0..=255).contains(&n) && eqtb.fonts[font as usize].char_exists(n as u8)
+        }
         IfTest::IfCase => panic!("Impossible"),
+    }
+}
+
+/// `\ifcsname 名前\endcsname` — **名前を組むが、作らない。**
+///
+/// `\csname` は無ければ `\relax` にして**作ってしまう**。
+/// こちらは調べるだけなので、表に穴を開けない。
+fn test_if_cs_name_is_defined(
+    scanner: &mut Scanner,
+    eqtb: &mut Eqtb,
+    logger: &mut Logger,
+) -> bool {
+    let mut name = Vec::new();
+    loop {
+        let (command, token) = crate::input::expansion::get_x_token(scanner, eqtb, logger);
+        match token {
+            Token::LeftBrace(c)
+            | Token::RightBrace(c)
+            | Token::MathShift(c)
+            | Token::TabMark(c)
+            | Token::MacParam(c)
+            | Token::SuperMark(c)
+            | Token::SubMark(c)
+            | Token::Spacer(c)
+            | Token::Letter(c)
+            | Token::OtherChar(c) => name.push(c),
+            _ => {
+                if !matches!(command, UnexpandableCommand::EndCsName) {
+                    logger.print_err("Missing ");
+                    logger.print_esc_str(b"endcsname");
+                    logger.print_str(" inserted");
+                    let help = &[
+                        "The control sequence marked <to be read again> should",
+                        "not appear between \\ifcsname and \\endcsname.",
+                    ];
+                    scanner.back_input(token, eqtb, logger);
+                    logger.error(help, scanner, eqtb);
+                }
+                break;
+            }
+        }
+    }
+    match eqtb.lookup(&name) {
+        None => false,
+        Some(cs) => !matches!(
+            eqtb.control_sequences.get(cs),
+            Command::Expandable(ExpandableCommand::Undefined)
+        ),
     }
 }
 

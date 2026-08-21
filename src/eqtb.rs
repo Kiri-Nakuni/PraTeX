@@ -84,6 +84,12 @@ pub struct Eqtb {
     /// 空なら**素の TeX82 とまったく同じ道**を通る——
     /// 使わない機能に費用を持たせない
     pub using_namespaces: Vec<NamespaceId>,
+    /// `\lastnodetype`（e-TeX）。**-1 は「無い」。**
+    ///
+    /// 種類の番号は e-TeX のもの：0 文字 / 1 hlist / 2 vlist / 3 罫 / 4 差し込み /
+    /// 5 印 / 6 調整 / 7 合字 / 8 分割 / 9 whatsit / 10 数式 / 11 糊 / 12 カーン /
+    /// 13 罰点 / 14 未設定
+    pub last_node_type: i32,
     pub token_lists: TokenListParameters,
     pub boxes: BoxParameters,
     pub font_params: FontParameters,
@@ -154,6 +160,7 @@ impl Eqtb {
             skips: SkipParameters::new(),
             par_shape: ParShapeParameter::new(),
             using_namespaces: Vec::new(),
+            last_node_type: -1,
             token_lists: TokenListParameters::new(),
             boxes: BoxParameters::new(),
             font_params: FontParameters::new(),
@@ -1123,6 +1130,43 @@ impl Eqtb {
         cs
     }
 
+    /// `\lastnodetype`（e-TeX）。**-1 は「無い」。**
+    pub fn last_node_type_for_etex(&self) -> i32 {
+        self.last_node_type
+    }
+
+    /// `\currentgrouplevel`（e-TeX）。
+    pub fn cur_level_for_etex(&self) -> i32 {
+        self.cur_level as i32
+    }
+
+    /// `\currentgrouptype`（e-TeX）。**番号は TeX のもの。**
+    ///
+    /// rtex には `AlignEntry` という TeX に無い群があるので、
+    /// **並び順ではなく明示の対応で写す。**
+    pub fn cur_group_for_etex(&self) -> i32 {
+        use crate::eqtb::save_stack::GroupType::*;
+        match self.cur_group.typ {
+            BottomLevel => 0,
+            Simple => 1,
+            Hbox { .. } => 2,
+            AdjustedHbox { .. } => 3,
+            Vbox { .. } => 4,
+            Vtop { .. } => 5,
+            Align { .. } | AlignEntry { .. } => 6,
+            NoAlign { .. } => 7,
+            Output { .. } => 8,
+            Math { .. } => 9,
+            Disc { .. } => 10,
+            Insert { .. } => 11,
+            Vcenter { .. } => 12,
+            MathChoice { .. } => 13,
+            SemiSimple => 14,
+            MathShift { .. } => 15,
+            MathLeft { .. } => 16,
+        }
+    }
+
     /// `\showthe\usingnamespace` 相当。使っている名前空間を並べる。
     fn show_using_namespaces(&self, logger: &mut Logger) {
         logger.print_esc_str(b"usingnamespace");
@@ -1146,6 +1190,32 @@ impl Eqtb {
     /// NOTE: We need to ensure that this is called whenever the last node of the current list has
     /// been changed.
     pub fn update_last_node_info(&mut self, last_node: Option<&Node>) {
+        // **e-TeX の種類も控える。** `\lastnodetype` が要る（LaTeX が 11/12/13/1 を見る）
+        self.last_node_type = match last_node {
+            None => -1,
+            Some(Node::Char(_)) => 0,
+            Some(Node::List(l)) => {
+                if matches!(l.list, crate::nodes::HlistOrVlist::Hlist(_)) {
+                    1
+                } else {
+                    2
+                }
+            }
+            Some(Node::Rule(_)) => 3,
+            Some(Node::Ins(_)) => 4,
+            Some(Node::Mark(_)) => 5,
+            Some(Node::Adjust(_)) => 6,
+            Some(Node::Ligature(_)) => 7,
+            Some(Node::Disc(_)) => 8,
+            Some(Node::Whatsit(_)) => 9,
+            Some(Node::Math(_)) => 10,
+            Some(Node::Glue(_)) => 11,
+            Some(Node::Kern(_)) => 12,
+            Some(Node::Penalty(_)) => 13,
+            Some(Node::Unset(_)) => 14,
+            // 数式の内側の節。**e-TeX も 15 以降を持たない**ので数式扱いにする
+            Some(_) => 10,
+        };
         self.last_node_info = if let Some(last_node) = last_node {
             match last_node {
                 Node::Penalty(penalty_node) => LastNodeInfo::Penalty(penalty_node.penalty),
@@ -1389,6 +1459,7 @@ impl Dumpable for Eqtb {
             skips,
             par_shape,
             using_namespaces,
+            last_node_type: -1,
             token_lists,
             boxes,
             font_params,
