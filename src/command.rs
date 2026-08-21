@@ -380,6 +380,14 @@ pub enum ExpandableCommand {
     ///
     /// 番号は本体の**内容で共有される**ので、同じ本体の二つの名前は `\ifx` で等しい。
     VaakCall(u32),
+    /// `\namespace 名前\csname … \endcsname`。
+    ///
+    /// **名前空間の名前を集め、`\csname` の登録処理に介入する。**
+    ///
+    /// `\endcsname` を終端にする案を退けたのは、
+    /// **`\csname` が global に作ってしまう**からである——
+    /// 登録は `\endcsname` に達した一箇所で起きるので、そこへ名前空間を渡すしかない。
+    Namespace,
 }
 
 impl ExpandableCommand {
@@ -397,6 +405,7 @@ impl ExpandableCommand {
             Self::Convert(convert_command) => convert_command.display(printer),
             Self::The => printer.print_esc_str(b"the"),
             Self::DirectVaak => printer.print_esc_str(b"directvaak"),
+            Self::Namespace => printer.print_esc_str(b"namespace"),
             &Self::VaakCall(id) => {
                 printer.print_str("vaak:->");
                 for c in crate::vaak::source_of(id) {

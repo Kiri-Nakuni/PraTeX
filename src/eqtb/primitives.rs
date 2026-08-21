@@ -692,6 +692,7 @@ impl Eqtb {
         ] {
             self.primitive_unexpandable(name, UnexpandableCommand::Expr(kind));
         }
+        self.primitive_expandable(b"namespace", ExpandableCommand::Namespace);
         self.primitive_expandable(b"directvaak", ExpandableCommand::DirectVaak);
         self.primitive_unexpandable(
             b"vaakdef",

@@ -122,3 +122,74 @@ fn 印を置かなければ何も変わらない() {
     let log = std::fs::read_to_string(dir.join("t.log")).unwrap();
     assert!(log.contains("[X][*]"), "{log}");
 }
+
+// ===== Phase 3：`\namespace` と `\csname` =====
+
+#[test]
+fn csname経由でも同じ制御綴になる() {
+    let log = run_tex(
+        "csname",
+        "\\def*foo\\bar{FOOBAR}\n\
+         \\message{[\\namespace foo\\csname bar\\endcsname]}",
+    );
+    assert!(log.contains("[FOOBAR]"), "{log}");
+}
+
+#[test]
+fn グローバルに作られない() {
+    // **`\endcsname` を終端にする案を退けた理由そのもの。**
+    // 登録は `\endcsname` に達した一箇所で起きるので、そこへ名前空間を渡すしかない
+    let log = run_tex(
+        "作られない",
+        "\\def*foo\\bar{X}\n\
+         \\message{[\\namespace foo\\csname bar\\endcsname]}\n\
+         \\message{[global=\\ifx\\bar\\undefined Y\\else N\\fi]}",
+    );
+    assert!(log.contains("[global=Y]"), "{log}");
+}
+
+#[test]
+fn csnameで作ってdefできる() {
+    let log = run_tex(
+        "作る",
+        "\\expandafter\\def\\namespace zoo\\csname qux\\endcsname{ZOOQUX}\n\
+         \\message{[*zoo\\qux]}",
+    );
+    assert!(log.contains("[ZOOQUX]"), "{log}");
+}
+
+#[test]
+fn 名前空間名は展開される() {
+    let log = run_tex(
+        "展開",
+        "\\def*foo\\bar{FOOBAR}\\def\\ns{foo}\n\
+         \\message{[\\namespace \\ns\\csname bar\\endcsname]}",
+    );
+    assert!(log.contains("[FOOBAR]"), "{log}");
+}
+
+#[test]
+fn 空の名前空間名はグローバルそのもの() {
+    let log = run_tex(
+        "空",
+        "\\def\\bar{GLOBAL}\n\\message{[\\namespace\\csname bar\\endcsname]}",
+    );
+    assert!(log.contains("[GLOBAL]"), "{log}");
+}
+
+#[test]
+fn 入れ子は誤り() {
+    let log = run_tex(
+        "入れ子",
+        "\\message{[\\namespace foo\\namespace bar\\csname x\\endcsname]}\\message{[done]}",
+    );
+    assert!(log.contains("Nested"), "{log}");
+    assert!(log.contains("[done]"), "{log}");
+}
+
+#[test]
+fn csname以外が来れば誤り() {
+    let log = run_tex("csname無し", "\\namespace foo\\relax \\message{[done]}");
+    assert!(log.contains("Missing"), "{log}");
+    assert!(log.contains("[done]"), "{log}");
+}

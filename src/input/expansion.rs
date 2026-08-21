@@ -38,7 +38,10 @@ pub fn expand(
         ExpandableCommand::FiOrElse(fi_or_else) => {
             terminate_current_conditional_and_skip_to_fi(fi_or_else, token, scanner, eqtb, logger)
         }
-        ExpandableCommand::CsName => manufacture_control_sequence_name(scanner, eqtb, logger),
+        ExpandableCommand::CsName => {
+            manufacture_control_sequence_name(None, scanner, eqtb, logger)
+        }
+        ExpandableCommand::Namespace => scan_namespace(scanner, eqtb, logger),
         ExpandableCommand::DirectVaak => {
             crate::vaak::direct_vaak(token, scanner, eqtb, logger)
         }
@@ -91,10 +94,94 @@ fn complain_about_undefined_macro(scanner: &mut Scanner, eqtb: &mut Eqtb, logger
     logger.error(help, scanner, eqtb)
 }
 
+/// `\namespace 名前\csname … \endcsname`。
+///
+/// # なぜ `get_x_token` が使えないか
+///
+/// **名前空間の名前の終わりを知らせるのが `\csname` 自身だから**である。
+/// `get_x_token` は制御が戻る前にそれを展開してしまう。
+///
+/// だから `get_next` で回し、`\csname` を見つけたらそこで止めて、
+/// **`\csname` の登録処理を自分で呼ぶ。**
+///
+/// # なぜ `\endcsname` を終端にしなかったか
+///
+/// **`\csname` が global に作ってしまう**からである。
+/// 登録も `\relax` 化も `\endcsname` に達した一箇所で起きるので、
+/// そこへ名前空間を渡す以外に道が無い。
+fn scan_namespace(scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Logger) {
+    let mut name = Vec::new();
+    loop {
+        let (command, token) = scanner.get_next(false, eqtb, logger);
+        match command {
+            Command::Expandable(ExpandableCommand::CsName) => {
+                // **ここで登録処理へ入る。** 名前空間を持たせて
+                manufacture_control_sequence_name(Some(&name), scanner, eqtb, logger);
+                return;
+            }
+            Command::Expandable(ExpandableCommand::Namespace) => {
+                logger.print_err("Nested ");
+                logger.print_esc_str(b"namespace");
+                let help = &[
+                    "A namespace prefix cannot contain another one.",
+                    "I'll forget that it ever happened.",
+                ];
+                logger.error(help, scanner, eqtb);
+                return;
+            }
+            // **文字は名前に取り込む。** 展開可能なものは展開して続ける
+            Command::Unexpandable(_) => match token {
+                Token::LeftBrace(c)
+                | Token::RightBrace(c)
+                | Token::MathShift(c)
+                | Token::TabMark(c)
+                | Token::MacParam(c)
+                | Token::SuperMark(c)
+                | Token::SubMark(c)
+                | Token::Spacer(c)
+                | Token::Letter(c)
+                | Token::OtherChar(c) => name.push(c),
+                _ => {
+                    complain_about_missing_csname(token, scanner, eqtb, logger);
+                    return;
+                }
+            },
+            Command::Expandable(ExpandableCommand::Macro(macro_call)) => {
+                macro_expand(macro_call, token, scanner, eqtb, logger)
+            }
+            Command::Expandable(expandable_command) => {
+                expand(expandable_command, token, scanner, eqtb, logger)
+            }
+        }
+    }
+}
+
+fn complain_about_missing_csname(
+    token: Token,
+    scanner: &mut Scanner,
+    eqtb: &mut Eqtb,
+    logger: &mut Logger,
+) {
+    logger.print_err("Missing ");
+    logger.print_esc_str(b"csname");
+    logger.print_str(" inserted");
+    let help = &[
+        "A namespace prefix must be followed by \\csname.",
+        "The control sequence marked <to be read again> should not appear there.",
+    ];
+    scanner.back_input(token, eqtb, logger);
+    logger.error(help, scanner, eqtb);
+}
+
 /// Reads a control sequence name enclosed by \csname and \endcsname
 /// in and replaces it by the corresponding control sequence token.
 /// See 372.
-fn manufacture_control_sequence_name(scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Logger) {
+fn manufacture_control_sequence_name(
+    ns: Option<&[u8]>,
+    scanner: &mut Scanner,
+    eqtb: &mut Eqtb,
+    logger: &mut Logger,
+) {
     // Collect the token in `name`.
     let mut cs_name = Vec::new();
     // Consume all char tokens after expansion.
@@ -126,7 +213,19 @@ fn manufacture_control_sequence_name(scanner: &mut Scanner, eqtb: &mut Eqtb, log
         complain_about_missing_endcsname(finishing_token, scanner, eqtb, logger);
     }
     // Look up the name and return the corresponding control sequence.
-    let Ok(cs) = eqtb.lookup_or_create(&cs_name) else {
+    //
+    // **名前空間があればそちらへ登録する。** 登録はここ一箇所で起きるので、
+    // `\namespace` はここへ名前を渡せば足りる
+    let created = match ns {
+        None => eqtb.lookup_or_create(&cs_name),
+        // **空の名前空間名は global そのものである**（仕様どおり）
+        Some(n) if n.is_empty() => eqtb.lookup_or_create(&cs_name),
+        Some(n) => {
+            let id = eqtb.control_sequences.intern_namespace(n);
+            eqtb.lookup_or_create_ns(Some(id), &cs_name, None)
+        }
+    };
+    let Ok(cs) = created else {
         overflow(
             "hash size",
             ControlSequenceId::MAX as usize,

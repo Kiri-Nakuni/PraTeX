@@ -399,6 +399,9 @@ impl Dumpable for ExpandableCommand {
             Self::DirectVaak => {
                 writeln!(target, "DirectVaak")?;
             }
+            Self::Namespace => {
+                writeln!(target, "Namespace")?;
+            }
             &Self::VaakCall(id) => {
                 // **本体を書き出す。** 番号は走らせるたびに付け直されるので、
                 // 書き出すべきは番号ではなく本体である
@@ -418,6 +421,7 @@ impl Dumpable for ExpandableCommand {
         let variant = lines.next().ok_or(FormatError::IncompleteFile)?;
         match variant {
             "DirectVaak" => Ok(Self::DirectVaak),
+            "Namespace" => Ok(Self::Namespace),
             "VaakCall" => {
                 let hex = lines.next().ok_or(FormatError::IncompleteFile)?;
                 let mut src = Vec::with_capacity(hex.len() / 2);
