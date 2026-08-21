@@ -754,6 +754,7 @@ mod tests {
         let the = ExpandableCommand::The;
         let mark = ExpandableCommand::Mark(MarkCommand::Top);
         let macro_call = ExpandableCommand::Macro(MacroCall {
+            protected: false,
             long: false,
             outer: true,
             macro_def: std::rc::Rc::new(Macro::default()),
