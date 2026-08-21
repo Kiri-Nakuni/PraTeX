@@ -434,3 +434,56 @@ fn 一文字の制御綴も探索に参加する() {
     );
     assert!(log.contains("[ONE]"), "{log}");
 }
+
+// ===== 全部入り：Vaak と名前空間が同居する =====
+
+#[test]
+fn vaakと名前空間が同居する() {
+    // **名前空間の印は Vaak の本体にも効く。**
+    // `*` を印にすると `count[5] * 2` の `*` が名前空間の始まりになるので、
+    // **Vaak の綴りに現れない文字を選ぶ**（ここでは `@`）
+    let dir = std::env::temp_dir().join(format!("ns-full-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let src = dir.join("t.tex");
+    let mut f = std::fs::File::create(&src).unwrap();
+    write!(
+        f,
+        "\\catcode`\\{{=1\n\\catcode`\\}}=2\n\\batchmode\n\
+         \\catcode`\\@=16\n\\namespacechar=`\\@\n\
+         \\count5=10 \\count6=3\n\
+         \\vaakdef@lib\\tally{{ count[5] * 2 + count[6] }}\n\
+         \\usingnamespace lib\n\
+         \\count0=\\tally\n\
+         \\dimen0=\\dimexpr 4Q*2\\relax\n\
+         \\message{{[\\the\\count0][\\the\\dimen0][\\string@lib\\tally]}}\n\\end\n"
+    )
+    .unwrap();
+    drop(f);
+    Command::new(env!("CARGO_BIN_EXE_rtex")).arg(&src).current_dir(&dir).output().unwrap();
+    let log = std::fs::read_to_string(dir.join("t.log")).unwrap();
+    // Vaak が走り、e-TeX の式が和文単位を受け、名前空間つきの名前が印字される
+    assert!(log.contains("[23]"), "{log}");
+    assert!(log.contains("[5.69052pt]"), "{log}");
+    assert!(log.contains("[@lib\\tally]"), "{log}");
+}
+
+#[test]
+fn 名前空間の印はvaakの綴りと衝突しうる() {
+    // **既知の危険。** `*` を印にすると Vaak の掛け算が壊れる
+    let dir = std::env::temp_dir().join(format!("ns-clash-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let src = dir.join("t.tex");
+    let mut f = std::fs::File::create(&src).unwrap();
+    write!(
+        f,
+        "\\catcode`\\{{=1\n\\catcode`\\}}=2\n\\batchmode\n\\catcode`\\*=16\n\
+         \\vaakdef\\t{{ 3 * 4 }}\n\\message{{[done]}}\n\\end\n"
+    )
+    .unwrap();
+    drop(f);
+    Command::new(env!("CARGO_BIN_EXE_rtex")).arg(&src).current_dir(&dir).output().unwrap();
+    let log = std::fs::read_to_string(dir.join("t.log")).unwrap();
+    assert!(log.contains("Runaway namespace name"), "{log}");
+    // **落ちない。** 読み飛ばして続く
+    assert!(log.contains("[done]"), "{log}");
+}
