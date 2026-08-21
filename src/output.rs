@@ -104,29 +104,18 @@ impl Output {
         eqtb: &mut Eqtb,
         logger: &mut Logger,
     ) {
-        if eqtb.tracing_output() > 0 {
+        let tracing_output = eqtb.tracing_output() > 0;
+        if tracing_output {
             logger.print_nl_str("");
             logger.print_ln();
             logger.print_str("Completed box being shipped out");
         }
-        if logger.term_offset > MAX_PRINT_LINE - 9 {
-            logger.print_ln();
-        } else if logger.term_offset > 0 || logger.file_offset > 0 {
-            logger.print_char(b' ');
+        if tracing_output {
+            print_shipout_page_number(eqtb, logger);
+        } else {
+            logger.automatic_output(|logger| print_shipout_page_number(eqtb, logger));
         }
-        logger.print_char(b'[');
-        let mut j = 9;
-        while (eqtb.integer(IntegerVariable::Count(j)) == 0) && (j > 0) {
-            j -= 1;
-        }
-        for k in 0..=j {
-            logger.print_int(eqtb.integer(IntegerVariable::Count(k)));
-            if k < j {
-                logger.print_char(b'.');
-            }
-        }
-        logger.update_terminal();
-        if eqtb.tracing_output() > 0 {
+        if tracing_output {
             logger.print_char(b']');
             logger.begin_diagnostic(eqtb.tracing_online());
             show_box(&list_node, eqtb, logger);
@@ -151,8 +140,10 @@ impl Output {
             self.document = Some(document);
         }
 
-        if eqtb.tracing_output() <= 0 {
-            logger.print_char(b']');
+        if !tracing_output {
+            logger.automatic_output(|logger| {
+                logger.print_char(b']');
+            });
         }
         eqtb.dead_cycles = 0;
         logger.update_terminal();
@@ -168,19 +159,23 @@ impl Output {
     pub fn finish_output_file(self, logger: &mut Logger) {
         if let Some(document) = self.document {
             let (output_file_name, page_count, byte_count) = document.finish();
-            logger.print_nl_str("Output written on ");
-            logger.slow_print_str(output_file_name.as_encoded_bytes());
-            logger.print_str(" (");
-            logger.print_int(page_count as i32);
-            logger.print_str(" page");
-            if page_count != 1 {
-                logger.print_char(b's');
-            }
-            logger.print_str(", ");
-            logger.print_int(byte_count as i32);
-            logger.print_str(" bytes).");
+            logger.automatic_output(|logger| {
+                logger.print_nl_str("Output written on ");
+                logger.slow_print_str(output_file_name.as_encoded_bytes());
+                logger.print_str(" (");
+                logger.print_int(page_count as i32);
+                logger.print_str(" page");
+                if page_count != 1 {
+                    logger.print_char(b's');
+                }
+                logger.print_str(", ");
+                logger.print_int(byte_count as i32);
+                logger.print_str(" bytes).");
+            });
         } else {
-            logger.print_nl_str("No pages of output.");
+            logger.automatic_output(|logger| {
+                logger.print_nl_str("No pages of output.");
+            });
         }
     }
 
@@ -207,6 +202,26 @@ impl Output {
             WhatsitNode::Special(_) | WhatsitNode::Language(_) => {}
         }
     }
+}
+
+fn print_shipout_page_number(eqtb: &Eqtb, logger: &mut Logger) {
+    if logger.term_offset > MAX_PRINT_LINE - 9 {
+        logger.print_ln();
+    } else if logger.term_offset > 0 || logger.file_offset > 0 {
+        logger.print_char(b' ');
+    }
+    logger.print_char(b'[');
+    let mut j = 9;
+    while eqtb.integer(IntegerVariable::Count(j)) == 0 && j > 0 {
+        j -= 1;
+    }
+    for k in 0..=j {
+        logger.print_int(eqtb.integer(IntegerVariable::Count(k)));
+        if k < j {
+            logger.print_char(b'.');
+        }
+    }
+    logger.update_terminal();
 }
 
 /// Returns false it for goto done, true otherwise.
@@ -336,7 +351,7 @@ struct Document<B: ShipoutBackend> {
 impl Document<DviFileBackend> {
     fn create_dvi(output_file_name: OsString, dvi_file: BufWriter<File>, eqtb: &Eqtb) -> Self {
         let comment = format!(
-            " rtex output {}.{:02}.{:02}:{:02}{:02}",
+            " PraTeX output {}.{:02}.{:02}:{:02}{:02}",
             eqtb.integer(IntegerVariable::Year),
             eqtb.integer(IntegerVariable::Month),
             eqtb.integer(IntegerVariable::Day),

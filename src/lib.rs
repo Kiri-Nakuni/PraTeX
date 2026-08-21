@@ -64,7 +64,7 @@ use main_control::main_control;
 use output::Output;
 use page_breaking::PageBuilder;
 use print::Printer;
-use run_options::{parse_arguments, OutputFormat};
+use run_options::{parse_arguments, OutputFormat, ParsedArguments};
 use semantic_nest::SemanticState;
 
 use std::ffi::{OsStr, OsString};
@@ -136,20 +136,27 @@ fn initialize_initex() -> Box<InitialEngineState> {
 /// This is the entry point into the TeX program.
 /// See 1332.
 pub fn tex_main() -> Result<(), ()> {
-    if INIT {
-        println!("{BANNER} (INITEX)");
-    } else {
-        println!("{BANNER} (no format preloaded)");
+    let arguments = parse_arguments(std::env::args_os().skip(1)).map_err(|error| {
+        eprintln!("pratex: {error}");
+    })?;
+
+    if !arguments.quiet {
+        if INIT {
+            println!("{BANNER} (INITEX)");
+        } else {
+            println!("{BANNER} (no format preloaded)");
+        }
     }
 
     // Start the input
-    let (output_format, pdf_font_map, format_name, first_line, first_non_space_pos) =
-        read_format_name_and_first_line()?;
+    let (format_name, first_line, first_non_space_pos) =
+        read_format_name_and_first_line(&arguments);
 
     let engine = load_selected_format(format_name)?;
     run_loaded_engine(
-        output_format,
-        pdf_font_map,
+        arguments.output_format,
+        arguments.pdf_font_map,
+        arguments.quiet,
         first_line,
         first_non_space_pos,
         engine,
@@ -161,11 +168,13 @@ pub fn tex_main() -> Result<(), ()> {
 fn run_loaded_engine(
     output_format: OutputFormat,
     pdf_font_map: Option<OsString>,
+    quiet: bool,
     mut first_line: Vec<u8>,
     first_non_space_pos: usize,
     engine: Box<InitialEngineState>,
 ) -> ! {
     let (mut logger, mut hyphenator, mut eqtb) = *engine;
+    logger.set_quiet(quiet);
 
     // We set history to this value before initialization
     // and set it to spotless once initialization succeeded.
@@ -221,24 +230,13 @@ fn run_loaded_engine(
 
 /// Read the first line, and look for a format name.
 /// See 1337.
-fn read_format_name_and_first_line() -> Result<
-    (
-        OutputFormat,
-        Option<OsString>,
-        Option<OsString>,
-        Vec<u8>,
-        usize,
-    ),
-    (),
-> {
-    let arguments = parse_arguments(std::env::args_os().skip(1)).map_err(|error| {
-        eprintln!("rtex: {error}");
-    })?;
-
+fn read_format_name_and_first_line(
+    arguments: &ParsedArguments,
+) -> (Option<OsString>, Vec<u8>, usize) {
     // From 331.
     // Get the first line.
     let (first_line, first_non_space_pos) =
-        get_first_input_line_from_arguments(arguments.tex_arguments);
+        get_first_input_line_from_arguments(arguments.tex_arguments.iter().cloned());
 
     let mut pos = first_non_space_pos;
     // If line starts with '&', retrieve the format file name.
@@ -259,13 +257,7 @@ fn read_format_name_and_first_line() -> Result<
     } else {
         None
     };
-    Ok((
-        arguments.output_format,
-        arguments.pdf_font_map,
-        format_name,
-        first_line,
-        pos,
-    ))
+    (format_name, first_line, pos)
 }
 
 /// Gets the first input line and first non-space index.

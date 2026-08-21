@@ -24,6 +24,8 @@ pub(crate) struct ParsedArguments {
     pub(crate) output_format: OutputFormat,
     /// Type 1 埋込みを明示的に有効にする map の論理名または物理 path。
     pub(crate) pdf_font_map: Option<OsString>,
+    /// TeX文書が明示した出力を残し、自動進捗だけを端末から隠す。
+    pub(crate) quiet: bool,
     pub(crate) tex_arguments: Vec<OsString>,
 }
 
@@ -68,6 +70,7 @@ pub(crate) fn parse_arguments(
 ) -> Result<ParsedArguments, RunOptionError> {
     let mut output_format = OutputFormat::Dvi;
     let mut pdf_font_map = None;
+    let mut quiet = false;
     let mut tex_arguments = Vec::new();
     let mut arguments = arguments.into_iter();
     let mut parsing_options = true;
@@ -78,6 +81,10 @@ pub(crate) fn parse_arguments(
             continue;
         }
         if parsing_options {
+            if argument == "--quiet" {
+                quiet = true;
+                continue;
+            }
             if let Some(argument_text) = argument.to_str() {
                 if let Some(value) = argument_text
                     .strip_prefix("-output-format=")
@@ -124,6 +131,7 @@ pub(crate) fn parse_arguments(
     Ok(ParsedArguments {
         output_format,
         pdf_font_map,
+        quiet,
         tex_arguments,
     })
 }
@@ -168,6 +176,7 @@ mod tests {
         let parsed = parse_arguments(strings(&["&plain", "hello.tex"])).unwrap();
         assert_eq!(parsed.output_format, OutputFormat::Dvi);
         assert_eq!(parsed.pdf_font_map, None);
+        assert!(!parsed.quiet);
         assert_eq!(parsed.tex_arguments, strings(&["&plain", "hello.tex"]));
     }
 
@@ -182,6 +191,7 @@ mod tests {
             let parsed = parse_arguments(arguments).unwrap();
             assert_eq!(parsed.output_format, OutputFormat::Pdf);
             assert_eq!(parsed.pdf_font_map, None);
+            assert!(!parsed.quiet);
             assert_eq!(parsed.tex_arguments, strings(&["hello.tex"]));
         }
     }
@@ -198,10 +208,34 @@ mod tests {
         .unwrap();
         assert_eq!(parsed.output_format, OutputFormat::Dvi);
         assert_eq!(parsed.pdf_font_map, None);
+        assert!(!parsed.quiet);
         assert_eq!(
             parsed.tex_arguments,
             strings(&["--output-format=pdf", "hello.tex"])
         );
+    }
+
+    #[test]
+    fn quietは重ねてもよく二重dash以後ならtexへ渡す() {
+        let parsed = parse_arguments(strings(&[
+            "--quiet",
+            "--quiet",
+            "--",
+            "--quiet",
+            "hello.tex",
+        ]))
+        .unwrap();
+        assert!(parsed.quiet);
+        assert_eq!(parsed.tex_arguments, strings(&["--quiet", "hello.tex"]));
+    }
+
+    #[test]
+    fn quietに似た綴りを勝手にoptionにしない() {
+        for value in ["-quiet", "--quiet=true"] {
+            let parsed = parse_arguments(strings(&[value])).unwrap();
+            assert!(!parsed.quiet);
+            assert_eq!(parsed.tex_arguments, strings(&[value]));
+        }
     }
 
     #[test]
@@ -272,6 +306,7 @@ mod tests {
         let parsed = parse_arguments([argument.clone()]).unwrap();
         assert_eq!(parsed.output_format, OutputFormat::Dvi);
         assert_eq!(parsed.pdf_font_map, None);
+        assert!(!parsed.quiet);
         assert_eq!(parsed.tex_arguments, vec![argument]);
     }
 

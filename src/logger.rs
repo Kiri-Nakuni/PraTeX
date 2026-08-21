@@ -13,12 +13,15 @@ use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 
-pub const BANNER: &str = "This is rtex, Version 3.141592653";
+pub const BANNER: &str = "This is PraTeX, Version 3.141592653";
 
 /// See 54.
 pub struct Logger {
     pub interaction: InteractionMode,
     pub terminal_logging: bool,
+    /// CLIが選んだ、自動進捗だけを端末から隠すrun-scoped policy。
+    /// fmtには保存せず、TeXのprint selectorである`terminal_logging`とも混ぜない。
+    quiet: bool,
     pub term_offset: usize,
     pub log_file: Option<BufWriter<File>>,
     pub file_offset: usize,
@@ -72,6 +75,7 @@ impl Logger {
         Self {
             interaction,
             terminal_logging: true,
+            quiet: false,
             term_offset: 0,
             file_offset: 0,
             log_file: None,
@@ -107,6 +111,26 @@ impl Logger {
     /// See 34.
     pub fn update_terminal(&self) {
         std::io::stdout().flush().unwrap();
+    }
+
+    /// 起動時のCLI policyを、fmtから復元したLoggerへ適用する。
+    pub fn set_quiet(&mut self, quiet: bool) {
+        self.quiet = quiet;
+    }
+
+    /// banner以外の自動進捗をtranscriptへ残し、quiet時だけ端末から隠す。
+    ///
+    /// `\message`や`\write16`など文書が明示した出力へは、この区間を使わない。
+    pub fn automatic_output(&mut self, output: impl FnOnce(&mut Self)) {
+        if !self.quiet {
+            output(self);
+            return;
+        }
+
+        let save_terminal_logging = self.terminal_logging;
+        self.terminal_logging = false;
+        output(self);
+        self.terminal_logging = save_terminal_logging;
     }
 
     /// Prints a char as it is.
@@ -823,7 +847,7 @@ impl Logger {
             self.print_ln();
             self.terminal_logging = save_terminal_logging;
             self.log_file = None;
-            if self.terminal_logging {
+            if self.terminal_logging && !self.quiet {
                 self.print_nl_str("Transcript written on ");
                 self.slow_print_str(&log_name);
                 self.print_char(b'.');
