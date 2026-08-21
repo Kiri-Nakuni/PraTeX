@@ -58,7 +58,7 @@ use crate::os_string_from_bytes;
 use crate::print::string::StringPrinter;
 use crate::print::Printer;
 use crate::token::Token;
-use crate::token_lists::{str_toks, token_show};
+use crate::token_lists::{scan_general_text_as_string, str_toks, token_show};
 
 use std::rc::Rc;
 use std::sync::OnceLock;
@@ -343,14 +343,12 @@ pub fn vaak_input(scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Logger) {
 
 /// `\directvaak{…}` を実行し、終了コードを展開する。
 pub fn direct_vaak(token: Token, scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Logger) {
-    let Token::CSToken { cs } = token else {
+    let Token::CSToken { .. } = token else {
         panic!("Impossible")
     };
     // `{…}` を一般テキストとして走査する。`\message` と同じ（See 1279.）
-    let def_ref = scanner.scan_toks(cs, true, eqtb, logger);
-    let mut printer = StringPrinter::new(eqtb.get_current_escape_character());
-    token_show(&def_ref, &mut printer, eqtb);
-    let source = printer.into_string();
+    // 展開する命令なので、外側の一般文走査が溜めた `def_ref` を失わない道を通す。
+    let source = scan_general_text_as_string(scanner, eqtb, logger);
 
     // 測定用の底。**TeX 側だけの費用**を見るために Vaak を飛ばす
     static NULL: OnceLock<bool> = OnceLock::new();

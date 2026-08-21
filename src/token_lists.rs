@@ -345,8 +345,8 @@ fn complain_that_the_cant_do_this(
 
 /// `⟨general text⟩` を展開しきって文字列にする。
 ///
-/// `\pdfmdfivesum{…}` のような pdfTeX 由来の命令が使う。
-fn scan_general_text_as_string(
+/// `\pdfmdfivesum{…}` や `\directvaak{…}` のような展開可能命令が使う。
+pub(crate) fn scan_general_text_as_string(
     scanner: &mut Scanner,
     eqtb: &mut Eqtb,
     logger: &mut Logger,

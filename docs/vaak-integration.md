@@ -477,3 +477,14 @@ eqtb.integers.set(IntegerVariable::Count(5), 42);   // 通る
 
 ただし `\vaakdef` がトークンリストの中に現れたら逐語は不可能なので、
 **一般テキスト走査に落ちる**と決めねばならない。
+
+## 16. 展開中の一般テキスト走査
+
+`\directvaak` は展開可能なので、`\message`、`\edef`、`\write` などがtokenを溜めている
+途中から呼ばれる。内側で `Scanner::scan_toks` を直接呼ぶと、外側の `def_ref` を上書きし、
+例えば `\message{[before\directvaak{20+22}after]}` の `before` が消えていた。
+
+pdfTeX互換命令と同じ `scan_general_text_as_string` / `nested_scan_toks` 経路へ統一し、外側の
+`def_ref`、scanner status、warning indexを控えてから内側を走査する。rtex本体を起動する
+回帰試験で、上の例が `[before42after]` になり、`\edef` の前後と後続tokenも残ることを
+固定した。Vaakの実行規約やhost APIは変えていない。
