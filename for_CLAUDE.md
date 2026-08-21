@@ -331,3 +331,12 @@ releaseで通っている。これにより報告されたexpl3の資材存在�
 PTY、`stdbuf`、timeout、bufferを埋めるsentinelは非portableなので採用しない。次枝では公開書式から
 `ls-R`をrun中に一度だけ索引化し、未対応のpath expressionやmktex生成だけ現行one-shot
 kpsewhichへfallbackする。直接path最優先とrun-local positive/negative cacheは維持する。
+
+## 中断checkpoint: 機能inventory
+
+`codex/feature-inventory`で、現行PraTeXのTeX82外機能をsource/testから監査し、
+`docs/feature-inventory.md`へ一覧化した。実装・部分・表面だけ・未実装・設計だけを分け、
+PraTeX独自機能と、e-TeX/pdfTeX/(u)pTeX/web2c仕様のclean-room独立実装も別の表にした。
+特にCJK tokenは組版未対応、e-TeXの10整数parameterは動作未接続、raw string・callback・
+WASM ABI・`^^^^`/`^^^^^^`・OTFは未実装であることを明記した。READMEからリンクし、古く
+なっていたpdfTeX port noteの「直接PDFはまだ」という記述も現在の部分実装へ直した。

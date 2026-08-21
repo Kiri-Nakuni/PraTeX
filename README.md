@@ -18,6 +18,9 @@ PraTeXは、tyti氏によるTeX82のRust再実装`rtex`を基礎に、現代的�
 - `kpsewhich`の公開CLIを利用したTeX入力、font、mapなどの部分的な探索
 - `\directvaak`、`\vaakdef`、`\vaakinput`によるVaakとの実験的な連携
 
+TeX82から増えた機能、部分実装、PraTeX独自機能、既存仕様を独立して書き直した範囲は
+[docs/feature-inventory.md](docs/feature-inventory.md) に一覧化しています。
+
 TRIPではDVIの全999 recordを復号した意味比較が公式結果と一致しています。ただし、
 banner、診断、容量、拡張された範囲などのlog差まで解消したという意味ではありません。
 比較の条件と残差は [docs/trip-testing.md](docs/trip-testing.md) に記録しています。
