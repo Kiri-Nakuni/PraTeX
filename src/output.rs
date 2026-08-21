@@ -12,6 +12,7 @@ use crate::nodes::{
 use crate::print::stream::StreamPrinter;
 use crate::print::string::StringPrinter;
 use crate::print::{Printer, MAX_PRINT_LINE};
+use crate::run_options::OutputFormat;
 use crate::scaled::Scaled;
 use crate::token::Token;
 use crate::token_lists::{show_token_list, token_show};
@@ -24,26 +25,55 @@ use std::path::PathBuf;
 
 #[path = "output_backend.rs"]
 mod output_backend;
+#[path = "pdf_backend.rs"]
+mod pdf_backend;
 
 use output_backend::{DviBackend, ShipoutBackend};
+use pdf_backend::PdfBackend;
 
 type DviFileBackend = DviBackend<BufWriter<File>>;
 type DviDocument = Document<DviFileBackend>;
+type PdfFileBackend = PdfBackend<BufWriter<File>>;
+type PdfShipoutDocument = Document<PdfFileBackend>;
+
+/// 出力形式の分岐はpage単位だけで行い、node走査内へ持ち込まない。
+enum OutputDocument {
+    Dvi(DviDocument),
+    Pdf(PdfShipoutDocument),
+}
+
+impl OutputDocument {
+    fn ship_box_out(&mut self, list_node: &ListNode, eqtb: &mut Eqtb) -> Vec<WhatsitNode> {
+        match self {
+            Self::Dvi(document) => document.ship_box_out(list_node, eqtb),
+            Self::Pdf(document) => document.ship_box_out(list_node, eqtb),
+        }
+    }
+
+    fn finish(self) -> (OsString, usize, usize) {
+        match self {
+            Self::Dvi(document) => document.finish(),
+            Self::Pdf(document) => document.finish(),
+        }
+    }
+}
 
 const END_WRITE_TOKEN: Token = Token::CSToken {
     cs: ControlSequence::EndWrite,
 };
 
 pub struct Output {
-    document: Option<DviDocument>,
+    output_format: OutputFormat,
+    document: Option<OutputDocument>,
 
     /// 1342.
     pub write_files: [Option<BufWriter<File>>; 16],
 }
 
 impl Output {
-    pub const fn new() -> Self {
+    pub const fn new(output_format: OutputFormat) -> Self {
         Self {
+            output_format,
             document: None,
             write_files: [
                 None, None, None, None, None, None, None, None, None, None, None, None, None, None,
@@ -90,7 +120,13 @@ impl Output {
         }
 
         if check_page_dimensions(&list_node, scanner, eqtb, logger) {
-            let mut document = ensure_dvi_open(self.document.take(), scanner, eqtb, logger);
+            let mut document = ensure_output_open(
+                self.document.take(),
+                self.output_format,
+                scanner,
+                eqtb,
+                logger,
+            );
             let whatsit_list = document.ship_box_out(&list_node, eqtb);
             for whatsit_node in whatsit_list {
                 self.out_what(&whatsit_node, scanner, eqtb, logger);
@@ -112,12 +148,11 @@ impl Output {
     }
 
     /// See 642.
-    pub fn finish_dvi_file(self, logger: &mut Logger) {
+    pub fn finish_output_file(self, logger: &mut Logger) {
         if let Some(document) = self.document {
-            let page_count = document.backend.page_count();
-            let byte_count = document.backend.finish().unwrap();
+            let (output_file_name, page_count, byte_count) = document.finish();
             logger.print_nl_str("Output written on ");
-            logger.slow_print_str(document.output_file_name.as_encoded_bytes());
+            logger.slow_print_str(output_file_name.as_encoded_bytes());
             logger.print_str(" (");
             logger.print_int(page_count as i32);
             logger.print_str(" page");
@@ -192,16 +227,64 @@ fn check_page_dimensions(
 }
 
 /// See 532. and 617.
-fn ensure_dvi_open(
-    document: Option<DviDocument>,
+fn ensure_output_open(
+    document: Option<OutputDocument>,
+    output_format: OutputFormat,
     scanner: &mut Scanner,
     eqtb: &mut Eqtb,
     logger: &mut Logger,
-) -> DviDocument {
+) -> OutputDocument {
     match document {
         Some(output) => output,
-        None => Document::create_document(scanner, eqtb, logger),
+        None => {
+            let extension = match output_format {
+                OutputFormat::Dvi => "dvi",
+                OutputFormat::Pdf => "pdf",
+            };
+            let (output_file_name, output_file) =
+                open_output_file(extension, scanner, eqtb, logger);
+            // TeX82 と同じく log/output file を開いた後で mag を検査し、診断を transcript に残す。
+            eqtb.prepare_mag(scanner, logger);
+            match output_format {
+                OutputFormat::Dvi => {
+                    OutputDocument::Dvi(Document::create_dvi(output_file_name, output_file, eqtb))
+                }
+                OutputFormat::Pdf => {
+                    OutputDocument::Pdf(Document::create_pdf(output_file_name, output_file, eqtb))
+                }
+            }
+        }
     }
+}
+
+fn open_output_file(
+    extension: &str,
+    scanner: &mut Scanner,
+    eqtb: &mut Eqtb,
+    logger: &mut Logger,
+) -> (OsString, BufWriter<File>) {
+    if logger.job_name.is_none() {
+        logger.open_log_file(&scanner.input_stack, eqtb);
+    }
+    let mut initial_name = logger.job_name.as_ref().unwrap().clone();
+    initial_name.push(".");
+    initial_name.push(extension);
+    let mut path = PathBuf::from(initial_name);
+    let output_file = loop {
+        match open_out(&path) {
+            Ok(file) => break BufWriter::new(file),
+            Err(_) => {
+                path = logger.prompt_file_name(
+                    &path,
+                    "file name for output",
+                    extension,
+                    &scanner.input_stack,
+                    eqtb,
+                );
+            }
+        }
+    };
+    (path.into_os_string(), output_file)
 }
 
 struct Document<B: ShipoutBackend> {
@@ -218,40 +301,17 @@ struct Document<B: ShipoutBackend> {
     /// See 616.
     dvi_v: Dimension,
     /// See 616.
-    /// The currently active font in the DVI file.
+    /// backendで現在選択中のfont。
     dvi_f: FontIndex,
+    /// このbackendへ定義済みのfont。fmtに保存されたDVI固有flagには依存しない。
+    defined_fonts: Vec<bool>,
     /// The current level of nesting. Starts at -1.
     /// See 616.
     cur_s: i32,
 }
 
 impl Document<DviFileBackend> {
-    fn create_document(scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Logger) -> Self {
-        if logger.job_name.is_none() {
-            logger.open_log_file(&scanner.input_stack, eqtb);
-        }
-        let mut output_file_name = logger.job_name.as_ref().unwrap().clone();
-        output_file_name.push(".dvi");
-        let mut path = PathBuf::from(output_file_name.clone());
-        let dvi_file = loop {
-            match open_out(&path) {
-                Ok(file) => {
-                    break BufWriter::new(file);
-                }
-                Err(_) => {
-                    path = logger.prompt_file_name(
-                        &path,
-                        "file name for output",
-                        "dvi",
-                        &scanner.input_stack,
-                        eqtb,
-                    );
-                }
-            }
-        };
-
-        // From 617.
-        eqtb.prepare_mag(scanner, logger);
+    fn create_dvi(output_file_name: OsString, dvi_file: BufWriter<File>, eqtb: &Eqtb) -> Self {
         let comment = format!(
             " rtex output {}.{:02}.{:02}:{:02}{:02}",
             eqtb.integer(IntegerVariable::Year),
@@ -267,6 +327,19 @@ impl Document<DviFileBackend> {
             comment.as_bytes(),
         )
         .unwrap();
+        Self::new(backend, output_file_name)
+    }
+}
+
+impl Document<PdfFileBackend> {
+    fn create_pdf(output_file_name: OsString, pdf_file: BufWriter<File>, eqtb: &Eqtb) -> Self {
+        let backend = PdfBackend::new(pdf_file, eqtb.integer(IntegerVariable::Mag)).unwrap();
+        Self::new(backend, output_file_name)
+    }
+}
+
+impl<B: ShipoutBackend> Document<B> {
+    fn new(backend: B, output_file_name: OsString) -> Self {
         Self {
             backend,
             output_file_name,
@@ -275,12 +348,17 @@ impl Document<DviFileBackend> {
             dvi_h: 0,
             dvi_v: 0,
             dvi_f: NULL_FONT,
+            defined_fonts: Vec::new(),
             cur_s: -1,
         }
     }
-}
 
-impl<B: ShipoutBackend> Document<B> {
+    fn finish(self) -> (OsString, usize, usize) {
+        let page_count = self.backend.page_count();
+        let byte_count = self.backend.finish().unwrap();
+        (self.output_file_name, page_count, byte_count)
+    }
+
     /// See 617. and 640.
     fn ship_box_out(&mut self, list_node: &ListNode, eqtb: &mut Eqtb) -> Vec<WhatsitNode> {
         self.dvi_h = 0;
@@ -455,28 +533,31 @@ impl<B: ShipoutBackend> Document<B> {
     /// See 620.
     fn output_char(&mut self, font_index: FontIndex, chr: u8, width: Dimension, eqtb: &mut Eqtb) {
         if font_index != self.dvi_f {
-            self.change_font_dvi(font_index, eqtb);
+            self.change_font(font_index, eqtb);
         }
         self.backend.set_char(chr, width).unwrap();
         self.cur_h += width;
     }
 
     /// See 621.
-    fn change_font_dvi(&mut self, font_index: FontIndex, eqtb: &mut Eqtb) {
-        let Ok(font_number) = u32::try_from(font_index - 1) else {
-            panic!("Font index tool large for DVI file");
+    fn change_font(&mut self, font_index: FontIndex, eqtb: &mut Eqtb) {
+        let Some(font_number) = font_index.checked_sub(1).map(u32::from) else {
+            panic!("Null font cannot be selected for output");
         };
-        if !eqtb.fonts[font_index as usize].used {
-            let checksum = eqtb.fonts[font_index as usize].check;
-            let at_size = eqtb.fonts[font_index as usize].size;
-            let design_size = eqtb.fonts[font_index as usize].dsize;
-            let area = &eqtb.fonts[font_index as usize].area;
-            let name = &eqtb.fonts[font_index as usize].name;
+        let font_position = usize::from(font_index);
+        if self.defined_fonts.len() <= font_position {
+            self.defined_fonts.resize(font_position + 1, false);
+        }
+        if !self.defined_fonts[font_position] {
+            let checksum = eqtb.fonts[font_position].check;
+            let at_size = eqtb.fonts[font_position].size;
+            let design_size = eqtb.fonts[font_position].dsize;
+            let area = &eqtb.fonts[font_position].area;
+            let name = &eqtb.fonts[font_position].name;
             self.backend
                 .define_font(font_number, checksum, at_size, design_size, area, name)
                 .unwrap();
-
-            eqtb.fonts[font_index as usize].used = true;
+            self.defined_fonts[font_position] = true;
         }
         self.backend.set_font(font_number).unwrap();
         self.dvi_f = font_index;

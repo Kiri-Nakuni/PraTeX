@@ -15,7 +15,9 @@
 - PDF 1.4 の object / stream / xref / trailer serializer に加え、Catalog / Pages / Page /
   Contentsの一段page treeと固定小数のsp→bp変換をsafe Rustで作った。組版木を一度だけ
   走査する `ShipoutBackend` 境界を抽出し、DVI adapterは従来writerと全byte一致する。
-  PDF backend本体と出力形式選択、font resourceは次段である。
+  `-output-format=pdf` / `--output-format=pdf` でstandalone PDFを直接選べる。ruleと
+  printable ASCIIは出力できるが、文字は現在Standard 14 Courierによる可視smokeであり、
+  TeX fontのType 1埋込み・encoding・ToUnicodeは次段である。
 - e-TeXの通常レジスタ6種（box/count/dimen/skip/muskip/toks）を0〜32767へ拡張した。
   0〜255は密配列、高位は触れた番号だけの疎表であり、すべてsafe Rustである。
 - `\insert` は通常レジスタから別型へ分離し、0〜254のままにした。box 255と
@@ -31,14 +33,15 @@
   `\glueshrinkorder` を内部量として追加した。通常・fil・fill・filll、負値、0係数、
   `\glueexpr`、数式糊の単位不一致回復を公式e-upTeX黒箱と照合した。
 - 既存fmtは疎表を含む新表現と非互換なので、この枝では再生成が必要。
-- release **213件通過**、失敗0（doc-test 1件は既存どおりignored）。高位6種、群、
+- release **232件通過**、失敗0（doc-test 1件は既存どおりignored）。高位6種、群、
   global、別名、範囲外、挿入境界、box 255、fmt往復に加え、mark classのpage遷移、
   `\vsplit`、保護macro、`\meaning`、境界と、shell状態の値・展開性・読み取り専用性・
   fmt往復に加え、糊成分の全次数・負値・0係数・式・数式糊回復を統合試験で固定した。
 
 作業枝は機能単位で切り、`origin/codex/pdf-page-backend` まで定期的にpushする。
 値ストレージの土台は `a218c28`、6種への統合と挿入番号分離は `d7c121e`、TRIP runnerは
-`728d899`、mark classは `270c731`、shell状態は `2b2a1d1`、糊成分は `3cc6e6f`。
+`728d899`、mark classは `270c731`、shell状態は `2b2a1d1`、糊成分は `3cc6e6f`、
+PDFのpage tree土台は `590c788`。
 
 ## PDF backend
 
@@ -46,7 +49,10 @@
 page treeを加えた。DVIをいったん書いて読み直すのではなく、既存hlist/vlist走査から
 backend eventを一度だけ発行する。これにより遅延 `\write` を二重実行せず、nodeごとの
 dynamic dispatchも避ける。sp→bpはchecked integerと10^-6 bp固定小数で変換し、`f64`の
-指数表記やplatform差をPDFへ流さない。設計と権利境界は `docs/pdf-backend-notes.md`。
+指数表記やplatform差をPDFへ流さない。各ページは物理1inch余白をmagとは独立に持つ。
+宣言boxが負幅でも、実際に描く文字・ruleの範囲までMediaBoxを拡張してclipを避ける。
+生の `\special` はcontentへ注入せず捨てる。設計と権利境界は
+`docs/pdf-backend-notes.md`。
 
 ## LaTeX実測
 
@@ -69,6 +75,12 @@ mark class後の再実測では、公式 `latex.ltx` から `latex.fmt` の生�
 プリアンブルの日時・コメントと、それによってずれるbyte address／postamble pointerを
 正規化した命令列の差は **0件** だった。公開LaTeX入力上の次の広域候補は再字句化で使う
 `\scantokens`、診断で使う `\showtokens` である。
+
+同じfmtと文書を `--output-format=pdf` で処理すると、未定義primitiveなしで
+**1 page / 2169 bytes** のPDFを直接出力した。Poppler `pdfinfo` とstrict pypdfでPDF 1.4、
+1 page、Catalog/Page tree/MediaBox/Font resourceを読め、144dpi renderで本文・数式・
+ページ番号が可読だった。CourierへCMの配置幅を当てる暫定表示なので字形・抽出空白は
+まだ互換ではなく、配布品質と呼ぶ段階ではない。
 
 ## TRIP基準
 

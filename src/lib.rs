@@ -27,22 +27,22 @@ mod output;
 mod packaging;
 mod page_breaking;
 // 直接出力へ接続する前から serializer 単体で試験する。
+pub mod md5;
 #[allow(dead_code)]
 mod pdf;
 mod pdf_document;
 mod print;
+mod run_options;
 mod scaled;
 mod scan_boxes;
 mod scan_internal;
 mod semantic_nest;
 mod token;
 mod token_lists;
+pub mod vaak;
 mod vertical_mode;
 mod vsplit;
 mod write_streams;
-pub mod md5;
-pub mod vaak;
-
 
 use alignment::AlignState;
 use eqtb::{CatCode, Eqtb, IntegerVariable};
@@ -58,6 +58,7 @@ use main_control::main_control;
 use output::Output;
 use page_breaking::PageBuilder;
 use print::Printer;
+use run_options::{parse_arguments, OutputFormat};
 use semantic_nest::SemanticState;
 
 use std::ffi::OsString;
@@ -96,7 +97,8 @@ pub fn tex_main() -> Result<(), ()> {
     }
 
     // Start the input
-    let (format_name, mut first_line, first_non_space_pos) = read_format_name_and_first_line();
+    let (output_format, format_name, mut first_line, first_non_space_pos) =
+        read_format_name_and_first_line()?;
 
     let (mut logger, mut hyphenator, mut eqtb) = if let Some(format_name) = format_name {
         load_hyphenator_and_eqtb_from_specified_format_file(format_name)?
@@ -122,7 +124,7 @@ pub fn tex_main() -> Result<(), ()> {
         && eqtb.cat_code(first_line[first_non_space_pos]) != CatCode::Escape;
 
     // Initialize global variables and data structures.
-    let mut output = Output::new();
+    let mut output = Output::new(output_format);
     let mut page_builder = PageBuilder::new();
     let mut nest = SemanticState::new();
 
@@ -165,10 +167,16 @@ pub fn tex_main() -> Result<(), ()> {
 
 /// Read the first line, and look for a format name.
 /// See 1337.
-fn read_format_name_and_first_line() -> (Option<OsString>, Vec<u8>, usize) {
+fn read_format_name_and_first_line() -> Result<(OutputFormat, Option<OsString>, Vec<u8>, usize), ()>
+{
+    let arguments = parse_arguments(std::env::args().skip(1)).map_err(|error| {
+        eprintln!("rtex: {error}");
+    })?;
+
     // From 331.
     // Get the first line.
-    let (first_line, first_non_space_pos) = get_first_input_line();
+    let (first_line, first_non_space_pos) =
+        get_first_input_line_from_arguments(arguments.tex_arguments);
 
     let mut pos = first_non_space_pos;
     // If line starts with '&', retrieve the format file name.
@@ -189,7 +197,7 @@ fn read_format_name_and_first_line() -> (Option<OsString>, Vec<u8>, usize) {
     } else {
         None
     };
-    (format_name, first_line, pos)
+    Ok((arguments.output_format, format_name, first_line, pos))
 }
 
 /// Gets the first input line and first non-space index.
@@ -199,18 +207,18 @@ fn read_format_name_and_first_line() -> (Option<OsString>, Vec<u8>, usize) {
 /// the user complies or closes stdin (in which case we shut down).
 /// See 37.
 pub fn get_first_input_line() -> (Vec<u8>, usize) {
+    get_first_input_line_from_arguments(std::env::args().skip(1))
+}
+
+fn get_first_input_line_from_arguments(
+    arguments: impl IntoIterator<Item = String>,
+) -> (Vec<u8>, usize) {
     // If we have command line arguments, we take those as the first line of input instead of
     // interactively asking the user for input.
-    let args = std::env::args();
-    if args.len() > 1 {
+    let arguments: Vec<String> = arguments.into_iter().collect();
+    if !arguments.is_empty() {
         // NOTE We do not check for null bytes and new lines.
-        let input_line: Vec<u8> = args
-            .skip(1)
-            .map(|arg| arg.to_string())
-            .collect::<Vec<_>>()
-            .join(" ")
-            .bytes()
-            .collect();
+        let input_line: Vec<u8> = arguments.join(" ").bytes().collect();
         // Find first non-space character position.
         let first_non_space = input_line.iter().position(|&x| x != b' ');
 
@@ -310,7 +318,7 @@ fn close_files_and_terminate(
             output_statistics_about_this_job(hyphenator, nest, scanner, eqtb, logger);
         }
     }
-    output.finish_dvi_file(logger);
+    output.finish_output_file(logger);
     logger.shutdown();
     std::process::exit(exit_status);
 }

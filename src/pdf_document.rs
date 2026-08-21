@@ -17,6 +17,7 @@ pub(crate) struct PdfCoordinate(i64);
 
 impl PdfCoordinate {
     const UNITS_PER_BP: i128 = 1_000_000;
+    pub(crate) const ONE_INCH: Self = Self(72_000_000);
 
     /// TeXのscaled pointをPDFのdefault user space（bp）へ変換する。
     ///
@@ -38,7 +39,21 @@ impl PdfCoordinate {
         Ok(Self(value))
     }
 
-    fn is_positive(self) -> bool {
+    pub(crate) fn checked_add(self, other: Self) -> Result<Self, PdfDocumentError> {
+        self.0
+            .checked_add(other.0)
+            .map(Self)
+            .ok_or(PdfDocumentError::CoordinateOverflow)
+    }
+
+    pub(crate) fn checked_sub(self, other: Self) -> Result<Self, PdfDocumentError> {
+        self.0
+            .checked_sub(other.0)
+            .map(Self)
+            .ok_or(PdfDocumentError::CoordinateOverflow)
+    }
+
+    pub(crate) fn is_positive(self) -> bool {
         self.0 > 0
     }
 }
@@ -62,10 +77,17 @@ impl fmt::Display for PdfCoordinate {
     }
 }
 
+/// Standard 14 Courier をページの `/F1` resource として参照する型付きhandle。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct PdfCourierFont {
+    object: PdfObjectId,
+}
+
 /// 一枚のページを構成するデータ。
 pub(crate) struct PdfPage<'a> {
     pub(crate) width: PdfCoordinate,
     pub(crate) height: PdfCoordinate,
+    pub(crate) courier_font: Option<PdfCourierFont>,
     /// 外側の `<< >>` を含まないresource dictionary entry。
     pub(crate) resource_entries: &'a [u8],
     pub(crate) content: &'a [u8],
@@ -77,6 +99,7 @@ pub(crate) struct PdfDocument<W: Write> {
     catalog: PdfObjectId,
     pages: PdfObjectId,
     page_ids: Vec<PdfObjectId>,
+    courier_font: Option<PdfCourierFont>,
 }
 
 impl<W: Write> PdfDocument<W> {
@@ -89,7 +112,23 @@ impl<W: Write> PdfDocument<W> {
             catalog,
             pages,
             page_ids: Vec::new(),
+            courier_font: None,
         })
+    }
+
+    /// Standard 14 Courier object を一度だけ作り、ページ用の型付きhandleを返す。
+    pub(crate) fn add_standard_courier_font(&mut self) -> Result<PdfCourierFont, PdfDocumentError> {
+        if let Some(font) = self.courier_font {
+            return Ok(font);
+        }
+        let object = self.writer.reserve_object()?;
+        self.writer.write_object(
+            object,
+            b"<<\n/Type /Font\n/Subtype /Type1\n/BaseFont /Courier\n/Encoding /WinAnsiEncoding\n>>",
+        )?;
+        let font = PdfCourierFont { object };
+        self.courier_font = Some(font);
+        Ok(font)
     }
 
     pub(crate) fn add_page(&mut self, page: PdfPage<'_>) -> Result<(), PdfDocumentError> {
@@ -111,6 +150,11 @@ impl<W: Write> PdfDocument<W> {
             page.height,
         )
         .into_bytes();
+        if let Some(font) = page.courier_font {
+            body.extend_from_slice(
+                format!("\n/Font <<\n/F1 {} 0 R\n>>", font.object.number()).as_bytes(),
+            );
+        }
         if !page.resource_entries.is_empty() {
             body.push(b'\n');
             body.extend_from_slice(page.resource_entries);
@@ -206,6 +250,7 @@ mod tests {
             .add_page(PdfPage {
                 width: PdfCoordinate(612_000_000),
                 height: PdfCoordinate(792_000_000),
+                courier_font: None,
                 resource_entries: b"",
                 content: b"0 0 10 20 re f\n",
             })
@@ -248,6 +293,7 @@ mod tests {
                 .add_page(PdfPage {
                     width: PdfCoordinate(10_000_000),
                     height: PdfCoordinate(20_000_000),
+                    courier_font: None,
                     resource_entries: b"/ProcSet [/PDF]",
                     content,
                 })
@@ -276,10 +322,44 @@ mod tests {
             .add_page(PdfPage {
                 width: PdfCoordinate(0),
                 height: PdfCoordinate(10_000_000),
+                courier_font: None,
                 resource_entries: b"",
                 content: b"",
             })
             .unwrap_err();
         assert!(matches!(error, PdfDocumentError::InvalidPageSize { .. }));
+    }
+
+    #[test]
+    fn courierを型付きfont_resourceとして一度だけ作る() {
+        let mut document = PdfDocument::new(Vec::new()).unwrap();
+        let courier = document.add_standard_courier_font().unwrap();
+        assert_eq!(document.add_standard_courier_font().unwrap(), courier);
+        document
+            .add_page(PdfPage {
+                width: PdfCoordinate(10_000_000),
+                height: PdfCoordinate(20_000_000),
+                courier_font: Some(courier),
+                resource_entries: b"",
+                content: b"BT /F1 10 Tf (A) Tj ET",
+            })
+            .unwrap();
+        let pdf = document.finish().unwrap();
+
+        for expected in [
+            b"/Type /Font".as_slice(),
+            b"/Subtype /Type1".as_slice(),
+            b"/BaseFont /Courier".as_slice(),
+            b"/Encoding /WinAnsiEncoding".as_slice(),
+            b"/Font <<\n/F1 3 0 R\n>>".as_slice(),
+        ] {
+            assert!(pdf.windows(expected.len()).any(|window| window == expected));
+        }
+        assert_eq!(
+            pdf.windows(b"/BaseFont /Courier".len())
+                .filter(|window| *window == b"/BaseFont /Courier")
+                .count(),
+            1
+        );
     }
 }

@@ -20,7 +20,8 @@ PDF ReferenceはPDFを生成するsoftwareへ、必要なdata structureとoperat
 
 1. `pdf.rs`: object、stream、従来型xref、trailerだけを書く低水準serializer。
 2. `pdf_document.rs`: Catalog、Pages、Page、Contentsの一段page treeとMediaBoxを作る。
-3. `output_backend.rs`: 組版木を一度だけ走査して表示eventを渡す境界。現在はDVI adapter。
+3. `output_backend.rs`: 組版木を一度だけ走査して表示eventを渡す境界。
+4. `pdf_backend.rs`: 同じeventをPDF座標・content operatorへ写すbackend。
 
 最小文書はCatalog、page-tree root、Page、Contentsの4 objectである。PageはParent、
 MediaBox、空でも明示するResources、Contentsを持つ。複数ページは出現順にKidsへ積み、
@@ -46,14 +47,37 @@ DVI adapterは幅を捨てるため従来byte列を変えず、PDF側は同じ�
 
 この境界を静的ジェネリクスにして、node一個ごとのtrait object dispatchを避ける。
 PDF用にページ木を再走査しないので、遅延open/write/close whatsitも一度だけ実行される。
+fontの定義済み状態はbackend文書ごとの `Vec<bool>` に持ち、fmtへ保存されたDVI固有の
+`FontInfo.used` に依存しない。
 
-## 5. 次の段階
+## 5. 現在の直接出力
 
-1. PDF backendをpage treeへ接続し、空ページとruleを直接出力する。
-2. CLI出力形式選択を加える。font対応前に `\pdfoutput` を登録してLaTeXのbackend判定を
-   変えない。
-3. visible-text smoke用のStandard 14 fontを経て、公開map/encoding/PFB探索とType 1
-   全埋込みへ進む。TFMだけではbyte codeからglyph名を決められない。
+`-output-format=pdf` と `--output-format=pdf`（値を次の引数へ分ける形も可）でPDFを選ぶ。
+指定がなければ従来どおりDVIである。ページがなければどちらの出力ファイルも作らない。
+
+- TeX座標は左上・下向き、PDFは左下・上向きなので、物理1inch余白を含むMediaBoxの
+  高さから現在の縦位置を引く。
+- 余白72bpは `\mag` で拡大せず、内容座標とfont sizeだけへmagを掛ける。
+- 宣言されたbox寸法だけでなく、実際に置いた文字・ruleの範囲も追跡する。負幅や
+  overfull内容があるときはcontentを平行移動してMediaBoxを拡張し、1inch余白を保つ。
+- set/put ruleは `re f` へ写す。setだけが横位置を進める。
+- printable ASCIIはStandard 14 Courierを `/F1` とし、文字ごとの絶対 `Tm` で置く。
+  括弧とbackslashはPDF literal stringとしてescapeする。その他の8-bit文字は配置幅だけ
+  進め、まだ描かない。
+- raw `\special` はcontent streamへ注入せず捨てる。
+
+最小LaTeX文書の実測は1 page / 2169 bytes。Popplerとstrict pypdfが構造を読め、renderで
+本文、単純な数式、ページ番号を確認した。Courierの字形へCMの幅を使うため見た目と
+text extractionは暫定であり、ここでの「standalone」は外部DVI driver不要という意味に
+限る。
+
+## 6. 次の段階
+
+1. 公開map/encoding/PFB探索とTeX Type 1 fontの全埋込みへ進む。TFMだけではbyte codeから
+   glyph名を決められない。
+2. `\pdfpagewidth` / `\pdfpageheight` 相当または認識済みpapersize specialで物理媒体を
+   指定できるようにする。
+3. Type 1が揃ってから `\pdfoutput` を登録し、LaTeXのpdfTeX backend判定を有効にする。
 4. ToUnicode、run batching、TrueType、和文Type 0/CIDFontは独立した後続段階とする。
 
 生の `\special` をPDF content streamへ注入してはならない。認識したspecialだけを専用の
