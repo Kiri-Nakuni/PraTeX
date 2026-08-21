@@ -164,7 +164,40 @@ impl Scanner {
         let mut file_name = Vec::new();
         let (mut unexpandable_command, mut token) =
             self.get_next_non_blank_non_call_token(eqtb, logger);
+        // **引用符で囲まれた名前**（web2c の慣習）。空白を含む名前のためにある。
+        //
+        // LaTeX2e が `\openin\@inputcheck"expl3.ltx" ` と書くので、
+        // これが無いと `\IfFileExists` が必ず偽になる。
+        let mut quoted = false;
+        if let UnexpandableCommand::Other(b'"') = unexpandable_command {
+            quoted = true;
+            (unexpandable_command, token) = get_x_token(self, eqtb, logger);
+        }
         loop {
+            // 引用符の中では**空白も名前の一部**である。閉じるまで読む
+            if quoted {
+                if let UnexpandableCommand::Other(b'"') = unexpandable_command {
+                    break;
+                }
+                match unexpandable_command {
+                    UnexpandableCommand::Spacer => file_name.push(b' '),
+                    UnexpandableCommand::LeftBrace(c)
+                    | UnexpandableCommand::RightBrace(c)
+                    | UnexpandableCommand::MathShift(c)
+                    | UnexpandableCommand::TabMark(c)
+                    | UnexpandableCommand::MacParam(c)
+                    | UnexpandableCommand::Math(MathCommand::Superscript(c))
+                    | UnexpandableCommand::Math(MathCommand::Subscript(c))
+                    | UnexpandableCommand::Letter(c)
+                    | UnexpandableCommand::Other(c) => file_name.push(c),
+                    _ => {
+                        self.back_input(token, eqtb, logger);
+                        break;
+                    }
+                }
+                (unexpandable_command, token) = get_x_token(self, eqtb, logger);
+                continue;
+            }
             match unexpandable_command {
                 UnexpandableCommand::LeftBrace(c)
                 | UnexpandableCommand::RightBrace(c)

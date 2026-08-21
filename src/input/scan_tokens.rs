@@ -197,6 +197,24 @@ impl Scanner {
                             .push(MacroToken::Normal(token));
                     }
                 }
+                // **`\the` と同じ扱いである。** 結果へ直に足す——
+                // 差し戻すと、この走査がもう一度展開してしまう
+                Command::Expandable(ExpandableCommand::Detokenize)
+                | Command::Expandable(ExpandableCommand::Unexpanded) => {
+                    let toks = if matches!(
+                        command,
+                        Command::Expandable(ExpandableCommand::Detokenize)
+                    ) {
+                        crate::token_lists::detokenize_toks(self, eqtb, logger)
+                    } else {
+                        crate::token_lists::unexpanded_toks(self, eqtb, logger)
+                    };
+                    for token in toks {
+                        self.macro_def
+                            .replacement_text
+                            .push(MacroToken::Normal(token));
+                    }
+                }
                 Command::Expandable(expandable_command) => {
                     expand(expandable_command, token, self, eqtb, logger);
                 }
@@ -307,6 +325,15 @@ impl Scanner {
                 }
                 Command::Expandable(ExpandableCommand::The) => {
                     let mut toks = the_toks(self, eqtb, logger);
+                    self.def_ref.append(&mut toks);
+                }
+                // **`\the` と同じ扱いである。** 結果へ直に足す
+                Command::Expandable(ExpandableCommand::Detokenize) => {
+                    let mut toks = crate::token_lists::detokenize_toks(self, eqtb, logger);
+                    self.def_ref.append(&mut toks);
+                }
+                Command::Expandable(ExpandableCommand::Unexpanded) => {
+                    let mut toks = crate::token_lists::unexpanded_toks(self, eqtb, logger);
                     self.def_ref.append(&mut toks);
                 }
                 Command::Expandable(expandable_command) => {

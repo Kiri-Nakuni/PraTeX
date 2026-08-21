@@ -425,6 +425,14 @@ pub enum ExpandableCommand {
     /// **`\csname` が global に作ってしまう**からである——
     /// 登録は `\endcsname` に達した一箇所で起きるので、そこへ名前空間を渡すしかない。
     Namespace,
+    /// `\detokenize{…}` — **字句に直した文字列にする**（e-TeX）。
+    ///
+    /// 中身は展開しない。**`\string` を全部に掛けたのと同じ**である。
+    Detokenize,
+    /// `\unexpanded{…}` — **展開する走査の中でも展開しない**（e-TeX）。
+    ///
+    /// `\edef` の中で書くと、中身がそのまま写る。
+    Unexpanded,
     /// `\expanded{…}` — **中身を展開しきってから戻す。**
     ///
     /// `\edef` と違って**名前に束縛しない。** その場に置き直す。
@@ -455,6 +463,8 @@ impl ExpandableCommand {
             Self::Namespace => printer.print_esc_str(b"namespace"),
             Self::Unless => printer.print_esc_str(b"unless"),
             Self::Expanded => printer.print_esc_str(b"expanded"),
+            Self::Detokenize => printer.print_esc_str(b"detokenize"),
+            Self::Unexpanded => printer.print_esc_str(b"unexpanded"),
             &Self::VaakCall(id) => {
                 printer.print_str("vaak:->");
                 for c in crate::vaak::source_of(id) {

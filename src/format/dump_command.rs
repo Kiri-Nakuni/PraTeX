@@ -425,6 +425,12 @@ impl Dumpable for ExpandableCommand {
             Self::Expanded => {
                 writeln!(target, "Expanded")?;
             }
+            Self::Detokenize => {
+                writeln!(target, "Detokenize")?;
+            }
+            Self::Unexpanded => {
+                writeln!(target, "Unexpanded")?;
+            }
             &Self::VaakCall(id) => {
                 // **本体を書き出す。** 番号は走らせるたびに付け直されるので、
                 // 書き出すべきは番号ではなく本体である
@@ -448,6 +454,8 @@ impl Dumpable for ExpandableCommand {
             "VaakInput" => Ok(Self::VaakInput),
             "Unless" => Ok(Self::Unless),
             "Expanded" => Ok(Self::Expanded),
+            "Detokenize" => Ok(Self::Detokenize),
+            "Unexpanded" => Ok(Self::Unexpanded),
             "VaakCall" => {
                 let hex = lines.next().ok_or(FormatError::IncompleteFile)?;
                 let mut src = Vec::with_capacity(hex.len() / 2);

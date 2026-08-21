@@ -911,6 +911,8 @@ impl Eqtb {
         self.primitive_expandable(b"iffontchar", ExpandableCommand::IfTest(IfTest::IfFontChar));
         self.primitive_expandable(b"unless", ExpandableCommand::Unless);
         self.primitive_expandable(b"expanded", ExpandableCommand::Expanded);
+        self.primitive_expandable(b"detokenize", ExpandableCommand::Detokenize);
+        self.primitive_expandable(b"unexpanded", ExpandableCommand::Unexpanded);
         // pdfTeX 由来の道具。**組版に触らない**
         for (n, c) in [
             (b"pdffilesize".as_slice(), ConvertCommand::PdfFileSize),
