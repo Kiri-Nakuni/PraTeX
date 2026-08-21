@@ -38,6 +38,23 @@ log SHA-256は
 release全343試験を通し、最適化前後のTRIP DVI SHA-256も
 `27B79B612B94A1D2815A8747D09B6BA665F2ADFB9F521FCFE7020C6347A29342` で一致した。
 
+## CJK token導入時のASCII退行確認
+
+UTF-8 CJK tokenとtyped制御綴を足した枝でも、上と同じASCII fixtureを使い、直前の
+`9d04c08` とrelease LTO buildを交互に各11回測った。両方とも同じVaak checkoutを使い、
+2回ずつwarm-upした。
+
+| | `9d04c08` | CJK token枝 | 変化 |
+|---|---:|---:|---:|
+| wall中央値 | 553.506 ms | 542.120 ms | -2.06% |
+| CPU中央値 | 546.875 ms | 531.250 ms | -2.86% |
+
+stdoutとlogのSHA-256は全22回でそれぞれ一種類だけで、変更前後が一致した。小差はcode配置や
+測定揺らぎの範囲なので高速化とは数えないが、ASCII fast pathの退行は観測されなかった。
+CJK用decoderと `kcatcode` 検索はASCIIでは呼ばず、typed hashと逆引き表もwide制御綴を
+初めて作るまで確保しない。測定用source tree、target、logは `%TEMP%` のみに置いた。
+同じworktreeでrelease全406試験とTRIP二段を通し、TRIP DVI hashも直前枝と一致した。
+
 ## 次の候補
 
 測定済みの次候補は、入力行bufferの再利用、PDF文字命令の一時 `String` 除去、fmt復元時の

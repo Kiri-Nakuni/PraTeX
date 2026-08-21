@@ -5,12 +5,12 @@ use crate::command::{
     Command, ExpandableCommand, FiOrElse, IfTest, MathCommand, UnexpandableCommand,
 };
 use crate::dimension::scan_normal_dimen;
-use crate::eqtb::{CatCode, ControlSequence, Eqtb, IntegerVariable};
+use crate::eqtb::{CatCode, Eqtb, IntegerVariable};
 use crate::integer::{Integer, IntegerExt};
 use crate::logger::Logger;
 use crate::print::Printer;
 use crate::semantic_nest::Mode;
-use crate::token::Token;
+use crate::token::{CjkCategory, Token};
 
 /// This is used to indicate which one of \or, \else, or \fi can appear now.
 /// See 489.
@@ -266,7 +266,7 @@ fn test_if_cs_name_is_defined(
     eqtb: &mut Eqtb,
     logger: &mut Logger,
 ) -> bool {
-    let mut name = Vec::new();
+    let mut name = super::expansion::ManufacturedCsName::new();
     loop {
         let (command, token) = crate::input::expansion::get_x_token(scanner, eqtb, logger);
         match token {
@@ -279,7 +279,8 @@ fn test_if_cs_name_is_defined(
             | Token::SubMark(c)
             | Token::Spacer(c)
             | Token::Letter(c)
-            | Token::OtherChar(c) => name.push(c),
+            | Token::OtherChar(c) => name.push_byte(c),
+            Token::CjkChar(c) => name.push_unicode(c.code_point()),
             _ => {
                 if !matches!(command, UnexpandableCommand::EndCsName) {
                     logger.print_err("Missing ");
@@ -296,7 +297,7 @@ fn test_if_cs_name_is_defined(
             }
         }
     }
-    match eqtb.lookup(&name) {
+    match name.lookup(eqtb) {
         None => false,
         Some(cs) => !matches!(
             eqtb.control_sequences.get(cs),
@@ -392,11 +393,24 @@ fn test_box_register_status(
 /// after mapping all non-character commands to the same values, the only exception
 /// being expansion-protected active characters.
 /// See 506.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum IfCharacterCode {
+    Character(u32),
+    NonCharacter,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum IfCharacterCategory {
+    Byte(CatCode),
+    Cjk(CjkCategory),
+    NonCharacter,
+}
+
 fn get_x_token_or_active_char(
     scanner: &mut Scanner,
     eqtb: &mut Eqtb,
     logger: &mut Logger,
-) -> (CatCode, u16) {
+) -> (IfCharacterCategory, IfCharacterCode) {
     let (unexpandable_command, token) = get_x_token(scanner, eqtb, logger);
     match unexpandable_command {
         UnexpandableCommand::Relax { no_expand: true } => {
@@ -417,23 +431,50 @@ fn get_x_token_or_active_char(
             // これは正しい——TeX82 の `\if` はもともと非活性な制御綴を
             // すべて `(Escape, 256)` に潰す設計で、同一性の判定は `\ifx` の仕事である
             match eqtb.control_sequences.active_char(cs) {
-                Some(c) => (CatCode::ActiveChar, c as u16),
-                None => (CatCode::Escape, 256),
+                Some(c) => (
+                    IfCharacterCategory::Byte(CatCode::ActiveChar),
+                    IfCharacterCode::Character(c as u32),
+                ),
+                None => (
+                    IfCharacterCategory::NonCharacter,
+                    IfCharacterCode::NonCharacter,
+                ),
             }
         }
-        UnexpandableCommand::TabMark(c) => (CatCode::TabMark, c as u16),
-        UnexpandableCommand::MacParam(c) => (CatCode::MacParam, c as u16),
-        UnexpandableCommand::LeftBrace(c) => (CatCode::LeftBrace, c as u16),
-        UnexpandableCommand::RightBrace(c) => (CatCode::RightBrace, c as u16),
-        UnexpandableCommand::MathShift(c) => (CatCode::MathShift, c as u16),
-        UnexpandableCommand::Math(MathCommand::Superscript(c)) => (CatCode::SupMark, c as u16),
-        UnexpandableCommand::Math(MathCommand::Subscript(c)) => (CatCode::SubMark, c as u16),
-        UnexpandableCommand::Spacer => (CatCode::Spacer, b' ' as u16),
-        UnexpandableCommand::Letter(c) => (CatCode::Letter, c as u16),
-        UnexpandableCommand::Other(c) => (CatCode::OtherChar, c as u16),
+        UnexpandableCommand::TabMark(c) => byte_if_character(CatCode::TabMark, c),
+        UnexpandableCommand::MacParam(c) => byte_if_character(CatCode::MacParam, c),
+        UnexpandableCommand::LeftBrace(c) => byte_if_character(CatCode::LeftBrace, c),
+        UnexpandableCommand::RightBrace(c) => byte_if_character(CatCode::RightBrace, c),
+        UnexpandableCommand::MathShift(c) => byte_if_character(CatCode::MathShift, c),
+        UnexpandableCommand::Math(MathCommand::Superscript(c)) => {
+            byte_if_character(CatCode::SupMark, c)
+        }
+        UnexpandableCommand::Math(MathCommand::Subscript(c)) => {
+            byte_if_character(CatCode::SubMark, c)
+        }
+        UnexpandableCommand::Spacer => byte_if_character(CatCode::Spacer, b' '),
+        UnexpandableCommand::Letter(c) => byte_if_character(CatCode::Letter, c),
+        UnexpandableCommand::Other(c) => byte_if_character(CatCode::OtherChar, c),
+        UnexpandableCommand::CjkChar(token) => (
+            IfCharacterCategory::Cjk(token.category()),
+            IfCharacterCode::Character(token.code_point()),
+        ),
         // Everything else is mapped to one distinct value.
-        _ => (CatCode::Escape, 256),
+        _ => (
+            IfCharacterCategory::NonCharacter,
+            IfCharacterCode::NonCharacter,
+        ),
     }
+}
+
+fn byte_if_character(
+    category: CatCode,
+    character: u8,
+) -> (IfCharacterCategory, IfCharacterCode) {
+    (
+        IfCharacterCategory::Byte(category),
+        IfCharacterCode::Character(character as u32),
+    )
 }
 
 /// See 506.

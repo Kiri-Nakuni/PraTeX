@@ -1,15 +1,13 @@
 use super::line_lexer::LineLexer;
 use super::macro_reader::MacroReader;
 use super::token_source::{AlignCommand, TokenListReader, TokenSourceType};
-use crate::eqtb::{
-    ControlSequence, ControlSequenceId, Eqtb, IntegerVariable, TokenListVariable,
-};
+use crate::eqtb::{ControlSequence, ControlSequenceId, Eqtb, IntegerVariable, TokenListVariable};
 use crate::error::{fatal_error, overflow};
 use crate::logger::{InteractionMode, Logger};
 use crate::macros::{show_macro_pseudo, Macro, MacroToken};
 use crate::print::{Printer, ERROR_LINE, HALF_ERROR_LINE, MAX_PRINT_LINE};
 use crate::read_line;
-use crate::token::Token;
+use crate::token::{decode_printed_uptex_code_point, decode_uptex_input_code_point, Token};
 use crate::token_lists::{show_token_list_pseudo, RcTokenList};
 
 use std::fs::File;
@@ -254,12 +252,13 @@ impl InputStack {
         // We start over if an input source has been exhausted or if we need to expand a parameter
         loop {
             let cat_code = |c| eqtb.cat_code(c);
+            let kcat_code = |code_point| eqtb.kcat_code(code_point);
 
             // We distinguish here between text and token sources.
             let force_eof = self.force_eof;
             let token = match self.current_source_mut() {
                 InputSource::TextSource { lexer, source_type } => {
-                    match lexer.scan_next_token(&cat_code) {
+                    match lexer.scan_next_token(&cat_code, &kcat_code) {
                         Ok(Some(lexer_token)) => {
                             let Ok(token) = lexer_token.to_token(allow_new_cs, eqtb) else {
                                 overflow(
@@ -299,10 +298,8 @@ impl InputStack {
                                 // 先に印を付けるので、そのトークン列が空でも再挿入しない。
                                 if !*every_eof_seen {
                                     *every_eof_seen = true;
-                                    if let Some(tokens) = eqtb
-                                        .token_lists
-                                        .get(TokenListVariable::EveryEof)
-                                        .clone()
+                                    if let Some(tokens) =
+                                        eqtb.token_lists.get(TokenListVariable::EveryEof).clone()
                                     {
                                         self.begin_token_list(
                                             tokens,
@@ -689,13 +686,9 @@ impl InputStack {
                 // From 318.
                 let (first, second) = lexer.get_read_and_unread_parts_of_line(eqtb.end_line_char());
 
-                for &c in first {
-                    pseudo_printer.print(c);
-                }
+                print_input_bytes(first, &mut pseudo_printer);
                 pseudo_printer.switch_to_unread_part();
-                for &c in second {
-                    pseudo_printer.print(c);
-                }
+                print_input_bytes(second, &mut pseudo_printer);
             }
             InputSource::MacroCall { reader } => {
                 logger.print_ln();
@@ -744,13 +737,9 @@ impl InputStack {
             read_part,
             unread_part,
         );
-        for c in line_one {
-            logger.print_char(c);
-        }
+        print_pseudo_line(&line_one, logger);
         logger.print_ln();
-        for c in line_two {
-            logger.print_char(c);
-        }
+        print_pseudo_line(&line_two, logger);
     }
 
     /// Return an indication of what the current input is and the line number
@@ -823,7 +812,7 @@ impl InputStack {
         } else {
             line_one.extend_from_slice(b"...");
             let target_len = HALF_ERROR_LINE.saturating_sub(location_len + 3);
-            let start = read_part.len().saturating_sub(target_len);
+            let start = next_uptex_boundary(&read_part, read_part.len().saturating_sub(target_len));
             line_one.extend_from_slice(&read_part[start..]);
         }
 
@@ -834,7 +823,8 @@ impl InputStack {
             line_two.extend_from_slice(&unread_part);
         } else {
             let target_len = ERROR_LINE.saturating_sub(first_line_len + 3);
-            line_two.extend_from_slice(&unread_part[..target_len]);
+            let end = previous_uptex_boundary(&unread_part, target_len);
+            line_two.extend_from_slice(&unread_part[..end]);
             line_two.extend_from_slice(b"...");
         }
         (line_one, line_two)
@@ -857,6 +847,54 @@ impl InputStack {
     }
 }
 
+fn is_utf8_continuation(byte: u8) -> bool {
+    (0x80..=0xBF).contains(&byte)
+}
+
+fn next_uptex_boundary(bytes: &[u8], mut index: usize) -> usize {
+    while index < bytes.len() && is_utf8_continuation(bytes[index]) {
+        index += 1;
+    }
+    index
+}
+
+fn previous_uptex_boundary(bytes: &[u8], mut index: usize) -> usize {
+    index = index.min(bytes.len());
+    while index < bytes.len() && index > 0 && is_utf8_continuation(bytes[index]) {
+        index -= 1;
+    }
+    index
+}
+
+fn print_pseudo_line(bytes: &[u8], logger: &mut Logger) {
+    let mut pos = 0;
+    while pos < bytes.len() {
+        if let Some((code_point, len)) = decode_printed_uptex_code_point(&bytes[pos..]) {
+            logger.print_uptex_char(code_point, &bytes[pos..pos + len]);
+            pos += len;
+        } else {
+            logger.print_char(bytes[pos]);
+            pos += 1;
+        }
+    }
+}
+
+/// Preserve valid upTeX input sequences as one pseudo-printed character.
+/// Invalid input falls back one byte at a time, matching the lexer's recovery
+/// and leaving `PseudoPrinter::print` to form the traditional `^^hh` spelling.
+fn print_input_bytes(bytes: &[u8], printer: &mut impl Printer) {
+    let mut pos = 0;
+    while pos < bytes.len() {
+        if let Some((code_point, len)) = decode_uptex_input_code_point(&bytes[pos..]) {
+            printer.print_uptex_char(code_point, &bytes[pos..pos + len]);
+            pos += len;
+        } else {
+            printer.print(bytes[pos]);
+            pos += 1;
+        }
+    }
+}
+
 pub enum NextResult {
     Token(Token),
     DontExpand(ControlSequence),
@@ -870,11 +908,12 @@ pub enum NextResult {
 
 #[cfg(test)]
 mod tests {
-    use super::{InputSource, TokenSourceType};
+    use super::{print_input_bytes, InputSource, InputStack, TokenSourceType};
     use crate::eqtb::{ControlSequence, Eqtb};
     use crate::input::Scanner;
     use crate::logger::{InteractionMode, Logger};
     use crate::macros::{Macro, MacroToken};
+    use crate::print::pseudo::PseudoPrinter;
     use crate::token::Token;
 
     use std::rc::Rc;
@@ -885,6 +924,46 @@ mod tests {
             Eqtb::new(),
             Logger::new(String::new(), InteractionMode::Batch),
         )
+    }
+
+    #[test]
+    fn 和文を含むエラー文脈をutf八文字の途中で切らない() {
+        let read_part = "あ".repeat(30).into_bytes();
+        let unread_part = "い".repeat(30).into_bytes();
+        let location_len = 3;
+        let (line_one, line_two) =
+            InputStack::print_two_lines_using_tricky_pseudoprinted_information(
+                location_len,
+                read_part,
+                unread_part,
+            );
+
+        assert!(std::str::from_utf8(&line_one).is_ok(), "{line_one:02X?}");
+        assert!(std::str::from_utf8(&line_two).is_ok(), "{line_two:02X?}");
+        assert!(location_len + line_one.len() <= crate::print::HALF_ERROR_LINE);
+        assert!(line_two.len() <= crate::print::ERROR_LINE);
+    }
+
+    #[test]
+    fn 不正utf八は一byteずつ復帰して次の有効文字から再同期する() {
+        let mut printer = PseudoPrinter::new(None);
+        print_input_bytes(&[0xE3, 0x28, 0xA1, 0xE3, 0x81, 0xC2, 0xA2], &mut printer);
+        let (read, unread) = printer.into_parts();
+
+        assert_eq!(read, b"^^e3(^^a1^^e3^^81\xC2\xA2");
+        assert!(unread.is_empty());
+    }
+
+    #[test]
+    fn byte経路の読み位置がutf八途中なら両側をbyte表示する() {
+        let mut printer = PseudoPrinter::new(None);
+        print_input_bytes(&[0xE3], &mut printer);
+        printer.switch_to_unread_part();
+        print_input_bytes(&[0x81, 0x82], &mut printer);
+        let (read, unread) = printer.into_parts();
+
+        assert_eq!(read, b"^^e3");
+        assert_eq!(unread, b"^^81^^82");
     }
 
     #[test]

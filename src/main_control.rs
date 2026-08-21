@@ -39,7 +39,7 @@ use crate::print::Printer;
 use crate::scaled::xn_over_d;
 use crate::scan_boxes::{begin_box, scan_box, scan_leader_box};
 use crate::semantic_nest::{Mode, RichMode, SemanticState};
-use crate::token::Token;
+use crate::token::{CjkToken, Token};
 use crate::vertical_mode::{VerticalMode, IGNORE_DEPTH};
 use crate::write_streams::{do_close_out, do_open_out, do_write, implement_immediate};
 
@@ -136,6 +136,9 @@ pub fn main_control(
                         main_loop(hmode, c, false, &mut word_scanner, scanner, eqtb, logger);
                     continue;
                 }
+                UnexpandableCommand::CjkChar(c) => {
+                    report_cjk_typesetting_unavailable(c, scanner, eqtb, logger)
+                }
                 UnexpandableCommand::CharNum => {
                     let c = scanner.scan_char_num(eqtb, logger);
                     (unexpandable_command, token) =
@@ -156,6 +159,10 @@ pub fn main_control(
                             let c = scanner.scan_char_num(eqtb, logger);
                             (unexpandable_command, token) =
                                 main_loop(hmode, c, true, &mut word_scanner, scanner, eqtb, logger);
+                            continue;
+                        }
+                        UnexpandableCommand::CjkChar(c) => {
+                            report_cjk_typesetting_unavailable(c, scanner, eqtb, logger);
                             continue;
                         }
                         _ => continue,
@@ -467,6 +474,9 @@ pub fn main_control(
                 UnexpandableCommand::RemoveItem(remove_item) => {
                     delete_last(remove_item, nest, scanner, eqtb, logger)
                 }
+                UnexpandableCommand::CjkChar(c) => {
+                    report_cjk_typesetting_unavailable(c, scanner, eqtb, logger)
+                }
                 UnexpandableCommand::Letter(_)
                 | UnexpandableCommand::Other(_)
                 | UnexpandableCommand::CharGiven(_)
@@ -685,6 +695,9 @@ pub fn main_control(
                     } else {
                         set_math_char(mmode, code as u16, eqtb);
                     }
+                }
+                UnexpandableCommand::CjkChar(c) => {
+                    report_cjk_typesetting_unavailable(c, scanner, eqtb, logger)
                 }
                 UnexpandableCommand::CharNum => {
                     let chr = scanner.scan_char_num(eqtb, logger);
@@ -1162,6 +1175,27 @@ fn insert_dollar_sign(token: Token, scanner: &mut Scanner, eqtb: &mut Eqtb, logg
     ];
     let math_shift = Token::MATH_SHIFT_TOKEN;
     scanner.ins_error(math_shift, help, eqtb, logger);
+}
+
+/// CJK token自体は既に一文字として保持できるが、JFMと和文nodeを入れる前に
+/// byte文字へ分解して組版すると、後から直せない誤ったDVIを作ってしまう。
+/// この段階では一文字を明示的に捨て、処理は続ける。
+fn report_cjk_typesetting_unavailable(
+    token: CjkToken,
+    scanner: &mut Scanner,
+    eqtb: &mut Eqtb,
+    logger: &mut Logger,
+) {
+    logger.print_err("CJK typesetting needs a Japanese font metric");
+    logger.print_str(" (`");
+    token.print_utf8(logger);
+    logger.print_str("' was ignored)");
+    let help = &[
+        "This engine can preserve this Unicode token, but its JFM and",
+        "Japanese character node support have not been enabled yet.",
+        "I'll ignore this character and continue without splitting it into bytes.",
+    ];
+    logger.error(help, scanner, eqtb)
 }
 
 /// See 1051.

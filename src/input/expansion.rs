@@ -4,12 +4,71 @@ use super::{Scanner, TokenSourceType};
 use crate::command::{
     Command, ExpandableCommand, MarkClassOperand, MarkCommand, UnexpandableCommand,
 };
-use crate::eqtb::{ControlSequence, ControlSequenceId, Eqtb, IntegerVariable};
+use crate::eqtb::{
+    ControlSequence, ControlSequenceId, ControlSequenceNameUnit, Eqtb, IntegerVariable,
+    NamespaceId,
+};
 use crate::error::overflow;
 use crate::logger::Logger;
 use crate::print::Printer;
 use crate::token::Token;
 use crate::token_lists::{conv_toks, ins_the_toks};
+
+/// `\csname` が集める名前。通常byteだけなら既存hashへそのまま流し、
+/// 最初のUnicode文字を見た時だけtyped名へ昇格する。
+pub(super) enum ManufacturedCsName {
+    Bytes(Vec<u8>),
+    Wide(Vec<ControlSequenceNameUnit>),
+}
+
+impl ManufacturedCsName {
+    pub(super) fn new() -> Self {
+        Self::Bytes(Vec::new())
+    }
+
+    pub(super) fn push_byte(&mut self, byte: u8) {
+        match self {
+            Self::Bytes(bytes) => bytes.push(byte),
+            Self::Wide(units) => units.push(ControlSequenceNameUnit::Byte(byte)),
+        }
+    }
+
+    pub(super) fn push_unicode(&mut self, code_point: u32) {
+        match self {
+            Self::Bytes(bytes) => {
+                let mut units = Vec::with_capacity(bytes.len() + 1);
+                units.extend(bytes.drain(..).map(ControlSequenceNameUnit::Byte));
+                units.push(ControlSequenceNameUnit::Unicode(code_point));
+                *self = Self::Wide(units);
+            }
+            Self::Wide(units) => units.push(ControlSequenceNameUnit::Unicode(code_point)),
+        }
+    }
+
+    pub(super) fn lookup(&self, eqtb: &Eqtb) -> Option<ControlSequence> {
+        match self {
+            Self::Bytes(bytes) => eqtb.lookup(bytes),
+            Self::Wide(units) => eqtb.lookup_wide(units),
+        }
+    }
+
+    fn lookup_or_create(
+        &self,
+        namespace: Option<NamespaceId>,
+        eqtb: &mut Eqtb,
+    ) -> Result<ControlSequence, ()> {
+        match (namespace, self) {
+            (None, Self::Bytes(bytes)) => eqtb.lookup_or_create(bytes),
+            (None, Self::Wide(units)) => eqtb.lookup_or_create_wide(units),
+            (Some(namespace), Self::Bytes(bytes)) => {
+                eqtb.lookup_or_create_ns(Some(namespace), bytes, None)
+            }
+            (Some(namespace), Self::Wide(units)) => {
+                eqtb.lookup_or_create_ns_wide(Some(namespace), units)
+            }
+        }
+    }
+}
 
 /// Expands the current command.
 /// NOTE: Expects that the command code is larger than MAX_COMMAND
@@ -167,6 +226,7 @@ fn scan_namespace(scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Logger) {
                 | Token::Spacer(c)
                 | Token::Letter(c)
                 | Token::OtherChar(c) => name.push(c),
+                Token::CjkChar(c) => c.push_utf8(&mut name),
                 _ => {
                     complain_about_missing_csname(token, scanner, eqtb, logger);
                     return;
@@ -209,7 +269,7 @@ fn manufacture_control_sequence_name(
     logger: &mut Logger,
 ) {
     // Collect the token in `name`.
-    let mut cs_name = Vec::new();
+    let mut cs_name = ManufacturedCsName::new();
     // Consume all char tokens after expansion.
     let (finishing_command, finishing_token) = loop {
         let (command, token) = get_x_token(scanner, eqtb, logger);
@@ -224,8 +284,9 @@ fn manufacture_control_sequence_name(
             | Token::Spacer(c)
             | Token::Letter(c)
             | Token::OtherChar(c) => {
-                cs_name.push(c);
+                cs_name.push_byte(c);
             }
+            Token::CjkChar(c) => cs_name.push_unicode(c.code_point()),
             token @ Token::CSToken { .. } => break (command, token),
             Token::Null => {
                 panic!("Should not appear here")
@@ -242,15 +303,13 @@ fn manufacture_control_sequence_name(
     //
     // **名前空間があればそちらへ登録する。** 登録はここ一箇所で起きるので、
     // `\namespace` はここへ名前を渡せば足りる
-    let created = match ns {
-        None => eqtb.lookup_or_create(&cs_name),
+    let namespace = match ns {
+        None => None,
         // **空の名前空間名は global そのものである**（仕様どおり）
-        Some(n) if n.is_empty() => eqtb.lookup_or_create(&cs_name),
-        Some(n) => {
-            let id = eqtb.control_sequences.intern_namespace(n);
-            eqtb.lookup_or_create_ns(Some(id), &cs_name, None)
-        }
+        Some(n) if n.is_empty() => None,
+        Some(n) => Some(eqtb.control_sequences.intern_namespace(n)),
     };
+    let created = cs_name.lookup_or_create(namespace, eqtb);
     let Ok(cs) = created else {
         overflow(
             "hash size",

@@ -1,7 +1,7 @@
-use super::{cannot_be_printed, to_hex_char, Printer};
+use super::{Printer, cannot_be_printed, to_hex_char};
 use std::fs::File;
-use std::io::Write;
 use std::io::BufWriter;
+use std::io::Write;
 
 pub struct StreamPrinter<'a> {
     file: &'a mut BufWriter<File>,
@@ -30,6 +30,11 @@ impl<'a> StreamPrinter<'a> {
         write!(self.file, "{}", c as char).unwrap();
         self.tally += 1;
     }
+
+    fn print_raw_uptex_char(&mut self, bytes: &[u8]) {
+        self.file.write_all(bytes).unwrap();
+        self.tally += bytes.len();
+    }
 }
 
 impl<'a> Printer for StreamPrinter<'a> {
@@ -48,6 +53,13 @@ impl<'a> Printer for StreamPrinter<'a> {
             _ => {
                 self.print_raw_char(c);
             }
+        }
+    }
+
+    fn print_uptex_char(&mut self, code_point: u32, bytes: &[u8]) {
+        match self.newline_char {
+            Some(nl) if code_point == u32::from(nl) => self.print_ln(),
+            _ => self.print_raw_uptex_char(bytes),
         }
     }
 

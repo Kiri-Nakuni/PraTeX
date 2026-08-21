@@ -32,6 +32,11 @@ impl Printer for StringPrinter {
         self.tally += 1;
     }
 
+    fn print_uptex_char(&mut self, _code_point: u32, bytes: &[u8]) {
+        self.string.extend_from_slice(bytes);
+        self.tally += bytes.len();
+    }
+
     /// Prints a single character. As this is for internal printing, the character is not escaped.
     /// See 59.
     fn print(&mut self, c: u8) {

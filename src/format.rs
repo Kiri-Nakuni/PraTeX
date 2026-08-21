@@ -23,11 +23,12 @@ use std::str::FromStr;
 pub const FORMAT_EXTENSION: &str = "fmt";
 const FORMAT_DEFAULT_AREA: &str = "TeXformats";
 const FORMAT_DEFAULT_PLAIN: &str = "plain";
+pub type LoadedFormat = Box<(Logger, Hyphenator, Box<Eqtb>)>;
 
 /// See 1332.
 pub fn load_hyphenator_and_eqtb_from_specified_format_file(
     format_name: OsString,
-) -> Result<(Logger, Hyphenator, Box<Eqtb>), ()> {
+) -> Result<LoadedFormat, ()> {
     let Some(fmt_file) = open_fmt_file(Some(format_name)) else {
         return Err(());
     };
@@ -38,8 +39,7 @@ pub fn load_hyphenator_and_eqtb_from_specified_format_file(
 }
 
 /// See 1332.
-pub fn load_hyphenator_and_eqtb_from_default_format_file(
-) -> Result<(Logger, Hyphenator, Box<Eqtb>), ()> {
+pub fn load_hyphenator_and_eqtb_from_default_format_file() -> Result<LoadedFormat, ()> {
     // Now attempt to load the format file or abort.
     let Some(fmt_file) = open_fmt_file(None) else {
         return Err(());
@@ -90,7 +90,7 @@ fn open_fmt_file(format_name: Option<OsString>) -> Option<File> {
 
 /// NOTE Does currently not check that all undumped value are in a valid range.
 /// See 1303.
-fn load_fmt_file(mut fmt_file: File) -> Result<(Logger, Hyphenator, Box<Eqtb>), FormatError> {
+fn load_fmt_file(mut fmt_file: File) -> Result<LoadedFormat, FormatError> {
     let mut format_string = String::new();
     if fmt_file.read_to_string(&mut format_string).is_err() {
         println!("Format file is not valid UTF-8");
@@ -100,7 +100,7 @@ fn load_fmt_file(mut fmt_file: File) -> Result<(Logger, Hyphenator, Box<Eqtb>), 
     let eqtb = undump_table_of_equivalents(&mut lines)?;
     let hyphenator = undump_hyphenation_tables(&mut lines)?;
     let logger = undump_a_couple_more(&mut lines, &eqtb)?;
-    Ok((logger, hyphenator, eqtb))
+    Ok(Box::new((logger, hyphenator, eqtb)))
 }
 
 /// See 1314.

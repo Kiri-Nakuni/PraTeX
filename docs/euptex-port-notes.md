@@ -55,10 +55,35 @@ rtex では UTF-8 を一度コード点として認識し、その時点の `kca
 - `16`〜`20` は CJK token 一つを生成し、文字コードとその時点の `kcatcode` を保持する。
   token 化済みの値は後の `\kcatcode` 変更で変えない。
 
-`char` は正規の Unicode scalar だけなので、upTeX が数値指定で扱う予約域や将来の
-24 bit 内部コードまで一つの型に押し込めない。文字コードの格納には範囲を検査した `u32` を使い、
-UTF-8 復号だけを scalar に限定する。JFM の文字種、文字 node、DVI の `set2` / `set3` も
-後続段階でこの一文字単位へ揃える。
+`char` は正規の Unicode scalar だけなので、upTeX が扱う surrogate 値や将来の
+24 bit 内部コードまで一つの型に押し込めない。文字コードの格納には範囲を検査した `u32` を使う。
+JFM の文字種、文字 node、DVI の `set2` / `set3` も後続段階でこの一文字単位へ揃える。
+
+### 入力UTF-8はRustのscalar復号ではない
+
+TeX Live 2026の公式e-upTeXを、原実装や上流試験を見ずにraw byte入力で黒箱照合した。
+現行処理系はUnicode scalarだけを受理するdecoderではない。2 byteは `C2..DF`、3 byteは
+`E0..EF`、4 byteは `F0..F4` をleadとし、必要な個数の `80..BF` が続けば値を組み立てる。
+3/4 byteではoverlongとsurrogateも一文字tokenになり、組み立てた0はbyte列へ戻る。
+4 byteの上限はU+10FFFEであり、U+10FFFFとそれを超える値はbyte列へ戻る。不正lead、
+不足、不正continuationも先頭1 byteだけを欧文経路へ戻し、後続から再同期する。
+
+したがって `std::str::from_utf8` やlossyなU+FFFD置換は使わない。専用のbounded decoderで
+2〜4 byteだけを検査し、失敗時にも必ず1 byte進める。`kcatcode=15` の正しい並びと
+`^^e3^^81^^82` も再結合せず、各byteを現在の8 bit catcode表へ渡す。ASCIIではdecoderも
+`kcatcode`表引きも呼ばず、現在の頻出経路を保つ。
+
+制御綴名の同一性もraw UTF-8 byte列だけでは表せない。Unicode一文字として読んだ「あ」と、
+`kcatcode=15` で `E3 81 82` の三byteとして読んだ見た目上同じ名前は、公式処理系では別の
+制御綴になる。名前の鍵は `Byte(u8)` と `Unicode(u32)` を区別し、CJK category自体は
+tokenにだけ固定する。同じ符号位置をcategory 16〜20のどれで読んでも制御綴の同一性は変えない。
+
+段4bでは `CjkToken` を符号位置24 bitとcategory 5 bitの一語に詰め、macro、`\edef`、
+`\let`、条件分岐、delimiter、fmt往復まで同じtokenを渡す。typed制御綴のhashは通常の
+byte名と分離し、実際にwide名を作ったときだけ疎な表を確保する。ASCIIのtokenと制御綴は
+従来表をそのまま通る。表示時はUTF-8を一文字単位でPrinterへ渡すため、継続byteを
+`newlinechar` と取り違えず、行折返しやエラー文脈の切詰めも文字途中で分断しない。
+不正入力だけはlexerと同じく先頭1 byteを `^^hh` に戻し、次のbyteから再同期する。
 
 `kcatcode` 表は変更可能な値を block ごとに持ち、コード点から block を二分探索する。
 `HashMap<u32, _>` を文字ごとに引く設計にはせず、ASCII 経路にも費用を持たせない。
@@ -121,7 +146,7 @@ U+2E7F 以下でも `15..20` と表示される。この回復も回帰試験へ
 | 2 | e-TeX の**字句系** | **一部済**（`\detokenize` `\unexpanded` `\readline` `\protected` `\everyeof`。`\scantokens` は未） |
 | 3 | e-TeX の**内省** | **一部済**（`\currentgroup*` `\currentif*` `\lastnodetype` `\iffontchar`。`\fontchar*` `\showgroups` `\showtokens` 等は未） |
 | 4a | **Unicode block 分類表と `\kcatcode`**（代入・group・fmtまで） | **済**（U+10FFFFまで） |
-| 4b | **UTF-8 字句解析と CJK文字 token**（`16`〜`20`を一文字一token、分類をtokenへ固定） | 未 |
+| 4b | **UTF-8 字句解析と CJK文字 token**（`16`〜`20`を一文字一token、分類をtokenへ固定） | **済**（typed制御綴、条件・展開・表示・fmtまで。JFM/文字nodeは後段） |
 | 4c | **`latin_ucs` と16 bit欧文表**（U+2E7F、OFM Level-0へ接続） | 未 |
 | 5 | **JFM**（和文フォントの寸法表）と `\jfont` | 未 |
 | 6 | **Unicode 文字 node と DVI `set2` / `set3`** | 未 |

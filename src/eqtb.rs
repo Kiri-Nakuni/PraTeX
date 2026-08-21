@@ -41,15 +41,17 @@ use catcodes::CARRIAGE_RETURN;
 use codes::CodeParameters;
 pub use codes::{CodeType, CodeVariable, VAR_CODE};
 use control_sequences::ControlSequenceStore;
-pub use control_sequences::{ControlSequence, ControlSequenceId, NamespaceId};
+pub use control_sequences::{
+    ControlSequence, ControlSequenceId, ControlSequenceNameUnit, NamespaceId,
+};
 use dimensions::DimensionParameters;
 pub use dimensions::DimensionVariable;
 use fonts::FontParameters;
 pub use fonts::{FontIndex, FontVariable, MathFontSize, NULL_FONT};
 use integers::IntegerParameters;
 pub use integers::IntegerVariable;
-pub use kcatcodes::{KCatCode, KCatCodeBlock};
 use kcatcodes::KCatCodes;
+pub use kcatcodes::{KCatCode, KCatCodeBlock};
 use levels::{Level, VariableLevels};
 use parshape::ParShapeParameter;
 pub use parshape::{ParShapeVariable, ParagraphShape};
@@ -457,12 +459,7 @@ impl Eqtb {
     }
 
     /// upTeX の和文カテゴリーを Unicode block 単位で定義する。
-    pub(crate) fn kcat_code_define(
-        &mut self,
-        code_point: u32,
-        kcat_code: KCatCode,
-        global: bool,
-    ) {
+    pub(crate) fn kcat_code_define(&mut self, code_point: u32, kcat_code: KCatCode, global: bool) {
         let block = KCatCodes::block_for(code_point);
         self.define(Definition::KCatCode(block, kcat_code), global);
     }
@@ -1029,6 +1026,18 @@ impl Eqtb {
         }
     }
 
+    /// Unicode単位を含む制御綴を引く。
+    ///
+    /// byte名とは別のhashを使うため、表示bytesが同じでも別identityになる。
+    pub fn lookup_wide(&self, name: &[ControlSequenceNameUnit]) -> Option<ControlSequence> {
+        if let Some(cs) = self.search_using_wide(name) {
+            return Some(cs);
+        }
+        self.control_sequences
+            .id_lookup_wide(name)
+            .map(ControlSequence::Escaped)
+    }
+
     /// 一文字の制御綴（`\x`）。**探索に参加する。**
     ///
     /// `to_token` は今まで `Single(c)` へ直に落としていたので、
@@ -1057,6 +1066,27 @@ impl Eqtb {
         self.search_using_kind(false, name)
     }
 
+    fn search_using_wide(&self, name: &[ControlSequenceNameUnit]) -> Option<ControlSequence> {
+        if self.using_namespaces.is_empty() {
+            return None;
+        }
+        if let Some(n) = self.control_sequences.id_lookup_wide(name) {
+            let cs = ControlSequence::Escaped(n);
+            if self.is_defined(cs) {
+                return Some(cs);
+            }
+        }
+        for ns in &self.using_namespaces {
+            if let Some(n) = self.control_sequences.id_lookup_ns_wide(Some(*ns), name) {
+                let cs = ControlSequence::Escaped(n);
+                if self.is_defined(cs) {
+                    return Some(cs);
+                }
+            }
+        }
+        None
+    }
+
     fn search_using_kind(&self, active: bool, name: &[u8]) -> Option<ControlSequence> {
         if self.using_namespaces.is_empty() || name.is_empty() {
             return None;
@@ -1067,7 +1097,10 @@ impl Eqtb {
         } else {
             match name.len() {
                 1 => Some(ControlSequence::Single(name[0])),
-                _ => self.control_sequences.id_lookup(name).map(ControlSequence::Escaped),
+                _ => self
+                    .control_sequences
+                    .id_lookup(name)
+                    .map(ControlSequence::Escaped),
             }
         };
         if let Some(cs) = global {
@@ -1105,13 +1138,29 @@ impl Eqtb {
         self.lookup_ns_kind(ns, false, name)
     }
 
+    /// Unicode単位を含む制御綴を名前空間つきで引く。`None` はglobal。
+    pub fn lookup_ns_wide(
+        &self,
+        ns: Option<NamespaceId>,
+        name: &[ControlSequenceNameUnit],
+    ) -> Option<ControlSequence> {
+        let Some(ns) = ns else {
+            return self.lookup_wide(name);
+        };
+        self.control_sequences
+            .id_lookup_ns_wide(Some(ns), name)
+            .map(ControlSequence::Escaped)
+    }
+
     pub fn lookup_ns_kind(
         &self,
         ns: Option<crate::eqtb::NamespaceId>,
         active: bool,
         name: &[u8],
     ) -> Option<ControlSequence> {
-        let Some(ns) = ns else { return self.lookup(name) };
+        let Some(ns) = ns else {
+            return self.lookup(name);
+        };
         if name.is_empty() {
             // **空は global へ落ちる。** これを統一規則とする
             return Some(ControlSequence::NullCs);
@@ -1128,17 +1177,42 @@ impl Eqtb {
         name: &[u8],
         active: Option<u8>,
     ) -> Result<ControlSequence, ()> {
-        let Some(ns) = ns else { return self.lookup_or_create(name) };
+        let Some(ns) = ns else {
+            return self.lookup_or_create(name);
+        };
         if name.is_empty() {
             return Ok(ControlSequence::NullCs);
         }
-        if let Some(n) = self.control_sequences.id_lookup_ns(Some(ns), active.is_some(), name) {
+        if let Some(n) = self
+            .control_sequences
+            .id_lookup_ns(Some(ns), active.is_some(), name)
+        {
             return Ok(ControlSequence::Escaped(n));
         }
         let n = self.control_sequences.add_command_ns(
             Some(ns),
             name,
             active,
+            &mut self.variable_levels,
+        )?;
+        Ok(ControlSequence::Escaped(n))
+    }
+
+    /// Unicode単位を含む制御綴を名前空間つきで引くか、無ければ作る。
+    pub fn lookup_or_create_ns_wide(
+        &mut self,
+        ns: Option<NamespaceId>,
+        name: &[ControlSequenceNameUnit],
+    ) -> Result<ControlSequence, ()> {
+        let Some(ns) = ns else {
+            return self.lookup_or_create_wide(name);
+        };
+        if let Some(n) = self.control_sequences.id_lookup_ns_wide(Some(ns), name) {
+            return Ok(ControlSequence::Escaped(n));
+        }
+        let n = self.control_sequences.add_wide_command_ns(
+            Some(ns),
+            name,
             &mut self.variable_levels,
         )?;
         Ok(ControlSequence::Escaped(n))
@@ -1166,6 +1240,23 @@ impl Eqtb {
             },
         };
         Ok(cs)
+    }
+
+    /// Unicode単位を含む制御綴を引くか、無ければglobalに作る。
+    pub fn lookup_or_create_wide(
+        &mut self,
+        name: &[ControlSequenceNameUnit],
+    ) -> Result<ControlSequence, ()> {
+        if let Some(cs) = self.search_using_wide(name) {
+            return Ok(cs);
+        }
+        let n = match self.control_sequences.id_lookup_wide(name) {
+            Some(n) => n,
+            None => self
+                .control_sequences
+                .add_wide_command(name, &mut self.variable_levels)?,
+        };
+        Ok(ControlSequence::Escaped(n))
     }
 
     /// See 264.

@@ -43,6 +43,7 @@ pub use skip::{Hskip, Vskip};
 use crate::fonts::FontInfo;
 use crate::nodes::LeaderKind;
 use crate::print::Printer;
+use crate::token::CjkToken;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
@@ -75,6 +76,7 @@ pub enum UnexpandableCommand {
     Spacer,
     Letter(u8),
     Other(u8),
+    CjkChar(CjkToken),
     ParEnd,
     Endv,
     CharNum,
@@ -166,6 +168,7 @@ impl UnexpandableCommand {
             | Self::Spacer
             | Self::Letter(_)
             | Self::Other(_)
+            | Self::CjkChar(_)
             | Self::ParEnd
             | Self::Endv
             | Self::CharNum
@@ -263,6 +266,10 @@ impl UnexpandableCommand {
             Self::Spacer => chr_cmd("blank space ", b' ', printer),
             Self::Letter(c) => chr_cmd("the letter ", *c, printer),
             Self::Other(c) => chr_cmd("the character ", *c, printer),
+            Self::CjkChar(token) => {
+                printer.print_str("kanji character ");
+                token.print_utf8(printer);
+            }
             Self::ParEnd => printer.print_esc_str(b"par"),
             Self::Endv => printer.print_str("end of alignment template"),
             Self::CharNum => printer.print_esc_str(b"char"),
@@ -494,4 +501,26 @@ impl ExpandableCommand {
 fn chr_cmd(command_description: &str, character: u8, printer: &mut impl Printer) {
     printer.print_str(command_description);
     printer.print(character);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::print::string::StringPrinter;
+    use crate::token::CjkCategory;
+
+    #[test]
+    fn 和文文字命令をuptex互換のバイト列で表示する() {
+        let cases: &[(u32, &[u8])] = &[
+            (0x3042, b"kanji character \xE3\x81\x82"),
+            (0xD800, b"kanji character \xED\xA0\x80"),
+        ];
+        for &(code_point, expected) in cases {
+            let token = CjkToken::new(code_point, CjkCategory::Kana).unwrap();
+            let command = UnexpandableCommand::CjkChar(token);
+            let mut printer = StringPrinter::new(Some(b'\\'));
+            command.display(&Vec::new(), &mut printer);
+            assert_eq!(printer.into_string(), expected, "U+{code_point:04X}");
+        }
+    }
 }

@@ -41,6 +41,17 @@ pub trait Printer: Sized {
     /// See 58.
     fn print_char(&mut self, c: u8);
 
+    /// Prints one upTeX character as its encoded byte sequence.
+    ///
+    /// The bytes must be emitted together.  upTeX counts their external byte
+    /// length for line width and `tally`, but never breaks inside the sequence.
+    /// `code_point` is kept separate from the bytes so a
+    /// `newlinechar` equal to a UTF-8 continuation byte cannot split the
+    /// character in the middle.  Surrogate values are intentionally allowed:
+    /// the public upTeX input boundary can preserve them even though Rust
+    /// `char` cannot represent them.
+    fn print_uptex_char(&mut self, code_point: u32, bytes: &[u8]);
+
     /// Prints a single character, it is escaped if necessary.
     /// See 59.
     fn print(&mut self, c: u8);
@@ -191,11 +202,7 @@ pub trait Printer: Sized {
 /// Takes a 4-bit value and maps it to the corresponding hex character.
 /// See 48.
 pub fn to_hex_char(c: u8) -> u8 {
-    if c < 10 {
-        c + b'0'
-    } else {
-        c - 10 + b'a'
-    }
+    if c < 10 { c + b'0' } else { c - 10 + b'a' }
 }
 
 /// See 49.

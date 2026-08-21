@@ -1,18 +1,18 @@
 use crate::command::{
     Command, ConvertCommand, ExpandableCommand, MacroCall, MarkClassOperand, UnexpandableCommand,
 };
-use crate::eqtb::{ControlSequence, Eqtb};
+use crate::eqtb::{ControlSequence, Eqtb, KCatCode};
 use crate::fonts::scan_font_ident;
 use crate::input::expansion::get_x_token;
 use crate::input::{Scanner, ScannerStatus};
 use crate::integer::{Integer, IntegerExt};
 use crate::logger::Logger;
 use crate::macros::macro_show;
+use crate::print::Printer;
 use crate::print::pseudo::PseudoPrinter;
 use crate::print::string::StringPrinter;
-use crate::print::Printer;
-use crate::scan_internal::{scan_internal_toks, InternalValue};
-use crate::token::Token;
+use crate::scan_internal::{InternalValue, scan_internal_toks};
+use crate::token::{CjkCategory, CjkToken, Token, decode_uptex_input_code_point};
 
 pub type RcTokenList = std::rc::Rc<Vec<Token>>;
 
@@ -95,6 +95,60 @@ pub fn str_toks(s: &[u8]) -> Vec<Token> {
     list
 }
 
+/// Retokenize bytes produced by a [`Printer`] using the current upTeX
+/// Japanese character categories.
+///
+/// This is deliberately separate from [`str_toks`]: the latter is also the
+/// byte-oriented boundary used by Vaak and must keep one token per byte.
+pub(crate) fn printed_str_toks(s: &[u8], eqtb: &Eqtb) -> Vec<Token> {
+    let mut list = Vec::with_capacity(s.len());
+    let mut pos = 0;
+    while pos < s.len() {
+        let byte = s[pos];
+        if byte.is_ascii() {
+            list.push(if byte == b' ' {
+                Token::SPACE_TOKEN
+            } else {
+                Token::OtherChar(byte)
+            });
+            pos += 1;
+            continue;
+        }
+
+        let Some((code_point, len)) = decode_uptex_input_code_point(&s[pos..]) else {
+            // Invalid input recovers one byte at a time, just like `str_toks`.
+            list.push(Token::OtherChar(byte));
+            pos += 1;
+            continue;
+        };
+
+        let category = match eqtb.kcat_code(code_point) {
+            KCatCode::Kanji => Some(CjkCategory::Kanji),
+            KCatCode::Kana => Some(CjkCategory::Kana),
+            KCatCode::OtherKChar => Some(CjkCategory::OtherKChar),
+            KCatCode::Hangul => Some(CjkCategory::Hangul),
+            KCatCode::Modifier => Some(CjkCategory::Modifier),
+            // The public engine's printer-to-token path keeps this as one
+            // Japanese token even when the current table says `not_cjk`.
+            KCatCode::NotCjk => Some(CjkCategory::OtherKChar),
+            // TODO(upTeX stage 4c): emit one 16-bit-catcode Unicode European
+            // token.  That token type does not exist yet, so retain bytes.
+            KCatCode::LatinUcs => None,
+        };
+        if let Some(category) = category {
+            if let Some(token) = CjkToken::new(code_point, category) {
+                list.push(Token::CjkChar(token));
+            } else {
+                list.extend(s[pos..pos + len].iter().copied().map(Token::OtherChar));
+            }
+        } else {
+            list.extend(s[pos..pos + len].iter().copied().map(Token::OtherChar));
+        }
+        pos += len;
+    }
+    list
+}
+
 /// See 465.
 pub fn the_toks(scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Logger) -> Vec<Token> {
     let (unexpandable_command, token) = get_x_token(scanner, eqtb, logger);
@@ -129,7 +183,7 @@ pub fn the_toks(scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Logger) -> 
         }
     }
     let s = string_printer.into_string();
-    str_toks(&s)
+    printed_str_toks(&s, eqtb)
 }
 
 /// See 467.
@@ -154,7 +208,7 @@ pub fn conv_toks(
         logger,
     );
     let s = string_printer.into_string();
-    scanner.ins_list(str_toks(&s), eqtb, logger);
+    scanner.ins_list(printed_str_toks(&s, eqtb), eqtb, logger);
 }
 
 /// See 471. and 472.
@@ -190,6 +244,7 @@ fn scan_and_print_argument_for_convert_command(
                 | Token::Spacer(c)
                 | Token::Letter(c)
                 | Token::OtherChar(c) => string_printer.print_char(c),
+                Token::CjkChar(token) => token.print_utf8(string_printer),
                 Token::CSToken { cs } => cs.sprint_cs(eqtb, string_printer),
                 Token::Null => {
                     panic!("Should not appear here")
@@ -217,8 +272,7 @@ fn scan_and_print_argument_for_convert_command(
             if logger.job_name.is_none() {
                 logger.open_log_file(&scanner.input_stack, eqtb);
             }
-            string_printer
-                .slow_print_str(logger.job_name.as_ref().unwrap().as_encoded_bytes());
+            string_printer.slow_print_str(logger.job_name.as_ref().unwrap().as_encoded_bytes());
         }
         // ==== pdfTeX 由来。**組版に触らない道具** ====
         //
@@ -261,7 +315,9 @@ fn scan_and_print_argument_for_convert_command(
             for pair in hex.chunks(2) {
                 let hi = (pair[0] as char).to_digit(16).unwrap() as u8;
                 // **半端な桁は零で埋める**（pdfTeX と同じ）
-                let lo = pair.get(1).map_or(0, |c| (*c as char).to_digit(16).unwrap() as u8);
+                let lo = pair
+                    .get(1)
+                    .map_or(0, |c| (*c as char).to_digit(16).unwrap() as u8);
                 string_printer.print(hi * 16 + lo);
             }
         }
@@ -300,7 +356,7 @@ pub fn detokenize_toks(scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Logg
     let toks = nested_scan_toks(scanner, false, eqtb, logger);
     let mut p = StringPrinter::new(eqtb.get_current_escape_character());
     token_show(&toks, &mut p, eqtb);
-    str_toks(&p.into_string())
+    printed_str_toks(&p.into_string(), eqtb)
 }
 
 /// `\unexpanded{…}` の中身。**そのまま返す**（e-TeX）。
@@ -357,4 +413,91 @@ pub(crate) fn scan_general_text_as_string(
     let mut p = StringPrinter::new(eqtb.get_current_escape_character());
     token_show(&toks, &mut p, eqtb);
     p.into_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::logger::{InteractionMode, Logger};
+
+    fn cjk(code_point: u32, category: CjkCategory) -> Token {
+        Token::CjkChar(CjkToken::new(code_point, category).unwrap())
+    }
+
+    fn 入力器を作る() -> (Scanner, Eqtb, Logger) {
+        (
+            Scanner::new(Vec::new(), 0),
+            Eqtb::new(),
+            Logger::new(String::new(), InteractionMode::Batch),
+        )
+    }
+
+    #[test]
+    fn 印字列を現在の和文カテゴリーで字句化する() {
+        let mut eqtb = Eqtb::new();
+        let bytes = "あ".as_bytes();
+        assert_eq!(
+            printed_str_toks(bytes, &eqtb),
+            vec![cjk(0x3042, CjkCategory::Kana)]
+        );
+
+        eqtb.kcat_code_define(0x3042, KCatCode::Hangul, true);
+        assert_eq!(
+            printed_str_toks(bytes, &eqtb),
+            vec![cjk(0x3042, CjkCategory::Hangul)]
+        );
+
+        eqtb.kcat_code_define(0x3042, KCatCode::NotCjk, true);
+        assert_eq!(
+            printed_str_toks(bytes, &eqtb),
+            vec![cjk(0x3042, CjkCategory::OtherKChar)]
+        );
+    }
+
+    #[test]
+    fn 欧文符号位置と不正列はバイト字句へ戻す() {
+        let mut eqtb = Eqtb::new();
+        eqtb.kcat_code_define(0x2E00, KCatCode::LatinUcs, true);
+        assert_eq!(
+            printed_str_toks("⸀".as_bytes(), &eqtb),
+            str_toks("⸀".as_bytes())
+        );
+
+        let invalid = [b' ', 0xE3, b'A', 0x81];
+        assert_eq!(printed_str_toks(&invalid, &eqtb), str_toks(&invalid));
+    }
+
+    #[test]
+    fn stringは印字後の現在カテゴリーで和文字句を作る() {
+        let (mut scanner, mut eqtb, mut logger) = 入力器を作る();
+        scanner.ins_list(vec![cjk(0x3042, CjkCategory::Kana)], &eqtb, &mut logger);
+        eqtb.kcat_code_define(0x3042, KCatCode::Hangul, true);
+
+        conv_toks(ConvertCommand::String, &mut scanner, &mut eqtb, &mut logger);
+
+        assert_eq!(
+            scanner.get_token(&mut eqtb, &mut logger),
+            cjk(0x3042, CjkCategory::Hangul)
+        );
+    }
+
+    #[test]
+    fn detokenizeは印字後の現在カテゴリーで和文字句を作る() {
+        let (mut scanner, mut eqtb, mut logger) = 入力器を作る();
+        scanner.ins_list(
+            vec![
+                Token::LEFT_BRACE_TOKEN,
+                cjk(0x3042, CjkCategory::Kana),
+                Token::RIGHT_BRACE_TOKEN,
+            ],
+            &eqtb,
+            &mut logger,
+        );
+        eqtb.kcat_code_define(0x3042, KCatCode::Modifier, true);
+
+        assert_eq!(
+            detokenize_toks(&mut scanner, &mut eqtb, &mut logger),
+            vec![cjk(0x3042, CjkCategory::Modifier)]
+        );
+    }
 }

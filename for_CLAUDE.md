@@ -1,6 +1,6 @@
 # Claude への連絡
 
-更新: 2026-08-22 / 枝 `codex/euptex-kcatcode-table`
+更新: 2026-08-22 / 枝 `codex/euptex-utf8-cjk-token`
 
 ## 現在地
 
@@ -73,7 +73,7 @@ OS文字列境界は `221e185`、実入力のresolver接続は `ce37e7c`、Type 
 `5111498`、CLIからの明示map接続は `62e58e5`、TRIPのglue比率一致は `58af183`。
 一字差し戻しのsafe Rust性能改善は `f830570`。
 
-## e-upTeX `\kcatcode`（進行中）
+## e-upTeX `\kcatcode` / UTF-8 token
 
 upTeXの原実装・change file・上流回帰試験を見ず、`uptex-base` の公開
 `01uptex_doc_utf8.txt` Ver2.02、Unicode 17.0.0 `Blocks.txt`、公式e-upTeXバイナリの
@@ -86,8 +86,53 @@ surrogate三block、7例外集合、`latin_ucs=14` のU+2E7F制限、不正値�
 実機で確認した。357開始境界、358区間末尾、51個のnamed-block gap候補も全件照合し、
 境界・区間の不一致は0件だった。代入、group/global、保存level、内部量、fmtの厳密な
 版・個数検証までを
-この枝でまとめる。UTF-8字句をCJK一文字tokenへする変更は次の機能枝へ分けるため、
-現段階の文字指定試験は数値だけである。
+`kcatcode` 表・代入・group・fmtは `9d04c08` で完了し、
+`origin/codex/euptex-kcatcode-table` へpush済み。
+
+現在の `codex/euptex-utf8-cjk-token` では、16〜20を符号位置と入力時categoryを持つ
+一つの `CjkToken` として実装した。ASCIIは従来のbyte fast path、15はbyte列、14の
+`latin_ucs` tokenは後続枝に残す。制御綴名は `Byte(u8)` / `Unicode(u32)` のtyped identityを
+持ち、同じ表示bytesのbyte名とwide名を区別する。categoryはtokenへ固定するが制御綴identityには
+含めない。macro、`\edef`、`\let`、`\if` / `\ifcat` / `\ifx`、delimiter、文字定数、
+`\string` / `\detokenize`、fmt往復まで接続した。
+
+PrinterにはUTF-8一文字をatomicに渡す境界を設け、継続byteを `newlinechar` と誤認すること、
+`\write` の二重符号化、log折返しとerror contextの文字途中切断を防いだ。不正UTF-8だけは
+公式e-upTeXの黒箱結果どおり先頭1 byteずつ `^^hh` へ戻して再同期する。wide hashと逆引き表は
+実際にwide名を作るまで確保しない。Windows 1 MiB stackでCJK fmt読込み時に落ちたため、
+大きなfmt戻り値をBox化し、INITEX構築・読込み・実行のframeを分けた。unsafe Rustは未使用。
+
+直前 `9d04c08` と同じrelease LTO・同じVaakでASCII 100万反復fixtureを交互に各11回測定した。
+wall中央値は553.506ms→542.120ms、CPU中央値は546.875ms→531.250msで、stdout/log hashは
+全回一致した。小差を高速化とは数えないが、CJK層追加によるASCII退行は観測されていない。
+
+release全回帰は **406件通過、失敗0**（doc-test 1件は既存どおりignored）。TRIPは二段とも
+exit 0、16 page。`trip.dvi` は直前の既知意味一致baselineとbyte単位で同じ
+`27b79b612b94a1d2815a8747d09b6ba665f2adfb9f521fcfe7020c6347a29342`、`trip.fot`、
+`tripin.log/fot`、`tripos.tex`、空の `8terminal.tex` も同一。`trip.log`だけ、文字定数の
+公式e-upTeX互換診断を `Improper alphabetic or KANJI constant.` へ変えた9 bytes分が異なる。
+
+次の独立実験として、通常のe-upTeX互換経路を残したまま `catcode` と `kcatcode` の区別を
+統一できるか、別branchで調査する。LaTeXのbyte-orientedな字句前提を壊す可能性が高いので、
+既存 `latex.ltx` をそのまま通すことを成功条件にはせず、必要ならclean-roomのformat層を分ける。
+catcodeは将来の追加規則をclosed Rust enumへ埋め込まず、組込み値のfast pathと拡張ID/registryを
+分ける。単純な規則または高頻度の規則はVaak、複雑だが低頻度の規則はversioned WASM ABIへ
+委ねる方針。WASMへRust layoutやpointerを出さず、数値ID、長さ付きbyte列、opaque handle、
+capabilityを使う。tokenごとのABI crossingは避け、buffer/node/eventをまとめて渡す。
+Vaak擬似callbackは常時有効にしない。TeXが特定のVaak実行を明示したときだけ、その実行へ
+限定scopeのcallback capabilityを渡し、終了時に失効させる。読込みやengine起動だけではhookを
+登録せず、暗黙のglobal callback表も持たない。
+
+TeX82の `^^xx` / `^^M` は既存lexerにあるが、XeTeX/LuaTeXの `^^^^hhhh` /
+`^^^^^^hhhhhh` は未実装。公式e-upTeX 2026も後二者を展開しないため、e-upTeX互換機能ではなく
+明示的なUnicode engine拡張として、統一classifier枝で公式XeTeX/LuaTeXを黒箱照合して足す。
+
+将来拡張として生文字列レジスタも検討する。値はtoken listやRust `String` ではなく任意byteを
+保つ列。`\the\rawstring<n>` は合成TextSourceとして現在のclassifierで再字句化し、
+`\therawstring\rawstring<n>` は再字句化せず全単位をOther/catcode 12 tokenへする。
+通常のbrace引数は取得時点でtokenize済みなので「生」と偽らない。inlineは明示delimiterを
+直接TextSourceから読む限定経路、file/Vaak/WASMは長さ付きbyte列のhost経路に分ける。
+改行は `\the` では合成行境界、`\therawstring` ではOther文字として扱う初期案。
 
 この枝の最終release試験は362件通過、失敗0。TRIPも二段ともexit 0で、直前の
 glue-ratio基準と `trip.dvi`、`trip.fot`、`tripos.tex`、空の `8terminal.tex` がbyte一致した。

@@ -1,4 +1,4 @@
-use crate::command::{prefixed_command, ShowCommand, UnexpandableCommand};
+use crate::command::{ShowCommand, UnexpandableCommand, prefixed_command};
 use crate::eqtb::{ControlSequence, Eqtb, IntegerVariable, TokenListVariable};
 use crate::horizontal_mode::HorizontalModeType;
 use crate::hyphenation::Hyphenator;
@@ -6,15 +6,15 @@ use crate::input::Scanner;
 use crate::integer::{Integer, IntegerExt};
 use crate::logger::{InteractionMode, Logger};
 use crate::main_control::report_illegal_case;
-use crate::nodes::{show_box, LanguageNode, Node, SpecialNode, WhatsitNode};
+use crate::nodes::{LanguageNode, Node, SpecialNode, WhatsitNode, show_box};
+use crate::norm_min;
 use crate::output::Output;
 use crate::page_breaking::PageBuilder;
 use crate::print::string::StringPrinter;
-use crate::print::{Printer, MAX_PRINT_LINE};
+use crate::print::{MAX_PRINT_LINE, Printer};
 use crate::semantic_nest::{RichMode, SemanticState};
 use crate::token::Token;
 use crate::token_lists::{print_meaning, the_toks, token_show};
-use crate::norm_min;
 
 use std::io::BufReader;
 use std::path::PathBuf;
@@ -87,34 +87,41 @@ pub fn issue_message(
     let def_ref = scanner.scan_toks(cs, true, eqtb, logger);
     let mut string_printer = StringPrinter::new(eqtb.get_current_escape_character());
     token_show(&def_ref, &mut string_printer, eqtb);
-    let s = string_printer.into_string();
+    let printed_len = string_printer.get_tally();
     if is_err {
-        print_string_as_error_message(&s, scanner, eqtb, logger);
+        print_tokens_as_error_message(&def_ref, scanner, eqtb, logger);
     } else {
-        print_string_on_terminal(&s, logger);
+        print_tokens_on_terminal(&def_ref, printed_len, eqtb, logger);
     }
 }
 
 /// See 1280.
-fn print_string_on_terminal(s: &[u8], logger: &mut Logger) {
-    if logger.term_offset + s.len() > MAX_PRINT_LINE - 2 {
+fn print_tokens_on_terminal(
+    tokens: &[Token],
+    printed_len: usize,
+    eqtb: &Eqtb,
+    logger: &mut Logger,
+) {
+    if logger.term_offset + printed_len > MAX_PRINT_LINE - 2 {
         logger.print_ln();
     } else if logger.term_offset > 0 || logger.file_offset > 0 {
         logger.print_char(b' ');
     }
-    logger.slow_print_str(s);
+    // byte tokenは従来どおり `^^xx`、CJK tokenは一文字のUTF-8として出す。
+    // 一度Vec<u8>へ潰すとこの区別を復元できない。
+    token_show(tokens, logger, eqtb);
     logger.update_terminal();
 }
 
 /// See 1283.
-fn print_string_as_error_message(
-    s: &[u8],
+fn print_tokens_as_error_message(
+    tokens: &[Token],
     scanner: &mut Scanner,
     eqtb: &mut Eqtb,
     logger: &mut Logger,
 ) {
     logger.print_err("");
-    logger.slow_print_str(s);
+    token_show(tokens, logger, eqtb);
     let help: &[&str] = if logger.long_help_seen {
         &["(That was another \\errmessage.)"]
     } else {
@@ -198,6 +205,9 @@ fn change_token_to_upper_case(token: &mut Token, eqtb: &Eqtb) {
                 }
             }
         }
+        // upTeXの和文uppercase/lowercase表は後段で入れる。入力時に固定した
+        // categoryを壊さないため、この段階ではCJK tokenをそのまま保つ。
+        Token::CjkChar(_) => {}
         Token::Null => {
             panic!("Should not appear here")
         }
@@ -231,6 +241,7 @@ fn change_token_to_lower_case(token: &mut Token, eqtb: &Eqtb) {
                 }
             }
         }
+        Token::CjkChar(_) => {}
         Token::Null => {
             panic!("Should not appear here")
         }

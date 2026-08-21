@@ -109,6 +109,30 @@ pub(crate) fn os_str_to_bytes(value: &OsStr) -> Vec<u8> {
 // We use a global flag for now to indicate whether this version is INITEX.
 const INIT: bool = true;
 
+type InitialEngineState = (Logger, Hyphenator, Box<Eqtb>);
+
+/// fmt選択中の大きな戻り値をheapへ移してから`tex_main`へ返す。
+#[inline(never)]
+fn load_selected_format(format_name: Option<OsString>) -> Result<Box<InitialEngineState>, ()> {
+    if let Some(format_name) = format_name {
+        load_hyphenator_and_eqtb_from_specified_format_file(format_name)
+    } else if !INIT {
+        load_hyphenator_and_eqtb_from_default_format_file()
+    } else {
+        Ok(initialize_initex())
+    }
+}
+
+/// INITEX構築の大きな値をfmt読込みのcall chainへ重ねない。
+#[inline(never)]
+fn initialize_initex() -> Box<InitialEngineState> {
+    let mut eqtb = Box::new(Eqtb::new());
+    eqtb.init_prim();
+    let hyphenator = Hyphenator::new();
+    let logger = Logger::new(" (INITEX)".to_string(), InteractionMode::ErrorStop);
+    Box::new((logger, hyphenator, eqtb))
+}
+
 /// This is the entry point into the TeX program.
 /// See 1332.
 pub fn tex_main() -> Result<(), ()> {
@@ -119,21 +143,29 @@ pub fn tex_main() -> Result<(), ()> {
     }
 
     // Start the input
-    let (output_format, pdf_font_map, format_name, mut first_line, first_non_space_pos) =
+    let (output_format, pdf_font_map, format_name, first_line, first_non_space_pos) =
         read_format_name_and_first_line()?;
 
-    let (mut logger, mut hyphenator, mut eqtb) = if let Some(format_name) = format_name {
-        load_hyphenator_and_eqtb_from_specified_format_file(format_name)?
-    // If no format has been loaded.
-    } else if !INIT {
-        load_hyphenator_and_eqtb_from_default_format_file()?
-    } else {
-        let mut eqtb = Box::new(Eqtb::new());
-        eqtb.init_prim();
-        let hyphenator = Hyphenator::new();
-        let logger = Logger::new(" (INITEX)".to_string(), InteractionMode::ErrorStop);
-        (logger, hyphenator, eqtb)
-    };
+    let engine = load_selected_format(format_name)?;
+    run_loaded_engine(
+        output_format,
+        pdf_font_map,
+        first_line,
+        first_non_space_pos,
+        engine,
+    )
+}
+
+/// fmt読込み中のstackへ、読込み後だけ使うengine状態を重ねない。
+#[inline(never)]
+fn run_loaded_engine(
+    output_format: OutputFormat,
+    pdf_font_map: Option<OsString>,
+    mut first_line: Vec<u8>,
+    first_non_space_pos: usize,
+    engine: Box<InitialEngineState>,
+) -> ! {
+    let (mut logger, mut hyphenator, mut eqtb) = *engine;
 
     // We set history to this value before initialization
     // and set it to spotless once initialization succeeded.

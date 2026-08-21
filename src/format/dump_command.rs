@@ -5,6 +5,7 @@ use crate::command::{
     ShowCommand, UnexpandableCommand, Vskip,
 };
 use crate::nodes::LeaderKind;
+use crate::token::CjkToken;
 
 use std::io::Write;
 
@@ -79,6 +80,10 @@ impl Dumpable for UnexpandableCommand {
             Self::Other(c) => {
                 writeln!(target, "Other")?;
                 c.dump(target)?;
+            }
+            Self::CjkChar(token) => {
+                writeln!(target, "CjkChar")?;
+                token.dump(target)?;
             }
             Self::ParEnd => writeln!(target, "ParEnd")?,
             Self::Endv => writeln!(target, "Endv")?,
@@ -252,6 +257,7 @@ impl Dumpable for UnexpandableCommand {
                 let c = u8::undump(lines)?;
                 Ok(Self::Other(c))
             }
+            "CjkChar" => Ok(Self::CjkChar(CjkToken::undump(lines)?)),
             "ParEnd" => Ok(Self::ParEnd),
             "Endv" => Ok(Self::Endv),
             "CharNum" => Ok(Self::CharNum),
@@ -788,6 +794,7 @@ impl Dumpable for MacroCall {
 mod tests {
     use super::*;
     use crate::macros::Macro;
+    use crate::token::CjkCategory;
 
     #[test]
     fn dump_command() {
@@ -817,6 +824,42 @@ mod tests {
         let mut lines = input.lines();
         let classic_undumped = UnexpandableCommand::undump(&mut lines).unwrap();
         assert_eq!(lower, classic_undumped);
+    }
+
+    #[test]
+    fn 和文文字命令のformatを往復する() {
+        let token = CjkToken::new(0x10_FFFF, CjkCategory::Modifier).unwrap();
+        let command = UnexpandableCommand::CjkChar(token);
+
+        let mut file = Vec::new();
+        command.dump(&mut file).unwrap();
+
+        let input = String::from_utf8(file).unwrap();
+        assert_eq!(
+            UnexpandableCommand::undump(&mut input.lines()).unwrap(),
+            command
+        );
+    }
+
+    #[test]
+    fn 和文文字命令の壊れたformatを拒否する() {
+        for input in [
+            "CjkChar\n12354\n15\n",
+            "CjkChar\n12354\n21\n",
+            "CjkChar\n1114112\n18\n",
+        ] {
+            assert!(matches!(
+                UnexpandableCommand::undump(&mut input.lines()),
+                Err(FormatError::ParseError)
+            ));
+        }
+
+        for input in ["CjkChar\n", "CjkChar\n12354\n"] {
+            assert!(matches!(
+                UnexpandableCommand::undump(&mut input.lines()),
+                Err(FormatError::IncompleteFile)
+            ));
+        }
     }
 
     #[test]

@@ -293,6 +293,9 @@ impl Scanner {
             Token::Spacer(_) => Command::Unexpandable(UnexpandableCommand::Spacer),
             Token::Letter(c) => Command::Unexpandable(UnexpandableCommand::Letter(c)),
             Token::OtherChar(c) => Command::Unexpandable(UnexpandableCommand::Other(c)),
+            Token::CjkChar(token) => {
+                Command::Unexpandable(UnexpandableCommand::CjkChar(token))
+            }
 
             Token::CSToken { cs } => eqtb.control_sequences.get(cs).clone(),
             Token::Null => {

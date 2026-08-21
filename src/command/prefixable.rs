@@ -1355,6 +1355,7 @@ pub(crate) fn get_r_token(scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut L
             | Token::Spacer(_)
             | Token::Letter(_)
             | Token::OtherChar(_)
+            | Token::CjkChar(_)
             | Token::CSToken {
                 cs:
                     ControlSequence::FrozenCr
@@ -1386,7 +1387,8 @@ pub(crate) fn get_r_token(scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut L
                     | Token::SubMark(_)
                     | Token::Spacer(_)
                     | Token::Letter(_)
-                    | Token::OtherChar(_) => scanner.back_input(token, eqtb, logger),
+                    | Token::OtherChar(_)
+                    | Token::CjkChar(_) => scanner.back_input(token, eqtb, logger),
                     Token::CSToken { .. } => {}
                     Token::Null => {
                         panic!("Should not appear here")
@@ -1415,6 +1417,7 @@ fn scan_namespace_name(scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Logg
         let (command, token) = crate::input::expansion::get_x_token(scanner, eqtb, logger);
         match token {
             Token::Letter(c) | Token::OtherChar(c) => name.push(c),
+            Token::CjkChar(c) => c.push_utf8(&mut name),
             // **空白が名前を終える。** `\usingnamespace foo ` と書ける
             Token::Spacer(_) => return name,
             _ => {

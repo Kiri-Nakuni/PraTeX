@@ -134,18 +134,22 @@ fn scan_alphabetic_character_code(
         | Token::Spacer(c)
         | Token::Letter(c)
         | Token::OtherChar(c) => Some(c as i32),
+        Token::CjkChar(token) => Some(token.code_point() as i32),
 
         Token::CSToken { cs } => match cs {
             ControlSequence::Active(c) => Some(c as i32),
             ControlSequence::Single(c) => Some(c as i32),
-            _ => None,
+            _ => eqtb
+                .control_sequences
+                .single_wide_code_point(cs)
+                .map(|code_point| code_point as i32),
         },
         Token::Null => {
             panic!("Should not appear here")
         }
     };
     let Some(code) = character_code else {
-        logger.print_err("Improper alphabetic constant");
+        logger.print_err("Improper alphabetic or KANJI constant");
         let help = &[
             "A one-character control sequence belongs after a ` mark.",
             "So I'm essentially inserting \\0 here.",

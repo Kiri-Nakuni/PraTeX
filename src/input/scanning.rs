@@ -120,6 +120,7 @@ impl Scanner {
                         continue;
                     }
                 }
+                Token::CjkChar(_) => {}
                 Token::CSToken { .. } => {}
                 Token::Null => {
                     panic!("Should not appear here")
@@ -181,6 +182,7 @@ impl Scanner {
                 }
                 match unexpandable_command {
                     UnexpandableCommand::Spacer => file_name.push(b' '),
+                    UnexpandableCommand::CjkChar(c) => c.push_utf8(&mut file_name),
                     UnexpandableCommand::LeftBrace(c)
                     | UnexpandableCommand::RightBrace(c)
                     | UnexpandableCommand::MathShift(c)
@@ -199,6 +201,7 @@ impl Scanner {
                 continue;
             }
             match unexpandable_command {
+                UnexpandableCommand::CjkChar(c) => c.push_utf8(&mut file_name),
                 UnexpandableCommand::LeftBrace(c)
                 | UnexpandableCommand::RightBrace(c)
                 | UnexpandableCommand::MathShift(c)

@@ -1,9 +1,9 @@
 use crate::eqtb::{Eqtb, FontIndex, IntegerVariable, TokenListVariable};
 use crate::error::{fatal_error, jump_out};
-use crate::format::{Dumpable, FormatError, FORMAT_EXTENSION};
+use crate::format::{Dumpable, FORMAT_EXTENSION, FormatError};
 use crate::input::{InputStack, Scanner};
 use crate::print::pseudo::PseudoPrinter;
-use crate::print::{cannot_be_printed, to_hex_char, Printer, MAX_PRINT_LINE};
+use crate::print::{MAX_PRINT_LINE, Printer, cannot_be_printed, to_hex_char};
 use crate::semantic_nest::Mode;
 use crate::token_lists::token_show;
 use crate::{open_out, os_string_from_bytes, read_line};
@@ -133,6 +133,39 @@ impl Logger {
         self.tally += 1;
     }
 
+    /// Write the encoded bytes of one upTeX character without allowing a line
+    /// break between them.  Offsets and `tally` follow upTeX and count bytes in
+    /// the external representation.
+    fn print_raw_uptex_char(&mut self, bytes: &[u8]) {
+        if self.terminal_logging {
+            if self.term_offset + bytes.len() > MAX_PRINT_LINE {
+                println!();
+                self.term_offset = 0;
+            }
+            std::io::stdout()
+                .write_all(bytes)
+                .expect("Failed writing to stdout");
+            self.term_offset += bytes.len();
+            if self.term_offset == MAX_PRINT_LINE {
+                println!();
+                self.term_offset = 0;
+            }
+        }
+        if let Some(log_file) = &mut self.log_file {
+            if self.file_offset + bytes.len() > MAX_PRINT_LINE {
+                wlog_cr(log_file);
+                self.file_offset = 0;
+            }
+            wlog(log_file, bytes);
+            self.file_offset += bytes.len();
+            if self.file_offset == MAX_PRINT_LINE {
+                wlog_cr(log_file);
+                self.file_offset = 0;
+            }
+        }
+        self.tally += bytes.len();
+    }
+
     /// Prints a newline if we are not at the beginning of a new line already.
     fn ensure_newline(&mut self) {
         if ((self.term_offset > 0) && (self.terminal_logging))
@@ -247,6 +280,13 @@ impl Printer for Logger {
             _ => {
                 self.print_raw_char(c);
             }
+        }
+    }
+
+    fn print_uptex_char(&mut self, code_point: u32, bytes: &[u8]) {
+        match self.newline_char {
+            Some(nl) if code_point == u32::from(nl) => self.print_ln(),
+            _ => self.print_raw_uptex_char(bytes),
         }
     }
 

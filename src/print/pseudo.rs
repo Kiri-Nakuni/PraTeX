@@ -1,4 +1,4 @@
-use super::{cannot_be_printed, to_hex_char, Printer};
+use super::{Printer, cannot_be_printed, to_hex_char};
 
 #[derive(Debug)]
 pub struct PseudoPrinter {
@@ -31,6 +31,15 @@ impl PseudoPrinter {
         self.tally += 1;
     }
 
+    fn print_raw_uptex_char(&mut self, bytes: &[u8]) {
+        if !self.write_to_unread {
+            self.read_part.extend_from_slice(bytes);
+        } else {
+            self.unread_part.extend_from_slice(bytes);
+        }
+        self.tally += bytes.len();
+    }
+
     /// See 316.
     pub fn switch_to_unread_part(&mut self) {
         self.write_to_unread = true;
@@ -51,6 +60,10 @@ impl Printer for PseudoPrinter {
     /// See 58.
     fn print_char(&mut self, c: u8) {
         self.print_raw_char(c);
+    }
+
+    fn print_uptex_char(&mut self, _code_point: u32, bytes: &[u8]) {
+        self.print_raw_uptex_char(bytes);
     }
 
     /// Prints a single character, escaped if deemed necessary.
