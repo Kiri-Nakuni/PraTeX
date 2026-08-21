@@ -47,6 +47,16 @@ pub fn expand(
         }
         ExpandableCommand::VaakInput => crate::vaak::vaak_input(scanner, eqtb, logger),
         ExpandableCommand::Unless => negate_next_conditional(scanner, eqtb, logger),
+        ExpandableCommand::Expanded => {
+            // **展開しきってから、その場に置き直す。**
+            // `\edef` の走査と同じものを使う——意味を二箇所に書かない
+            let cs = match token {
+                Token::CSToken { cs } => cs,
+                _ => ControlSequence::NullCs,
+            };
+            let toks = scanner.scan_toks(cs, true, eqtb, logger);
+            scanner.ins_list(toks, eqtb, logger);
+        }
         ExpandableCommand::VaakCall(id) => {
             crate::vaak::vaak_call(id, scanner, eqtb, logger)
         }

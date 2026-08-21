@@ -39,8 +39,20 @@ fn protectedはedefで展開されない() {
 
 #[test]
 fn protectedでも普通に使えば展開される() {
-    let log = run_tex("protected使用", "\\protected\\def\\p{OK}\\message{[\\p]}");
+    // **`\message` は展開する文脈である**ので、そこでは展開されない。
+    // 普通に呼べば展開される
+    let log = run_tex(
+        "protected使用",
+        "\\protected\\def\\p{\\message{[OK]}}\n\\p",
+    );
     assert!(log.contains("[OK]"), "{log}");
+}
+
+#[test]
+fn protectedはmessageでも展開されない() {
+    // **本物の e-TeX と一致する**（`A\p A` と出る）
+    let log = run_tex("protectedとmessage", "\\protected\\def\\p{P}\\message{A\\p A}");
+    assert!(log.contains("A\\p A"), "{log}");
 }
 
 #[test]

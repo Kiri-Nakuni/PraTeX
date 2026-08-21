@@ -300,6 +300,11 @@ impl Scanner {
                 Command::Unexpandable(unexpandable_command) => {
                     return (unexpandable_command, token)
                 }
+                // **`\protected` は展開する走査で展開されない**（e-TeX）。
+                // `\edef` `\message` `\write` `\mark` では、そのまま写す
+                Command::Expandable(ExpandableCommand::Macro(ref mc)) if mc.protected => {
+                    return (UnexpandableCommand::Relax { no_expand: false }, token)
+                }
                 Command::Expandable(ExpandableCommand::The) => {
                     let mut toks = the_toks(self, eqtb, logger);
                     self.def_ref.append(&mut toks);

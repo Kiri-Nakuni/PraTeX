@@ -217,6 +217,66 @@ fn scan_and_print_argument_for_convert_command(
             }
             string_printer.slow_print_str(logger.job_name.as_ref().unwrap().as_bytes());
         }
+        // ==== pdfTeX 由来。**組版に触らない道具** ====
+        //
+        // expl3 が engine の見分けに使う。中身は文字列とハッシュだけである
+        ConvertCommand::PdfFileSize => {
+            let name = scanner.scan_file_name(eqtb, logger);
+            let path = std::path::PathBuf::from(String::from_utf8_lossy(&name).into_owned());
+            // **無ければ空を返す。** 誤りにしない（pdfTeX と同じ）
+            if let Ok(m) = std::fs::metadata(&path) {
+                string_printer.print_int(m.len() as i32);
+            }
+        }
+        ConvertCommand::PdfMdFiveSum => {
+            let s = scan_general_text_as_string(scanner, eqtb, logger);
+            for b in crate::md5::md5(&s) {
+                string_printer.slow_print_str(format!("{b:02X}").as_bytes());
+            }
+        }
+        ConvertCommand::PdfEscapeHex => {
+            let s = scan_general_text_as_string(scanner, eqtb, logger);
+            for b in s {
+                string_printer.slow_print_str(format!("{b:02X}").as_bytes());
+            }
+        }
+        ConvertCommand::PdfUnescapeHex => {
+            let s = scan_general_text_as_string(scanner, eqtb, logger);
+            let hex: Vec<u8> = s.into_iter().filter(|c| c.is_ascii_hexdigit()).collect();
+            for pair in hex.chunks(2) {
+                let hi = (pair[0] as char).to_digit(16).unwrap() as u8;
+                // **半端な桁は零で埋める**（pdfTeX と同じ）
+                let lo = pair.get(1).map_or(0, |c| (*c as char).to_digit(16).unwrap() as u8);
+                string_printer.print(hi * 16 + lo);
+            }
+        }
+        ConvertCommand::PdfEscapeString => {
+            let s = scan_general_text_as_string(scanner, eqtb, logger);
+            for b in s {
+                match b {
+                    b'(' | b')' | b'\\' => {
+                        string_printer.print(b'\\');
+                        string_printer.print(b);
+                    }
+                    0x20..=0x7E => string_printer.print(b),
+                    _ => string_printer.slow_print_str(format!("\\{b:03o}").as_bytes()),
+                }
+            }
+        }
+        ConvertCommand::PdfEscapeName => {
+            let s = scan_general_text_as_string(scanner, eqtb, logger);
+            for b in s {
+                if b.is_ascii_alphanumeric() {
+                    string_printer.print(b);
+                } else {
+                    string_printer.slow_print_str(format!("#{b:02X}").as_bytes());
+                }
+            }
+        }
+        ConvertCommand::PdfCreationDate => {
+            // **時刻は固定である**（rtex は 1776 年 7 月 4 日正午に止めてある）
+            string_printer.slow_print_str(b"D:17760704120000+00'00'");
+        }
     }
 }
 
@@ -233,4 +293,18 @@ fn complain_that_the_cant_do_this(
     logger.print_esc_str(b"the");
     let help = &["I'm forgetting what you said and using zero instead."];
     logger.error(help, scanner, eqtb);
+}
+
+/// `⟨general text⟩` を展開しきって文字列にする。
+///
+/// `\pdfmdfivesum{…}` のような pdfTeX 由来の命令が使う。
+fn scan_general_text_as_string(
+    scanner: &mut Scanner,
+    eqtb: &mut Eqtb,
+    logger: &mut Logger,
+) -> Vec<u8> {
+    let toks = scanner.scan_toks(ControlSequence::NullCs, true, eqtb, logger);
+    let mut p = StringPrinter::new(eqtb.get_current_escape_character());
+    token_show(&toks, &mut p, eqtb);
+    p.into_string()
 }
