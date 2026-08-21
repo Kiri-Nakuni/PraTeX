@@ -1,4 +1,4 @@
-use crate::command::{BoxDimension, InternalCommand, PageDimension, ToksCommand};
+use crate::command::{BoxDimension, GlueComponent, InternalCommand, PageDimension, ToksCommand};
 use crate::dimension::{Dimension, MAX_DIMEN};
 use crate::eqtb::Eqtb;
 use crate::eqtb::{
@@ -10,7 +10,7 @@ use crate::fonts::{find_font_dimen, scan_font_ident};
 use crate::format::{Dumpable, FormatError};
 use crate::input::Scanner;
 use crate::logger::Logger;
-use crate::nodes::{GlueSpec, HigherOrderDimension};
+use crate::nodes::{DimensionOrder, GlueSpec, HigherOrderDimension};
 use crate::page_breaking::PageContents;
 use crate::print::Printer;
 use crate::semantic_nest::Mode;
@@ -151,6 +151,9 @@ fn scan_something_internal(
         }
         InternalCommand::LastNodeType => InternalValue::Int(eqtb.last_node_type_for_etex()),
         InternalCommand::InteractionMode => InternalValue::Int(logger.interaction as i32),
+        InternalCommand::GlueComponent(component) => {
+            fetch_glue_component(component, scanner, eqtb, logger)
+        }
         InternalCommand::InputLineNumber => InternalValue::Int(eqtb.line_number() as i32),
         InternalCommand::Toks(toks_command) => fetch_token_list_or_font_identifier(
             toks_command,
@@ -193,6 +196,28 @@ fn scan_something_internal(
         InternalCommand::Register(value_type) => fetch_register(value_type, scanner, eqtb, logger),
     };
     value
+}
+
+/// 公式 e-TeX manual 3.5, 5.1 の糊成分問い合わせ。
+///
+/// 引数の文法と単位不一致の回復は、既存の糊走査へ一箇所に閉じ込める。
+fn fetch_glue_component(
+    component: GlueComponent,
+    scanner: &mut Scanner,
+    eqtb: &mut Eqtb,
+    logger: &mut Logger,
+) -> InternalValue {
+    let glue_spec = crate::glue::scan_glue(false, scanner, eqtb, logger);
+    match component {
+        GlueComponent::Stretch => InternalValue::Dimen(glue_spec.stretch.value),
+        GlueComponent::Shrink => InternalValue::Dimen(glue_spec.shrink.value),
+        GlueComponent::StretchOrder => {
+            InternalValue::Int(order_rank(glue_spec.stretch.order))
+        }
+        GlueComponent::ShrinkOrder => {
+            InternalValue::Int(order_rank(glue_spec.shrink.order))
+        }
+    }
 }
 
 /// See 414.
@@ -629,8 +654,9 @@ fn combine(
     }
 }
 
-/// 次数の強さ。**`DimensionOrder` に順序が入っていない**ので、ここで与える
-fn order_rank(o: crate::nodes::DimensionOrder) -> u8 {
+/// 次数の強さ。**`DimensionOrder` に順序が入っていない**ので、ここで与える。
+/// e-TeXの糊成分問い合わせも同じ0〜3を返す。
+fn order_rank(o: DimensionOrder) -> i32 {
     use crate::nodes::DimensionOrder::*;
     match o {
         Normal => 0,

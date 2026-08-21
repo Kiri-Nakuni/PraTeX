@@ -4,6 +4,7 @@ mod conditionals;
 mod convert;
 mod def;
 mod fraction;
+mod glue_component;
 mod internal;
 mod limits;
 mod macro_call;
@@ -24,6 +25,7 @@ pub use conditionals::{FiOrElse, IfTest};
 pub use convert::ConvertCommand;
 pub use def::DefCommand;
 pub use fraction::{FractionCommand, FractionType};
+pub use glue_component::GlueComponent;
 pub use internal::{InternalCommand, ToksCommand};
 pub use limits::LimitType;
 pub use macro_call::MacroCall;
@@ -79,6 +81,8 @@ pub enum UnexpandableCommand {
     Math(MathCommand),
     /// e-TeX の式（`\numexpr` 系）。**内部量として振る舞う**
     Expr(crate::scan_internal::ValueType),
+    /// e-TeX の糊成分問い合わせ。**内部量として振る舞う**
+    GlueComponent(GlueComponent),
     Kern,
     ShipOut,
     Leaders(LeaderKind),
@@ -229,6 +233,7 @@ impl UnexpandableCommand {
             Self::CurrentIfType => Some(InternalCommand::CurrentIfType),
             Self::CurrentIfBranch => Some(InternalCommand::CurrentIfBranch),
             Self::LastNodeType => Some(InternalCommand::LastNodeType),
+            Self::GlueComponent(component) => Some(InternalCommand::GlueComponent(*component)),
             Self::InputLineNumber => Some(InternalCommand::InputLineNumber),
             Self::Prefixable(prefixable_command) => prefixable_command.try_to_internal(),
             &Self::Expr(kind) => Some(InternalCommand::Expr(kind)),
@@ -365,6 +370,7 @@ impl UnexpandableCommand {
                 crate::scan_internal::ValueType::Glue => b"glueexpr".as_slice(),
                 crate::scan_internal::ValueType::Mu => b"muexpr".as_slice(),
             }),
+            Self::GlueComponent(component) => component.display(printer),
             Self::InputLineNumber => printer.print_esc_str(b"inputlineno"),
             Self::End { dumping } => {
                 if *dumping {

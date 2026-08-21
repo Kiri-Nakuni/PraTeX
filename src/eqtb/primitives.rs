@@ -5,8 +5,8 @@ use super::{
 };
 use crate::command::{
     ArithCommand, BoxDimension, Command, ConvertCommand, DefCommand, ExpandableCommand, FiOrElse,
-    FractionCommand, FractionType, Hskip, IfTest, LimitType, MakeBox, MarkClassOperand,
-    MarkCommand, MarkQuery, MathCommand,
+    FractionCommand, FractionType, GlueComponent, Hskip, IfTest, LimitType, MakeBox,
+    MarkClassOperand, MarkCommand, MarkQuery, MathCommand,
     PageDimension, Prefix, PrefixableCommand, RemoveItem, ShorthandDef, ShowCommand,
     UnexpandableCommand, Vskip,
 };
@@ -775,6 +775,12 @@ impl Eqtb {
             (b"muexpr".as_slice(), crate::scan_internal::ValueType::Mu),
         ] {
             self.primitive_unexpandable(name, UnexpandableCommand::Expr(kind));
+        }
+        for component in GlueComponent::ALL {
+            self.primitive_unexpandable(
+                component.primitive_name(),
+                UnexpandableCommand::GlueComponent(component),
+            );
         }
         self.primitive_expandable(b"namespace", ExpandableCommand::Namespace);
         self.primitive_expandable(b"directvaak", ExpandableCommand::DirectVaak);

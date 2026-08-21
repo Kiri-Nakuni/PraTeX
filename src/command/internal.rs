@@ -1,4 +1,5 @@
 use super::box_dimension::BoxDimension;
+use super::glue_component::GlueComponent;
 use super::page_dimension::PageDimension;
 use crate::eqtb::{
     CodeType, DimensionVariable, FontIndex, IntegerVariable, MathFontSize, SkipVariable,
@@ -34,6 +35,8 @@ pub enum InternalCommand {
     LastNodeType,
     /// `\interactionmode`
     InteractionMode,
+    /// `\gluestretch` などの糊成分問い合わせ
+    GlueComponent(GlueComponent),
     InputLineNumber,
     Integer(IntegerVariable),
     Dimension(DimensionVariable),

@@ -66,6 +66,7 @@ Rust なら疎な表（`HashMap` か区画表）で引けるので、**UTF-16 �
 | 1a | e-TeX の**式**（`\numexpr` `\dimexpr` `\glueexpr` `\muexpr`） | **済**（枝 `etex-expr`、試験 12 本） |
 | 1b | 疎レジスタ（0–32767） | **済**（低位密＋高位疎、6種、挿入番号は別型） |
 | 1c | e-TeX のmark class（0–32767） | **済**（class 0は従来状態、非0は疎表、pageと`\vsplit`） |
+| 1d | e-TeX の糊成分問い合わせ | **済**（伸縮の係数と次数、通常糊・数式糊・式・fmt） |
 | 2 | e-TeX の**字句系** | **一部済**（`\detokenize` `\unexpanded` `\readline` `\protected` `\everyeof`。`\scantokens` は未） |
 | 3 | e-TeX の**内省** | **一部済**（`\currentgroup*` `\currentif*` `\lastnodetype` `\iffontchar`。`\fontchar*` `\showgroups` `\showtokens` 等は未） |
 | 4 | **UTF-8 の文字分類**（`\kcatcode` を疎な表で。和文かどうかだけ） | 未 |
@@ -113,3 +114,25 @@ Rust なら疎な表（`HashMap` か区画表）で引けるので、**UTF-16 �
 
 **内部量として実装した**（`InternalCommand::Expr`）ので、
 値が要る場所ならどこにでも書ける——`\ifnum`、`\hskip`、レジスタへの代入。
+
+## 8. 糊の係数と次数
+
+根拠は公式 *The e-TeX Short Reference Manual* §3.5:
+
+- <https://mirrors.ctan.org/systems/doc/etex/etex_man.pdf>
+- 2026-08-22 閲覧
+
+原実装は参照せず、TeX Live 2026のpdfTeX 1.40.29、e-pTeX/e-upTeX
+p4.1.2-u2.02も黒箱で照合した。
+
+- `\gluestretch` / `\glueshrink` は係数を内部寸法として返す。`fil`、`fill`、`filll`
+  でも係数の数だけを `pt` として返す。
+- `\gluestretchorder` / `\glueshrinkorder` は normal / fil / fill / filll を
+  `0` / `1` / `2` / `3` として返す。
+- `0fil` のように係数が0でも指定された次数は保つ。負の係数も符号を保つ。
+- 数式糊を渡すと `Incompatible glue units` を報せるが、既存TeXの回復どおり値と次数を
+  読み取る。
+
+4命令は一つの `GlueComponent` で表し、primitive名、`\meaning` の表示、fmt表現を
+同じ場所から決める。引数は既存の糊走査へ渡すので、通常値、skipレジスタ、`\glueexpr`、
+符号、単位不一致の決定を二重に持たない。
