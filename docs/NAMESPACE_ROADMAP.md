@@ -29,7 +29,24 @@
 | **空白・行末は runaway** | 名前空間の名前は一続きでなければならない。catcode 5/9/10 と行の終わり |
 | **`\namespacechar` の既定は −1** | 印字しない。名前空間を使わない文書では見えない |
 | **`\csname` 以外が続けば誤り** | `\namespace foo\relax` は「Missing \csname」 |
-| **入れ子は誤り** | `\namespace foo\namespace bar…` は「Nested \namespace」 |
+| **入れ子は許す** | 二つの `\namespace` は同じ `\csname` を奪い合わない——括弧のように入れ子になるだけ |
+
+## 途中で撤回したこと
+
+**「入れ子は誤り」を一度入れて、撤回した。**
+
+```tex
+\namespace \namespace hoge\csname fuga\endcsname \csname bar\endcsname
+```
+
+内側は最初の `\csname…\endcsname` を消費して `*hoge\fuga` を作り、
+それが展開されて**外側の名前空間名の文字になる。**
+外側は自分の `\csname` を別に持つので、**競合しない。**
+
+禁じれば非対称が生まれる——`\namespace \ns\csname bar\endcsname` は
+`\ns` が global のマクロなら通るのに、名前空間つきのマクロだと通らない。
+
+> **名前空間名は展開で作られた文字列にすぎない。**
 
 ## 分かったこと
 

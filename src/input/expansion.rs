@@ -104,6 +104,21 @@ fn complain_about_undefined_macro(scanner: &mut Scanner, eqtb: &mut Eqtb, logger
 /// だから `get_next` で回し、`\csname` を見つけたらそこで止めて、
 /// **`\csname` の登録処理を自分で呼ぶ。**
 ///
+/// # 入れ子は禁じない
+///
+/// ```tex
+/// \namespace \namespace hoge\csname fuga\endcsname \csname bar\endcsname
+/// ```
+///
+/// **二つの `\namespace` は同じ `\csname` を奪い合わない。**
+/// 内側は最初の一組を消費して `*hoge\fuga` を作り、それが展開されて
+/// 外側の名前空間名の文字になる。外側は自分の `\csname` を別に持つ——
+/// **括弧のように入れ子になるだけである。**
+///
+/// 禁じれば非対称が生まれる。`\namespace \ns\csname bar\endcsname` は
+/// `\ns` が global のマクロなら通るのに、名前空間つきのマクロだと通らない。
+/// **名前空間名は展開で作られた文字列にすぎない。**
+///
 /// # なぜ `\endcsname` を終端にしなかったか
 ///
 /// **`\csname` が global に作ってしまう**からである。
@@ -117,16 +132,6 @@ fn scan_namespace(scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Logger) {
             Command::Expandable(ExpandableCommand::CsName) => {
                 // **ここで登録処理へ入る。** 名前空間を持たせて
                 manufacture_control_sequence_name(Some(&name), scanner, eqtb, logger);
-                return;
-            }
-            Command::Expandable(ExpandableCommand::Namespace) => {
-                logger.print_err("Nested ");
-                logger.print_esc_str(b"namespace");
-                let help = &[
-                    "A namespace prefix cannot contain another one.",
-                    "I'll forget that it ever happened.",
-                ];
-                logger.error(help, scanner, eqtb);
                 return;
             }
             // **文字は名前に取り込む。** 展開可能なものは展開して続ける

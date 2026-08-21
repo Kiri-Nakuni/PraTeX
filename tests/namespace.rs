@@ -184,13 +184,28 @@ fn 空の名前空間名はグローバルそのもの() {
 }
 
 #[test]
-fn 入れ子は誤り() {
+fn 名前空間は入れ子にできる() {
+    // **二つの `\namespace` は同じ `\csname` を奪い合わない。**
+    // 内側は最初の一組を消費して `*hoge\fuga` を作り、
+    // それが展開されて外側の名前空間名の文字になる。
+    // 外側は自分の `\csname` を別に持つ——括弧のように入れ子になるだけである
     let log = run_tex(
         "入れ子",
-        "\\message{[\\namespace foo\\namespace bar\\csname x\\endcsname]}\\message{[done]}",
+        "\\def*hoge\\fuga{zoo}\\def*zoo\\bar{ZOOBAR}\n\
+         \\message{[\\namespace \\namespace hoge\\csname fuga\\endcsname\\csname bar\\endcsname]}",
     );
-    assert!(log.contains("Nested"), "{log}");
-    assert!(log.contains("[done]"), "{log}");
+    assert!(log.contains("[ZOOBAR]"), "{log}");
+}
+
+#[test]
+fn 名前空間名は普通のマクロでも作れる() {
+    // 入れ子を許すのは**非対称を作らない**ためである。
+    // global のマクロで作れるなら、名前空間つきのマクロでも作れねばならない
+    let log = run_tex(
+        "普通のマクロ",
+        "\\def\\ns{quux}\\def*quux\\x{QX}\n\\message{[\\namespace \\ns\\csname x\\endcsname]}",
+    );
+    assert!(log.contains("[QX]"), "{log}");
 }
 
 #[test]
