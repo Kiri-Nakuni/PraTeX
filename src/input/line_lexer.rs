@@ -495,11 +495,13 @@ impl<'a> LexerToken<'a> {
             Spacer => Token::Spacer(b' '),
             Letter(c) => Token::Letter(c),
             OtherChar(c) => Token::OtherChar(c),
+            // **一文字と活性文字も探索に参加する**（`\usingnamespace`）。
+            // 使っている名前空間が無ければ `Active(c)` / `Single(c)` そのものになる
             ActiveChar(c) => Token::CSToken {
-                cs: ControlSequence::Active(c),
+                cs: eqtb.lookup_active(c),
             },
             CommandSymbol(c) => Token::CSToken {
-                cs: ControlSequence::Single(c),
+                cs: eqtb.lookup_symbol(c),
             },
             CommandWord([]) => Token::CSToken {
                 cs: ControlSequence::NullCs,
@@ -555,7 +557,7 @@ fn lookup_namespaced(
         eqtb.lookup_or_create_ns(Some(id), name, active)
     } else {
         Ok(eqtb
-            .lookup_ns(Some(id), name)
+            .lookup_ns_kind(Some(id), active.is_some(), name)
             .unwrap_or(ControlSequence::Undefined))
     }
 }

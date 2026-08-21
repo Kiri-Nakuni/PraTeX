@@ -133,6 +133,7 @@ pub struct VariableLevels {
 
     // Parshape
     par_shape: Level,
+    using_namespaces: Level,
 
     // Skips
     line_skip: Level,
@@ -293,6 +294,7 @@ impl VariableLevels {
 
             // Parshape
             par_shape: 0,
+            using_namespaces: 0,
 
             // Skips
             line_skip: 0,
@@ -457,6 +459,7 @@ impl VariableLevels {
                 IntegerVariable::Count(register_index) => self.count[register_index as usize],
             },
             Variable::ParShape => self.par_shape,
+            Variable::UsingNamespaces => self.using_namespaces,
             Variable::Skip(skip_variable) => match skip_variable {
                 SkipVariable::LineSkip => self.line_skip,
                 SkipVariable::BaselineSkip => self.baseline_skip,
@@ -618,6 +621,7 @@ impl VariableLevels {
                 IntegerVariable::Count(register_index) => &mut self.count[register_index as usize],
             },
             Variable::ParShape => &mut self.par_shape,
+            Variable::UsingNamespaces => &mut self.using_namespaces,
             Variable::Skip(skip_variable) => match skip_variable {
                 SkipVariable::LineSkip => &mut self.line_skip,
                 SkipVariable::BaselineSkip => &mut self.baseline_skip,
@@ -782,6 +786,7 @@ impl Dumpable for VariableLevels {
 
         // Parshape
         self.par_shape.dump(target)?;
+        self.using_namespaces.dump(target)?;
 
         // Skips
         self.line_skip.dump(target)?;
@@ -942,6 +947,7 @@ impl Dumpable for VariableLevels {
 
         // Parshape
         let par_shape = Dumpable::undump(lines)?;
+        let using_namespaces = Dumpable::undump(lines)?;
 
         // Skips
         let line_skip = Dumpable::undump(lines)?;
@@ -1084,6 +1090,7 @@ impl Dumpable for VariableLevels {
             error_context_lines,
             count,
             par_shape,
+            using_namespaces,
             line_skip,
             baseline_skip,
             par_skip,

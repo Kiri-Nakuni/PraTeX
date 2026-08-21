@@ -79,6 +79,8 @@ pub enum PrefixableCommand {
     Def(DefCommand),
     /// `\vaakdef\名前{本体}`。**定義の時点で組み立てる。**
     VaakDef,
+    /// `\usingnamespace 名前` — **参照時にこの名前空間も探す。**
+    UsingNamespace,
     SetBox,
     Hyphenation,
     Patterns,
@@ -126,6 +128,7 @@ impl PrefixableCommand {
             | Self::ReadToCs
             | Self::Def(_)
             | Self::VaakDef
+            | Self::UsingNamespace
             | Self::SetBox
             | Self::Hyphenation
             | Self::Patterns
@@ -174,6 +177,7 @@ impl PrefixableCommand {
             Self::ReadToCs => printer.print_esc_str(b"read"),
             Self::Def(def_command) => def_command.display(printer),
             Self::VaakDef => printer.print_esc_str(b"vaakdef"),
+            Self::UsingNamespace => printer.print_esc_str(b"usingnamespace"),
             Self::SetBox => printer.print_esc_str(b"setbox"),
             Self::Hyphenation => printer.print_esc_str(b"hyphenation"),
             Self::Patterns => printer.print_esc_str(b"patterns"),
@@ -280,6 +284,9 @@ impl Dumpable for PrefixableCommand {
             Self::VaakDef => {
                 writeln!(target, "VaakDef")?;
             }
+            Self::UsingNamespace => {
+                writeln!(target, "UsingNamespace")?;
+            }
             Self::SetBox => {
                 writeln!(target, "SetBox")?;
             }
@@ -376,6 +383,7 @@ impl Dumpable for PrefixableCommand {
                 Ok(Self::Def(def_command))
             }
             "VaakDef" => Ok(Self::VaakDef),
+            "UsingNamespace" => Ok(Self::UsingNamespace),
             "SetBox" => Ok(Self::SetBox),
             "Hyphenation" => Ok(Self::Hyphenation),
             "Patterns" => Ok(Self::Patterns),
@@ -684,6 +692,20 @@ pub fn prefixed_command(
             };
             let command = Command::Expandable(ExpandableCommand::Macro(macro_call));
             eqtb.cs_define(cs, command, global);
+        }
+        PrefixableCommand::UsingNamespace => {
+            // **名前は制御綴の名前と同じ形で読む。**
+            // `\usingnamespace foo` と書けば `foo` を足す
+            let name = scan_namespace_name(scanner, eqtb, logger);
+            if !name.is_empty() {
+                let id = eqtb.control_sequences.intern_namespace(&name);
+                let mut list = eqtb.using_namespaces.clone();
+                if !list.contains(&id) {
+                    list.push(id);
+                }
+                // **保存スタックを通す。** 群を出れば元に戻る
+                eqtb.using_namespaces_define(list, global);
+            }
         }
         PrefixableCommand::VaakDef => {
             crate::vaak::vaak_def(global, scanner, eqtb, logger);
@@ -1265,6 +1287,28 @@ pub(crate) fn get_r_token(scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut L
             Token::CSToken { cs } => return cs,
             Token::Null => {
                 panic!("Should not appear here")
+            }
+        }
+    }
+}
+
+/// `\usingnamespace` の引数を読む。
+///
+/// **文字を集めるだけ。** 展開可能なものは展開する——
+/// `\namespace` の名前の集め方と同じ形である。
+fn scan_namespace_name(scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Logger) -> Vec<u8> {
+    let mut name = Vec::new();
+    loop {
+        let (command, token) = crate::input::expansion::get_x_token(scanner, eqtb, logger);
+        match token {
+            Token::Letter(c) | Token::OtherChar(c) => name.push(c),
+            // **空白が名前を終える。** `\usingnamespace foo ` と書ける
+            Token::Spacer(_) => return name,
+            _ => {
+                // 名前でないものが来たら戻して終わる
+                let _ = command;
+                scanner.back_input(token, eqtb, logger);
+                return name;
             }
         }
     }

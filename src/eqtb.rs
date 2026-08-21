@@ -79,6 +79,11 @@ pub struct Eqtb {
 
     // Region 4
     pub par_shape: ParShapeParameter,
+    /// **参照時に探しに行く名前空間。** `\usingnamespace` が足す。
+    ///
+    /// 空なら**素の TeX82 とまったく同じ道**を通る——
+    /// 使わない機能に費用を持たせない
+    pub using_namespaces: Vec<NamespaceId>,
     pub token_lists: TokenListParameters,
     pub boxes: BoxParameters,
     pub font_params: FontParameters,
@@ -148,6 +153,7 @@ impl Eqtb {
             control_sequences: ControlSequenceStore::new(),
             skips: SkipParameters::new(),
             par_shape: ParShapeParameter::new(),
+            using_namespaces: Vec::new(),
             token_lists: TokenListParameters::new(),
             boxes: BoxParameters::new(),
             font_params: FontParameters::new(),
@@ -352,6 +358,11 @@ impl Eqtb {
 
     /// A paragraph shape version of `define`.
     /// See 1214., 277., and 279.
+    /// **参照時に探す名前空間の一覧を差し替える。** 保存スタックを通す
+    pub fn using_namespaces_define(&mut self, value: Vec<NamespaceId>, global: bool) {
+        self.define(Definition::UsingNamespaces(value), global);
+    }
+
     pub fn par_shape_define(&mut self, value: ParagraphShape, global: bool) {
         self.define(Definition::ParShape(value), global);
     }
@@ -455,6 +466,10 @@ impl Eqtb {
             Definition::ParShape(paragraph_shape) => {
                 let prev_paragraph_shape = self.par_shape.set(ParShapeVariable, paragraph_shape);
                 Definition::ParShape(prev_paragraph_shape)
+            }
+            Definition::UsingNamespaces(list) => {
+                let prev = std::mem::replace(&mut self.using_namespaces, list);
+                Definition::UsingNamespaces(prev)
             }
             Definition::TokenList(token_list_variable, token_list) => {
                 let prev_token_list = self.token_lists.set(token_list_variable, token_list);
@@ -639,6 +654,7 @@ impl Eqtb {
             }
             Variable::Skip(skip_var) => self.show_equivalent_of_skip_variable(skip_var, logger),
             Variable::ParShape => self.show_equivalent_of_par_shape(logger),
+            Variable::UsingNamespaces => self.show_using_namespaces(logger),
             Variable::TokenList(token_list_var) => {
                 self.show_equivalent_of_token_list_variable(token_list_var, logger)
             }
@@ -919,6 +935,11 @@ impl Eqtb {
     /// Gets the `ControlSequence` corresponding to the name or returns None.
     /// See 374.
     pub fn lookup(&self, name: &[u8]) -> Option<ControlSequence> {
+        // **使っている名前空間があれば、そちらも探す**（`\usingnamespace`）。
+        // 無ければ**素の TeX82 とまったく同じ道**を通る
+        if let Some(cs) = self.search_using(name) {
+            return Some(cs);
+        }
         match name.len() {
             0 => Some(ControlSequence::NullCs),
             1 => Some(ControlSequence::Single(name[0])),
@@ -927,6 +948,70 @@ impl Eqtb {
                 .id_lookup(name)
                 .map(ControlSequence::Escaped),
         }
+    }
+
+    /// 一文字の制御綴（`\x`）。**探索に参加する。**
+    ///
+    /// `to_token` は今まで `Single(c)` へ直に落としていたので、
+    /// **一文字だけ探索から漏れていた。**
+    pub fn lookup_symbol(&self, c: u8) -> ControlSequence {
+        self.search_using_kind(false, &[c])
+            .unwrap_or(ControlSequence::Single(c))
+    }
+
+    /// 活性文字（`~`）。同上。
+    pub fn lookup_active(&self, c: u8) -> ControlSequence {
+        self.search_using_kind(true, &[c])
+            .unwrap_or(ControlSequence::Active(c))
+    }
+
+    /// 使っている名前空間を**追加順に**探す。
+    ///
+    /// **global が優先である。** global に定義があればそれを使い、
+    /// 無ければ（＝未定義なら）名前空間へ降りる。
+    ///
+    /// > フォーマットを名前空間で上書きする用途は非目標である。
+    ///
+    /// 使っている名前空間が無ければ**何もしない**——この一行が
+    /// 「使わない機能は費用を持たない」を守っている。
+    fn search_using(&self, name: &[u8]) -> Option<ControlSequence> {
+        self.search_using_kind(false, name)
+    }
+
+    fn search_using_kind(&self, active: bool, name: &[u8]) -> Option<ControlSequence> {
+        if self.using_namespaces.is_empty() || name.is_empty() {
+            return None;
+        }
+        // global に**定義が**あればそれ。無い／未定義なら名前空間へ
+        let global = if active {
+            Some(ControlSequence::Active(name[0]))
+        } else {
+            match name.len() {
+                1 => Some(ControlSequence::Single(name[0])),
+                _ => self.control_sequences.id_lookup(name).map(ControlSequence::Escaped),
+            }
+        };
+        if let Some(cs) = global {
+            if self.is_defined(cs) {
+                return Some(cs);
+            }
+        }
+        for ns in &self.using_namespaces {
+            if let Some(n) = self.control_sequences.id_lookup_ns(Some(*ns), active, name) {
+                let cs = ControlSequence::Escaped(n);
+                if self.is_defined(cs) {
+                    return Some(cs);
+                }
+            }
+        }
+        None
+    }
+
+    fn is_defined(&self, cs: ControlSequence) -> bool {
+        !matches!(
+            self.control_sequences.get(cs),
+            Command::Expandable(ExpandableCommand::Undefined)
+        )
     }
 
     /// 名前空間つきで引く。`None` は global で、上と同じ。
@@ -938,13 +1023,22 @@ impl Eqtb {
         ns: Option<crate::eqtb::NamespaceId>,
         name: &[u8],
     ) -> Option<ControlSequence> {
+        self.lookup_ns_kind(ns, false, name)
+    }
+
+    pub fn lookup_ns_kind(
+        &self,
+        ns: Option<crate::eqtb::NamespaceId>,
+        active: bool,
+        name: &[u8],
+    ) -> Option<ControlSequence> {
         let Some(ns) = ns else { return self.lookup(name) };
         if name.is_empty() {
             // **空は global へ落ちる。** これを統一規則とする
             return Some(ControlSequence::NullCs);
         }
         self.control_sequences
-            .id_lookup_ns(Some(ns), name)
+            .id_lookup_ns(Some(ns), active, name)
             .map(ControlSequence::Escaped)
     }
 
@@ -959,7 +1053,7 @@ impl Eqtb {
         if name.is_empty() {
             return Ok(ControlSequence::NullCs);
         }
-        if let Some(n) = self.control_sequences.id_lookup_ns(Some(ns), name) {
+        if let Some(n) = self.control_sequences.id_lookup_ns(Some(ns), active.is_some(), name) {
             return Ok(ControlSequence::Escaped(n));
         }
         let n = self.control_sequences.add_command_ns(
@@ -975,6 +1069,10 @@ impl Eqtb {
     /// one for this name.
     /// See 374.
     pub fn lookup_or_create(&mut self, name: &[u8]) -> Result<ControlSequence, ()> {
+        // **探索は作る前に行う。** 見つかればそれを使い、global に穴を開けない
+        if let Some(cs) = self.search_using(name) {
+            return Ok(cs);
+        }
         let cs = match name.len() {
             0 => ControlSequence::NullCs,
             1 => ControlSequence::Single(name[0]),
@@ -1025,6 +1123,25 @@ impl Eqtb {
         cs
     }
 
+    /// `\showthe\usingnamespace` 相当。使っている名前空間を並べる。
+    fn show_using_namespaces(&self, logger: &mut Logger) {
+        logger.print_esc_str(b"usingnamespace");
+        logger.print_char(b'=');
+        if self.using_namespaces.is_empty() {
+            logger.print_str("(none)");
+            return;
+        }
+        for (i, ns) in self.using_namespaces.iter().enumerate() {
+            if i > 0 {
+                logger.print_char(b',');
+            }
+            let name = self.control_sequences.namespace_name(*ns).to_vec();
+            for b in name {
+                logger.print(b);
+            }
+        }
+    }
+
     /// Updates the condensed info about the last node of the current list.
     /// NOTE: We need to ensure that this is called whenever the last node of the current list has
     /// been changed.
@@ -1060,6 +1177,7 @@ pub enum Variable {
     ControlSequence(ControlSequence),
     Skip(SkipVariable),
     ParShape,
+    UsingNamespaces,
     TokenList(TokenListVariable),
     BoxRegister(BoxVariable),
     Font(FontVariable),
@@ -1075,6 +1193,7 @@ pub enum Definition {
     ControlSequence(ControlSequence, Command),
     Skip(SkipVariable, Skip),
     ParShape(ParagraphShape),
+    UsingNamespaces(Vec<NamespaceId>),
     TokenList(TokenListVariable, Option<RcTokenList>),
     BoxRegister(BoxVariable, Option<ListNode>),
     Font(FontVariable, FontIndex),
@@ -1092,6 +1211,7 @@ impl Definition {
             }
             Self::Skip(skip_variable, _) => Variable::Skip(skip_variable),
             Self::ParShape(_) => Variable::ParShape,
+            Self::UsingNamespaces(_) => Variable::UsingNamespaces,
             Self::TokenList(token_list_variable, _) => Variable::TokenList(token_list_variable),
             Self::BoxRegister(box_variable, _) => Variable::BoxRegister(box_variable),
             Self::Font(font_variable, _) => Variable::Font(font_variable),
@@ -1122,6 +1242,9 @@ impl Dumpable for Variable {
             Self::Skip(skip_variable) => {
                 writeln!(target, "Skip")?;
                 skip_variable.dump(target)?;
+            }
+            Self::UsingNamespaces => {
+                writeln!(target, "UsingNamespaces")?;
             }
             Self::ParShape => {
                 writeln!(target, "ParShape")?;
@@ -1171,6 +1294,7 @@ impl Dumpable for Variable {
                 Ok(Self::Skip(skip_variable))
             }
             "ParShape" => Ok(Self::ParShape),
+            "UsingNamespaces" => Ok(Self::UsingNamespaces),
             "TokenList" => {
                 let token_list_variable = TokenListVariable::undump(lines)?;
                 Ok(Self::TokenList(token_list_variable))
@@ -1211,6 +1335,7 @@ impl Dumpable for Eqtb {
         self.control_sequences.dump(target)?;
         self.skips.dump(target)?;
         self.par_shape.dump(target)?;
+        self.using_namespaces.dump(target)?;
         self.token_lists.dump(target)?;
         self.boxes.dump(target)?;
         self.font_params.dump(target)?;
@@ -1234,6 +1359,7 @@ impl Dumpable for Eqtb {
         let control_sequences = ControlSequenceStore::undump(lines)?;
         let skips = SkipParameters::undump(lines)?;
         let par_shape = ParShapeParameter::undump(lines)?;
+        let using_namespaces: Vec<NamespaceId> = Vec::undump(lines)?;
         let token_lists = TokenListParameters::undump(lines)?;
         let boxes = BoxParameters::undump(lines)?;
         let font_params = FontParameters::undump(lines)?;
@@ -1262,6 +1388,7 @@ impl Dumpable for Eqtb {
             control_sequences,
             skips,
             par_shape,
+            using_namespaces,
             token_lists,
             boxes,
             font_params,

@@ -325,3 +325,112 @@ fn 書き出して読み直せる() {
     let log = std::fs::read_to_string(dir.join("use.log")).unwrap_or_default();
     assert!(log.contains("[*foo\\bar][FMT]"), "{log}");
 }
+
+// ===== Phase 6：参照時探索（`\usingnamespace`）=====
+
+#[test]
+fn 使用宣言で名前空間を探しに行く() {
+    let log = run_tex(
+        "使用宣言",
+        "\\def*lib\\greet{HELLO}\n\
+         \\message{[before=\\ifx\\greet\\undefined U\\else D\\fi]}\n\
+         \\usingnamespace lib\n\\message{[after=\\greet]}",
+    );
+    assert!(log.contains("[before=U]"), "{log}");
+    assert!(log.contains("[after=HELLO]"), "{log}");
+}
+
+#[test]
+fn グローバルが優先される() {
+    // **フォーマットを名前空間で上書きする用途は非目標である**
+    let log = run_tex(
+        "global優先",
+        "\\def*lib\\bye{NS}\\def\\bye{GLOBAL}\\usingnamespace lib\n\\message{[\\bye]}",
+    );
+    assert!(log.contains("[GLOBAL]"), "{log}");
+}
+
+#[test]
+fn 追加順に探す() {
+    let log = run_tex(
+        "追加順",
+        "\\def*a\\x{A}\\def*b\\x{B}\\usingnamespace a \\usingnamespace b\n\\message{[\\x]}",
+    );
+    assert!(log.contains("[A]"), "{log}");
+}
+
+#[test]
+fn 使用宣言は群を出れば戻る() {
+    // **保存スタックを通している**
+    let log = run_tex(
+        "群で戻る",
+        "\\def*lib\\greet{HELLO}\n\
+         {\\usingnamespace lib \\message{[in=\\greet]}}\n\
+         \\message{[out=\\ifx\\greet\\undefined U\\else D\\fi]}",
+    );
+    assert!(log.contains("[in=HELLO]"), "{log}");
+    assert!(log.contains("[out=U]"), "{log}");
+}
+
+#[test]
+fn 使用宣言もglobalにできる() {
+    let log = run_tex(
+        "global宣言",
+        "\\def*lib\\greet{HELLO}\n{\\global\\usingnamespace lib}\n\\message{[\\greet]}",
+    );
+    assert!(log.contains("[HELLO]"), "{log}");
+}
+
+#[test]
+fn 局所の定義が名前空間より優先される() {
+    let log = run_tex(
+        "局所優先",
+        "\\def*lib\\greet{NS}\\usingnamespace lib\n\
+         {\\def\\greet{INNER}\\message{[in=\\greet]}}\\message{[out=\\greet]}",
+    );
+    assert!(log.contains("[in=INNER]"), "{log}");
+    assert!(log.contains("[out=NS]"), "{log}");
+}
+
+#[test]
+fn csnameも探索に参加する() {
+    // 仕様の §6「既知の危険」は実態より強い——
+    // **`\csname` が探索に参加する以上、`\relax` 化は起きない**
+    let log = run_tex(
+        "csname探索",
+        "\\def*lib\\greet{HELLO}\\usingnamespace lib\n\
+         \\message{[\\csname greet\\endcsname]}",
+    );
+    assert!(log.contains("[HELLO]"), "{log}");
+}
+
+#[test]
+fn 宣言しなければ何も変わらない() {
+    // **使わない機能は費用を持たない。** 一覧が空なら素の TeX82 と同じ道
+    let log = run_tex(
+        "宣言なし",
+        "\\def*lib\\greet{HELLO}\n\\message{[\\ifx\\greet\\undefined U\\else D\\fi]}",
+    );
+    assert!(log.contains("[U]"), "{log}");
+}
+
+#[test]
+fn 一文字の制御綴と活性文字は別物() {
+    // **鍵に「活性か」を入れないと衝突する**——どちらも名前が一文字の `~` になる
+    let log = run_tex(
+        "衝突",
+        "\\catcode`\\~=13 \\def*lib\\~{SYMBOL}\\def*lib~{ACTIVE}\\usingnamespace lib\n\
+         \\message{[\\~][~]}",
+    );
+    assert!(log.contains("[SYMBOL][ACTIVE]"), "{log}");
+}
+
+#[test]
+fn 一文字の制御綴も探索に参加する() {
+    // `to_token` は今まで `Single(c)` へ直に落としていたので漏れていた
+    let log = run_tex(
+        "一文字探索",
+        "\\def*lib\\x{ONE}\\usingnamespace lib\n\\message{[\\x]}",
+    );
+    assert!(log.contains("[ONE]"), "{log}");
+}

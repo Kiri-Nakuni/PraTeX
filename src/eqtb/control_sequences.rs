@@ -129,9 +129,12 @@ pub struct ControlSequenceStore {
     single: Vec<(Command, Vec<u8>)>,
     null_cs: (Command, Vec<u8>),
 
-    /// **鍵は (名前空間, 名前) の対である。** `None` が global——
-    /// 既存の振る舞いは `None` の鍵で完全に再現される
-    hash: HashMap<(Option<NamespaceId>, Vec<u8>), ControlSequenceId>,
+    /// **鍵は (名前空間, 活性か, 名前) の三つ組である。** `None` が global——
+    /// 既存の振る舞いは `(None, false, 名前)` の鍵で完全に再現される。
+    ///
+    /// 活性かどうかを鍵に入れるのは、**`*lib\~` と `*lib~` が衝突する**からである。
+    /// どちらも名前が一文字の `~` になる
+    hash: HashMap<(Option<NamespaceId>, bool, Vec<u8>), ControlSequenceId>,
     escaped: Vec<(Command, Vec<u8>)>,
     /// `escaped` と並ぶ。**どの名前空間の出自か。** `None` が global
     escaped_ns: Vec<Option<NamespaceId>>,
@@ -251,16 +254,17 @@ impl ControlSequenceStore {
 
     /// See 259.
     pub fn id_lookup(&self, key: &[u8]) -> Option<ControlSequenceId> {
-        self.id_lookup_ns(None, key)
+        self.id_lookup_ns(None, false, key)
     }
 
     /// 名前空間つきで引く。`None` は global。
     pub fn id_lookup_ns(
         &self,
         ns: Option<NamespaceId>,
+        active: bool,
         key: &[u8],
     ) -> Option<ControlSequenceId> {
-        self.hash.get(&(ns, key.to_vec())).copied()
+        self.hash.get(&(ns, active, key.to_vec())).copied()
     }
 
     /// 名前空間の名前を番号に直す。**同じ名前なら同じ番号。**
@@ -327,7 +331,7 @@ impl ControlSequenceStore {
             return Err(());
         };
         self.cs_count += 1;
-        self.hash.insert((ns, key.to_vec()), n);
+        self.hash.insert((ns, active.is_some(), key.to_vec()), n);
         let cmd = Command::Expandable(ExpandableCommand::Undefined);
         self.escaped.push((cmd, key.to_vec()));
         self.escaped_ns.push(ns);

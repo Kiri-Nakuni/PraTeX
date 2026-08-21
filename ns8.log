@@ -1,0 +1,27 @@
+This is rtex, Version 3.141592653 (INITEX)  4 JUL 1776 12:00
+**/tmp/claude-1000/-home-suima-Documents-mydsl/51499744-60f9-454c-a92e-d57e8e2b
+0cbc/scratchpad/ns8.tex
+
+(/tmp/claude-1000/-home-suima-Documents-mydsl/51499744-60f9-454c-a92e-d57e8e2b0
+cbc/scratchpad/ns8.tex
+! Undefined control sequence.
+l.8 \message{[one=\x
+                    ]}
+The control sequence at the end of the top line
+of your error message was never \def'ed. If you have
+misspelled it (e.g., `\hobx'), type `I' and the correct
+spelling (e.g., `I\hbox'). Otherwise just continue,
+and I'll forget about whatever was undefined.
+
+[one=]
+! Undefined control sequence.
+l.10 \message{[two=\x
+                     ]}
+The control sequence at the end of the top line
+of your error message was never \def'ed. If you have
+misspelled it (e.g., `\hobx'), type `I' and the correct
+spelling (e.g., `I\hbox'). Otherwise just continue,
+and I'll forget about whatever was undefined.
+
+[two=] )
+No pages of output.
