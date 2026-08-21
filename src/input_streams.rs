@@ -54,6 +54,66 @@ pub fn read_toks(
     std::mem::take(&mut scanner.macro_def)
 }
 
+/// e-TeX の `\readline`。次の一行を現在の catcode で字句化せず、
+/// 空白だけを category 10、残りを category 12 の文字 token にする。
+pub fn read_line_toks(
+    stream_number: i32,
+    target_cs: ControlSequence,
+    scanner: &mut Scanner,
+    eqtb: &Eqtb,
+    logger: &mut Logger,
+) -> Macro {
+    // `\read` と同じ stream 選択規則を使う。0..15 以外は端末である。
+    let prompt_for_input = stream_number >= 0;
+    let stream_number = if (0..=15).contains(&stream_number) {
+        Some(stream_number as u8)
+    } else {
+        None
+    };
+    let stream_file = match stream_number {
+        None => None,
+        Some(n) => scanner.read_file[n as usize].as_mut().map(|file| (file, n)),
+    };
+    let mut line = match stream_file {
+        None => input_for_read_from_terminal(
+            prompt_for_input,
+            target_cs,
+            scanner,
+            eqtb,
+            logger,
+        ),
+        Some((read_file, n)) => {
+            let mut line = Vec::new();
+            if read_line(read_file, &mut line) {
+                line
+            } else {
+                // EOF は `\read` と同じく空行を一つ与え、その stream を閉じる。
+                scanner.read_file[n as usize] = None;
+                Vec::new()
+            }
+        }
+    };
+
+    if !eqtb.end_line_char_inactive() {
+        line.push(eqtb.end_line_char() as u8);
+    }
+    let replacement_text = line
+        .into_iter()
+        .map(|chr| {
+            let token = if chr == b' ' {
+                Token::SPACE_TOKEN
+            } else {
+                Token::OtherChar(chr)
+            };
+            MacroToken::Normal(token)
+        })
+        .collect();
+    Macro {
+        parameter_text: vec![ParamToken::End],
+        replacement_text,
+    }
+}
+
 /// See 483. and 486.
 fn input_and_store_tokens_from_next_line_of_file(
     stream_number: Option<u8>,

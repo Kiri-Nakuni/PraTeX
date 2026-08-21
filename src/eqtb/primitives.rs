@@ -740,6 +740,10 @@ impl Eqtb {
             b"read",
             UnexpandableCommand::Prefixable(PrefixableCommand::ReadToCs),
         );
+        self.primitive_unexpandable(
+            b"readline",
+            UnexpandableCommand::Prefixable(PrefixableCommand::ReadLineToCs),
+        );
         let cs =
             self.primitive_unexpandable(b"relax", UnexpandableCommand::Relax { no_expand: false });
         let cmd = self.control_sequences.get(cs).clone();

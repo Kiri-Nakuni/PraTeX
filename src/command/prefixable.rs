@@ -22,7 +22,7 @@ use crate::format::{Dumpable, FormatError};
 use crate::glue::scan_glue;
 use crate::hyphenation::Hyphenator;
 use crate::input::Scanner;
-use crate::input_streams::read_toks;
+use crate::input_streams::{read_line_toks, read_toks};
 use crate::integer::{Integer, IntegerExt};
 use crate::logger::InteractionMode;
 use crate::logger::Logger;
@@ -76,6 +76,7 @@ pub enum PrefixableCommand {
     FutureLet,
     ShorthandDef(ShorthandDef),
     ReadToCs,
+    ReadLineToCs,
     Def(DefCommand),
     /// `\vaakdef\名前{本体}`。**定義の時点で組み立てる。**
     VaakDef,
@@ -126,6 +127,7 @@ impl PrefixableCommand {
             | Self::FutureLet
             | Self::ShorthandDef(_)
             | Self::ReadToCs
+            | Self::ReadLineToCs
             | Self::Def(_)
             | Self::VaakDef
             | Self::UsingNamespace
@@ -175,6 +177,7 @@ impl PrefixableCommand {
             Self::FutureLet => printer.print_esc_str(b"futurelet"),
             Self::ShorthandDef(shorthand_def) => shorthand_def.display(printer),
             Self::ReadToCs => printer.print_esc_str(b"read"),
+            Self::ReadLineToCs => printer.print_esc_str(b"readline"),
             Self::Def(def_command) => def_command.display(printer),
             Self::VaakDef => printer.print_esc_str(b"vaakdef"),
             Self::UsingNamespace => printer.print_esc_str(b"usingnamespace"),
@@ -277,6 +280,9 @@ impl Dumpable for PrefixableCommand {
             Self::ReadToCs => {
                 writeln!(target, "ReadToCs")?;
             }
+            Self::ReadLineToCs => {
+                writeln!(target, "ReadLineToCs")?;
+            }
             Self::Def(def_command) => {
                 writeln!(target, "Def")?;
                 def_command.dump(target)?;
@@ -378,6 +384,7 @@ impl Dumpable for PrefixableCommand {
                 Ok(Self::ShorthandDef(shorthand_def))
             }
             "ReadToCs" => Ok(Self::ReadToCs),
+            "ReadLineToCs" => Ok(Self::ReadLineToCs),
             "Def" => {
                 let def_command = DefCommand::undump(lines)?;
                 Ok(Self::Def(def_command))
@@ -677,18 +684,22 @@ pub fn prefixed_command(
             }
         }
         // From 1225.
-        PrefixableCommand::ReadToCs => {
+        command @ (PrefixableCommand::ReadToCs | PrefixableCommand::ReadLineToCs) => {
             let stream_number = Integer::scan_int(scanner, eqtb, logger);
             if !scanner.scan_keyword(b"to", eqtb, logger) {
                 logger.print_err("Missing `to' inserted");
                 let help = &[
-                    "You should have said `\\read<number> to \\cs'.",
+                    "A \\read or \\readline must be followed by `to \\cs'.",
                     "I'm going to look for the \\cs now.",
                 ];
                 logger.error(help, scanner, eqtb);
             }
             let cs = get_r_token(scanner, eqtb, logger);
-            let macro_def = read_toks(stream_number, cs, scanner, eqtb, logger);
+            let macro_def = if command == PrefixableCommand::ReadLineToCs {
+                read_line_toks(stream_number, cs, scanner, eqtb, logger)
+            } else {
+                read_toks(stream_number, cs, scanner, eqtb, logger)
+            };
             let macro_call = MacroCall {
                 long: false,
                 outer: false,

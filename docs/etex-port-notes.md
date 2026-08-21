@@ -26,3 +26,16 @@ token-list input source を積む。読み終えた後に元のファイル入�
 子ファイルを読む統合試験で、本文の後、閉じ括弧がログへ出る前に一度だけ実行される
 ことを固定した。release全160試験を通し、現行LaTeXの停止点は
 `\tex_everyeof:D` から `\tex_readline:D` へ進んだ。
+
+## `\readline`
+
+公開マニュアル §3.7 の契約:
+
+- `\readline<number> to <control sequence>` は `\read` と同じ入力源から次の一行を読む。
+- 現在の category code は使わない。
+- 文字コード32だけを category 10、それ以外（行末文字を含む）を category 12 にする。
+- 読んだ token 列を、引数なし macro の置換本文として定義する。
+
+rtex は既存の `\read` と stream・端末・EOF・`\endlinechar` の規則を共有し、字句器へ
+通さずに文字 token を直接作る。これにより、入力中のバックスラッシュ、波括弧、`#`、
+`%`、連続空白をそのまま保持する。
