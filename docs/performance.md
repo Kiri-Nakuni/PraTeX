@@ -55,6 +55,25 @@ CJK用decoderと `kcatcode` 検索はASCIIでは呼ばず、typed hashと逆引�
 初めて作るまで確保しない。測定用source tree、target、logは `%TEMP%` のみに置いた。
 同じworktreeでrelease全406試験とTRIP二段を通し、TRIP DVI hashも直前枝と一致した。
 
+## 統一文字分類器のASCII退行確認
+
+`catcode` / `kcatcode` の問い合わせを `CharacterClassifier` traitへ統一した枝を、直接の親
+`9af3f19` と比較した。短い計測ではWindowsのprocess CPU timeの15.625ms粒度が相対的に
+大きいため、上のfixtureの終了値だけ300万へ増やした。両方を同じrustc 1.98.0、同じVaak
+checkout、release LTOでbuildし、1回warm-up後に順番を交互にして各11回測定した。
+
+| | `9af3f19` | 統一分類器枝 | 変化 |
+|---|---:|---:|---:|
+| wall中央値 | 1642.206 ms | 1636.016 ms | -0.38% |
+| CPU中央値 | 1625.000 ms | 1593.750 ms | -1.92% |
+
+stdout SHA-256は全22回で
+`25855EADFEEFB5EA17162B1E1E012A6B87758354BB4759C8FE486DFE8B91F5BF`、logは
+`E5C427B0A95D409FD86A1C7CA5D4E65583864ACCD45F05AB61F2E0406C621B87` の一種類だけで、
+終了値も全て0だった。小差は測定揺らぎとして高速化には数えないが、ASCII退行は観測
+されなかった。組込み経路は `Eqtb` 自身へ静的dispatchし、中間object、allocation、
+Unicode表引き、拡張class ID生成をASCIIに加えない。`CatCode` は `repr(u8)` である。
+
 ## 次の候補
 
 測定済みの次候補は、入力行bufferの再利用、PDF文字命令の一時 `String` 除去、fmt復元時の

@@ -1,5 +1,10 @@
-use crate::eqtb::{CatCode, ControlSequence, ControlSequenceNameUnit, Eqtb, KCatCode};
-use crate::token::{CjkCategory, CjkToken, Token, decode_uptex_input_code_point};
+#[cfg(test)]
+use crate::eqtb::{CallbackClassifier, KCatCode};
+use crate::eqtb::{
+    CatCode, CharacterClassifier, ClassificationContext, ControlSequence, ControlSequenceNameUnit,
+    Eqtb, UnicodeDisposition,
+};
+use crate::token::{decode_uptex_input_code_point, CjkCategory, CjkToken, Token};
 
 /// Scans an input line and produces tokens.
 ///
@@ -75,14 +80,13 @@ impl LineLexer {
     /// Returns a [`LexerToken`] if there is one, `None` if the line has been depleted, or
     /// an `Err` if there has been an invalid char.
     /// See 344., 345., 347., 348., 349., 350., 351., and 353.
-    pub fn scan_next_token(
+    pub(crate) fn scan_next_token_with_classifier(
         &mut self,
-        cat_code: &impl Fn(u8) -> CatCode,
-        kcat_code: &impl Fn(u32) -> KCatCode,
+        classifier: &impl CharacterClassifier,
     ) -> Result<Option<LexerToken<'_>>, LexError> {
         loop {
             // Get the next unexpanded character or return empty-handed.
-            let input = match self.next_unexpanded_input(cat_code, kcat_code) {
+            let input = match self.next_unexpanded_input(classifier) {
                 None => return Ok(None),
                 Some(val) => val,
             };
@@ -125,10 +129,10 @@ impl LineLexer {
                     LexerToken::ActiveChar(chr)
                 }
                 // A control sequence.
-                (_, Escape) => self.scan_control_sequence(cat_code, kcat_code),
+                (_, Escape) => self.scan_control_sequence(classifier),
 
                 // **名前空間の印。** ここから名前空間つきの制御綴が始まる
-                (_, Namespace) => self.scan_namespaced(cat_code, kcat_code)?,
+                (_, Namespace) => self.scan_namespaced(classifier)?,
 
                 // An end-of-line character while not skipping spaces.
                 (Midline, CarRet) => {
@@ -187,6 +191,17 @@ impl LineLexer {
         }
     }
 
+    /// 単体テストから旧来の二表を直接差し替えるためだけの adapter。
+    #[cfg(test)]
+    pub fn scan_next_token(
+        &mut self,
+        cat_code: &impl Fn(u8) -> CatCode,
+        kcat_code: &impl Fn(u32) -> KCatCode,
+    ) -> Result<Option<LexerToken<'_>>, LexError> {
+        let classifier = CallbackClassifier::new(cat_code, kcat_code);
+        self.scan_next_token_with_classifier(&classifier)
+    }
+
     /// Returns the next input unit without charging the ASCII path for a
     /// `\kcatcode` lookup.
     ///
@@ -196,13 +211,14 @@ impl LineLexer {
     #[inline(always)]
     fn next_unexpanded_input(
         &mut self,
-        cat_code: &impl Fn(u8) -> CatCode,
-        kcat_code: &impl Fn(u32) -> KCatCode,
+        classifier: &impl CharacterClassifier,
     ) -> Option<UnexpandedInput> {
-        if let Some((token, next_pos)) = self.literal_cjk_at_current_position(kcat_code) {
+        if let Some((token, next_pos)) =
+            self.literal_cjk_at_current_position(classifier, ClassificationContext::Input)
+        {
             return Some(UnexpandedInput::Cjk(token, next_pos));
         }
-        self.next_unexpanded_character(cat_code)
+        self.next_unexpanded_character(classifier, ClassificationContext::Input)
             .map(|(chr, cat, next_pos)| UnexpandedInput::Byte(chr, cat, next_pos))
     }
 
@@ -212,35 +228,36 @@ impl LineLexer {
     #[inline(always)]
     fn next_unexpanded_input_with_replacement(
         &mut self,
-        cat_code: &impl Fn(u8) -> CatCode,
-        kcat_code: &impl Fn(u32) -> KCatCode,
+        classifier: &impl CharacterClassifier,
     ) -> Option<UnexpandedInput> {
-        if let Some((token, next_pos)) = self.literal_cjk_at_current_position(kcat_code) {
+        if let Some((token, next_pos)) = self
+            .literal_cjk_at_current_position(classifier, ClassificationContext::ControlSequenceName)
+        {
             return Some(UnexpandedInput::Cjk(token, next_pos));
         }
-        self.next_unexpanded_character_with_replacement(cat_code)
-            .map(|(chr, cat, next_pos)| UnexpandedInput::Byte(chr, cat, next_pos))
+        self.next_unexpanded_character_with_replacement(
+            classifier,
+            ClassificationContext::ControlSequenceName,
+        )
+        .map(|(chr, cat, next_pos)| UnexpandedInput::Byte(chr, cat, next_pos))
     }
 
     #[inline(always)]
     fn literal_cjk_at_current_position(
         &self,
-        kcat_code: &impl Fn(u32) -> KCatCode,
+        classifier: &impl CharacterClassifier,
+        context: ClassificationContext,
     ) -> Option<(CjkToken, usize)> {
         if self.line.get(self.pos).copied()?.is_ascii() {
             return None;
         }
         let (code_point, len) = decode_uptex_input_code_point(&self.line[self.pos..])?;
-        let category = match kcat_code(code_point) {
-            KCatCode::Kanji => CjkCategory::Kanji,
-            KCatCode::Kana => CjkCategory::Kana,
-            KCatCode::OtherKChar => CjkCategory::OtherKChar,
-            KCatCode::Hangul => CjkCategory::Hangul,
-            KCatCode::Modifier => CjkCategory::Modifier,
+        let category = match classifier.unicode_disposition(code_point, context) {
+            UnicodeDisposition::Wide { category, .. } => category,
             // Stage 4c will turn `LatinUcs` into a single Unicode European
             // token.  Until then both non-CJK routes deliberately retain the
             // original bytes and their ordinary 8-bit catcodes.
-            KCatCode::LatinUcs | KCatCode::NotCjk => return None,
+            UnicodeDisposition::RawBytes { .. } => return None,
         };
         let token = CjkToken::new(code_point, category)
             .expect("the decoder only returns code points accepted by CjkToken");
@@ -253,7 +270,8 @@ impl LineLexer {
     #[inline(always)]
     fn next_unexpanded_character(
         &mut self,
-        cat_code: &impl Fn(u8) -> CatCode,
+        classifier: &impl CharacterClassifier,
+        context: ClassificationContext,
     ) -> Option<(u8, CatCode, usize)> {
         if self.pos >= self.line.len() {
             return None;
@@ -261,7 +279,7 @@ impl LineLexer {
         let mut chr = self.line[self.pos];
         let mut pos = self.pos + 1;
         loop {
-            let cat = cat_code(chr);
+            let cat = classifier.byte_cat_code(chr, context);
             // If the next character is a "sup_mark" and is followed by the same character and
             // then an ASCII character, we have an expanded character.
             if cat == CatCode::SupMark
@@ -300,7 +318,8 @@ impl LineLexer {
     #[inline(always)]
     fn next_unexpanded_character_with_replacement(
         &mut self,
-        cat_code: &impl Fn(u8) -> CatCode,
+        classifier: &impl CharacterClassifier,
+        context: ClassificationContext,
     ) -> Option<(u8, CatCode, usize)> {
         if self.pos >= self.line.len() {
             return None;
@@ -308,7 +327,7 @@ impl LineLexer {
         let mut chr = self.line[self.pos];
         loop {
             let mut pos = self.pos + 1;
-            let cat = cat_code(chr);
+            let cat = classifier.byte_cat_code(chr, context);
             // If the next character is a "sup_mark" and is followed by the same character and
             // then an ASCII character, we have an expanded character.
             if cat == CatCode::SupMark
@@ -341,12 +360,8 @@ impl LineLexer {
 
     /// Creates a control sequence token from the input.
     /// See 354 and 356.
-    fn scan_control_sequence(
-        &mut self,
-        cat_code: &impl Fn(u8) -> CatCode,
-        kcat_code: &impl Fn(u32) -> KCatCode,
-    ) -> LexerToken<'_> {
-        match self.scan_cs_name(cat_code, kcat_code) {
+    fn scan_control_sequence(&mut self, classifier: &impl CharacterClassifier) -> LexerToken<'_> {
+        match self.scan_cs_name(classifier) {
             CsName::Empty => LexerToken::CommandWord(&[]),
             CsName::Symbol(c) => LexerToken::CommandSymbol(c),
             CsName::Word(start, end) => LexerToken::CommandWord(&self.line[start..end]),
@@ -358,12 +373,8 @@ impl LineLexer {
     ///
     /// `\hoge` の側と `*ns\hoge` の側で**同じものを使う**——
     /// `^^` 置換の扱いが揃うことが**構造的に**保証される。
-    fn scan_cs_name(
-        &mut self,
-        cat_code: &impl Fn(u8) -> CatCode,
-        kcat_code: &impl Fn(u32) -> KCatCode,
-    ) -> CsName {
-        match self.next_unexpanded_input_with_replacement(cat_code, kcat_code) {
+    fn scan_cs_name(&mut self, classifier: &impl CharacterClassifier) -> CsName {
+        match self.next_unexpanded_input_with_replacement(classifier) {
             // If there are no more characters.
             None => CsName::Empty,
             Some(UnexpandedInput::Byte(c, cat, next_pos)) => {
@@ -374,7 +385,7 @@ impl LineLexer {
                     CatCode::Letter => {
                         self.state = LineLexerState::SkipBlanks;
                         loop {
-                            match self.next_unexpanded_input_with_replacement(cat_code, kcat_code) {
+                            match self.next_unexpanded_input_with_replacement(classifier) {
                                 Some(UnexpandedInput::Byte(_, CatCode::Letter, next_pos)) => {
                                     self.pos = next_pos;
                                 }
@@ -388,7 +399,7 @@ impl LineLexer {
                                         .collect::<Vec<_>>();
                                     name.push(ControlSequenceNameUnit::Unicode(token.code_point()));
                                     self.pos = next_pos;
-                                    self.scan_wide_word_tail(&mut name, cat_code, kcat_code);
+                                    self.scan_wide_word_tail(&mut name, classifier);
                                     return CsName::Wide(name);
                                 }
                                 _ => break,
@@ -423,7 +434,7 @@ impl LineLexer {
                         self.state = LineLexerState::Midline;
                     }
                     CjkCategory::Modifier => {
-                        let added = self.scan_wide_word_tail(&mut name, cat_code, kcat_code);
+                        let added = self.scan_wide_word_tail(&mut name, classifier);
                         self.state = if added == 0 {
                             LineLexerState::Midline
                         } else {
@@ -431,7 +442,7 @@ impl LineLexer {
                         };
                     }
                     CjkCategory::Kanji | CjkCategory::Kana | CjkCategory::Hangul => {
-                        self.scan_wide_word_tail(&mut name, cat_code, kcat_code);
+                        self.scan_wide_word_tail(&mut name, classifier);
                         self.state = LineLexerState::SkipBlanks;
                     }
                 }
@@ -446,12 +457,11 @@ impl LineLexer {
     fn scan_wide_word_tail(
         &mut self,
         name: &mut Vec<ControlSequenceNameUnit>,
-        cat_code: &impl Fn(u8) -> CatCode,
-        kcat_code: &impl Fn(u32) -> KCatCode,
+        classifier: &impl CharacterClassifier,
     ) -> usize {
         let initial_len = name.len();
         loop {
-            match self.next_unexpanded_input_with_replacement(cat_code, kcat_code) {
+            match self.next_unexpanded_input_with_replacement(classifier) {
                 Some(UnexpandedInput::Byte(c, CatCode::Letter, next_pos)) => {
                     name.push(ControlSequenceNameUnit::Byte(c));
                     self.pos = next_pos;
@@ -487,17 +497,17 @@ impl LineLexer {
     /// `*a*b\hoge` は `a*b` の `hoge` である。**階層ではない。**
     fn scan_namespaced(
         &mut self,
-        cat_code: &impl Fn(u8) -> CatCode,
-        kcat_code: &impl Fn(u32) -> KCatCode,
+        classifier: &impl CharacterClassifier,
     ) -> Result<LexerToken<'_>, LexError> {
         let ns_start = self.pos;
         let ns_end;
         let term_cat;
         let term_chr;
         loop {
-            let Some((c, cat, next_pos)) =
-                self.next_unexpanded_character_with_replacement(cat_code)
-            else {
+            let Some((c, cat, next_pos)) = self.next_unexpanded_character_with_replacement(
+                classifier,
+                ClassificationContext::ControlSequenceName,
+            ) else {
                 return Err(LexError::RunawayNamespace);
             };
             match cat {
@@ -525,7 +535,7 @@ impl LineLexer {
                 term_chr,
             ));
         }
-        Ok(match self.scan_cs_name(cat_code, kcat_code) {
+        Ok(match self.scan_cs_name(classifier) {
             // **空は global へ落ちる。** 統一規則（決定事項）
             CsName::Empty => LexerToken::CommandWord(&[]),
             CsName::Symbol(c) => {

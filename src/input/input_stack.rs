@@ -251,14 +251,12 @@ impl InputStack {
     ) -> NextResult {
         // We start over if an input source has been exhausted or if we need to expand a parameter
         loop {
-            let cat_code = |c| eqtb.cat_code(c);
-            let kcat_code = |code_point| eqtb.kcat_code(code_point);
-
             // We distinguish here between text and token sources.
             let force_eof = self.force_eof;
             let token = match self.current_source_mut() {
                 InputSource::TextSource { lexer, source_type } => {
-                    match lexer.scan_next_token(&cat_code, &kcat_code) {
+                    let lex_result = lexer.scan_next_token_with_classifier(eqtb);
+                    match lex_result {
                         Ok(Some(lexer_token)) => {
                             let Ok(token) = lexer_token.to_token(allow_new_cs, eqtb) else {
                                 overflow(
