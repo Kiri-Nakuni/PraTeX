@@ -422,8 +422,8 @@ fn open_out(path: &Path) -> Result<File, std::io::Error> {
 
 /// Reads a line from the given input source into the given string.
 ///
-/// Reads until it encounters a `'\n'`. Removes a trailing
-/// `'\n'` and trailing spaces. Returns false if the source has been exhausted.
+/// Reads until it encounters a `'\n'`. Removes a trailing line ending
+/// (`'\n'` or `'\r\n'`) and trailing spaces. Returns false if the source has been exhausted.
 ///
 /// Note: This replaces the function "input_ln" from TeX82 which worked with
 /// the global buffer instead of returning a string.
@@ -437,8 +437,39 @@ fn read_line(f: &mut impl BufRead, line: &mut Vec<u8>) -> bool {
     if let Some(b'\n') = line.last() {
         line.pop();
     }
+    if let Some(b'\r') = line.last() {
+        line.pop();
+    }
     while let Some(b' ') = line.last() {
         line.pop();
     }
     true
+}
+
+#[cfg(test)]
+mod read_line_tests {
+    use super::read_line;
+    use std::io::Cursor;
+
+    #[test]
+    fn crlfを一つの行末として取り除く() {
+        let mut source = Cursor::new(b"alpha   \r\nbeta\n".to_vec());
+        let mut line = Vec::new();
+        assert!(read_line(&mut source, &mut line));
+        assert_eq!(line, b"alpha");
+
+        line.clear();
+        assert!(read_line(&mut source, &mut line));
+        assert_eq!(line, b"beta");
+    }
+
+    #[test]
+    fn 行末のない最終行も読み切る() {
+        let mut source = Cursor::new(b"last   ".to_vec());
+        let mut line = Vec::new();
+        assert!(read_line(&mut source, &mut line));
+        assert_eq!(line, b"last");
+        line.clear();
+        assert!(!read_line(&mut source, &mut line));
+    }
 }

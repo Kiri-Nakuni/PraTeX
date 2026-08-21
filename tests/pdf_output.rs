@@ -1,7 +1,8 @@
 //! standalone PDF出力のprocess境界。
 
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
 
 fn test_directory(name: &str) -> PathBuf {
     use std::hash::{Hash, Hasher};
@@ -153,4 +154,41 @@ fn command_line入力でも不正なmagをlogへ残す() {
         &log,
         b"Illegal magnification has been changed to 1000"
     ));
+}
+
+#[test]
+fn crlfで答えた出力先に復帰文字を混ぜない() {
+    let directory = test_directory("CRLF出力prompt");
+    std::fs::create_dir_all(&directory).unwrap();
+    std::fs::write(
+        directory.join("prompt.tex"),
+        "\\catcode123=1\n\\catcode125=2\n\\shipout\\hbox{\\vrule width1pt height1pt}\\end\n",
+    )
+    .unwrap();
+    // 既定名をdirectoryで塞ぎ、別名を尋ねる経路へ入れる。
+    std::fs::create_dir_all(directory.join("prompt.pdf")).unwrap();
+    let actual = directory.join("actual.pdf");
+    let _ = std::fs::remove_file(&actual);
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_rtex"))
+        .args(["--output-format=pdf", "prompt.tex"])
+        .current_dir(&directory)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"actual.pdf\r\n")
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert_success(&output, &directory);
+
+    assert!(actual.is_file());
+    let log = std::fs::read(directory.join("prompt.log")).unwrap();
+    assert!(contains(&log, b"Output written on actual.pdf"));
+    assert!(!contains(&log, b"actual.pdf^^M"));
 }
