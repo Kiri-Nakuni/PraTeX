@@ -16,6 +16,36 @@ pub type ControlSequenceId = u16;
 /// 以後は番号で引く。
 pub type NamespaceId = u16;
 
+/// 制御綴の名前を、呼び出し側の `&[u8]` のまま引く表。
+///
+/// 通常の制御綴と活性文字を分けることで、複合キーを作るための
+/// `Vec<u8>` の一時確保を検索経路から外す。
+#[derive(Default)]
+struct ControlSequenceHash {
+    normal: HashMap<Vec<u8>, ControlSequenceId>,
+    active: HashMap<Vec<u8>, ControlSequenceId>,
+}
+
+impl ControlSequenceHash {
+    fn get(&self, active: bool, key: &[u8]) -> Option<ControlSequenceId> {
+        let hash = if active { &self.active } else { &self.normal };
+        hash.get(key).copied()
+    }
+
+    fn insert(&mut self, active: bool, key: Vec<u8>, id: ControlSequenceId) {
+        let hash = if active {
+            &mut self.active
+        } else {
+            &mut self.normal
+        };
+        hash.insert(key, id);
+    }
+
+    fn len(&self) -> usize {
+        self.normal.len() + self.active.len()
+    }
+}
+
 /// Specifies a control sequence in the Eqtb.
 /// See 222.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -129,12 +159,13 @@ pub struct ControlSequenceStore {
     single: Vec<(Command, Vec<u8>)>,
     null_cs: (Command, Vec<u8>),
 
-    /// **鍵は (名前空間, 活性か, 名前) の三つ組である。** `None` が global——
-    /// 既存の振る舞いは `(None, false, 名前)` の鍵で完全に再現される。
+    /// global の制御綴。名前空間を使わない通常経路はここを一度だけ引く。
     ///
-    /// 活性かどうかを鍵に入れるのは、**`*lib\~` と `*lib~` が衝突する**からである。
-    /// どちらも名前が一文字の `~` になる
-    hash: HashMap<(Option<NamespaceId>, bool, Vec<u8>), ControlSequenceId>,
+    /// 通常名と活性文字を分けるのは、**`*lib\~` と `*lib~` が衝突する**からである。
+    /// どちらも名前が一文字の `~` になる。
+    global_hash: ControlSequenceHash,
+    /// 名前空間の番号を添字にする。番号をもう一度ハッシュせず、名前だけを借用して引く。
+    namespace_hashes: Vec<ControlSequenceHash>,
     escaped: Vec<(Command, Vec<u8>)>,
     /// `escaped` と並ぶ。**どの名前空間の出自か。** `None` が global
     escaped_ns: Vec<Option<NamespaceId>>,
@@ -198,7 +229,8 @@ impl ControlSequenceStore {
                 Vec::new(),
             ),
 
-            hash: HashMap::new(),
+            global_hash: ControlSequenceHash::default(),
+            namespace_hashes: Vec::new(),
             escaped: Vec::new(),
             cs_count: 0,
 
@@ -265,7 +297,10 @@ impl ControlSequenceStore {
         active: bool,
         key: &[u8],
     ) -> Option<ControlSequenceId> {
-        self.hash.get(&(ns, active, key.to_vec())).copied()
+        match ns {
+            None => self.global_hash.get(active, key),
+            Some(ns) => self.namespace_hashes.get(ns as usize)?.get(active, key),
+        }
     }
 
     /// 名前空間の名前を番号に直す。**同じ名前なら同じ番号。**
@@ -275,6 +310,7 @@ impl ControlSequenceStore {
         }
         let id = self.namespaces.len() as NamespaceId;
         self.namespaces.push(name.to_vec());
+        self.namespace_hashes.push(ControlSequenceHash::default());
         self.ns_index.insert(name.to_vec(), id);
         id
     }
@@ -328,11 +364,18 @@ impl ControlSequenceStore {
         active: Option<u8>,
         variable_levels: &mut VariableLevels,
     ) -> Result<ControlSequenceId, ()> {
+        if ns.is_some_and(|ns| ns as usize >= self.namespace_hashes.len()) {
+            return Err(());
+        }
         let Ok(n) = ControlSequenceId::try_from(self.cs_count) else {
             return Err(());
         };
         self.cs_count += 1;
-        self.hash.insert((ns, active.is_some(), key.to_vec()), n);
+        let hash = match ns {
+            None => &mut self.global_hash,
+            Some(ns) => &mut self.namespace_hashes[ns as usize],
+        };
+        hash.insert(active.is_some(), key.to_vec(), n);
         let cmd = Command::Expandable(ExpandableCommand::Undefined);
         self.escaped.push((cmd, key.to_vec()));
         self.escaped_ns.push(ns);
@@ -397,6 +440,41 @@ impl ControlSequenceStore {
     pub fn set(&mut self, cs: ControlSequence, new_command: Command) -> Command {
         std::mem::replace(&mut self.index_mut(cs).0, new_command)
     }
+
+    /// fmt は従来どおり `(名前空間, 活性か, 名前)` の順で書く。
+    /// 実行時の表だけを分け、保存済み fmt の読み書きは変えない。
+    fn dump_hash(&self, target: &mut impl Write) -> Result<(), std::io::Error> {
+        let hash_len = self.global_hash.len()
+            + self
+                .namespace_hashes
+                .iter()
+                .map(ControlSequenceHash::len)
+                .sum::<usize>();
+        writeln!(target, "{hash_len}")?;
+        Self::dump_hash_entries(None, false, &self.global_hash.normal, target)?;
+        Self::dump_hash_entries(None, true, &self.global_hash.active, target)?;
+        for (ns, hash) in self.namespace_hashes.iter().enumerate() {
+            let ns = Some(ns as NamespaceId);
+            Self::dump_hash_entries(ns, false, &hash.normal, target)?;
+            Self::dump_hash_entries(ns, true, &hash.active, target)?;
+        }
+        Ok(())
+    }
+
+    fn dump_hash_entries(
+        ns: Option<NamespaceId>,
+        active: bool,
+        hash: &HashMap<Vec<u8>, ControlSequenceId>,
+        target: &mut impl Write,
+    ) -> Result<(), std::io::Error> {
+        for (key, id) in hash {
+            ns.dump(target)?;
+            active.dump(target)?;
+            key.dump(target)?;
+            id.dump(target)?;
+        }
+        Ok(())
+    }
 }
 
 impl Dumpable for ControlSequenceStore {
@@ -404,7 +482,7 @@ impl Dumpable for ControlSequenceStore {
         self.active.dump(target)?;
         self.single.dump(target)?;
         self.null_cs.dump(target)?;
-        self.hash.dump(target)?;
+        self.dump_hash(target)?;
         self.escaped.dump(target)?;
         self.escaped_ns.dump(target)?;
         self.escaped_active.dump(target)?;
@@ -428,7 +506,8 @@ impl Dumpable for ControlSequenceStore {
         let active = Vec::undump(lines)?;
         let single = Vec::undump(lines)?;
         let null_cs = CommandStoreEntry::undump(lines)?;
-        let hash = HashMap::undump(lines)?;
+        let hash: HashMap<(Option<NamespaceId>, bool, Vec<u8>), ControlSequenceId> =
+            HashMap::undump(lines)?;
         let escaped = Vec::undump(lines)?;
         let escaped_ns: Vec<Option<NamespaceId>> = Vec::undump(lines)?;
         let escaped_active: Vec<Option<u8>> = Vec::undump(lines)?;
@@ -439,6 +518,21 @@ impl Dumpable for ControlSequenceStore {
             .enumerate()
             .map(|(i, n)| (n.clone(), i as NamespaceId))
             .collect();
+        let mut global_hash = ControlSequenceHash::default();
+        let mut namespace_hashes = (0..namespaces.len())
+            .map(|_| ControlSequenceHash::default())
+            .collect::<Vec<_>>();
+        for ((ns, active, key), id) in hash {
+            match ns {
+                None => global_hash.insert(active, key, id),
+                Some(ns) => {
+                    let Some(hash) = namespace_hashes.get_mut(ns as usize) else {
+                        return Err(FormatError::ParseError);
+                    };
+                    hash.insert(active, key, id);
+                }
+            }
+        }
         let cs_count = usize::undump(lines)?;
         let frozen_protection = CommandStoreEntry::undump(lines)?;
         let frozen_cr = CommandStoreEntry::undump(lines)?;
@@ -455,7 +549,8 @@ impl Dumpable for ControlSequenceStore {
             active,
             single,
             null_cs,
-            hash,
+            global_hash,
+            namespace_hashes,
             escaped,
             escaped_ns,
             escaped_active,
@@ -730,6 +825,43 @@ mod namespace_tests {
         assert_eq!(
             e.control_sequences.active_char(ControlSequence::Active(b'~')),
             Some(b'~')
+        );
+    }
+
+    #[test]
+    fn 制御綴の索引はfmtを往復しても区別を保つ() {
+        let mut e = e();
+        let global = e.lookup_or_create(b"same").unwrap();
+        let foo = e.control_sequences.intern_namespace(b"foo");
+        let bar = e.control_sequences.intern_namespace(b"bar");
+        let foo_normal = e.lookup_or_create_ns(Some(foo), b"same", None).unwrap();
+        let bar_normal = e.lookup_or_create_ns(Some(bar), b"same", None).unwrap();
+        let foo_active = e
+            .lookup_or_create_ns(Some(foo), b"same", Some(b'~'))
+            .unwrap();
+
+        let mut dumped = Vec::new();
+        e.control_sequences.dump(&mut dumped).unwrap();
+        let dumped = String::from_utf8(dumped).unwrap();
+        let mut lines = dumped.lines();
+        let loaded = ControlSequenceStore::undump(&mut lines).unwrap();
+
+        let id = |cs| match cs {
+            ControlSequence::Escaped(id) => id,
+            _ => panic!("escaped control sequence expected"),
+        };
+        assert_eq!(loaded.id_lookup(b"same"), Some(id(global)));
+        assert_eq!(
+            loaded.id_lookup_ns(Some(foo), false, b"same"),
+            Some(id(foo_normal))
+        );
+        assert_eq!(
+            loaded.id_lookup_ns(Some(bar), false, b"same"),
+            Some(id(bar_normal))
+        );
+        assert_eq!(
+            loaded.id_lookup_ns(Some(foo), true, b"same"),
+            Some(id(foo_active))
         );
     }
 
