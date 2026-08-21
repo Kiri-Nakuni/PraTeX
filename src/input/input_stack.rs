@@ -346,8 +346,8 @@ impl InputStack {
                                 }
                             }
                         },
-                        Err(()) => {
-                            return NextResult::InvalidChar;
+                        Err(e) => {
+                            return NextResult::LexError(e);
                         }
                     }
                 }
@@ -837,5 +837,6 @@ pub enum NextResult {
     FileEnded,
     StreamLineEnded,
     TokenListEnded,
-    InvalidChar,
+    /// **字句層の誤り。** 今までは invalid char しか無かった
+    LexError(crate::input::line_lexer::LexError),
 }

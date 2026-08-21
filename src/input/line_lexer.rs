@@ -78,7 +78,7 @@ impl LineLexer {
     pub fn scan_next_token(
         &mut self,
         cat_code: &impl Fn(u8) -> CatCode,
-    ) -> Result<Option<LexerToken>, ()> {
+    ) -> Result<Option<LexerToken>, LexError> {
         loop {
             // Get the next unexpanded character or return empty-handed.
             let (chr, cat, next_pos) = match self.next_unexpanded_character(cat_code) {
@@ -118,13 +118,8 @@ impl LineLexer {
                 // A control sequence.
                 (_, Escape) => self.scan_control_sequence(cat_code),
 
-                // **名前空間の印。** Phase 2 でここを実装する。
-                // それまでは other として扱う——catcode 16 を持つ文字が
-                // 無ければ到達しないので、既存の振る舞いは変わらない
-                (_, Namespace) => {
-                    self.state = Midline;
-                    LexerToken::OtherChar(chr)
-                }
+                // **名前空間の印。** ここから名前空間つきの制御綴が始まる
+                (_, Namespace) => self.scan_namespaced(cat_code)?,
 
                 // An end-of-line character while not skipping spaces.
                 (Midline, CarRet) => {
@@ -176,7 +171,7 @@ impl LineLexer {
                 }
                 // An invalid char.
                 (_, InvalidChar) => {
-                    return Err(());
+                    return Err(LexError::InvalidChar);
                 }
             };
             return Ok(Some(token));
@@ -278,9 +273,21 @@ impl LineLexer {
     /// Creates a control sequence token from the input.
     /// See 354 and 356.
     fn scan_control_sequence(&mut self, cat_code: &impl Fn(u8) -> CatCode) -> LexerToken {
+        match self.scan_cs_name(cat_code) {
+            CsName::Empty => LexerToken::CommandWord(&[]),
+            CsName::Symbol(c) => LexerToken::CommandSymbol(c),
+            CsName::Word(start, end) => LexerToken::CommandWord(&self.line[start..end]),
+        }
+    }
+
+    /// 制御綴の名前を走査し、**範囲で返す。**
+    ///
+    /// `\hoge` の側と `*ns\hoge` の側で**同じものを使う**——
+    /// `^^` 置換の扱いが揃うことが**構造的に**保証される。
+    fn scan_cs_name(&mut self, cat_code: &impl Fn(u8) -> CatCode) -> CsName {
         match self.next_unexpanded_character_with_replacement(cat_code) {
             // If there are no more characters.
-            None => LexerToken::CommandWord(&[]),
+            None => CsName::Empty,
             Some((c, cat, next_pos)) => {
                 let start = self.pos;
                 self.pos = next_pos;
@@ -295,25 +302,96 @@ impl LineLexer {
                         }
                         let end = self.pos;
                         if end - start > 1 {
-                            LexerToken::CommandWord(&self.line[start..end])
+                            CsName::Word(start, end)
                         } else {
-                            LexerToken::CommandSymbol(self.line[start])
+                            CsName::Symbol(self.line[start])
                         }
                     }
                     // We want to ignore spaces following a command like "\ "
                     CatCode::Spacer => {
                         self.state = LineLexerState::SkipBlanks;
-                        LexerToken::CommandSymbol(c)
+                        CsName::Symbol(c)
                     }
                     // For other non-letter control symbols, we don't want to ignore following
                     // spaces.
                     _ => {
                         self.state = LineLexerState::Midline;
-                        LexerToken::CommandSymbol(c)
+                        CsName::Symbol(c)
                     }
                 }
             }
         }
+    }
+
+    /// 名前空間つきの制御綴を走査する。
+    ///
+    /// 名前空間の印（catcode 16）を読んだ直後に呼ばれる。
+    ///
+    /// # 受理の判定
+    ///
+    /// **catcode を三つに分けるだけ**である。
+    ///
+    /// | catcode | |
+    /// |---|---|
+    /// | 0（escape）/ 13（active） | **終端。** ここから先が対象の制御綴 |
+    /// | 15（invalid） | 誤り |
+    /// | 5 / 9 / 10（行末・無視・空白）と行の終わり | **runaway** |
+    /// | それ以外 | **名前に取り込む** |
+    ///
+    /// 名前空間の印そのものは「それ以外」に入るので取り込まれる——
+    /// `*a*b\hoge` は `a*b` の `hoge` である。**階層ではない。**
+    fn scan_namespaced(
+        &mut self,
+        cat_code: &impl Fn(u8) -> CatCode,
+    ) -> Result<LexerToken, LexError> {
+        let ns_start = self.pos;
+        let ns_end;
+        let term_cat;
+        let term_chr;
+        loop {
+            let Some((c, cat, next_pos)) =
+                self.next_unexpanded_character_with_replacement(cat_code)
+            else {
+                return Err(LexError::RunawayNamespace);
+            };
+            match cat {
+                CatCode::Escape | CatCode::ActiveChar => {
+                    ns_end = self.pos;
+                    self.pos = next_pos;
+                    term_cat = cat;
+                    term_chr = c;
+                    break;
+                }
+                CatCode::InvalidChar => return Err(LexError::InvalidChar),
+                // **名前の途中で行が終わることを許さない。**
+                // 空白も同じ——名前空間の名前は一続きでなければならない
+                CatCode::Spacer | CatCode::CarRet | CatCode::Ignore => {
+                    return Err(LexError::RunawayNamespace)
+                }
+                _ => self.pos = next_pos,
+            }
+        }
+        if let CatCode::ActiveChar = term_cat {
+            // 活性文字はそれ自身が対象である。**`escapechar` を挟まない**
+            self.state = LineLexerState::Midline;
+            return Ok(LexerToken::NamespacedActive(
+                &self.line[ns_start..ns_end],
+                term_chr,
+            ));
+        }
+        Ok(match self.scan_cs_name(cat_code) {
+            // **空は global へ落ちる。** 統一規則（決定事項）
+            CsName::Empty => LexerToken::CommandWord(&[]),
+            CsName::Symbol(c) => {
+                let (ns, _) = split_two(&self.line, ns_start, ns_end, 0, 0);
+                LexerToken::NamespacedSymbol(ns, c)
+            }
+            CsName::Word(s, e) => {
+                // 二つの借りを**同時に**取る。どちらも `self.line` からの写しでない借り
+                let (ns, name) = split_two(&self.line, ns_start, ns_end, s, e);
+                LexerToken::NamespacedWord(ns, name)
+            }
+        })
     }
 
     /// See 318.
@@ -356,6 +434,28 @@ fn double_hex_to_byte(c: u8, cc: u8) -> u8 {
 
 /// A token as returned from [`LineLexer`].
 #[derive(Debug, Clone, Copy)]
+/// 制御綴の名前の走査結果。**範囲で返す**ので、借りを後から取れる。
+enum CsName {
+    Empty,
+    Symbol(u8),
+    Word(usize, usize),
+}
+
+/// 二つの範囲を同時に借りる。
+fn split_two(line: &[u8], a0: usize, a1: usize, b0: usize, b1: usize) -> (&[u8], &[u8]) {
+    (&line[a0..a1], &line[b0..b1])
+}
+
+/// 字句層の誤り。
+///
+/// **今まで一本しか無かった。** 名前空間の runaway を運べるように分けた。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LexError {
+    InvalidChar,
+    /// 名前空間の名前が閉じないまま行が終わった／空白が来た
+    RunawayNamespace,
+}
+
 pub enum LexerToken<'a> {
     LeftBrace(u8),
     RightBrace(u8),
@@ -373,6 +473,12 @@ pub enum LexerToken<'a> {
     CommandWord(&'a [u8]),
     /// End-of-paragraph token
     Par,
+    /// `*ns\hoge` — （名前空間名, 制御綴名）
+    NamespacedWord(&'a [u8], &'a [u8]),
+    /// `*ns\!` — （名前空間名, 一文字の制御綴）
+    NamespacedSymbol(&'a [u8], u8),
+    /// `*ns~` — （名前空間名, 活性文字）
+    NamespacedActive(&'a [u8], u8),
 }
 
 impl<'a> LexerToken<'a> {
@@ -408,8 +514,48 @@ impl<'a> LexerToken<'a> {
                     }
                 },
             },
+            // **名前空間つき。** 名前空間の名前を番号に直してから引く
+            NamespacedWord(ns, name) => Token::CSToken {
+                cs: lookup_namespaced(ns, name, None, allow_new_cs, eqtb)?,
+            },
+            NamespacedSymbol(ns, c) => Token::CSToken {
+                cs: lookup_namespaced(ns, &[c], None, allow_new_cs, eqtb)?,
+            },
+            // 活性文字は**その文字自身が名前である。** 種別は store が覚える
+            NamespacedActive(ns, c) => Token::CSToken {
+                cs: lookup_namespaced(ns, &[c], Some(c), allow_new_cs, eqtb)?,
+            },
             Par => eqtb.par_token,
         };
         Ok(token)
+    }
+}
+
+/// 名前空間つきの制御綴を引く（無ければ作る）。
+///
+/// **名前空間の名前は、引くだけでも番号にする。** 番号の表は
+/// 定義とは無関係に伸びるので、`\ifx` の比較が安定する。
+fn lookup_namespaced(
+    ns: &[u8],
+    name: &[u8],
+    active: Option<u8>,
+    allow_new_cs: bool,
+    eqtb: &mut Eqtb,
+) -> Result<ControlSequence, ()> {
+    // **空の名前空間名は global そのものである**（仕様どおり）
+    if ns.is_empty() {
+        return if allow_new_cs {
+            eqtb.lookup_or_create(name)
+        } else {
+            Ok(eqtb.lookup(name).unwrap_or(ControlSequence::Undefined))
+        };
+    }
+    let id = eqtb.control_sequences.intern_namespace(ns);
+    if allow_new_cs {
+        eqtb.lookup_or_create_ns(Some(id), name, active)
+    } else {
+        Ok(eqtb
+            .lookup_ns(Some(id), name)
+            .unwrap_or(ControlSequence::Undefined))
     }
 }

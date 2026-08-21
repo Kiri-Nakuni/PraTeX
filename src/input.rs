@@ -8,6 +8,7 @@ mod scan_tokens;
 mod scanning;
 pub mod token_source;
 
+use crate::input::line_lexer::LexError;
 use crate::command::{
     Command, ExpandableCommand, IfTest, MacroCall, MathCommand, UnexpandableCommand,
 };
@@ -195,9 +196,18 @@ impl Scanner {
                     self.end_token_list(eqtb, logger);
                     continue;
                 }
-                NextResult::InvalidChar => {
-                    Self::decry_invalid_character(self, eqtb, logger);
-                    // This goes to restart because `decry_invalid_character` might change
+                NextResult::LexError(e) => {
+                    match e {
+                        LexError::InvalidChar => {
+                            Self::decry_invalid_character(self, eqtb, logger)
+                        }
+                        // **名前空間の名前が閉じなかった。**
+                        // 空の名前は退化させる決定なので、この道が運ぶのは runaway だけ
+                        LexError::RunawayNamespace => {
+                            Self::decry_runaway_namespace(self, eqtb, logger)
+                        }
+                    }
+                    // This goes to restart because the handler might change
                     // the current input source.
                     continue;
                 }
@@ -260,6 +270,21 @@ impl Scanner {
         let help = &[
             "A funny symbol that I can't read has just been input.",
             "Continue, and I'll forget that it ever happened.",
+        ];
+        logger.deletions_allowed = false;
+        logger.error(help, scanner, eqtb);
+        logger.deletions_allowed = true;
+    }
+
+    /// 名前空間の名前が閉じなかった。
+    ///
+    /// **`\csname` の runaway と同じ扱いである**——読み飛ばして続ける。
+    fn decry_runaway_namespace(scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Logger) {
+        logger.print_err("Runaway namespace name");
+        let help = &[
+            "A namespace prefix must be followed by a control sequence",
+            "or an active character on the same line.",
+            "I'll forget that it ever happened.",
         ];
         logger.deletions_allowed = false;
         logger.error(help, scanner, eqtb);
