@@ -3,6 +3,7 @@ mod catcodes;
 mod codes;
 mod control_sequences;
 mod dimensions;
+mod extended_registers;
 mod fonts;
 mod integers;
 mod levels;
