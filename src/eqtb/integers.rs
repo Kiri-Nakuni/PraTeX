@@ -1,3 +1,4 @@
+use super::extended_registers::ExtendedRegisterStorage;
 use super::{RegisterIndex, CARRIAGE_RETURN};
 use crate::format::{Dumpable, FormatError};
 use crate::integer::Integer;
@@ -73,7 +74,7 @@ pub struct IntegerParameters {
     right_hyphen_min: Integer,
     holding_inserts: Integer,
     error_context_lines: Integer,
-    counts: Vec<Integer>,
+    counts: ExtendedRegisterStorage<Integer>,
 }
 
 impl IntegerParameters {
@@ -153,7 +154,7 @@ impl IntegerParameters {
             right_hyphen_min: 0,
             holding_inserts: 0,
             error_context_lines: 0,
-            counts: vec![0; RegisterIndex::MAX as usize + 1],
+            counts: ExtendedRegisterStorage::new(0),
         }
     }
 
@@ -225,7 +226,7 @@ impl IntegerParameters {
             IntegerVariable::RightHyphenMin => &self.right_hyphen_min,
             IntegerVariable::HoldingInserts => &self.holding_inserts,
             IntegerVariable::ErrorContextLines => &self.error_context_lines,
-            IntegerVariable::Count(register) => &self.counts[register as usize],
+            IntegerVariable::Count(register) => self.counts.get(register),
         }
     }
 
@@ -297,7 +298,7 @@ impl IntegerParameters {
             IntegerVariable::RightHyphenMin => &mut self.right_hyphen_min,
             IntegerVariable::HoldingInserts => &mut self.holding_inserts,
             IntegerVariable::ErrorContextLines => &mut self.error_context_lines,
-            IntegerVariable::Count(register) => &mut self.counts[register as usize],
+            IntegerVariable::Count(register) => self.counts.get_mut(register),
         }
     }
 
@@ -822,7 +823,7 @@ impl Dumpable for IntegerVariable {
             "HoldingInserts" => Ok(IntegerVariable::HoldingInserts),
             "ErrorContextLines" => Ok(IntegerVariable::ErrorContextLines),
             "Count" => {
-                let n = RegisterIndex::undump(lines)?;
+                let n = super::undump_register_index(lines)?;
                 Ok(IntegerVariable::Count(n))
             }
             _ => Err(FormatError::ParseError),

@@ -1,6 +1,7 @@
+use super::extended_registers::ExtendedRegisterStorage;
 use super::{
     BoxVariable, CodeVariable, ControlSequence, DimensionVariable, FontIndex, FontVariable,
-    IntegerVariable, MathFontSize, RegisterIndex, SkipVariable, TokenListVariable, Variable,
+    IntegerVariable, MathFontSize, SkipVariable, TokenListVariable, Variable,
 };
 use crate::format::{Dumpable, FormatError};
 
@@ -11,7 +12,7 @@ pub type Level = usize;
 #[derive(Debug)]
 pub struct VariableLevels {
     // Boxes
-    boxes: Vec<Level>,
+    boxes: ExtendedRegisterStorage<Level>,
 
     // Category codes
     cat_code: [Level; 256],
@@ -64,7 +65,7 @@ pub struct VariableLevels {
     h_offset: Level,
     v_offset: Level,
     emergency_stretch: Level,
-    dimen: Vec<Level>,
+    dimen: ExtendedRegisterStorage<Level>,
 
     // Fonts
     cur_font: Level,
@@ -139,7 +140,7 @@ pub struct VariableLevels {
     right_hyphen_min: Level,
     holding_inserts: Level,
     error_context_lines: Level,
-    count: Vec<Level>,
+    count: ExtendedRegisterStorage<Level>,
 
     // Parshape
     par_shape: Level,
@@ -164,8 +165,8 @@ pub struct VariableLevels {
     thin_mu_skip: Level,
     med_mu_skip: Level,
     thick_mu_skip: Level,
-    skip: Vec<Level>,
-    mu_skip: Vec<Level>,
+    skip: ExtendedRegisterStorage<Level>,
+    mu_skip: ExtendedRegisterStorage<Level>,
 
     // Token lists
     output_routine: Level,
@@ -178,14 +179,14 @@ pub struct VariableLevels {
     every_cr: Level,
     every_eof: Level,
     err_help: Level,
-    toks: Vec<Level>,
+    toks: ExtendedRegisterStorage<Level>,
 }
 
 impl VariableLevels {
     pub fn new() -> Self {
         Self {
             // Boxes
-            boxes: vec![0; RegisterIndex::MAX as usize + 1],
+            boxes: ExtendedRegisterStorage::new(0),
 
             // Codes
             cat_code: [0; 256],
@@ -236,7 +237,7 @@ impl VariableLevels {
             h_offset: 0,
             v_offset: 0,
             emergency_stretch: 0,
-            dimen: vec![0; RegisterIndex::MAX as usize + 1],
+            dimen: ExtendedRegisterStorage::new(0),
 
             // Fonts
             cur_font: 0,
@@ -311,7 +312,7 @@ impl VariableLevels {
             right_hyphen_min: 0,
             holding_inserts: 0,
             error_context_lines: 0,
-            count: vec![0; RegisterIndex::MAX as usize + 1],
+            count: ExtendedRegisterStorage::new(0),
 
             // Parshape
             par_shape: 0,
@@ -336,8 +337,8 @@ impl VariableLevels {
             thin_mu_skip: 0,
             med_mu_skip: 0,
             thick_mu_skip: 0,
-            skip: vec![0; RegisterIndex::MAX as usize + 1],
-            mu_skip: vec![0; RegisterIndex::MAX as usize + 1],
+            skip: ExtendedRegisterStorage::new(0),
+            mu_skip: ExtendedRegisterStorage::new(0),
 
             // Token lists
             output_routine: 0,
@@ -350,7 +351,7 @@ impl VariableLevels {
             every_cr: 0,
             every_eof: 0,
             err_help: 0,
-            toks: vec![0; RegisterIndex::MAX as usize + 1],
+            toks: ExtendedRegisterStorage::new(0),
         }
     }
 
@@ -361,7 +362,7 @@ impl VariableLevels {
 
     pub fn get(&self, variable: Variable) -> usize {
         match variable {
-            Variable::BoxRegister(BoxVariable(n)) => self.boxes[n as usize],
+            Variable::BoxRegister(BoxVariable(n)) => *self.boxes.get(n),
             Variable::CatCode(chr) => self.cat_code[chr as usize],
             Variable::Code(code_variable) => match code_variable {
                 CodeVariable::LcCode(n) => self.lc_code[n as usize],
@@ -411,7 +412,7 @@ impl VariableLevels {
                 DimensionVariable::HOffset => self.h_offset,
                 DimensionVariable::VOffset => self.v_offset,
                 DimensionVariable::EmergencyStretch => self.emergency_stretch,
-                DimensionVariable::Dimen(register_index) => self.dimen[register_index as usize],
+                DimensionVariable::Dimen(register_index) => *self.dimen.get(register_index),
             },
             Variable::Font(font_variable) => match font_variable {
                 FontVariable::CurFont => self.cur_font,
@@ -488,7 +489,7 @@ impl VariableLevels {
                 IntegerVariable::RightHyphenMin => self.right_hyphen_min,
                 IntegerVariable::HoldingInserts => self.holding_inserts,
                 IntegerVariable::ErrorContextLines => self.error_context_lines,
-                IntegerVariable::Count(register_index) => self.count[register_index as usize],
+                IntegerVariable::Count(register_index) => *self.count.get(register_index),
             },
             Variable::ParShape => self.par_shape,
             Variable::UsingNamespaces => self.using_namespaces,
@@ -511,8 +512,8 @@ impl VariableLevels {
                 SkipVariable::ThinMuSkip => self.thin_mu_skip,
                 SkipVariable::MedMuSkip => self.med_mu_skip,
                 SkipVariable::ThickMuSkip => self.thick_mu_skip,
-                SkipVariable::Skip(register_index) => self.skip[register_index as usize],
-                SkipVariable::MuSkip(register_index) => self.mu_skip[register_index as usize],
+                SkipVariable::Skip(register_index) => *self.skip.get(register_index),
+                SkipVariable::MuSkip(register_index) => *self.mu_skip.get(register_index),
             },
             Variable::TokenList(token_list_variable) => match token_list_variable {
                 TokenListVariable::OutputRoutine => self.output_routine,
@@ -525,14 +526,14 @@ impl VariableLevels {
                 TokenListVariable::EveryCr => self.every_cr,
                 TokenListVariable::EveryEof => self.every_eof,
                 TokenListVariable::ErrHelp => self.err_help,
-                TokenListVariable::Toks(register_index) => self.toks[register_index as usize],
+                TokenListVariable::Toks(register_index) => *self.toks.get(register_index),
             },
         }
     }
 
     pub fn set(&mut self, variable: Variable, new_level: usize) -> usize {
         let target = match variable {
-            Variable::BoxRegister(BoxVariable(n)) => &mut self.boxes[n as usize],
+            Variable::BoxRegister(BoxVariable(n)) => self.boxes.get_mut(n),
             Variable::CatCode(chr) => &mut self.cat_code[chr as usize],
             Variable::Code(code_variable) => match code_variable {
                 CodeVariable::LcCode(n) => &mut self.lc_code[n as usize],
@@ -582,9 +583,7 @@ impl VariableLevels {
                 DimensionVariable::HOffset => &mut self.h_offset,
                 DimensionVariable::VOffset => &mut self.v_offset,
                 DimensionVariable::EmergencyStretch => &mut self.emergency_stretch,
-                DimensionVariable::Dimen(register_index) => {
-                    &mut self.dimen[register_index as usize]
-                }
+                DimensionVariable::Dimen(register_index) => self.dimen.get_mut(register_index),
             },
             Variable::Font(font_variable) => match font_variable {
                 FontVariable::CurFont => &mut self.cur_font,
@@ -661,7 +660,7 @@ impl VariableLevels {
                 IntegerVariable::RightHyphenMin => &mut self.right_hyphen_min,
                 IntegerVariable::HoldingInserts => &mut self.holding_inserts,
                 IntegerVariable::ErrorContextLines => &mut self.error_context_lines,
-                IntegerVariable::Count(register_index) => &mut self.count[register_index as usize],
+                IntegerVariable::Count(register_index) => self.count.get_mut(register_index),
             },
             Variable::ParShape => &mut self.par_shape,
             Variable::UsingNamespaces => &mut self.using_namespaces,
@@ -684,8 +683,8 @@ impl VariableLevels {
                 SkipVariable::ThinMuSkip => &mut self.thin_mu_skip,
                 SkipVariable::MedMuSkip => &mut self.med_mu_skip,
                 SkipVariable::ThickMuSkip => &mut self.thick_mu_skip,
-                SkipVariable::Skip(register_index) => &mut self.skip[register_index as usize],
-                SkipVariable::MuSkip(register_index) => &mut self.mu_skip[register_index as usize],
+                SkipVariable::Skip(register_index) => self.skip.get_mut(register_index),
+                SkipVariable::MuSkip(register_index) => self.mu_skip.get_mut(register_index),
             },
             Variable::TokenList(token_list_variable) => match token_list_variable {
                 TokenListVariable::OutputRoutine => &mut self.output_routine,
@@ -698,7 +697,7 @@ impl VariableLevels {
                 TokenListVariable::EveryCr => &mut self.every_cr,
                 TokenListVariable::EveryEof => &mut self.every_eof,
                 TokenListVariable::ErrHelp => &mut self.err_help,
-                TokenListVariable::Toks(register_index) => &mut self.toks[register_index as usize],
+                TokenListVariable::Toks(register_index) => self.toks.get_mut(register_index),
             },
         };
         let old_level = *target;

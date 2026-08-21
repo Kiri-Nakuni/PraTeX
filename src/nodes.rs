@@ -2,7 +2,7 @@ pub mod noads;
 
 use crate::dimension::{is_running, scan_normal_dimen, Dimension, NULL_FLAG};
 use crate::eqtb::Eqtb;
-use crate::eqtb::{ControlSequence, FontIndex, RegisterIndex, SkipVariable};
+use crate::eqtb::{ControlSequence, FontIndex, InsertionIndex, SkipVariable};
 use crate::input::Scanner;
 use crate::logger::Logger;
 use crate::print::{Printer, MAX_PRINT_LINE};
@@ -361,7 +361,7 @@ impl RuleNode {
 #[derive(Debug, Clone)]
 #[cfg_attr(test, derive(PartialEq))]
 pub struct InsNode {
-    pub number: RegisterIndex,
+    pub number: InsertionIndex,
     /// The natural height plus depth of the contained vertical list.
     pub size: Dimension,
     pub split_max_depth: Dimension,

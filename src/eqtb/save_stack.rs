@@ -1,6 +1,6 @@
 use crate::box_building::BoxContext;
 use crate::dimension::Dimension;
-use crate::eqtb::{Definition, RegisterIndex};
+use crate::eqtb::{Definition, InsertionIndex};
 use crate::packaging::TargetSpec;
 use crate::token::Token;
 
@@ -58,7 +58,7 @@ pub enum GroupType {
     /// A discretionary.
     Disc { typ: DiscGroupType },
     /// An \insert or \vadjust.
-    Insert { number: RegisterIndex },
+    Insert { number: InsertionIndex },
     /// A \vcenter.
     Vcenter { spec: TargetSpec },
     /// A \mathchoice.

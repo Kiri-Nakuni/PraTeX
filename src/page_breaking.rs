@@ -3,7 +3,7 @@ use crate::command::MarkCommand;
 use crate::dimension::{Dimension, MAX_DIMEN};
 use crate::eqtb::save_stack::GroupType;
 use crate::eqtb::{
-    BoxVariable, DimensionVariable, Eqtb, IntegerVariable, LastNodeInfo, RegisterIndex,
+    BoxVariable, DimensionVariable, Eqtb, InsertionIndex, IntegerVariable, LastNodeInfo,
     SkipVariable, TokenListVariable,
 };
 use crate::hyphenation::Hyphenator;
@@ -29,7 +29,7 @@ use std::collections::BTreeMap;
 #[derive(Debug)]
 pub struct PageBuilder {
     pub page: Vec<Node>,
-    page_ins_list: BTreeMap<RegisterIndex, PageIns>,
+    page_ins_list: BTreeMap<InsertionIndex, PageIns>,
     max_depth: Dimension,
     best_break: usize,
     least_cost: i32,
@@ -138,10 +138,11 @@ impl PageBuilder {
                     logger.print_esc_str(b"insert");
                     logger.print_int(number as i32);
                     logger.print_str(" adds ");
-                    let s = if eqtb.integer(IntegerVariable::Count(number)) == 1000 {
+                    let register = u16::from(number);
+                    let s = if eqtb.integer(IntegerVariable::Count(register)) == 1000 {
                         page_ins.height
                     } else {
-                        page_ins.height / 1000 * eqtb.integer(IntegerVariable::Count(number))
+                        page_ins.height / 1000 * eqtb.integer(IntegerVariable::Count(register))
                     };
                     logger.print_scaled(s);
                     if let InsType::SplitUp { broken_count, .. } = page_ins.typ {
@@ -197,8 +198,9 @@ impl PageBuilder {
     }
 
     /// See 993.
-    fn ensure_vbox(n: RegisterIndex, scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Logger) {
-        let p = eqtb.boks(n);
+    fn ensure_vbox(n: InsertionIndex, scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Logger) {
+        let register = u16::from(n);
+        let p = eqtb.boks(register);
         if let Some(list_node) = p {
             if let HlistOrVlist::Hlist(_) = list_node.list {
                 logger.print_err("Insertions can only be added to a vbox");
@@ -207,7 +209,7 @@ impl PageBuilder {
                     "\\box register that now contains an \\hbox.",
                     "Proceed, and I'll discard its present contents.",
                 ];
-                let list_node = eqtb.boxes.set(BoxVariable(n), None).unwrap();
+                let list_node = eqtb.boxes.set(BoxVariable(register), None).unwrap();
                 Self::box_error(list_node, help, scanner, eqtb, logger);
             }
         }
@@ -589,13 +591,15 @@ impl PageBuilder {
             page_ins.ins_count += 1;
             let delta = eqtb.page_dims.page_goal - eqtb.page_dims.height - eqtb.page_dims.depth
                 + eqtb.page_dims.shrink;
-            let h = if eqtb.integer(IntegerVariable::Count(n)) == 1000 {
+            let register = u16::from(n);
+            let h = if eqtb.integer(IntegerVariable::Count(register)) == 1000 {
                 ins_node.size
             } else {
-                ins_node.size / 1000 * eqtb.integer(IntegerVariable::Count(n))
+                ins_node.size / 1000 * eqtb.integer(IntegerVariable::Count(register))
             };
             if (h <= 0 || h <= delta)
-                && ins_node.size + page_ins.height <= eqtb.dimen(DimensionVariable::Dimen(n))
+                && ins_node.size + page_ins.height
+                    <= eqtb.dimen(DimensionVariable::Dimen(register))
             {
                 eqtb.page_dims.page_goal -= h;
                 page_ins.height += ins_node.size;
@@ -608,7 +612,7 @@ impl PageBuilder {
     /// See 1009.
     fn create_page_insertion_node(
         &mut self,
-        n: RegisterIndex,
+        n: InsertionIndex,
         scanner: &mut Scanner,
         eqtb: &mut Eqtb,
         logger: &mut Logger,
@@ -620,7 +624,8 @@ impl PageBuilder {
             best_ins_count: 0,
         };
         Self::ensure_vbox(n, scanner, eqtb, logger);
-        let boks = eqtb.boks(n);
+        let register = u16::from(n);
+        let boks = eqtb.boks(register);
         match boks {
             None => {
                 page_ins.height = 0;
@@ -629,11 +634,11 @@ impl PageBuilder {
                 page_ins.height = list_node.height + list_node.depth;
             }
         }
-        let ins_skip = eqtb.skips.get(SkipVariable::Skip(n));
-        let h = if eqtb.integer(IntegerVariable::Count(n)) == 1000 {
+        let ins_skip = eqtb.skips.get(SkipVariable::Skip(register));
+        let h = if eqtb.integer(IntegerVariable::Count(register)) == 1000 {
             page_ins.height
         } else {
-            page_ins.height / 1000 * eqtb.integer(IntegerVariable::Count(n))
+            page_ins.height / 1000 * eqtb.integer(IntegerVariable::Count(register))
         };
         self.page_ins_list.insert(n, page_ins);
 
@@ -657,7 +662,7 @@ impl PageBuilder {
     fn find_best_way_to_split_insertion(
         &mut self,
         ins_node: &mut InsNode,
-        n: RegisterIndex,
+        n: InsertionIndex,
         scanner: &mut Scanner,
         eqtb: &mut Eqtb,
         logger: &mut Logger,
@@ -666,7 +671,8 @@ impl PageBuilder {
             panic!("We ensured it's there.");
         };
         let mut w;
-        let count = eqtb.integer(IntegerVariable::Count(n));
+        let register = u16::from(n);
+        let count = eqtb.integer(IntegerVariable::Count(register));
         if count <= 0 {
             w = MAX_DIMEN;
         } else {
@@ -675,7 +681,7 @@ impl PageBuilder {
                 w = w / count * 1000;
             }
         }
-        let dimen = eqtb.dimen(DimensionVariable::Dimen(n));
+        let dimen = eqtb.dimen(DimensionVariable::Dimen(register));
         if w > dimen - page_ins.height {
             w = dimen - page_ins.height;
         }
@@ -702,9 +708,9 @@ impl PageBuilder {
                 );
             }
         }
-        if eqtb.integer(IntegerVariable::Count(n)) != 1000 {
+        if eqtb.integer(IntegerVariable::Count(register)) != 1000 {
             best_height_plus_depth =
-                best_height_plus_depth / 1000 * eqtb.integer(IntegerVariable::Count(n));
+                best_height_plus_depth / 1000 * eqtb.integer(IntegerVariable::Count(register));
         }
         eqtb.page_dims.page_goal -= best_height_plus_depth;
         page_ins.typ = InsType::SplitUp {
@@ -722,7 +728,7 @@ impl PageBuilder {
     fn display_insertion_split_cost(
         ins_node: &InsNode,
         break_point: usize,
-        n: RegisterIndex,
+        n: InsertionIndex,
         w: Scaled,
         best_height_plus_depth: Dimension,
         eqtb: &Eqtb,
@@ -945,9 +951,10 @@ impl PageBuilder {
                 page_ins.ins_count = 0;
 
                 PageBuilder::ensure_vbox(n, scanner, eqtb, logger);
-                if eqtb.boks(n).is_none() {
+                let register = u16::from(n);
+                if eqtb.boks(register).is_none() {
                     eqtb.boxes
-                        .set(BoxVariable(n), Some(ListNode::new_empty_vbox()));
+                        .set(BoxVariable(register), Some(ListNode::new_empty_vbox()));
                 }
             }
         }
@@ -966,7 +973,8 @@ impl PageBuilder {
         };
         page_ins.ins_count += 1;
 
-        let mut boks = eqtb.boxes.set(BoxVariable(ins_node.number), None).unwrap();
+        let register = u16::from(ins_node.number);
+        let mut boks = eqtb.boxes.set(BoxVariable(register), None).unwrap();
         // We already encountered the last InsNode that still makes it onto the page.
         if page_ins.best_ins_count == 0 {
             hold_list.push(Node::Ins(ins_node));
@@ -983,7 +991,7 @@ impl PageBuilder {
                 };
 
                 list.append(&mut insertion);
-                eqtb.boxes.set(BoxVariable(ins_node.number), Some(boks));
+                eqtb.boxes.set(BoxVariable(register), Some(boks));
             }
         }
     }
@@ -1042,7 +1050,7 @@ impl PageBuilder {
         page_ins.best_ins_count = 0;
 
         let vbox = vpack(vlist, TargetSpec::Natural, eqtb, logger);
-        eqtb.boxes.set(BoxVariable(n), Some(vbox));
+        eqtb.boxes.set(BoxVariable(u16::from(n)), Some(vbox));
     }
 
     /// See 1023.

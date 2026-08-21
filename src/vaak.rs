@@ -67,7 +67,7 @@ use vaak::ast::{HostItem, ValueType};
 use vaak::value::Value;
 use vaak::vm::Program2;
 
-/// レジスタの数。TeX82 は 256 個（`RegisterIndex = u8`）。
+/// Vaak のホスト ABI が公開する低位 count/dimen レジスタの個数。
 const N_REGS: usize = 256;
 
 /// 組み上がったものの覚え書き。**ソースが同じなら同じ結果。**

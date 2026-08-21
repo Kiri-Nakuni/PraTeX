@@ -61,7 +61,38 @@ use std::rc::Rc;
 
 const MAX_GROUPING_DEPTH: usize = 255;
 
-pub type RegisterIndex = u8;
+/// e-TeX の通常レジスタ番号。上限は型の上限ではなく15 bitである。
+pub type RegisterIndex = u16;
+pub const MAX_REGISTER_INDEX: RegisterIndex = extended_registers::MAX_EXTENDED_REGISTER_INDEX;
+
+/// 挿入クラス番号。通常レジスタと違い、e-TeX でも 0..=254 のまま。
+pub type InsertionIndex = u8;
+pub const MAX_INSERTION_INDEX: InsertionIndex = 254;
+pub(crate) const VADJUST_INSERTION_CODE: InsertionIndex = 255;
+
+/// 書式ファイルから通常レジスタ番号を読む。型として表現できても、e-TeX の
+/// 15 bit 上限を越える値は後段のストレージへ渡さない。
+pub(crate) fn undump_register_index<'a>(
+    lines: &mut impl Iterator<Item = &'a str>,
+) -> Result<RegisterIndex, FormatError> {
+    let register = RegisterIndex::undump(lines)?;
+    if register <= MAX_REGISTER_INDEX {
+        Ok(register)
+    } else {
+        Err(FormatError::ParseError)
+    }
+}
+
+pub(crate) fn undump_insertion_index<'a>(
+    lines: &mut impl Iterator<Item = &'a str>,
+) -> Result<InsertionIndex, FormatError> {
+    let index = InsertionIndex::undump(lines)?;
+    if index <= MAX_INSERTION_INDEX {
+        Ok(index)
+    } else {
+        Err(FormatError::ParseError)
+    }
+}
 
 /// See Part 19.
 pub struct Eqtb {
@@ -1494,5 +1525,40 @@ impl Dumpable for Eqtb {
             space_factor: 0,
             last_node_info: LastNodeInfo::Other,
         })
+    }
+}
+
+#[cfg(test)]
+mod register_index_tests {
+    use super::*;
+
+    #[test]
+    fn 書式の通常レジスタ番号は十五ビットに限る() {
+        for text in ["0", "255", "256", "32767"] {
+            let mut lines = std::iter::once(text);
+            assert_eq!(
+                undump_register_index(&mut lines).unwrap(),
+                text.parse().unwrap()
+            );
+        }
+        for text in ["32768", "65535"] {
+            let mut lines = std::iter::once(text);
+            assert!(matches!(
+                undump_register_index(&mut lines),
+                Err(FormatError::ParseError)
+            ));
+        }
+    }
+
+    #[test]
+    fn 書式の挿入番号は二百五十四までに限る() {
+        let mut valid = std::iter::once("254");
+        assert_eq!(undump_insertion_index(&mut valid).unwrap(), 254);
+
+        let mut reserved = std::iter::once("255");
+        assert!(matches!(
+            undump_insertion_index(&mut reserved),
+            Err(FormatError::ParseError)
+        ));
     }
 }

@@ -1,6 +1,6 @@
 use super::{Dumpable, FormatError};
 use crate::dimension::Dimension;
-use crate::eqtb::{FontIndex, RegisterIndex, SkipVariable};
+use crate::eqtb::{undump_insertion_index, FontIndex, SkipVariable};
 use crate::nodes::noads::{ChoiceNode, Noad, StyleNode};
 use crate::nodes::{
     AdjustNode, CharNode, CloseNode, DimensionOrder, DiscNode, GlueNode, GlueRatio, GlueSign,
@@ -279,7 +279,7 @@ impl Dumpable for InsNode {
     }
 
     fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
-        let number = RegisterIndex::undump(lines)?;
+        let number = undump_insertion_index(lines)?;
         let height = Dimension::undump(lines)?;
         let depth = Dimension::undump(lines)?;
         let split_top_skip = std::rc::Rc::undump(lines)?;

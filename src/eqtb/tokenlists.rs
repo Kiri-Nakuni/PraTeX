@@ -1,3 +1,4 @@
+use super::extended_registers::ExtendedRegisterStorage;
 use super::RegisterIndex;
 
 use crate::format::{Dumpable, FormatError};
@@ -17,7 +18,7 @@ pub struct TokenListParameters {
     every_cr: Option<RcTokenList>,
     every_eof: Option<RcTokenList>,
     err_help: Option<RcTokenList>,
-    toks: Vec<Option<RcTokenList>>,
+    toks: ExtendedRegisterStorage<Option<RcTokenList>>,
 }
 
 impl TokenListParameters {
@@ -35,7 +36,7 @@ impl TokenListParameters {
             every_cr: None,
             every_eof: None,
             err_help: None,
-            toks: vec![None; RegisterIndex::MAX as usize + 1],
+            toks: ExtendedRegisterStorage::new(None),
         }
     }
 
@@ -51,7 +52,7 @@ impl TokenListParameters {
             TokenListVariable::EveryCr => &self.every_cr,
             TokenListVariable::EveryEof => &self.every_eof,
             TokenListVariable::ErrHelp => &self.err_help,
-            TokenListVariable::Toks(register) => &self.toks[register as usize],
+            TokenListVariable::Toks(register) => self.toks.get(register),
         }
     }
 
@@ -67,7 +68,7 @@ impl TokenListParameters {
             TokenListVariable::EveryCr => &mut self.every_cr,
             TokenListVariable::EveryEof => &mut self.every_eof,
             TokenListVariable::ErrHelp => &mut self.err_help,
-            TokenListVariable::Toks(register) => &mut self.toks[register as usize],
+            TokenListVariable::Toks(register) => self.toks.get_mut(register),
         }
     }
 
@@ -200,7 +201,7 @@ impl Dumpable for TokenListVariable {
             "EveryEof" => Ok(Self::EveryEof),
             "ErrHelp" => Ok(Self::ErrHelp),
             "Toks" => {
-                let n = RegisterIndex::undump(lines)?;
+                let n = super::undump_register_index(lines)?;
                 Ok(Self::Toks(n))
             }
             _ => Err(FormatError::ParseError),

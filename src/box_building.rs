@@ -5,6 +5,7 @@ use crate::eqtb::save_stack::{DiscGroupType, GroupType, SubformulaType};
 use crate::eqtb::{
     BoxVariable, ControlSequence, DimensionVariable, Eqtb, FontIndex, IntegerVariable,
     LastNodeInfo, ParShapeVariable, ParagraphShape, RegisterIndex, SkipVariable, TokenListVariable,
+    VADJUST_INSERTION_CODE,
 };
 use crate::fonts::new_character;
 use crate::glue::scan_glue;
@@ -153,7 +154,7 @@ pub fn handle_right_brace(
             let vlist = vmode.list;
             let measurement = measure_vlist(&vlist);
             // If this is a proper insertion
-            if number != 255 {
+            if number != VADJUST_INSERTION_CODE {
                 let ins_node = InsNode {
                     number,
                     insertion: vlist,
@@ -778,16 +779,7 @@ pub fn begin_insert(
     eqtb: &mut Eqtb,
     logger: &mut Logger,
 ) {
-    let mut box_number;
-    box_number = scanner.scan_register_index(eqtb, logger);
-    if box_number == 255 {
-        logger.print_err("You can't ");
-        logger.print_esc_str(b"insert");
-        logger.print_int(255);
-        let help = &["I'm changing to \\insert0; box 255 is special."];
-        logger.error(help, scanner, eqtb);
-        box_number = 0;
-    }
+    let box_number = scanner.scan_insertion_index(eqtb, logger);
     eqtb.new_save_level(
         GroupType::Insert { number: box_number },
         &scanner.input_stack,
@@ -810,7 +802,7 @@ pub fn begin_adjust(
     eqtb: &mut Eqtb,
     logger: &mut Logger,
 ) {
-    let box_number = 255;
+    let box_number = VADJUST_INSERTION_CODE;
     eqtb.new_save_level(
         GroupType::Insert { number: box_number },
         &scanner.input_stack,

@@ -1,3 +1,4 @@
+use super::extended_registers::ExtendedRegisterStorage;
 use super::RegisterIndex;
 use crate::format::{Dumpable, FormatError};
 use crate::nodes::GlueSpec;
@@ -28,8 +29,8 @@ pub struct SkipParameters {
     thin_mu_skip: Skip,
     med_mu_skip: Skip,
     thick_mu_skip: Skip,
-    skips: Vec<Skip>,
-    mu_skips: Vec<Skip>,
+    skips: ExtendedRegisterStorage<Skip>,
+    mu_skips: ExtendedRegisterStorage<Skip>,
 }
 
 impl SkipParameters {
@@ -55,8 +56,8 @@ impl SkipParameters {
             thin_mu_skip: GlueSpec::zero_glue(),
             med_mu_skip: GlueSpec::zero_glue(),
             thick_mu_skip: GlueSpec::zero_glue(),
-            skips: vec![GlueSpec::zero_glue(); RegisterIndex::MAX as usize + 1],
-            mu_skips: vec![GlueSpec::zero_glue(); RegisterIndex::MAX as usize + 1],
+            skips: ExtendedRegisterStorage::new(GlueSpec::zero_glue()),
+            mu_skips: ExtendedRegisterStorage::new(GlueSpec::zero_glue()),
         }
     }
 
@@ -80,8 +81,8 @@ impl SkipParameters {
             SkipVariable::ThinMuSkip => &self.thin_mu_skip,
             SkipVariable::MedMuSkip => &self.med_mu_skip,
             SkipVariable::ThickMuSkip => &self.thick_mu_skip,
-            SkipVariable::Skip(register) => &self.skips[register as usize],
-            SkipVariable::MuSkip(register) => &self.mu_skips[register as usize],
+            SkipVariable::Skip(register) => self.skips.get(register),
+            SkipVariable::MuSkip(register) => self.mu_skips.get(register),
         }
     }
 
@@ -105,8 +106,8 @@ impl SkipParameters {
             SkipVariable::ThinMuSkip => &mut self.thin_mu_skip,
             SkipVariable::MedMuSkip => &mut self.med_mu_skip,
             SkipVariable::ThickMuSkip => &mut self.thick_mu_skip,
-            SkipVariable::Skip(register) => &mut self.skips[register as usize],
-            SkipVariable::MuSkip(register) => &mut self.mu_skips[register as usize],
+            SkipVariable::Skip(register) => self.skips.get_mut(register),
+            SkipVariable::MuSkip(register) => self.mu_skips.get_mut(register),
         }
     }
 
@@ -301,11 +302,11 @@ impl Dumpable for SkipVariable {
             "MedMuSkip" => Self::MedMuSkip,
             "ThickMuSkip" => Self::ThickMuSkip,
             "Skip" => {
-                let n = RegisterIndex::undump(lines)?;
+                let n = super::undump_register_index(lines)?;
                 Self::Skip(n)
             }
             "MuSkip" => {
-                let n = RegisterIndex::undump(lines)?;
+                let n = super::undump_register_index(lines)?;
                 Self::MuSkip(n)
             }
             _ => return Err(FormatError::ParseError),

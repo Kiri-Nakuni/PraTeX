@@ -12,7 +12,10 @@ use crate::input::line_lexer::LexError;
 use crate::command::{
     Command, ExpandableCommand, IfTest, MacroCall, MathCommand, UnexpandableCommand,
 };
-use crate::eqtb::{ControlSequence, Eqtb, RegisterIndex};
+use crate::eqtb::{
+    ControlSequence, Eqtb, InsertionIndex, RegisterIndex, MAX_INSERTION_INDEX,
+    MAX_REGISTER_INDEX,
+};
 use crate::error::fatal_error;
 use crate::integer::{Integer, IntegerExt};
 use crate::logger::Logger;
@@ -627,13 +630,38 @@ impl Scanner {
     pub fn scan_register_index(&mut self, eqtb: &mut Eqtb, logger: &mut Logger) -> RegisterIndex {
         let value = Integer::scan_int(self, eqtb, logger);
         match RegisterIndex::try_from(value) {
-            Ok(register) => register,
-            Err(_) => {
+            Ok(register) if register <= MAX_REGISTER_INDEX => register,
+            _ => {
                 logger.print_err("Bad register code");
                 let help = &[
                     &format!(
                         "A register number must be between 0 and {}.",
-                        RegisterIndex::MAX
+                        MAX_REGISTER_INDEX
+                    ),
+                    "I changed this one to zero.",
+                ];
+                logger.int_error(value, help, self, eqtb);
+                0
+            }
+        }
+    }
+
+    /// Scan an insertion class.  e-TeX extends ordinary registers, but insertion
+    /// classes stay in 0..=254; 255 is reserved internally for `\vadjust`.
+    pub fn scan_insertion_index(
+        &mut self,
+        eqtb: &mut Eqtb,
+        logger: &mut Logger,
+    ) -> InsertionIndex {
+        let value = Integer::scan_int(self, eqtb, logger);
+        match InsertionIndex::try_from(value) {
+            Ok(index) if index <= MAX_INSERTION_INDEX => index,
+            _ => {
+                logger.print_err("Bad register code");
+                let help = &[
+                    &format!(
+                        "An insertion number must be between 0 and {}.",
+                        MAX_INSERTION_INDEX
                     ),
                     "I changed this one to zero.",
                 ];

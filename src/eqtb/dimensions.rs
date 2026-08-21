@@ -1,3 +1,4 @@
+use super::extended_registers::ExtendedRegisterStorage;
 use super::RegisterIndex;
 use crate::dimension::Dimension;
 use crate::format::{Dumpable, FormatError};
@@ -27,7 +28,7 @@ pub struct DimensionParameters {
     h_offset: Dimension,
     v_offset: Dimension,
     emergency_stretch: Dimension,
-    dimens: Vec<Dimension>,
+    dimens: ExtendedRegisterStorage<Dimension>,
 }
 
 impl DimensionParameters {
@@ -56,7 +57,7 @@ impl DimensionParameters {
             h_offset: 0,
             v_offset: 0,
             emergency_stretch: 0,
-            dimens: vec![0; RegisterIndex::MAX as usize + 1],
+            dimens: ExtendedRegisterStorage::new(0),
         }
     }
 
@@ -83,7 +84,7 @@ impl DimensionParameters {
             DimensionVariable::HOffset => &self.h_offset,
             DimensionVariable::VOffset => &self.v_offset,
             DimensionVariable::EmergencyStretch => &self.emergency_stretch,
-            DimensionVariable::Dimen(register) => &self.dimens[register as usize],
+            DimensionVariable::Dimen(register) => self.dimens.get(register),
         }
     }
 
@@ -110,7 +111,7 @@ impl DimensionParameters {
             DimensionVariable::HOffset => &mut self.h_offset,
             DimensionVariable::VOffset => &mut self.v_offset,
             DimensionVariable::EmergencyStretch => &mut self.emergency_stretch,
-            DimensionVariable::Dimen(register) => &mut self.dimens[register as usize],
+            DimensionVariable::Dimen(register) => self.dimens.get_mut(register),
         }
     }
 
@@ -319,7 +320,7 @@ impl Dumpable for DimensionVariable {
             "VOffset" => Ok(Self::VOffset),
             "EmergencyStretch" => Ok(Self::EmergencyStretch),
             "Dimen" => {
-                let n = RegisterIndex::undump(lines)?;
+                let n = super::undump_register_index(lines)?;
                 Ok(Self::Dimen(n))
             }
             _ => Err(FormatError::ParseError),

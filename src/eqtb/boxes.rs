@@ -1,4 +1,5 @@
-use super::RegisterIndex;
+use super::extended_registers::ExtendedRegisterStorage;
+use super::{undump_register_index, RegisterIndex};
 use crate::format::{Dumpable, FormatError};
 use crate::nodes::ListNode;
 
@@ -6,7 +7,7 @@ use std::io::Write;
 
 /// See 230.
 pub struct BoxParameters {
-    boxes: Vec<Option<ListNode>>,
+    boxes: ExtendedRegisterStorage<Option<ListNode>>,
 }
 
 impl BoxParameters {
@@ -14,16 +15,16 @@ impl BoxParameters {
     /// See 232.
     pub fn new() -> Self {
         Self {
-            boxes: vec![None; RegisterIndex::MAX as usize + 1],
+            boxes: ExtendedRegisterStorage::new(None),
         }
     }
 
     pub fn get(&self, dim_var: BoxVariable) -> &Option<ListNode> {
-        &self.boxes[dim_var.0 as usize]
+        self.boxes.get(dim_var.0)
     }
 
     pub fn set(&mut self, dim_var: BoxVariable, new_value: Option<ListNode>) -> Option<ListNode> {
-        std::mem::replace(&mut self.boxes[dim_var.0 as usize], new_value)
+        self.boxes.set(dim_var.0, new_value)
     }
 }
 
@@ -47,7 +48,7 @@ impl Dumpable for BoxVariable {
     }
 
     fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
-        let register = RegisterIndex::undump(lines)?;
+        let register = undump_register_index(lines)?;
         Ok(Self(register))
     }
 }
