@@ -30,6 +30,8 @@ pub enum InternalCommand {
     CurrentIfBranch,
     /// `\lastnodetype`
     LastNodeType,
+    /// `\interactionmode`
+    InteractionMode,
     InputLineNumber,
     Integer(IntegerVariable),
     Dimension(DimensionVariable),

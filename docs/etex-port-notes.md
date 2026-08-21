@@ -39,3 +39,9 @@ token-list input source を積む。読み終えた後に元のファイル入�
 rtex は既存の `\read` と stream・端末・EOF・`\endlinechar` の規則を共有し、字句器へ
 通さずに文字 token を直接作る。これにより、入力中のバックスラッシュ、波括弧、`#`、
 `%`、連続空白をそのまま保持する。
+
+## `\interactionmode`
+
+公開マニュアル §3.6 の契約どおり、現在の対話モードを内部整数0〜3として読み、同じ
+範囲の代入で `batch`、`nonstop`、`scroll`、`errorstop` を切り替える。範囲外は
+2-bit number ではないため誤りを報せ、既存の制限値走査と同様に0へ直す。

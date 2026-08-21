@@ -296,3 +296,16 @@ fn readlineは現在の分類符号を無視して一行を読む() {
     assert!(log.contains("[macro:->\\undefined{#}%  two!]"), "{log}");
     assert!(log.contains("[macro:->second!]"), "{log}");
 }
+
+#[test]
+fn interactionmodeは現在値を読み書きできる() {
+    let log = run_tex(
+        "interactionmode",
+        "\\message{[before=\\the\\interactionmode]}\n\
+         \\interactionmode=2 \\message{[scroll=\\the\\interactionmode]}\n\
+         \\interactionmode=1 \\message{[nonstop=\\the\\interactionmode]}",
+    );
+    assert!(log.contains("[before=0]"), "{log}");
+    assert!(log.contains("[scroll=2]"), "{log}");
+    assert!(log.contains("[nonstop=1]"), "{log}");
+}

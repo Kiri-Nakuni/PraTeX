@@ -148,6 +148,7 @@ fn scan_something_internal(
             InternalValue::Int(scanner.cur_if_branch_for_etex())
         }
         InternalCommand::LastNodeType => InternalValue::Int(eqtb.last_node_type_for_etex()),
+        InternalCommand::InteractionMode => InternalValue::Int(logger.interaction as i32),
         InternalCommand::InputLineNumber => InternalValue::Int(eqtb.line_number() as i32),
         InternalCommand::Toks(toks_command) => fetch_token_list_or_font_identifier(
             toks_command,

@@ -863,6 +863,10 @@ impl Eqtb {
         // ==== e-TeX の問い合わせ ====
         self.primitive_unexpandable(b"eTeXversion", UnexpandableCommand::ETeXVersion);
         self.primitive_unexpandable(
+            b"interactionmode",
+            UnexpandableCommand::Prefixable(PrefixableCommand::InteractionMode),
+        );
+        self.primitive_unexpandable(
             b"currentgrouplevel",
             UnexpandableCommand::CurrentGroupLevel,
         );

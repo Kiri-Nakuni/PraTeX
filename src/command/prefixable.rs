@@ -85,6 +85,7 @@ pub enum PrefixableCommand {
     SetBox,
     Hyphenation,
     Patterns,
+    InteractionMode,
     SetInteraction(InteractionMode),
 }
 
@@ -121,6 +122,7 @@ impl PrefixableCommand {
             }
             &Self::DefFont => Some(InternalCommand::Toks(ToksCommand::DefFont)),
             &Self::Register(value_type) => Some(InternalCommand::Register(value_type)),
+            Self::InteractionMode => Some(InternalCommand::InteractionMode),
             Self::Arith(_)
             | Self::Prefix(_)
             | Self::Let
@@ -184,6 +186,7 @@ impl PrefixableCommand {
             Self::SetBox => printer.print_esc_str(b"setbox"),
             Self::Hyphenation => printer.print_esc_str(b"hyphenation"),
             Self::Patterns => printer.print_esc_str(b"patterns"),
+            Self::InteractionMode => printer.print_esc_str(b"interactionmode"),
             Self::SetInteraction(interaction) => printer.print_esc_str(interaction.as_str()),
         }
     }
@@ -302,6 +305,9 @@ impl Dumpable for PrefixableCommand {
             Self::Patterns => {
                 writeln!(target, "Patterns")?;
             }
+            Self::InteractionMode => {
+                writeln!(target, "InteractionMode")?;
+            }
             Self::SetInteraction(interaction) => {
                 writeln!(target, "SetInteraction")?;
                 interaction.dump(target)?;
@@ -394,6 +400,7 @@ impl Dumpable for PrefixableCommand {
             "SetBox" => Ok(Self::SetBox),
             "Hyphenation" => Ok(Self::Hyphenation),
             "Patterns" => Ok(Self::Patterns),
+            "InteractionMode" => Ok(Self::InteractionMode),
             "SetInteraction" => {
                 let interaction = InteractionMode::undump(lines)?;
                 Ok(Self::SetInteraction(interaction))
@@ -789,6 +796,26 @@ pub fn prefixed_command(
                 }
                 return;
             }
+        }
+        PrefixableCommand::InteractionMode => {
+            scanner.scan_optional_equals(eqtb, logger);
+            let value = Integer::scan_int(scanner, eqtb, logger);
+            let interaction = match value {
+                0 => InteractionMode::Batch,
+                1 => InteractionMode::Nonstop,
+                2 => InteractionMode::Scroll,
+                3 => InteractionMode::ErrorStop,
+                _ => {
+                    logger.print_err("Bad interaction mode");
+                    let help = &[
+                        "The interaction mode must be between 0 and 3.",
+                        "I changed this one to zero.",
+                    ];
+                    logger.int_error(value, help, scanner, eqtb);
+                    InteractionMode::Batch
+                }
+            };
+            logger.new_interaction(interaction);
         }
         PrefixableCommand::SetInteraction(interaction) => logger.new_interaction(interaction),
     }

@@ -10,7 +10,11 @@
 - pdfTeX互換の general text 走査を `nested_scan_toks` に統一した。
 - pdfTeX公式マニュアルの公開仕様だけから `\pdfstrcmp` を実装した。
 - e-TeX公式マニュアルの公開仕様だけから `\everyeof` を実装した。
-- release **160件通過**。
+- 同じ境界から `\readline` と読み書き可能な `\interactionmode` を実装した。
+- 制御綴検索を借用検索へ分け、既存名ごとの `Vec` 一時確保を safe Rust で除いた。
+- PDF 1.4 の object / stream / xref / trailer serializer を safe Rust で作った。
+  DVIのページ走査へはまだ接続していない。
+- release **167件通過**。
 
 作業枝は `origin/codex/euptex-pdftex-integration` へ定期的に push する。
 
@@ -21,10 +25,14 @@ CTAN TDS archive を一時領域に展開している。配布物は版方へ入
 - latex-base: 2026-06-01
 - l3kernel: 2026-08-10
 
-`\pdfstrcmp` の前は `expl3-code.tex:5781`、追加後は12660行目の
-`\tex_everyeof:D` で停止していた。`\everyeof` の追加後は、Computer Modernの
-`cmr10.tfm` とCTAN `unicode-data` を一時試験環境へ補い、**36005行目の
-`\tex_readline:D`** まで進んだ。次の最小単位は e-TeX の `\readline`。
+`\pdfstrcmp`、`\everyeof`、`\readline`、`\interactionmode` を順に補い、
+`expl3-code.tex` は最後まで読み切った。latex-base、CTAN `unicode-data`、Computer
+Modern TFM、latex-fontsを一時試験環境へ完全に補うと、LaTeXは出力ルーチンまで進む。
+
+現在の停止点は `latex.ltx:21834` の `\newcount\c@bottomnumber`。割当番号266を
+`RegisterIndex = u8` が拒むためで、次の実装単位は e-TeX の拡張レジスタである。
+0〜255を密に保ち、256〜32767を疎に持つ。`\insert` の番号は別型にして0〜254の
+制限を維持する。
 
 ## 権利と調査境界
 
@@ -41,9 +49,9 @@ rtexへ繋ぐ際、`tex.print` 相当の名前・引数型・paradoxの扱いを
 
 ## 長期順序
 
-1. LaTeXが要求する e-TeX / pdfTeX互換プリミティブ
+1. e-TeX拡張レジスタとLaTeX format生成
 2. TRIP基準とsafe Rust性能改善
 3. kpathsea互換探索
-4. DVI backend分離とスタンドアロンPDF
+4. DVI backend分離、既存PDF serializer接続、スタンドアロンPDF
 5. UTF-8文字分類、JFM、和文間隔、禁則、縦組
 6. Vaakホスト関数
