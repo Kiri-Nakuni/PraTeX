@@ -72,12 +72,38 @@ impl FontInfo {
     /// `s` is either in -32768..=-1 or 1..2**27.
     /// See 560.
     pub fn from_file(
-        path: &Path,
+        logical_path: &Path,
         s: SizeIndicator,
         hyphen_char: i32,
         skew_char: i32,
     ) -> Result<Self, TfmError> {
-        let mut file = Self::open_tfm_file(path)?;
+        let file = Self::open_tfm_file(logical_path)?;
+        Self::from_open_tfm_file(logical_path, file, s, hyphen_char, skew_char)
+    }
+
+    /// Read an already-resolved physical TFM while preserving TeX's logical font identity.
+    ///
+    /// `logical_path` alone supplies `name` and `area`, because those fields are dumped into fmt,
+    /// compared for font reuse, and emitted in DVI font definitions. A machine-local TeX Live
+    /// installation path must not enter any of those formats.
+    pub(crate) fn from_resolved_file(
+        logical_path: &Path,
+        physical_path: &Path,
+        s: SizeIndicator,
+        hyphen_char: i32,
+        skew_char: i32,
+    ) -> Result<Self, TfmError> {
+        let file = File::open(physical_path).map_err(|_| TfmError::FileNotFound)?;
+        Self::from_open_tfm_file(logical_path, file, s, hyphen_char, skew_char)
+    }
+
+    fn from_open_tfm_file(
+        logical_path: &Path,
+        mut file: File,
+        s: SizeIndicator,
+        hyphen_char: i32,
+        skew_char: i32,
+    ) -> Result<Self, TfmError> {
         let tfm_header = Self::read_tfm_size_fields(&mut file)?;
         let (font_check, dsize, size) = Self::read_tfm_header_table(&mut file, &tfm_header, s)?;
         let char_data = Self::read_character_data(&mut file, &tfm_header)?;
@@ -103,8 +129,8 @@ impl FontInfo {
             _ => bchar,
         };
 
-        let name = os_str_to_bytes(path.file_name().unwrap());
-        let area = os_str_to_bytes(path.parent().unwrap_or(Path::new("")).as_os_str());
+        let name = os_str_to_bytes(logical_path.file_name().ok_or(TfmError::FileNotFound)?);
+        let area = os_str_to_bytes(logical_path.parent().unwrap_or(Path::new("")).as_os_str());
 
         Ok(Self {
             check: font_check,
@@ -691,6 +717,7 @@ impl FontInfo {
     }
 }
 
+#[derive(Clone, Copy)]
 pub enum SizeIndicator {
     /// `s` is either in -32768..=-1 or 1..2^27.
     /// Indicates that the font should be scaled by this factor where the factor

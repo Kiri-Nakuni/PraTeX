@@ -16,6 +16,7 @@ use crate::eqtb::{
     FontVariable, IntegerVariable, MathFontSize, ParagraphShape, SkipVariable, TokenListVariable,
     NULL_FONT,
 };
+use crate::file_search::FileKind;
 use crate::fonts::FontInfo;
 use crate::fonts::{find_font_dimen, scan_font_ident, SizeIndicator, TfmError};
 use crate::format::{Dumpable, FormatError};
@@ -1196,7 +1197,7 @@ fn read_font_info(
     };
     let hyphen_char = *eqtb.integers.get(IntegerVariable::DefaultHyphenChar);
     let skew_char = *eqtb.integers.get(IntegerVariable::DefaultSkewChar);
-    let font_info = match FontInfo::from_file(path, size_indicator, hyphen_char, skew_char) {
+    let font_info = match load_font_info(path, size_indicator, hyphen_char, skew_char, scanner) {
         Ok(font_info) => font_info,
         Err(err) => {
             match err {
@@ -1212,6 +1213,47 @@ fn read_font_info(
     };
     eqtb.fonts.push(font_info);
     (eqtb.fonts.len() - 1) as FontIndex
+}
+
+/// Resolve only the bytes read from the TFM; the logical path remains the font's identity.
+pub(crate) fn load_font_info(
+    logical_path: &Path,
+    size_indicator: SizeIndicator,
+    hyphen_char: i32,
+    skew_char: i32,
+    scanner: &mut Scanner,
+) -> Result<FontInfo, TfmError> {
+    let mut direct_path = logical_path.to_path_buf();
+    direct_path.set_extension("tfm");
+    match FontInfo::from_resolved_file(
+        logical_path,
+        &direct_path,
+        size_indicator,
+        hyphen_char,
+        skew_char,
+    ) {
+        Ok(font_info) => return Ok(font_info),
+        Err(TfmError::BadFormat) => return Err(TfmError::BadFormat),
+        Err(TfmError::FileNotFound) => {}
+    }
+
+    if let Ok(Some(physical_path)) = scanner.resolve_file_path(FileKind::Tfm, &direct_path) {
+        match FontInfo::from_resolved_file(
+            logical_path,
+            &physical_path,
+            size_indicator,
+            hyphen_char,
+            skew_char,
+        ) {
+            Ok(font_info) => return Ok(font_info),
+            Err(TfmError::BadFormat) => return Err(TfmError::BadFormat),
+            // A kpsewhich result may disappear before it is opened. Preserve the old fallback.
+            Err(TfmError::FileNotFound) => {}
+        }
+    }
+
+    // Missing/failed kpsewhich retains the historical `fonts/` lookup for bare names.
+    FontInfo::from_file(logical_path, size_indicator, hyphen_char, skew_char)
 }
 
 /// See 561.

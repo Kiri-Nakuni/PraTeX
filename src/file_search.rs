@@ -355,7 +355,7 @@ fn parse_output_path(mut bytes: Vec<u8>) -> Result<Option<PathBuf>, ResolveError
         ));
     }
 
-    Ok(Some(PathBuf::from(os_string_from_output(bytes))))
+    Ok(Some(PathBuf::from(os_string_from_output(bytes)?)))
 }
 
 fn trim_line_endings(mut bytes: &[u8]) -> &[u8] {
@@ -376,15 +376,18 @@ fn trim_ascii_whitespace(mut bytes: &[u8]) -> &[u8] {
 }
 
 #[cfg(unix)]
-fn os_string_from_output(bytes: Vec<u8>) -> OsString {
+fn os_string_from_output(bytes: Vec<u8>) -> Result<OsString, ResolveError> {
     use std::os::unix::ffi::OsStringExt;
-    OsString::from_vec(bytes)
+    Ok(OsString::from_vec(bytes))
 }
 
 #[cfg(not(unix))]
-fn os_string_from_output(bytes: Vec<u8>) -> OsString {
-    // Windows のプロセス出力は byte 列なので、safe Rust で表せない部分だけを置換する。
-    OsString::from(String::from_utf8_lossy(&bytes).into_owned())
+fn os_string_from_output(bytes: Vec<u8>) -> Result<OsString, ResolveError> {
+    // Windows のファイル名はUnicodeだが、プロセス出力はbyte列である。不正UTF-8を
+    // 置換すると存在しない別pathへ変わるため、境界の失敗として明示する。
+    String::from_utf8(bytes)
+        .map(OsString::from)
+        .map_err(|_| ResolveError::MalformedKpsewhichOutput("pathname is not valid UTF-8"))
 }
 
 #[derive(Debug)]
@@ -804,6 +807,31 @@ mod tests {
                 Err(ResolveError::MalformedKpsewhichOutput(_))
             ));
         }
+    }
+
+    #[cfg(not(unix))]
+    #[test]
+    fn windowsで不正utf8の出力を別pathへ置換しない() {
+        let malformed = || {
+            Ok(CommandOutput {
+                code: Some(0),
+                stdout: vec![b'C', b':', b'\\', 0xff, b'.', b't', b'e', b'x', b'\n'],
+                stderr: Vec::new(),
+            })
+        };
+        let fake = FakeExecutor::with_responses([malformed(), malformed()]);
+        let mut resolver = KpsewhichResolver::new(ResolverOptions::default(), fake.clone());
+        let logical = unique_absent_name("invalid-output.tex");
+
+        for _ in 0..2 {
+            assert!(matches!(
+                resolver.resolve(FileKind::Tex, &logical),
+                Err(ResolveError::MalformedKpsewhichOutput(
+                    "pathname is not valid UTF-8"
+                ))
+            ));
+        }
+        assert_eq!(fake.invocation_count(), 2);
     }
 
     #[test]

@@ -1,5 +1,7 @@
 mod conditional;
 pub mod expansion;
+#[cfg(test)]
+mod file_search_tests;
 pub mod input_stack;
 pub mod line_lexer;
 mod macro_expand;
@@ -17,6 +19,9 @@ use crate::eqtb::{
     MAX_REGISTER_INDEX,
 };
 use crate::error::fatal_error;
+use crate::file_search::{
+    FileKind, FileResolver, KpsewhichResolver, LogicalFileName, ResolveError,
+};
 use crate::integer::{Integer, IntegerExt};
 use crate::logger::Logger;
 use crate::macros::{show_macro_def, Macro};
@@ -90,6 +95,10 @@ pub struct Scanner {
 
     /// See 1266.
     pub after_token: Option<Token>,
+
+    /// A run-local file resolver. Its positive and negative kpsewhich cache must not leak
+    /// between TeX runs, whose environment and working directory may differ.
+    file_resolver: Box<dyn FileResolver>,
 }
 
 /// The ScannerStatus is used to catch errors caused by missing opening or
@@ -153,7 +162,32 @@ impl Scanner {
             scanning_write_tokens: false,
 
             after_token: None,
+
+            file_resolver: Box::new(KpsewhichResolver::default()),
         }
+    }
+
+    #[cfg(test)]
+    fn new_with_file_resolver(
+        first_line: Vec<u8>,
+        first_non_space_pos: usize,
+        file_resolver: Box<dyn FileResolver>,
+    ) -> Self {
+        let mut scanner = Self::new(first_line, first_non_space_pos);
+        scanner.file_resolver = file_resolver;
+        scanner
+    }
+
+    /// Resolve a logical file name without replacing that name in TeX's persistent state.
+    pub(crate) fn resolve_file_path(
+        &mut self,
+        kind: FileKind,
+        logical_path: &Path,
+    ) -> Result<Option<PathBuf>, ResolveError> {
+        let logical_name = LogicalFileName::new(logical_path.as_os_str());
+        self.file_resolver
+            .resolve(kind, &logical_name)
+            .map(|resolved| resolved.map(|file| file.into_physical_path()))
     }
 
     #[inline(never)]
@@ -753,17 +787,9 @@ impl Scanner {
         // Open the file or keep asking for input until a filename
         // has been given that can be opened.
         let input_file = loop {
-            if let Ok(file) = open_in(&path) {
+            if let Some((physical_path, file)) = self.open_input_file(&path) {
+                path = physical_path;
                 break file;
-            }
-            // If the path is only a filename, look for it in default directoy.
-            if path.parent().is_some_and(|p| p.as_os_str().is_empty()) {
-                let mut alternative_path = PathBuf::from(TEX_AREA);
-                alternative_path.push(path.file_name().unwrap());
-                if let Ok(file) = open_in(&alternative_path) {
-                    path = alternative_path;
-                    break file;
-                }
             }
             path =
                 logger.prompt_file_name(&path, "input file name", "tex", &self.input_stack, eqtb);
@@ -779,6 +805,36 @@ impl Scanner {
         }
 
         self.input_from_file(&path, input_file, eqtb, logger);
+    }
+
+    /// Keep TeX82's local fallbacks around the external search. A missing native
+    /// `kpsewhich` is therefore indistinguishable from the old local-only behavior to TeX.
+    pub(crate) fn open_input_file(&mut self, logical_path: &Path) -> Option<(PathBuf, File)> {
+        // The working directory has always won over TeXinput; keep it ahead of kpathsea too.
+        if let Ok(file) = open_in(logical_path) {
+            return Some((logical_path.to_path_buf(), file));
+        }
+
+        // Resolver failures are intentionally not changed into cached misses. For this lookup,
+        // however, they fall through to the historical TeXinput path and prompt behavior.
+        if let Ok(Some(physical_path)) = self.resolve_file_path(FileKind::Tex, logical_path) {
+            if let Ok(file) = open_in(&physical_path) {
+                return Some((physical_path, file));
+            }
+        }
+
+        // If the path is only a filename, look for it in the historical default directory.
+        if logical_path
+            .parent()
+            .is_some_and(|parent| parent.as_os_str().is_empty())
+        {
+            let file_name = logical_path.file_name()?;
+            let alternative_path = Path::new(TEX_AREA).join(file_name);
+            if let Ok(file) = open_in(&alternative_path) {
+                return Some((alternative_path, file));
+            }
+        }
+        None
     }
 
     /// Add a file to the top of the current input stack.

@@ -14,7 +14,7 @@ use crate::print::{Printer, MAX_PRINT_LINE};
 use crate::semantic_nest::{RichMode, SemanticState};
 use crate::token::Token;
 use crate::token_lists::{print_meaning, the_toks, token_show};
-use crate::{norm_min, open_in};
+use crate::norm_min;
 
 use std::io::BufReader;
 use std::path::PathBuf;
@@ -62,7 +62,7 @@ pub fn open_read_file(scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Logge
     if path.extension().is_none() {
         path.set_extension("tex");
     }
-    if let Ok(file) = open_in(&path) {
+    if let Some((_physical_path, file)) = scanner.open_input_file(&path) {
         scanner.read_file[n] = Some(BufReader::new(file));
     }
 }

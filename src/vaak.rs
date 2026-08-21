@@ -51,6 +51,7 @@
 
 use crate::command::{Command, ExpandableCommand};
 use crate::eqtb::{DimensionVariable, Eqtb, IntegerVariable, RegisterIndex};
+use crate::file_search::FileKind;
 use crate::input::Scanner;
 use crate::logger::Logger;
 use crate::os_string_from_bytes;
@@ -317,15 +318,20 @@ fn build(source: &[u8]) -> Result<Built, Vec<String>> {
 /// 拡張子が無ければ `.vaak` を足す。
 pub fn vaak_input(scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Logger) {
     let name = scanner.scan_file_name(eqtb, logger);
-    let mut path = std::path::PathBuf::from(os_string_from_bytes(name));
-    if path.extension().is_none() {
-        path.set_extension("vaak");
+    let mut logical_path = std::path::PathBuf::from(os_string_from_bytes(name));
+    if logical_path.extension().is_none() {
+        logical_path.set_extension("vaak");
     }
 
-    let (code, error) = match std::fs::read(&path) {
+    let source = scanner
+        .resolve_file_path(FileKind::Vaak, &logical_path)
+        .ok()
+        .flatten()
+        .and_then(|physical_path| std::fs::read(physical_path).ok());
+    let (code, error) = match source {
         // **生のまま渡す。** 字句器を通さないので、注釈も改行もそのまま
-        Ok(src) => run_vaak(&src, eqtb, logger),
-        Err(_) => (0, Some(format!("cannot read {}", path.display()))),
+        Some(src) => run_vaak(&src, eqtb, logger),
+        None => (0, Some(format!("cannot read {}", logical_path.display()))),
     };
     if let Some(msg) = error {
         report_error(&msg, scanner, eqtb, logger);
