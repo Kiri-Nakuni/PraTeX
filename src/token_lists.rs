@@ -220,8 +220,10 @@ fn scan_and_print_argument_for_convert_command(
         //
         // expl3 が engine の見分けに使う。中身は文字列とハッシュだけである
         ConvertCommand::PdfFileSize => {
-            let name = scanner.scan_file_name(eqtb, logger);
-            let path = std::path::PathBuf::from(String::from_utf8_lossy(&name).into_owned());
+            // `\pdffilesize` の引数は ⟨general text⟩。展開した結果を名前にする。
+            // ファイル名走査を使うと `{name}` の括弧まで名前として読んでしまう。
+            let name = scan_general_text_as_string(scanner, eqtb, logger);
+            let path = std::path::PathBuf::from(crate::os_string_from_bytes(name));
             // **無ければ空を返す。** 誤りにしない（pdfTeX と同じ）
             if let Ok(m) = std::fs::metadata(&path) {
                 string_printer.print_int(m.len() as i32);
@@ -335,7 +337,9 @@ fn scan_general_text_as_string(
     eqtb: &mut Eqtb,
     logger: &mut Logger,
 ) -> Vec<u8> {
-    let toks = scanner.scan_toks(ControlSequence::NullCs, true, eqtb, logger);
+    // `\message{before\pdfescapehex{...}after}` の内側でも呼ばれる。
+    // 外側の `def_ref` を失わない道は `nested_scan_toks` 一箇所に置く。
+    let toks = nested_scan_toks(scanner, true, eqtb, logger);
     let mut p = StringPrinter::new(eqtb.get_current_escape_character());
     token_show(&toks, &mut p, eqtb);
     p.into_string()

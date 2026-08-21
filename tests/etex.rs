@@ -203,3 +203,37 @@ fn 引用符つきのファイル名を読む() {
     assert!(log.contains("[sp=Y]"), "{log}");
     assert!(log.contains("[no=N]"), "{log}");
 }
+
+#[test]
+fn pdf文字列命令は外側の走査を壊さない() {
+    let log = run_tex(
+        "pdf文字列",
+        "\\def\\a{AZ}\\message{[before/\\pdfescapehex{\\a}/after]}\n\
+         \\message{[\\pdfmdfivesum{abc}]}",
+    );
+    assert!(log.contains("[before/415A/after]"), "{log}");
+    assert!(log.contains("[900150983CD24FB0D6963F7D28E17F72]"), "{log}");
+}
+
+#[test]
+fn pdffilesizeは一般テキストを名前として読む() {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    "pdffilesize".hash(&mut h);
+    let dir = std::env::temp_dir().join(format!("etex-{}-{:x}", std::process::id(), h.finish()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("four.bin"), b"1234").unwrap();
+    std::fs::write(
+        dir.join("t.tex"),
+        "\\catcode`\\{=1\n\\catcode`\\}=2\n\\batchmode\n\
+         \\def\\file{four.bin}\\message{[size=\\pdffilesize{\\file}]}\n\\end\n",
+    )
+    .unwrap();
+    Command::new(env!("CARGO_BIN_EXE_rtex"))
+        .arg("t.tex")
+        .current_dir(&dir)
+        .output()
+        .unwrap();
+    let log = join_log(&dir.join("t.log"));
+    assert!(log.contains("[size=4]"), "{log}");
+}
