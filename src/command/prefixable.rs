@@ -13,8 +13,8 @@ use crate::box_building::BoxContext;
 use crate::dimension::scan_normal_dimen;
 use crate::eqtb::{
     CatCode, CodeType, CodeVariable, ControlSequence, DimensionVariable, Eqtb, FontIndex,
-    FontVariable, IntegerVariable, MathFontSize, ParagraphShape, SkipVariable, TokenListVariable,
-    NULL_FONT,
+    FontVariable, IntegerVariable, KCatCode, MathFontSize, ParagraphShape, SkipVariable,
+    TokenListVariable, NULL_FONT,
 };
 use crate::file_search::FileKind;
 use crate::fonts::FontInfo;
@@ -45,6 +45,8 @@ use std::rc::Rc;
 
 // **16 は名前空間の印**（TeX82 には無い）
 const MAX_CAT_CODE: i32 = 16;
+const MIN_KCAT_CODE: i32 = 15;
+const MAX_KCAT_CODE: i32 = 20;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PrefixableCommand {
@@ -66,6 +68,7 @@ pub enum PrefixableCommand {
     BoxDimen(BoxDimension),
     ParShape,
     CatCode,
+    KCatCode,
     Code(CodeType),
     DefFamily(MathFontSize),
     SetFont(FontIndex),
@@ -114,6 +117,7 @@ impl PrefixableCommand {
             &Self::BoxDimen(box_dimension) => Some(InternalCommand::BoxDimen(box_dimension)),
             &Self::ParShape => Some(InternalCommand::ParShape),
             &Self::CatCode => Some(InternalCommand::CatCode),
+            &Self::KCatCode => Some(InternalCommand::KCatCode),
             &Self::Code(code) => Some(InternalCommand::Code(code)),
             &Self::DefFamily(math_font_size) => Some(InternalCommand::Toks(
                 ToksCommand::DefFamily(math_font_size),
@@ -162,6 +166,7 @@ impl PrefixableCommand {
             Self::BoxDimen(box_dimension) => box_dimension.display(printer),
             Self::ParShape => printer.print_esc_str(b"parshape"),
             Self::CatCode => printer.print_esc_str(b"catcode"),
+            Self::KCatCode => printer.print_esc_str(b"kcatcode"),
             Self::Code(code) => printer.print_esc_str(code.as_str()),
             &Self::DefFamily(math_font_size) => {
                 printer.print_esc_str(math_font_size.as_str().as_bytes())
@@ -246,6 +251,7 @@ impl Dumpable for PrefixableCommand {
             }
             Self::ParShape => writeln!(target, "ParShape")?,
             Self::CatCode => writeln!(target, "CatCode")?,
+            Self::KCatCode => writeln!(target, "KCatCode")?,
             Self::Code(code) => {
                 writeln!(target, "Code")?;
                 code.dump(target)?;
@@ -359,6 +365,7 @@ impl Dumpable for PrefixableCommand {
             }
             "ParShape" => Ok(Self::ParShape),
             "CatCode" => Ok(Self::CatCode),
+            "KCatCode" => Ok(Self::KCatCode),
             "Code" => {
                 let code = CodeType::undump(lines)?;
                 Ok(Self::Code(code))
@@ -554,6 +561,26 @@ pub fn prefixed_command(
                 }
             };
             eqtb.cat_code_define(chr, cat_code, global);
+        }
+        PrefixableCommand::KCatCode => {
+            let code_point = scanner.scan_unicode_code_point(eqtb, logger);
+            scanner.scan_optional_equals(eqtb, logger);
+            let value = Integer::scan_int(scanner, eqtb, logger);
+            let kcat_code = match KCatCode::try_from(value) {
+                Ok(kcat_code) if kcat_code.is_valid_for(code_point) => kcat_code,
+                _ => {
+                    logger.print_err("Invalid code (");
+                    logger.print_int(value);
+                    logger.print_str("), should be in the range ");
+                    logger.print_int(MIN_KCAT_CODE);
+                    logger.print_str("..");
+                    logger.print_int(MAX_KCAT_CODE);
+                    let help = &["I'm going to use 16 instead of that illegal code value."];
+                    logger.error(help, scanner, eqtb);
+                    KCatCode::Kanji
+                }
+            };
+            eqtb.kcat_code_define(code_point, kcat_code, global);
         }
         PrefixableCommand::Code(code) => {
             let n = scanner.scan_char_num(eqtb, logger) as usize;

@@ -192,6 +192,7 @@ fn scan_something_internal(
         }
         InternalCommand::ParShape => fetch_par_shape_size(eqtb),
         InternalCommand::CatCode => fetch_category_code(scanner, eqtb, logger),
+        InternalCommand::KCatCode => fetch_kcat_code(scanner, eqtb, logger),
         InternalCommand::Code(code) => fetch_character_code(code, scanner, eqtb, logger),
         InternalCommand::Register(value_type) => fetch_register(value_type, scanner, eqtb, logger),
     };
@@ -229,6 +230,11 @@ fn fetch_category_code(
     let chr = scanner.scan_char_num(eqtb, logger);
     let cat_code = *eqtb.cat_codes.get(chr);
     InternalValue::Int(cat_code as i32)
+}
+
+fn fetch_kcat_code(scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Logger) -> InternalValue {
+    let code_point = scanner.scan_unicode_code_point(eqtb, logger);
+    InternalValue::Int(eqtb.kcat_code(code_point) as i32)
 }
 
 /// See 414.

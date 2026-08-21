@@ -34,27 +34,78 @@ CTAN の `uptex` 項の license は `Free license not otherwise listed`。
 | **pTeX** | JFM・`\kanjiskip`・`\xkanjiskip`・`\inhibitxspcode`・`\prebreakpenalty`・`\postbreakpenalty`・`\kcatcode`・縦組（`\tate`）・dir ノード・`\jfont`/`\tfont`・`\kansuji` | **大**。ノードの種類が増え、主ループと行分割が変わる |
 | **upTeX** | 内部コードを Unicode に。`\kchar` `\kchardef` `\ucs` `\forcecjktoken`、kcatcode を Unicode 区画で引く | **大**。文字の表現そのものが変わる |
 
-## 3. UTF-8 基底にできるか — **できる。そして望ましい**
+## 3. UTF-8 基底にできるか — **入力は UTF-8、token は Unicode 1文字**
 
-依頼の指定は「可能なら UTF-8 基底」。**e-upTeX の内部は Unicode のコード点**
-（`kcatcode` の表もその前提）である。
+依頼の指定は「可能なら UTF-8 基底」。これは**入力バッファを UTF-8 のまま持つ**ことと、
+**UTF-8 の各バイトを別々の TeX token にする**ことを区別しなければならない。
 
-**rtex は既に `u8` のバイト列で動いている。** だから選択肢は二つ:
+後者では upTeX 互換にならない。upTeX の公開仕様では、CJK token は
+`kcatcode` 5 bit と文字コード 24 bit の組であり、入力時に決まった `kcatcode` を
+token 自身が保持する。同じコード点でも、途中で `\kcatcode` を変更すれば前後で異なる
+token になる。したがって UTF-8 の後続バイトを `OtherChar` として通し、後段で束ねる設計は
+採用しない。
 
-| | |
-|---|---|
-| **A. 内部を `char`（コード点）に** | e-upTeX に近い。**rtex の全域に触る**——`Token`・`eqtb`・字句・DVI |
-| **B. 内部は UTF-8 のまま、境界で復号** | **触る範囲が小さい。** 文字分類だけがコード点を見る |
+rtex では UTF-8 を一度コード点として認識し、その時点の `kcatcode` で経路を分ける。
 
-**B を推す。**
+- ASCII は現在の `u8` token と catcode 表を通す。頻出経路に Unicode 表引きを増やさない。
+- `15`（`not_cjk`）は従来どおり UTF-8 の各 byte を欧文 TeX の入力へ渡す。
+  `inputenc` と8 bit欧文の互換経路であり、ここを一文字一tokenに変えない。
+- `14`（`latin_ucs`）は U+2E7F 以下を Unicode の欧文一文字 token にする。
+  この段階には 16 bit の catcode 表も必要なので、CJK token とは分けて導入する。
+- `16`〜`20` は CJK token 一つを生成し、文字コードとその時点の `kcatcode` を保持する。
+  token 化済みの値は後の `\kcatcode` 変更で変えない。
 
-- rtex の `catcode` 表は 256 個。**UTF-8 の後続バイトは `catcode` 12（other）で通る**——
-  TeX82 の枠内で「多バイト文字は複数の other トークン」として既に扱える
-- 和文かどうかの判定（`kcatcode`）は**復号してから引く**。表はコード点で引く
-- **DVI は変わらない。** 和文フォントの符号化に合わせて書き出すだけ
+`char` は正規の Unicode scalar だけなので、upTeX が数値指定で扱う予約域や将来の
+24 bit 内部コードまで一つの型に押し込めない。文字コードの格納には範囲を検査した `u32` を使い、
+UTF-8 復号だけを scalar に限定する。JFM の文字種、文字 node、DVI の `set2` / `set3` も
+後続段階でこの一文字単位へ揃える。
 
-**upTeX が UTF-16 相当なのは、Knuth の `eqtb` が固定長の表だからである。**
-Rust なら疎な表（`HashMap` か区画表）で引けるので、**UTF-16 に落とす理由が無い。**
+`kcatcode` 表は変更可能な値を block ごとに持ち、コード点から block を二分探索する。
+`HashMap<u32, _>` を文字ごとに引く設計にはせず、ASCII 経路にも費用を持たせない。
+
+### `kcatcode` のクリーンルーム根拠
+
+データ表と振る舞いは、次の公開文書だけから起こす。upTeX 本体の change file、C実装、
+上流の回帰試験は参照しない。
+
+- `texjporg/uptex-base` の
+  [`01uptex_doc_utf8.txt`](https://github.com/texjporg/uptex-base/blob/master/01uptex_doc_utf8.txt)、
+  2026-02-15 Ver2.02。配布全体は BSD-3-Clause。
+- Unicode Consortium の
+  [`Blocks-17.0.0.txt`](https://www.unicode.org/Public/17.0.0/ucd/Blocks.txt)、
+  2025-08-01。
+- 日本語TeX開発コミュニティの
+  [pTeX manual](https://texdoc.org/serve/ptex-manual.pdf/0) にある upTeX の入力処理と
+  `kcatcode` の説明。
+
+Ver2.02 の既定表では、U+0080 以上は原則 `18` で、列挙された block と7つの例外集合だけが
+別値になる。Basic Latin は `15` であり、`14` の既定 block は無い。`14` は利用者が明示設定する
+`latin_ucs` の値として実装する。最初のデータ層は U+0000..U+10FFFF に限定し、upTeX 独自の
+0x110000 以上の内部コードは対応済みと偽らず、後続段階に残す。
+
+文書中では CJK Extension F の範囲が Extension I を内包しているため、TeX Live 2026 の
+e-upTeX `p4.1.2-u2.02` を INITEX として黒箱照合した。実装ソースや上流試験は参照していない。
+照合物は CTAN tlnet の `uptex.windows` revision 78020（2026-08-22取得、archive SHA-256
+`c878983da002f32a24a507680ccf00261a3761089ed324892668ded589bf9c0d`）で、一時領域からのみ
+実行した。
+結果は**固定された開始境界から次の開始境界まで**が代入単位だった。Unicode 17.0.0 の
+named block 346個に加え、公開文書の block 番号と一致する12個の擬似境界も持つ。
+追加境界は U+33480、U+40000..U+D0000 の各面先頭、U+E01F0 であり、通常表は358単位になる。
+U+33480..U+3FFFF は既定 `16` の独立単位、U+40000..U+DFFFF は各面ごとの既定 `18`、
+U+E0000..U+E00FF、U+E0100..U+E01EF、U+E01F0..U+EFFFF もそれぞれ独立する。通常の
+named block 間にある `No_Block` gap は直前の開始境界へ属する。
+
+F は U+2CEB0..U+2EBEF、I は U+2EBF0..U+2F7FF であり、U+2EE60 から代入しても I 全体が
+変わる。7例外集合だけは通常境界より先に判定し、非連続範囲を含めて各通し番号ごとに値と
+level を共有する。したがって U+0000..U+10FFFF の実装上の総代入単位は365個である。
+境界照合は代表点だけでなく、357個の非零開始境界と358区間の末尾をすべて局所代入で
+検査した。さらに named block の `end + 1` に生じる51個の gap 候補を全検査し、追加境界が
+U+33480 と U+E01F0 の2個だけであること、残る49個（U+E0080を含む）が直前単位に属する
+ことを確認した。各面先頭10個と合わせて追加境界は12個である。
+
+同じ照合により、`14` は対象文字コードが U+2E7F 以下のときだけ代入できることも確認した。
+それより上の `14`、および範囲外の値は診断後に `16` へ置き換えて代入される。診断文は
+U+2E7F 以下でも `15..20` と表示される。この回復も回帰試験へ固定する。
 
 ## 4. 段取り
 
@@ -69,24 +120,27 @@ Rust なら疎な表（`HashMap` か区画表）で引けるので、**UTF-16 �
 | 1d | e-TeX の糊成分問い合わせ | **済**（伸縮の係数と次数、通常糊・数式糊・式・fmt） |
 | 2 | e-TeX の**字句系** | **一部済**（`\detokenize` `\unexpanded` `\readline` `\protected` `\everyeof`。`\scantokens` は未） |
 | 3 | e-TeX の**内省** | **一部済**（`\currentgroup*` `\currentif*` `\lastnodetype` `\iffontchar`。`\fontchar*` `\showgroups` `\showtokens` 等は未） |
-| 4 | **UTF-8 の文字分類**（`\kcatcode` を疎な表で。和文かどうかだけ） | 未 |
+| 4a | **Unicode block 分類表と `\kcatcode`**（代入・group・fmtまで） | **済**（U+10FFFFまで） |
+| 4b | **UTF-8 字句解析と CJK文字 token**（`16`〜`20`を一文字一token、分類をtokenへ固定） | 未 |
+| 4c | **`latin_ucs` と16 bit欧文表**（U+2E7F、OFM Level-0へ接続） | 未 |
 | 5 | **JFM**（和文フォントの寸法表）と `\jfont` | 未 |
-| 6 | **`\kanjiskip` / `\xkanjiskip`** を主ループに差し込む | 未 |
-| 7 | **禁則**（`\prebreakpenalty` / `\postbreakpenalty` / `\inhibitxspcode`） | 未 |
-| 8 | **縦組**（dir ノード） | 未。**ここが一番遠い** |
+| 6 | **Unicode 文字 node と DVI `set2` / `set3`** | 未 |
+| 7 | **`\kanjiskip` / `\xkanjiskip`** を主ループに差し込む | 未 |
+| 8 | **禁則**（`\prebreakpenalty` / `\postbreakpenalty` / `\inhibitxspcode`） | 未 |
+| 9 | **縦組**（dir ノード） | 未。**ここが一番遠い** |
 
 **1〜3 で e-TeX 相当になる。** LaTeX2e が要求するのはほぼここまでなので、
 **「LaTeX2e が動くか」は段 3 の後で試せる。**
 
-**4〜7 で「横組みの日本語が組める」。** 段 8 は別の山である。
+**4〜8 で「横組みの日本語が組める」。** 段 9 は別の山である。
 
 ## 5. 見立て
 
 | | |
 |---|---|
 | **段 1〜3（e-TeX）** | 現実的。既存の道をほとんど壊さない |
-| **段 4〜7（横組み和文）** | 大きいが筋は通っている。JFM が要 |
-| **段 8（縦組）** | **これだけ別格。** ノードの向きが増えると行分割も箱組みも変わる |
+| **段 4〜8（横組み和文）** | 大きいが筋は通っている。JFM が要 |
+| **段 9（縦組）** | **これだけ別格。** ノードの向きが増えると行分割も箱組みも変わる |
 
 **「e-upTeX を丸ごと」を目標にすると終わらない。**
 段ごとに切って、**それぞれで LaTeX2e なり日本語組版なりが一歩進む**形にする。

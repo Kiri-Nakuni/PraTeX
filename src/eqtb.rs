@@ -6,6 +6,7 @@ mod dimensions;
 mod extended_registers;
 mod fonts;
 mod integers;
+mod kcatcodes;
 mod levels;
 mod parshape;
 mod primitives;
@@ -47,6 +48,8 @@ use fonts::FontParameters;
 pub use fonts::{FontIndex, FontVariable, MathFontSize, NULL_FONT};
 use integers::IntegerParameters;
 pub use integers::IntegerVariable;
+pub use kcatcodes::{KCatCode, KCatCodeBlock};
+use kcatcodes::KCatCodes;
 use levels::{Level, VariableLevels};
 use parshape::ParShapeParameter;
 pub use parshape::{ParShapeVariable, ParagraphShape};
@@ -141,6 +144,7 @@ pub struct Eqtb {
     pub boxes: BoxParameters,
     pub font_params: FontParameters,
     pub cat_codes: CatCodes,
+    kcat_codes: KCatCodes,
     pub codes: CodeParameters,
 
     // Region 5
@@ -212,6 +216,7 @@ impl Eqtb {
             boxes: BoxParameters::new(),
             font_params: FontParameters::new(),
             cat_codes: CatCodes::new(),
+            kcat_codes: KCatCodes::new(),
             codes: CodeParameters::new(),
             integers: IntegerParameters::new(),
             dimensions: DimensionParameters::new(),
@@ -324,6 +329,10 @@ impl Eqtb {
 
     pub fn cat_code(&self, chr: u8) -> CatCode {
         *self.cat_codes.get(chr)
+    }
+
+    pub(crate) fn kcat_code(&self, code_point: u32) -> KCatCode {
+        self.kcat_codes.get(code_point)
     }
 
     pub fn lc_code(&self, c: usize) -> i32 {
@@ -447,6 +456,17 @@ impl Eqtb {
         self.define(Definition::CatCode(chr, cat_code), global);
     }
 
+    /// upTeX の和文カテゴリーを Unicode block 単位で定義する。
+    pub(crate) fn kcat_code_define(
+        &mut self,
+        code_point: u32,
+        kcat_code: KCatCode,
+        global: bool,
+    ) {
+        let block = KCatCodes::block_for(code_point);
+        self.define(Definition::KCatCode(block, kcat_code), global);
+    }
+
     /// A code version of `define`.
     /// See 1214., 277., and 279.
     pub fn code_define(&mut self, code_var: CodeVariable, value: i32, global: bool) {
@@ -534,6 +554,10 @@ impl Eqtb {
             Definition::CatCode(chr, cat_code) => {
                 let prev_cat_code = self.cat_codes.set(chr, cat_code);
                 Definition::CatCode(chr, prev_cat_code)
+            }
+            Definition::KCatCode(block, kcat_code) => {
+                let previous = self.kcat_codes.set_block(block, kcat_code);
+                Definition::KCatCode(block, previous)
             }
             Definition::Code(code_variable, val) => {
                 let prev_val = self.codes.set(code_variable, val);
@@ -709,6 +733,13 @@ impl Eqtb {
             Variable::BoxRegister(box_var) => self.show_equivalent_of_box_variable(box_var, logger),
             Variable::Font(font_var) => self.show_equivalent_of_font_variable(font_var, logger),
             Variable::CatCode(chr) => self.show_equivalent_of_cat_code_variable(chr, logger),
+            Variable::KCatCode(block) => {
+                logger.print_esc_str(b"kcatcode");
+                logger.print_str(" block ");
+                logger.print_int(block.index() as i32);
+                logger.print_char(b'=');
+                logger.print_int(self.kcat_codes.get_block(block) as i32);
+            }
             Variable::Code(code_var) => self.show_equivalent_of_code_variable(code_var, logger),
             Variable::Integer(int_var) => self.show_equivalent_of_integer_variable(int_var, logger),
             Variable::Dimen(dimen_var) => {
@@ -1293,6 +1324,7 @@ pub enum Variable {
     BoxRegister(BoxVariable),
     Font(FontVariable),
     CatCode(u8),
+    KCatCode(KCatCodeBlock),
     Code(CodeVariable),
     Integer(IntegerVariable),
     Dimen(DimensionVariable),
@@ -1309,6 +1341,7 @@ pub enum Definition {
     BoxRegister(BoxVariable, Option<ListNode>),
     Font(FontVariable, FontIndex),
     CatCode(u8, CatCode),
+    KCatCode(KCatCodeBlock, KCatCode),
     Code(CodeVariable, i32),
     Integer(IntegerVariable, Integer),
     Dimen(DimensionVariable, Dimension),
@@ -1327,6 +1360,7 @@ impl Definition {
             Self::BoxRegister(box_variable, _) => Variable::BoxRegister(box_variable),
             Self::Font(font_variable, _) => Variable::Font(font_variable),
             Self::CatCode(chr, _) => Variable::CatCode(chr),
+            Self::KCatCode(block, _) => Variable::KCatCode(block),
             Self::Code(code_variable, _) => Variable::Code(code_variable),
             Self::Integer(integer_variable, _) => Variable::Integer(integer_variable),
             Self::Dimen(dimension_variable, _) => Variable::Dimen(dimension_variable),
@@ -1376,6 +1410,10 @@ impl Dumpable for Variable {
                 writeln!(target, "CatCode")?;
                 chr.dump(target)?;
             }
+            Self::KCatCode(block) => {
+                writeln!(target, "KCatCode")?;
+                block.dump(target)?;
+            }
             Self::Code(code_variable) => {
                 writeln!(target, "Code")?;
                 code_variable.dump(target)?;
@@ -1422,6 +1460,10 @@ impl Dumpable for Variable {
                 let chr = u8::undump(lines)?;
                 Ok(Self::CatCode(chr))
             }
+            "KCatCode" => {
+                let block = KCatCodeBlock::undump(lines)?;
+                Ok(Self::KCatCode(block))
+            }
             "Code" => {
                 let code_variable = CodeVariable::undump(lines)?;
                 Ok(Self::Code(code_variable))
@@ -1451,6 +1493,7 @@ impl Dumpable for Eqtb {
         self.boxes.dump(target)?;
         self.font_params.dump(target)?;
         self.cat_codes.dump(target)?;
+        self.kcat_codes.dump(target)?;
         self.codes.dump(target)?;
         self.integers.dump(target)?;
         self.dimensions.dump(target)?;
@@ -1475,6 +1518,7 @@ impl Dumpable for Eqtb {
         let boxes = BoxParameters::undump(lines)?;
         let font_params = FontParameters::undump(lines)?;
         let cat_codes = CatCodes::undump(lines)?;
+        let kcat_codes = KCatCodes::undump(lines)?;
         let codes = CodeParameters::undump(lines)?;
         let integers = IntegerParameters::undump(lines)?;
         let dimensions = DimensionParameters::undump(lines)?;
@@ -1505,6 +1549,7 @@ impl Dumpable for Eqtb {
             boxes,
             font_params,
             cat_codes,
+            kcat_codes,
             codes,
             integers,
             dimensions,

@@ -1,6 +1,6 @@
 # Claude への連絡
 
-更新: 2026-08-22 / 枝 `codex/vaak-general-text`
+更新: 2026-08-22 / 枝 `codex/euptex-kcatcode-table`
 
 ## 現在地
 
@@ -60,7 +60,7 @@
   `\glueshrinkorder` を内部量として追加した。通常・fil・fill・filll、負値、0係数、
   `\glueexpr`、数式糊の単位不一致回復を公式e-upTeX黒箱と照合した。
 - 既存fmtは疎表を含む新表現と非互換なので、この枝では再生成が必要。
-- release **345件通過**、失敗0（doc-test 1件は既存どおりignored）。高位6種、群、
+- release **362件通過**、失敗0（doc-test 1件は既存どおりignored）。高位6種、群、
   global、別名、範囲外、挿入境界、box 255、fmt往復に加え、mark classのpage遷移、
   `\vsplit`、保護macro、`\meaning`、境界と、shell状態の値・展開性・読み取り専用性・
   fmt往復に加え、糊成分の全次数・負値・0係数・式・数式糊回復を統合試験で固定した。
@@ -72,6 +72,27 @@ PDFのpage tree土台は `590c788`、直接PDFは `67dce96`、CRLF修正は `e92
 OS文字列境界は `221e185`、実入力のresolver接続は `ce37e7c`、Type 1 page接続は
 `5111498`、CLIからの明示map接続は `62e58e5`、TRIPのglue比率一致は `58af183`。
 一字差し戻しのsafe Rust性能改善は `f830570`。
+
+## e-upTeX `\kcatcode`（進行中）
+
+upTeXの原実装・change file・上流回帰試験を見ず、`uptex-base` の公開
+`01uptex_doc_utf8.txt` Ver2.02、Unicode 17.0.0 `Blocks.txt`、公式e-upTeXバイナリの
+black-boxだけから表を起こしている。U+0000..U+10FFFFを今回の明示範囲とし、通常の
+Unicode block 346個に、公開block番号と実機代入単位が一致する擬似境界12個を足す。
+通常358単位と非連続例外7単位を固定配列で持ち、文字ごとのHashMapは使わない。
+
+擬似境界は U+33480、U+40000..U+D0000 の各面先頭、U+E01F0。Extension F/I の重なり、
+surrogate三block、7例外集合、`latin_ucs=14` のU+2E7F制限、不正値を16へ直す回復も
+実機で確認した。357開始境界、358区間末尾、51個のnamed-block gap候補も全件照合し、
+境界・区間の不一致は0件だった。代入、group/global、保存level、内部量、fmtの厳密な
+版・個数検証までを
+この枝でまとめる。UTF-8字句をCJK一文字tokenへする変更は次の機能枝へ分けるため、
+現段階の文字指定試験は数値だけである。
+
+この枝の最終release試験は362件通過、失敗0。TRIPも二段ともexit 0で、直前の
+glue-ratio基準と `trip.dvi`、`trip.fot`、`tripos.tex`、空の `8terminal.tex` がbyte一致した。
+log/fot差は `\kcatcode` primitive追加に伴う multiletter control sequence の +1 だけで、
+DVI SHA-256は引き続き `27b79b612b94a1d2815a8747d09b6ba665f2adfb9f521fcfe7020c6347a29342`。
 
 ## ファイル名境界
 

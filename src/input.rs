@@ -725,6 +725,25 @@ impl Scanner {
         }
     }
 
+    /// upTeX の Unicode 符号位置を数値として読む。
+    ///
+    /// 公開仕様の範囲は整数値 0..=0x10FFFF であり、サロゲート域もここでは
+    /// 排除しない。既存の TeX82 用 8-bit scanner は変更しない。
+    pub fn scan_unicode_code_point(&mut self, eqtb: &mut Eqtb, logger: &mut Logger) -> u32 {
+        let value = Integer::scan_int(self, eqtb, logger);
+        if (0..=0x10_FFFF).contains(&value) {
+            value as u32
+        } else {
+            logger.print_err("Bad Unicode code point");
+            let help = &[
+                "A Unicode code point number must be between 0 and 0x10FFFF.",
+                "I changed this one to zero.",
+            ];
+            logger.int_error(value, help, self, eqtb);
+            0
+        }
+    }
+
     /// Suppress the expansion of the next token.
     /// See 369.
     pub fn suppress_expansion_of_next_token(&mut self, eqtb: &mut Eqtb, logger: &mut Logger) {

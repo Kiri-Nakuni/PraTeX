@@ -1376,6 +1376,10 @@ impl Eqtb {
             UnexpandableCommand::Prefixable(PrefixableCommand::CatCode),
         );
         self.primitive_unexpandable(
+            b"kcatcode",
+            UnexpandableCommand::Prefixable(PrefixableCommand::KCatCode),
+        );
+        self.primitive_unexpandable(
             b"mathcode",
             UnexpandableCommand::Prefixable(PrefixableCommand::Code(CodeType::MathCode)),
         );

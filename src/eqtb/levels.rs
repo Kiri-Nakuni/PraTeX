@@ -1,4 +1,5 @@
 use super::extended_registers::ExtendedRegisterStorage;
+use super::kcatcodes::KCAT_CODE_BLOCK_COUNT;
 use super::{
     BoxVariable, CodeVariable, ControlSequence, DimensionVariable, FontIndex, FontVariable,
     IntegerVariable, MathFontSize, SkipVariable, TokenListVariable, Variable,
@@ -8,6 +9,7 @@ use crate::format::{Dumpable, FormatError};
 use std::io::Write;
 
 pub type Level = usize;
+const KCAT_CODE_LEVELS_DUMP_HEADER: &str = "KCatCodeLevels/upTeX-2.02/Unicode-17.0.0";
 
 #[derive(Debug)]
 pub struct VariableLevels {
@@ -16,6 +18,7 @@ pub struct VariableLevels {
 
     // Category codes
     cat_code: [Level; 256],
+    kcat_code: [Level; KCAT_CODE_BLOCK_COUNT],
 
     // Codes
     lc_code: [Level; 256],
@@ -190,6 +193,7 @@ impl VariableLevels {
 
             // Codes
             cat_code: [0; 256],
+            kcat_code: [0; KCAT_CODE_BLOCK_COUNT],
             lc_code: [0; 256],
             uc_code: [0; 256],
             sf_code: [0; 256],
@@ -364,6 +368,7 @@ impl VariableLevels {
         match variable {
             Variable::BoxRegister(BoxVariable(n)) => *self.boxes.get(n),
             Variable::CatCode(chr) => self.cat_code[chr as usize],
+            Variable::KCatCode(block) => self.kcat_code[block.index()],
             Variable::Code(code_variable) => match code_variable {
                 CodeVariable::LcCode(n) => self.lc_code[n as usize],
                 CodeVariable::UcCode(n) => self.uc_code[n as usize],
@@ -535,6 +540,7 @@ impl VariableLevels {
         let target = match variable {
             Variable::BoxRegister(BoxVariable(n)) => self.boxes.get_mut(n),
             Variable::CatCode(chr) => &mut self.cat_code[chr as usize],
+            Variable::KCatCode(block) => &mut self.kcat_code[block.index()],
             Variable::Code(code_variable) => match code_variable {
                 CodeVariable::LcCode(n) => &mut self.lc_code[n as usize],
                 CodeVariable::UcCode(n) => &mut self.uc_code[n as usize],
@@ -713,6 +719,7 @@ impl Dumpable for VariableLevels {
 
         // Codes
         self.cat_code.dump(target)?;
+        dump_kcat_code_levels(&self.kcat_code, target)?;
         self.lc_code.dump(target)?;
         self.uc_code.dump(target)?;
         self.sf_code.dump(target)?;
@@ -885,6 +892,7 @@ impl Dumpable for VariableLevels {
 
         // Codes
         let cat_code = Dumpable::undump(lines)?;
+        let kcat_code = undump_kcat_code_levels(lines)?;
         let lc_code = Dumpable::undump(lines)?;
         let uc_code = Dumpable::undump(lines)?;
         let sf_code = Dumpable::undump(lines)?;
@@ -1051,6 +1059,7 @@ impl Dumpable for VariableLevels {
         Ok(Self {
             boxes,
             cat_code,
+            kcat_code,
             lc_code,
             uc_code,
             sf_code,
@@ -1198,5 +1207,71 @@ impl Dumpable for VariableLevels {
             err_help,
             toks,
         })
+    }
+}
+
+fn dump_kcat_code_levels(
+    levels: &[Level; KCAT_CODE_BLOCK_COUNT],
+    target: &mut impl Write,
+) -> Result<(), std::io::Error> {
+    writeln!(target, "{KCAT_CODE_LEVELS_DUMP_HEADER}")?;
+    KCAT_CODE_BLOCK_COUNT.dump(target)?;
+    for level in levels {
+        level.dump(target)?;
+    }
+    Ok(())
+}
+
+fn undump_kcat_code_levels<'a>(
+    lines: &mut impl Iterator<Item = &'a str>,
+) -> Result<[Level; KCAT_CODE_BLOCK_COUNT], FormatError> {
+    if lines.next().ok_or(FormatError::IncompleteFile)? != KCAT_CODE_LEVELS_DUMP_HEADER {
+        return Err(FormatError::ParseError);
+    }
+    if usize::undump(lines)? != KCAT_CODE_BLOCK_COUNT {
+        return Err(FormatError::ParseError);
+    }
+    let mut levels = [0; KCAT_CODE_BLOCK_COUNT];
+    for level in &mut levels {
+        *level = Level::undump(lines)?;
+    }
+    Ok(levels)
+}
+
+#[cfg(test)]
+mod kcat_code_level_format_tests {
+    use super::*;
+
+    #[test]
+    fn 和文カテゴリーレベルの書式は版と個数を検証する() {
+        let mut levels = [0; KCAT_CODE_BLOCK_COUNT];
+        levels[0] = 3;
+        levels[KCAT_CODE_BLOCK_COUNT - 1] = 7;
+        let mut dumped = Vec::new();
+        dump_kcat_code_levels(&levels, &mut dumped).unwrap();
+        let text = String::from_utf8(dumped).unwrap();
+        let mut lines = text.lines();
+        assert_eq!(undump_kcat_code_levels(&mut lines).unwrap(), levels);
+
+        let mut wrong_header = "old-levels\n0\n".lines();
+        assert!(matches!(
+            undump_kcat_code_levels(&mut wrong_header),
+            Err(FormatError::ParseError)
+        ));
+
+        let wrong_count_text = format!("{KCAT_CODE_LEVELS_DUMP_HEADER}\n0\n");
+        let mut wrong_count = wrong_count_text.lines();
+        assert!(matches!(
+            undump_kcat_code_levels(&mut wrong_count),
+            Err(FormatError::ParseError)
+        ));
+
+        let truncated_text =
+            format!("{KCAT_CODE_LEVELS_DUMP_HEADER}\n{KCAT_CODE_BLOCK_COUNT}\n0\n");
+        let mut truncated = truncated_text.lines();
+        assert!(matches!(
+            undump_kcat_code_levels(&mut truncated),
+            Err(FormatError::IncompleteFile)
+        ));
     }
 }
