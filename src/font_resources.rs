@@ -2,7 +2,7 @@
 //!
 //! 各parserはI/OやPostScript実行をせず、呼び出し側から渡されたbyte列だけを読む。
 
-mod afm;
-mod encoding;
-mod map;
-mod type1;
+pub(crate) mod afm;
+pub(crate) mod encoding;
+pub(crate) mod map;
+pub(crate) mod type1;

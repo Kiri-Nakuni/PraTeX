@@ -54,6 +54,7 @@ impl fmt::Display for AfmNumber {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct AfmDescriptor {
     pub(crate) font_name: String,
+    pub(crate) encoding_scheme: Option<String>,
     pub(crate) font_bbox: [AfmNumber; 4],
     pub(crate) italic_angle: AfmNumber,
     pub(crate) is_fixed_pitch: bool,
@@ -61,7 +62,9 @@ pub(crate) struct AfmDescriptor {
     pub(crate) x_height: Option<AfmNumber>,
     pub(crate) ascender: AfmNumber,
     pub(crate) descender: AfmNumber,
-    pub(crate) std_vw: AfmNumber,
+    /// Older public AFM files (including AMSFonts Computer Modern) omit stem
+    /// widths even though a PDF FontDescriptor ultimately needs StemV.
+    pub(crate) std_vw: Option<AfmNumber>,
     pub(crate) std_hw: Option<AfmNumber>,
 }
 
@@ -188,6 +191,7 @@ impl std::error::Error for AfmParseError {}
 #[derive(Default)]
 struct DescriptorBuilder {
     font_name: Option<String>,
+    encoding_scheme: Option<String>,
     font_bbox: Option<[AfmNumber; 4]>,
     italic_angle: Option<AfmNumber>,
     is_fixed_pitch: Option<bool>,
@@ -203,6 +207,7 @@ impl DescriptorBuilder {
     fn finish(self) -> Result<AfmDescriptor, AfmParseError> {
         Ok(AfmDescriptor {
             font_name: required(self.font_name, "FontName")?,
+            encoding_scheme: self.encoding_scheme,
             font_bbox: required(self.font_bbox, "FontBBox")?,
             italic_angle: required(self.italic_angle, "ItalicAngle")?,
             is_fixed_pitch: required(self.is_fixed_pitch, "IsFixedPitch")?,
@@ -210,7 +215,7 @@ impl DescriptorBuilder {
             x_height: self.x_height,
             ascender: required(self.ascender, "Ascender")?,
             descender: required(self.descender, "Descender")?,
-            std_vw: required(self.std_vw, "StdVW")?,
+            std_vw: self.std_vw,
             std_hw: self.std_hw,
         })
     }
@@ -230,8 +235,8 @@ pub(crate) fn parse_afm(input: &[u8]) -> Result<AfmFont, AfmParseError> {
     parse_start_line(trim_line(first_line))?;
 
     let mut descriptor = DescriptorBuilder::default();
-    let mut metrics_by_name = BTreeMap::new();
-    let mut metrics_by_code = BTreeMap::new();
+    let mut metrics_by_name: BTreeMap<String, AfmGlyphMetric> = BTreeMap::new();
+    let mut metrics_by_code: BTreeMap<u8, AfmGlyphMetric> = BTreeMap::new();
     let mut char_metrics_seen = false;
     let mut char_metrics_declared = 0usize;
     let mut char_metrics_actual = 0usize;
@@ -274,11 +279,16 @@ pub(crate) fn parse_afm(input: &[u8]) -> Result<AfmFont, AfmParseError> {
             })?;
             let metric = parse_character_metric(line, line_number)?;
             if let Some(name) = &metric.name {
-                if metrics_by_name.contains_key(name) {
-                    return Err(AfmParseError::DuplicateGlyphName {
-                        line: line_number,
-                        name: name.clone(),
-                    });
+                // AFM 4.1 permits the same glyph to appear at more than one
+                // encoded position.  Keep the first name lookup when its
+                // advance is identical, but never hide conflicting metrics.
+                if let Some(existing) = metrics_by_name.get(name) {
+                    if existing.width_x != metric.width_x {
+                        return Err(AfmParseError::DuplicateGlyphName {
+                            line: line_number,
+                            name: name.clone(),
+                        });
+                    }
                 }
             }
             if let Some(code) = metric.code {
@@ -290,7 +300,9 @@ pub(crate) fn parse_afm(input: &[u8]) -> Result<AfmFont, AfmParseError> {
                 }
             }
             if let Some(name) = &metric.name {
-                metrics_by_name.insert(name.clone(), metric.clone());
+                if !metrics_by_name.contains_key(name) {
+                    metrics_by_name.insert(name.clone(), metric.clone());
+                }
             }
             if let Some(code) = metric.code {
                 metrics_by_code.insert(code, metric);
@@ -317,6 +329,12 @@ pub(crate) fn parse_afm(input: &[u8]) -> Result<AfmFont, AfmParseError> {
                 return Err(AfmParseError::UnexpectedEndCharMetrics { line: line_number });
             }
             "FontName" => set_string(&mut descriptor.font_name, value, line_number, "FontName")?,
+            "EncodingScheme" => set_string(
+                &mut descriptor.encoding_scheme,
+                value,
+                line_number,
+                "EncodingScheme",
+            )?,
             "FontBBox" => set_bbox(&mut descriptor.font_bbox, value, line_number, "FontBBox")?,
             "ItalicAngle" => set_number(
                 &mut descriptor.italic_angle,
@@ -794,6 +812,7 @@ mod tests {
 
         let font = parse_afm(source.as_bytes()).unwrap();
         assert_eq!(font.descriptor.font_name, "Synthetic-Regular");
+        assert_eq!(font.descriptor.encoding_scheme, None);
         assert_eq!(font.descriptor.font_bbox[0].scaled(), -10_500_000);
         assert_eq!(font.descriptor.italic_angle.scaled(), -12_500_000);
         assert!(!font.descriptor.is_fixed_pitch);
@@ -842,12 +861,29 @@ mod tests {
     fn 必須記述子の欠損を名前で報告する() {
         let source = format!(
             "StartFontMetrics 4.1\n{}EndFontMetrics\n",
-            descriptor_lines().replace("StdVW 80.25\n", "")
+            descriptor_lines().replace("CapHeight 700\n", "")
         );
         assert_eq!(
             parse_afm(source.as_bytes()),
-            Err(AfmParseError::MissingDescriptorField("StdVW"))
+            Err(AfmParseError::MissingDescriptorField("CapHeight"))
         );
+    }
+
+    #[test]
+    fn 古いafmで省略されたstem幅を未指定として保つ() {
+        let source = format!(
+            "StartFontMetrics 4.1\nEncodingScheme FontSpecific\n{}EndFontMetrics\n",
+            descriptor_lines()
+                .replace("StdVW 80.25\n", "")
+                .replace("StdHW 70\n", "")
+        );
+        let font = parse_afm(source.as_bytes()).unwrap();
+        assert_eq!(
+            font.descriptor.encoding_scheme.as_deref(),
+            Some("FontSpecific")
+        );
+        assert_eq!(font.descriptor.std_vw, None);
+        assert_eq!(font.descriptor.std_hw, None);
     }
 
     #[test]
@@ -892,6 +928,18 @@ mod tests {
             parse_afm(duplicate_code.as_bytes()),
             Err(AfmParseError::DuplicateCharacterCode { code: 65, .. })
         ));
+    }
+
+    #[test]
+    fn 同じglyphを同じ幅で複数codeへ割り当てられる() {
+        let source = complete_afm(
+            "C 32 ; WX 277 ; N suppress ;\nC 128 ; WX 277 ; N suppress ;\n",
+            2,
+        );
+        let font = parse_afm(source.as_bytes()).unwrap();
+        assert_eq!(font.metrics_by_name.len(), 1);
+        assert_eq!(font.metrics_by_code.len(), 2);
+        assert_eq!(font.metrics_by_name["suppress"].code, Some(32));
     }
 
     #[test]

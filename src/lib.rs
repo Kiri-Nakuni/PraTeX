@@ -6,6 +6,8 @@ mod dimension;
 mod dvi;
 mod eqtb;
 mod error;
+#[allow(dead_code)]
+mod file_search;
 mod fonts;
 #[allow(dead_code)]
 mod font_resources;
@@ -33,6 +35,8 @@ pub mod md5;
 #[allow(dead_code)]
 mod pdf;
 mod pdf_document;
+#[allow(dead_code)]
+mod pdf_font;
 mod print;
 mod run_options;
 mod scaled;

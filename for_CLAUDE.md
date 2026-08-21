@@ -25,6 +25,15 @@
   descriptorと文字幅を読む。pdfTeX mapは `<` の部分埋込みと `<<` の全体埋込み、
   encoding、quoted specialを区別する。`.enc` はPostScriptを実行せず、限定された
   256 glyph name vectorだけを受理する。すべてsafe Rustと合成fixtureだけである。
+- 論理名と物理pathを別型にしたsafe Rustのresolver層を追加した。直接pathを優先し、
+  外部探索はshellを介さない `kpsewhich` processだけに限定する。用途別の成功・不在を
+  cacheし、起動失敗・異常終了・壊れた出力は不在へ潰さない。fmtはrtex独自形式なので
+  既定で外部探索せず、明示時だけ `--engine=rtex` を付ける。WindowsからWSLへ暗黙に
+  fallbackしない。まだ既存の `\input` / TFM経路には接続していない。
+- 検査済みPFB/AFM/map/encodingから、FontFile stream、FontDescriptor、Encoding、
+  Type1 Fontを型付きhandleで書くPDF object層を追加した。部分埋込み要求を全体埋込みへ
+  昇格せず、AFMにStemVがない場合も呼び出し側の明示fallbackだけを受ける。まだpage
+  resourceとshipoutの `define_font` には接続していない。
 - e-TeXの通常レジスタ6種（box/count/dimen/skip/muskip/toks）を0〜32767へ拡張した。
   0〜255は密配列、高位は触れた番号だけの疎表であり、すべてsafe Rustである。
 - `\insert` は通常レジスタから別型へ分離し、0〜254のままにした。box 255と
@@ -40,7 +49,7 @@
   `\glueshrinkorder` を内部量として追加した。通常・fil・fill・filll、負値、0係数、
   `\glueexpr`、数式糊の単位不一致回復を公式e-upTeX黒箱と照合した。
 - 既存fmtは疎表を含む新表現と非互換なので、この枝では再生成が必要。
-- release **280件通過**、失敗0（doc-test 1件は既存どおりignored）。高位6種、群、
+- release **306件通過**、失敗0（doc-test 1件は既存どおりignored）。高位6種、群、
   global、別名、範囲外、挿入境界、box 255、fmt往復に加え、mark classのpage遷移、
   `\vsplit`、保護macro、`\meaning`、境界と、shell状態の値・展開性・読み取り専用性・
   fmt往復に加え、糊成分の全次数・負値・0係数・式・数式糊回復を統合試験で固定した。
@@ -71,12 +80,18 @@ dynamic dispatchも避ける。sp→bpはchecked integerと10^-6 bp固定小数�
 生の `\special` はcontentへ注入せず捨てる。設計と権利境界は
 `docs/pdf-backend-notes.md`。
 
-font parser段階は公開PDF/Type 1/AFM仕様だけで完了した。PFB wrapperを外した
-ASCII/binary/ASCII payload、AFM descriptor/width、map、限定encoding vectorを構造化して
-いるが、まだPDF objectへは接続していない。通常mapの `<font.pfb` はsubset指定なので、
+font parserと型付きPDF object段階は公開PDF/Type 1/AFM仕様だけで完了した。PFB wrapperを
+外したASCII/binary/ASCII payload、AFM descriptor/width、map、限定encoding vectorを
+構造化し、FontFile/FontDescriptor/Encoding/Font objectまで書ける。通常mapの
+`<font.pfb` はsubset指定なので、
 subset未実装中に黙ってfull embedへ昇格させない。初期実測の
-`cmr10 CMR10 <cmr10.pfb` はこの制約に該当する。次はsafe Rustのresolverと型付き
-FontFile/FontDescriptor/Font objectを結ぶ。資材はTEXMFから実行時探索し、版方へコピーしない。
+`cmr10 CMR10 <cmr10.pfb` はこの制約に該当する。次はresolver、font資材load、page resource、
+shipoutを結ぶ。資材はTEXMFから実行時探索し、版方へコピーしない。
+
+公式CTAN `amsfonts.zip` は一時領域だけへ展開して実資材を照合した。`cmr10.pfb` は
+Length1/2/3 = 4287/30900/545、wrapper除去後35732 bytesでparserを通る。公開
+`cmr10.afm` は `StdVW` / `StdHW` を省略し、同一glyphを複数codeへ同じ幅で割り当てるため、
+前者を明示fallback対象、後者を同幅の場合だけ許すよう修正した。archiveは版方にない。
 
 ## LaTeX実測
 
@@ -113,10 +128,12 @@ mark class後の再実測では、公式 `latex.ltx` から `latex.fmt` の生�
 展開しない。隔離targetで二段のTRIPを走らせ、最小正規化のdiffとJSONを残す。
 
 2026-08-22のfresh実測では両段exit 0、16 pages、`tripos.tex`はbyte一致、
-`8terminal.tex`は空。DVIは公式2920 bytesに対し2924 bytesで、手元にDVItypeがないため
-意味差は未分類。log差分には拡張レジスタが意図的にTeX82の256拒否をしない差、未実装の
-memory統計、許容されるglue-set丸め差などがある。使い方と分類方針は
-`docs/trip-testing.md`。
+`8terminal.tex`は空。DVIは公式2920 bytesに対し2924 bytesだが、公開DVI仕様だけで
+全recordを分類した。+4はpreamble commentの+1と4-byte境界のpadding +3である。999 opcode、
+16 page counter、font、文字173、rule 22、special 2、push/pop各200、max stack 17、postambleは
+一致した。描画差はglue ratio丸め由来のmovement 2個だけ（最大31sp = 約0.000473pt）。
+現値をf32境界へ丸めると公式operandに一致するので、PDF枝と分けたTRIP専用枝で扱う。
+使い方と分類方針は `docs/trip-testing.md`。
 
 ## 権利と調査境界
 
