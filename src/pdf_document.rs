@@ -5,9 +5,23 @@
 //! 解決はさらに上の backend の責務である。
 
 use crate::pdf::{PdfObjectId, PdfWriter, PdfWriterError};
+use crate::pdf_font::{PdfFontError, PdfType1Font, PreparedPdfType1Font};
 
+use std::collections::BTreeSet;
 use std::fmt;
 use std::io::Write;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+const MAX_FONT_RESOURCES: usize = 4095;
+static NEXT_DOCUMENT_IDENTITY: AtomicU64 = AtomicU64::new(1);
+
+fn allocate_document_identity() -> Result<u64, PdfDocumentError> {
+    NEXT_DOCUMENT_IDENTITY
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |identity| {
+            identity.checked_add(1)
+        })
+        .map_err(|_| PdfDocumentError::DocumentIdentityExhausted)
+}
 
 /// PDF real を 10^-6 bp 単位で保持する。
 ///
@@ -81,6 +95,7 @@ impl fmt::Display for PdfCoordinate {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct PdfCourierFont {
     object: PdfObjectId,
+    document_identity: u64,
 }
 
 /// 一枚のページを構成するデータ。
@@ -88,7 +103,11 @@ pub(crate) struct PdfPage<'a> {
     pub(crate) width: PdfCoordinate,
     pub(crate) height: PdfCoordinate,
     pub(crate) courier_font: Option<PdfCourierFont>,
+    /// 配列順に `/F1`、`/F2`、…へ割り当てる Type 1 font。
+    /// Courier があるページでは Courier が `/F1` を保ち、この配列は `/F2` から始まる。
+    pub(crate) type1_fonts: &'a [PdfType1Font],
     /// 外側の `<< >>` を含まないresource dictionary entry。
+    /// Font resource は型付きfieldだけで指定し、ここに `/Font` nameを書いてはならない。
     pub(crate) resource_entries: &'a [u8],
     pub(crate) content: &'a [u8],
 }
@@ -99,11 +118,14 @@ pub(crate) struct PdfDocument<W: Write> {
     catalog: PdfObjectId,
     pages: PdfObjectId,
     page_ids: Vec<PdfObjectId>,
+    document_identity: u64,
     courier_font: Option<PdfCourierFont>,
+    type1_fonts: Vec<PdfType1Font>,
 }
 
 impl<W: Write> PdfDocument<W> {
     pub(crate) fn new(target: W) -> Result<Self, PdfDocumentError> {
+        let document_identity = allocate_document_identity()?;
         let mut writer = PdfWriter::new(target)?;
         let catalog = writer.reserve_object()?;
         let pages = writer.reserve_object()?;
@@ -112,7 +134,9 @@ impl<W: Write> PdfDocument<W> {
             catalog,
             pages,
             page_ids: Vec::new(),
+            document_identity,
             courier_font: None,
+            type1_fonts: Vec::new(),
         })
     }
 
@@ -126,8 +150,25 @@ impl<W: Write> PdfDocument<W> {
             object,
             b"<<\n/Type /Font\n/Subtype /Type1\n/BaseFont /Courier\n/Encoding /WinAnsiEncoding\n>>",
         )?;
-        let font = PdfCourierFont { object };
+        let font = PdfCourierFont {
+            object,
+            document_identity: self.document_identity,
+        };
         self.courier_font = Some(font);
+        Ok(font)
+    }
+
+    /// 準備済みType 1 font object群をこの文書へ一度だけ書き、page用handleを返す。
+    ///
+    /// 返したhandleはfont sizeを含まないため、任意のpageとsizeから繰り返し参照できる。
+    pub(crate) fn add_type1_font(
+        &mut self,
+        prepared: PreparedPdfType1Font<'_>,
+    ) -> Result<PdfType1Font, PdfDocumentError> {
+        let font = prepared
+            .write(&mut self.writer)?
+            .bind_to_document(self.document_identity);
+        self.type1_fonts.push(font);
         Ok(font)
     }
 
@@ -138,6 +179,7 @@ impl<W: Write> PdfDocument<W> {
                 height: page.height,
             });
         }
+        self.validate_page_font_resources(&page)?;
 
         let page_id = self.writer.reserve_object()?;
         let content_id = self.writer.reserve_object()?;
@@ -150,11 +192,7 @@ impl<W: Write> PdfDocument<W> {
             page.height,
         )
         .into_bytes();
-        if let Some(font) = page.courier_font {
-            body.extend_from_slice(
-                format!("\n/Font <<\n/F1 {} 0 R\n>>", font.object.number()).as_bytes(),
-            );
-        }
+        append_font_resources(&mut body, page.courier_font, page.type1_fonts);
         if !page.resource_entries.is_empty() {
             body.push(b'\n');
             body.extend_from_slice(page.resource_entries);
@@ -164,6 +202,38 @@ impl<W: Write> PdfDocument<W> {
         );
         self.writer.write_object(page_id, &body)?;
         self.page_ids.push(page_id);
+        Ok(())
+    }
+
+    fn validate_page_font_resources(&self, page: &PdfPage<'_>) -> Result<(), PdfDocumentError> {
+        if raw_resources_contain_font_name(page.resource_entries) {
+            return Err(PdfDocumentError::RawFontResourceCollision);
+        }
+        let font_count = page
+            .type1_fonts
+            .len()
+            .checked_add(usize::from(page.courier_font.is_some()))
+            .ok_or(PdfDocumentError::TooManyFontResources(usize::MAX))?;
+        if font_count > MAX_FONT_RESOURCES {
+            return Err(PdfDocumentError::TooManyFontResources(font_count));
+        }
+        if let Some(courier) = page.courier_font {
+            if courier.document_identity != self.document_identity
+                || self.courier_font != Some(courier)
+            {
+                return Err(PdfDocumentError::UnknownCourierFont(courier));
+            }
+        }
+
+        let mut seen = BTreeSet::new();
+        for &font in page.type1_fonts {
+            if !font.belongs_to(self.document_identity) || !self.type1_fonts.contains(&font) {
+                return Err(PdfDocumentError::UnknownType1Font(font));
+            }
+            if !seen.insert(font.object().number()) {
+                return Err(PdfDocumentError::DuplicateType1Font(font));
+            }
+        }
         Ok(())
     }
 
@@ -192,24 +262,192 @@ impl<W: Write> PdfDocument<W> {
     }
 }
 
+fn append_font_resources(
+    body: &mut Vec<u8>,
+    courier: Option<PdfCourierFont>,
+    type1_fonts: &[PdfType1Font],
+) {
+    if courier.is_none() && type1_fonts.is_empty() {
+        return;
+    }
+    body.extend_from_slice(b"\n/Font <<");
+    let mut resource_number = 1usize;
+    if let Some(courier) = courier {
+        body.extend_from_slice(
+            format!("\n/F{resource_number} {} 0 R", courier.object.number()).as_bytes(),
+        );
+        resource_number += 1;
+    }
+    for font in type1_fonts {
+        body.extend_from_slice(
+            format!("\n/F{resource_number} {} 0 R", font.object().number()).as_bytes(),
+        );
+        resource_number += 1;
+    }
+    body.extend_from_slice(b"\n>>");
+}
+
+/// Raw resource entryを保ったままFontだけ型付き側へ一本化するための限定scanner。
+/// Comment、literal string、hex string内の`/Font`はresource keyではないので飛ばす。
+fn raw_resources_contain_font_name(bytes: &[u8]) -> bool {
+    let mut cursor = 0;
+    while cursor < bytes.len() {
+        match bytes[cursor] {
+            b'%' => {
+                cursor += 1;
+                while cursor < bytes.len() && !matches!(bytes[cursor], b'\r' | b'\n') {
+                    cursor += 1;
+                }
+            }
+            b'(' => cursor = skip_pdf_literal_string(bytes, cursor + 1),
+            b'<' if bytes.get(cursor + 1) != Some(&b'<') => {
+                cursor += 1;
+                while cursor < bytes.len() && bytes[cursor] != b'>' {
+                    cursor += 1;
+                }
+                cursor = cursor.saturating_add(1).min(bytes.len());
+            }
+            b'/' => {
+                let start = cursor + 1;
+                cursor = start;
+                while cursor < bytes.len()
+                    && !is_pdf_whitespace(bytes[cursor])
+                    && !is_pdf_delimiter(bytes[cursor])
+                {
+                    cursor += 1;
+                }
+                if pdf_name_equals(&bytes[start..cursor], b"Font") {
+                    return true;
+                }
+            }
+            _ => cursor += 1,
+        }
+    }
+    false
+}
+
+fn skip_pdf_literal_string(bytes: &[u8], mut cursor: usize) -> usize {
+    let mut depth = 1usize;
+    while cursor < bytes.len() && depth != 0 {
+        match bytes[cursor] {
+            b'\\' => {
+                cursor += 1;
+                if bytes.get(cursor) == Some(&b'\r') {
+                    cursor += 1;
+                    if bytes.get(cursor) == Some(&b'\n') {
+                        cursor += 1;
+                    }
+                } else if cursor < bytes.len() {
+                    cursor += 1;
+                }
+            }
+            b'(' => {
+                depth += 1;
+                cursor += 1;
+            }
+            b')' => {
+                depth -= 1;
+                cursor += 1;
+            }
+            _ => cursor += 1,
+        }
+    }
+    cursor
+}
+
+fn pdf_name_equals(encoded: &[u8], expected: &[u8]) -> bool {
+    let mut decoded = Vec::with_capacity(encoded.len());
+    let mut cursor = 0;
+    while cursor < encoded.len() {
+        if encoded[cursor] == b'#' && cursor + 2 < encoded.len() {
+            if let (Some(high), Some(low)) = (
+                hex_value(encoded[cursor + 1]),
+                hex_value(encoded[cursor + 2]),
+            ) {
+                decoded.push((high << 4) | low);
+                cursor += 3;
+                continue;
+            }
+        }
+        decoded.push(encoded[cursor]);
+        cursor += 1;
+    }
+    decoded == expected
+}
+
+fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
+fn is_pdf_whitespace(byte: u8) -> bool {
+    matches!(byte, b'\0' | b'\t' | b'\n' | 0x0c | b'\r' | b' ')
+}
+
+fn is_pdf_delimiter(byte: u8) -> bool {
+    matches!(
+        byte,
+        b'(' | b')' | b'<' | b'>' | b'[' | b']' | b'{' | b'}' | b'/' | b'%'
+    )
+}
+
 #[derive(Debug)]
 pub(crate) enum PdfDocumentError {
     Writer(PdfWriterError),
+    Font(PdfFontError),
+    DocumentIdentityExhausted,
     CoordinateOverflow,
     InvalidPageSize {
         width: PdfCoordinate,
         height: PdfCoordinate,
     },
+    UnknownCourierFont(PdfCourierFont),
+    UnknownType1Font(PdfType1Font),
+    DuplicateType1Font(PdfType1Font),
+    TooManyFontResources(usize),
+    RawFontResourceCollision,
 }
 
 impl fmt::Display for PdfDocumentError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Writer(error) => error.fmt(formatter),
+            Self::Font(error) => error.fmt(formatter),
+            Self::DocumentIdentityExhausted => {
+                formatter.write_str("PDF document identity space is exhausted")
+            }
             Self::CoordinateOverflow => formatter.write_str("PDF coordinate overflow"),
             Self::InvalidPageSize { width, height } => {
                 write!(formatter, "invalid PDF page size {width} by {height}")
             }
+            Self::UnknownCourierFont(font) => write!(
+                formatter,
+                "Courier font object {} does not belong to this PDF document",
+                font.object.number()
+            ),
+            Self::UnknownType1Font(font) => write!(
+                formatter,
+                "Type 1 font object {} does not belong to this PDF document",
+                font.object().number()
+            ),
+            Self::DuplicateType1Font(font) => write!(
+                formatter,
+                "Type 1 font object {} occurs twice in one page resource",
+                font.object().number()
+            ),
+            Self::TooManyFontResources(count) => {
+                write!(
+                    formatter,
+                    "page has {count} font resources; PDF 1.4 permits 4095"
+                )
+            }
+            Self::RawFontResourceCollision => formatter.write_str(
+                "raw PDF resource entries must not define /Font; use typed font resources",
+            ),
         }
     }
 }
@@ -218,7 +456,15 @@ impl std::error::Error for PdfDocumentError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Writer(error) => Some(error),
-            Self::CoordinateOverflow | Self::InvalidPageSize { .. } => None,
+            Self::Font(error) => Some(error),
+            Self::DocumentIdentityExhausted
+            | Self::CoordinateOverflow
+            | Self::InvalidPageSize { .. }
+            | Self::UnknownCourierFont(_)
+            | Self::UnknownType1Font(_)
+            | Self::DuplicateType1Font(_)
+            | Self::TooManyFontResources(_)
+            | Self::RawFontResourceCollision => None,
         }
     }
 }
@@ -229,9 +475,78 @@ impl From<PdfWriterError> for PdfDocumentError {
     }
 }
 
+impl From<PdfFontError> for PdfDocumentError {
+    fn from(error: PdfFontError) -> Self {
+        Self::Font(error)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{PdfCoordinate, PdfDocument, PdfDocumentError, PdfPage};
+    use crate::font_resources::afm::{AfmDescriptor, AfmFont, AfmGlyphMetric, AfmNumber};
+    use crate::font_resources::map::EmbedPolicy;
+    use crate::font_resources::type1::Type1FontProgram;
+    use crate::pdf_font::{
+        prepare_type1_font, MissingStemVPolicy, PdfType1Font, PdfType1FontRequest,
+    };
+
+    use std::collections::BTreeMap;
+
+    fn afm_number(integer: i64) -> AfmNumber {
+        AfmNumber::checked_from_integer(integer).unwrap()
+    }
+
+    fn 合成type1を加える(document: &mut PdfDocument<Vec<u8>>, name: &str) -> PdfType1Font {
+        let program = Type1FontProgram {
+            bytes: b"abc".to_vec(),
+            length1: 1,
+            length2: 1,
+            length3: 1,
+        };
+        let metric = AfmGlyphMetric {
+            code: Some(65),
+            name: Some("A".to_owned()),
+            width_x: afm_number(500),
+        };
+        let mut metrics_by_name = BTreeMap::new();
+        metrics_by_name.insert("A".to_owned(), metric.clone());
+        let mut metrics_by_code = BTreeMap::new();
+        metrics_by_code.insert(65, metric);
+        let afm = AfmFont {
+            descriptor: AfmDescriptor {
+                font_name: name.to_owned(),
+                encoding_scheme: Some("FontSpecific".to_owned()),
+                font_bbox: [
+                    afm_number(-10),
+                    afm_number(-200),
+                    afm_number(1000),
+                    afm_number(900),
+                ],
+                italic_angle: AfmNumber::ZERO,
+                is_fixed_pitch: false,
+                cap_height: afm_number(700),
+                x_height: Some(afm_number(450)),
+                ascender: afm_number(750),
+                descender: afm_number(-250),
+                std_vw: Some(afm_number(80)),
+                std_hw: None,
+            },
+            metrics_by_name,
+            metrics_by_code,
+        };
+        let prepared = prepare_type1_font(PdfType1FontRequest {
+            program: &program,
+            afm: &afm,
+            encoding: None,
+            embedding: EmbedPolicy::Full,
+            descriptor_flags: 6,
+            missing_stem_v: MissingStemVPolicy::Reject,
+            used_codes: &[65],
+        })
+        .unwrap();
+        document.add_type1_font(prepared).unwrap()
+    }
 
     #[test]
     fn scaled_pointを固定小数bpへ変換する() {
@@ -251,6 +566,7 @@ mod tests {
                 width: PdfCoordinate(612_000_000),
                 height: PdfCoordinate(792_000_000),
                 courier_font: None,
+                type1_fonts: &[],
                 resource_entries: b"",
                 content: b"0 0 10 20 re f\n",
             })
@@ -294,6 +610,7 @@ mod tests {
                     width: PdfCoordinate(10_000_000),
                     height: PdfCoordinate(20_000_000),
                     courier_font: None,
+                    type1_fonts: &[],
                     resource_entries: b"/ProcSet [/PDF]",
                     content,
                 })
@@ -323,6 +640,7 @@ mod tests {
                 width: PdfCoordinate(0),
                 height: PdfCoordinate(10_000_000),
                 courier_font: None,
+                type1_fonts: &[],
                 resource_entries: b"",
                 content: b"",
             })
@@ -340,6 +658,7 @@ mod tests {
                 width: PdfCoordinate(10_000_000),
                 height: PdfCoordinate(20_000_000),
                 courier_font: Some(courier),
+                type1_fonts: &[],
                 resource_entries: b"",
                 content: b"BT /F1 10 Tf (A) Tj ET",
             })
@@ -361,5 +680,171 @@ mod tests {
                 .count(),
             1
         );
+    }
+
+    #[test]
+    fn courierの後へtype1を配列順に割り当てる() {
+        let mut document = PdfDocument::new(Vec::new()).unwrap();
+        let courier = document.add_standard_courier_font().unwrap();
+        let first = 合成type1を加える(&mut document, "FirstSynthetic");
+        let second = 合成type1を加える(&mut document, "SecondSynthetic");
+        let fonts = [first, second];
+        document
+            .add_page(PdfPage {
+                width: PdfCoordinate(10_000_000),
+                height: PdfCoordinate(20_000_000),
+                courier_font: Some(courier),
+                type1_fonts: &fonts,
+                resource_entries: b"",
+                content: b"BT /F1 10 Tf (A) Tj /F2 10 Tf (A) Tj /F3 10 Tf (A) Tj ET",
+            })
+            .unwrap();
+        let pdf = document.finish().unwrap();
+        assert!(pdf
+            .windows(b"/Font <<\n/F1 3 0 R\n/F2 6 0 R\n/F3 9 0 R\n>>".len())
+            .any(|window| window == b"/Font <<\n/F1 3 0 R\n/F2 6 0 R\n/F3 9 0 R\n>>"));
+    }
+
+    #[test]
+    fn 同じtype1handleをpage間で参照してもobjectを書き直さない() {
+        let mut document = PdfDocument::new(Vec::new()).unwrap();
+        let font = 合成type1を加える(&mut document, "ReusableSynthetic");
+        for content in [b"first".as_slice(), b"second".as_slice()] {
+            document
+                .add_page(PdfPage {
+                    width: PdfCoordinate(10_000_000),
+                    height: PdfCoordinate(20_000_000),
+                    courier_font: None,
+                    type1_fonts: &[font],
+                    resource_entries: b"",
+                    content,
+                })
+                .unwrap();
+        }
+        let pdf = document.finish().unwrap();
+        assert_eq!(
+            pdf.windows(b"/F1 5 0 R".len())
+                .filter(|window| *window == b"/F1 5 0 R")
+                .count(),
+            2
+        );
+        assert_eq!(
+            pdf.windows(b"5 0 obj\n".len())
+                .filter(|window| *window == b"5 0 obj\n")
+                .count(),
+            1
+        );
+        assert_eq!(
+            pdf.windows(b"/BaseFont /ReusableSynthetic".len())
+                .filter(|window| *window == b"/BaseFont /ReusableSynthetic")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn page内の重複handleとraw_font資源を拒む() {
+        let mut document = PdfDocument::new(Vec::new()).unwrap();
+        let font = 合成type1を加える(&mut document, "UniqueSynthetic");
+        let duplicate = document
+            .add_page(PdfPage {
+                width: PdfCoordinate(10_000_000),
+                height: PdfCoordinate(20_000_000),
+                courier_font: None,
+                type1_fonts: &[font, font],
+                resource_entries: b"",
+                content: b"",
+            })
+            .unwrap_err();
+        assert!(matches!(
+            duplicate,
+            PdfDocumentError::DuplicateType1Font(found) if found == font
+        ));
+
+        let raw_font = document
+            .add_page(PdfPage {
+                width: PdfCoordinate(10_000_000),
+                height: PdfCoordinate(20_000_000),
+                courier_font: None,
+                type1_fonts: &[],
+                resource_entries: b"/#46ont <<>>",
+                content: b"",
+            })
+            .unwrap_err();
+        assert!(matches!(
+            raw_font,
+            PdfDocumentError::RawFontResourceCollision
+        ));
+        assert_eq!(document.page_count(), 0);
+
+        document
+            .add_page(PdfPage {
+                width: PdfCoordinate(10_000_000),
+                height: PdfCoordinate(20_000_000),
+                courier_font: None,
+                type1_fonts: &[],
+                resource_entries: b"/Properties << /Note (escaped /Font is text) >>",
+                content: b"",
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn object番号が同じでも別文書のtype1handleを拒む() {
+        let mut other = PdfDocument::new(Vec::new()).unwrap();
+        let foreign = 合成type1を加える(&mut other, "ForeignSynthetic");
+
+        let mut document = PdfDocument::new(Vec::new()).unwrap();
+        let local = 合成type1を加える(&mut document, "LocalSynthetic");
+        assert_eq!(foreign.object(), local.object());
+        let error = document
+            .add_page(PdfPage {
+                width: PdfCoordinate(10_000_000),
+                height: PdfCoordinate(20_000_000),
+                courier_font: None,
+                type1_fonts: &[foreign],
+                resource_entries: b"",
+                content: b"",
+            })
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            PdfDocumentError::UnknownType1Font(found) if found == foreign
+        ));
+
+        document
+            .add_page(PdfPage {
+                width: PdfCoordinate(10_000_000),
+                height: PdfCoordinate(20_000_000),
+                courier_font: None,
+                type1_fonts: &[local],
+                resource_entries: b"",
+                content: b"",
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn object番号が同じでも別文書のcourier_handleを拒む() {
+        let mut other = PdfDocument::new(Vec::new()).unwrap();
+        let foreign = other.add_standard_courier_font().unwrap();
+
+        let mut document = PdfDocument::new(Vec::new()).unwrap();
+        let local = document.add_standard_courier_font().unwrap();
+        assert_eq!(foreign.object, local.object);
+        let error = document
+            .add_page(PdfPage {
+                width: PdfCoordinate(10_000_000),
+                height: PdfCoordinate(20_000_000),
+                courier_font: Some(foreign),
+                type1_fonts: &[],
+                resource_entries: b"",
+                content: b"",
+            })
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            PdfDocumentError::UnknownCourierFont(found) if found == foreign
+        ));
     }
 }

@@ -76,7 +76,35 @@ pub(crate) struct PreparedPdfType1Font<'a> {
     encoding_body: Option<Vec<u8>>,
     first_char: u8,
     last_char: u8,
+    used_codes: PdfCodeMask,
     widths: Vec<AfmNumber>,
+}
+
+/// Content stream へ出力してよい一 byte code の集合。
+///
+/// `/Widths` は `/FirstChar` から `/LastChar` までの連続配列だが、実際の使用集合は
+/// 疎でよい。固定長にして、書き込み済み handle の `Copy` 性を保つ。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct PdfCodeMask([u64; 4]);
+
+impl PdfCodeMask {
+    const EMPTY: Self = Self([0; 4]);
+
+    fn insert(&mut self, code: u8) -> bool {
+        let code = usize::from(code);
+        let word = code / 64;
+        let bit = 1_u64 << (code % 64);
+        let was_present = self.0[word] & bit != 0;
+        self.0[word] |= bit;
+        !was_present
+    }
+
+    fn contains(self, code: u8) -> bool {
+        let code = usize::from(code);
+        let word = code / 64;
+        let bit = 1_u64 << (code % 64);
+        self.0[word] & bit != 0
+    }
 }
 
 /// Page resource から参照する、書き込み済み Type 1 font の型付き handle。
@@ -85,6 +113,9 @@ pub(crate) struct PdfType1Font {
     object: PdfObjectId,
     first_char: u8,
     last_char: u8,
+    used_codes: PdfCodeMask,
+    /// PDF object number is only document-local, so ownership needs a separate identity.
+    document_identity: u64,
 }
 
 impl PdfType1Font {
@@ -99,6 +130,20 @@ impl PdfType1Font {
     pub(crate) fn last_char(self) -> u8 {
         self.last_char
     }
+
+    /// `prepare_type1_font` の `used_codes` に明示された code だけを許す。
+    pub(crate) fn contains_code(self, code: u8) -> bool {
+        self.used_codes.contains(code)
+    }
+
+    pub(crate) fn belongs_to(self, document_identity: u64) -> bool {
+        self.document_identity == document_identity
+    }
+
+    pub(crate) fn bind_to_document(mut self, document_identity: u64) -> Self {
+        self.document_identity = document_identity;
+        self
+    }
 }
 
 /// I/O を行わず、Type 1 font object 四種に必要な値を検査・正規化する。
@@ -112,7 +157,7 @@ pub(crate) fn prepare_type1_font(
     validate_font_bbox(request.afm)?;
     let lengths = validate_program(request.program)?;
     let stem_v = resolve_stem_v(request.afm, request.missing_stem_v)?;
-    let (first_char, last_char, widths) =
+    let (first_char, last_char, used_codes, widths) =
         collect_widths(request.afm, request.encoding, request.used_codes)?;
     validate_pdf_numbers(request.afm, stem_v, &widths)?;
     validate_pdf_name(
@@ -142,6 +187,7 @@ pub(crate) fn prepare_type1_font(
         encoding_body,
         first_char,
         last_char,
+        used_codes,
         widths,
     })
 }
@@ -205,6 +251,9 @@ impl PreparedPdfType1Font<'_> {
             object: font,
             first_char: self.first_char,
             last_char: self.last_char,
+            used_codes: self.used_codes,
+            // `PdfDocument::add_type1_font` replaces this before exposing the handle.
+            document_identity: 0,
         })
     }
 }
@@ -342,34 +391,28 @@ fn collect_widths(
     afm: &AfmFont,
     encoding: Option<&EncodingVector>,
     used_codes: &[u8],
-) -> Result<(u8, u8, Vec<AfmNumber>), PdfFontError> {
+) -> Result<(u8, u8, PdfCodeMask, Vec<AfmNumber>), PdfFontError> {
     if used_codes.is_empty() {
         return Err(PdfFontError::EmptyCodeSet);
     }
 
-    let mut used = [false; 256];
+    let mut used = PdfCodeMask::EMPTY;
+    let mut first: Option<u8> = None;
+    let mut last: Option<u8> = None;
     for &code in used_codes {
-        let slot = &mut used[usize::from(code)];
-        if *slot {
+        if !used.insert(code) {
             return Err(PdfFontError::DuplicateUsedCode(code));
         }
-        *slot = true;
+        first = Some(first.map_or(code, |first| first.min(code)));
+        last = Some(last.map_or(code, |last| last.max(code)));
     }
-    let first = used
-        .iter()
-        .position(|is_used| *is_used)
-        .and_then(|code| u8::try_from(code).ok())
-        .ok_or(PdfFontError::EmptyCodeSet)?;
-    let last = used
-        .iter()
-        .rposition(|is_used| *is_used)
-        .and_then(|code| u8::try_from(code).ok())
-        .ok_or(PdfFontError::EmptyCodeSet)?;
+    let first = first.ok_or(PdfFontError::EmptyCodeSet)?;
+    let last = last.ok_or(PdfFontError::EmptyCodeSet)?;
 
     let mut widths = Vec::with_capacity(usize::from(last - first) + 1);
     for code in first..=last {
         let (width, glyph_name) = lookup_width(afm, encoding, code)?;
-        match (width, used[usize::from(code)]) {
+        match (width, used.contains(code)) {
             (Some(width), _) => widths.push(width),
             (None, true) => {
                 return Err(PdfFontError::MissingGlyphMetric { code, glyph_name });
@@ -377,7 +420,7 @@ fn collect_widths(
             (None, false) => widths.push(AfmNumber::ZERO),
         }
     }
-    Ok((first, last, widths))
+    Ok((first, last, used, widths))
 }
 
 fn lookup_width(

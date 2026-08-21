@@ -4,5 +4,6 @@
 
 pub(crate) mod afm;
 pub(crate) mod encoding;
+pub(crate) mod loader;
 pub(crate) mod map;
 pub(crate) mod type1;

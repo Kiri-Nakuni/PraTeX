@@ -28,7 +28,7 @@ mod output_backend;
 #[path = "pdf_backend.rs"]
 mod pdf_backend;
 
-use output_backend::{DviBackend, ShipoutBackend};
+use output_backend::{DviBackend, OutputFontDefinition, ShipoutBackend};
 use pdf_backend::PdfBackend;
 
 type DviFileBackend = DviBackend<BufWriter<File>>;
@@ -549,13 +549,31 @@ impl<B: ShipoutBackend> Document<B> {
             self.defined_fonts.resize(font_position + 1, false);
         }
         if !self.defined_fonts[font_position] {
-            let checksum = eqtb.fonts[font_position].check;
-            let at_size = eqtb.fonts[font_position].size;
-            let design_size = eqtb.fonts[font_position].dsize;
-            let area = &eqtb.fonts[font_position].area;
-            let name = &eqtb.fonts[font_position].name;
+            let font = &eqtb.fonts[font_position];
+            // TFM は8-bitなので最大256個。font定義時だけstackへ集め、backendが同期的に
+            // PDF maskへ写す。DVI backendはこの付帯情報を読まない。
+            let mut existing_codes = [0_u8; 256];
+            let mut existing_code_count = 0;
+            if font.bc <= font.ec {
+                for code in font.bc..=font.ec {
+                    if font.char_exists(code) {
+                        existing_codes[existing_code_count] = code;
+                        existing_code_count += 1;
+                    }
+                }
+            }
             self.backend
-                .define_font(font_number, checksum, at_size, design_size, area, name)
+                .define_font(OutputFontDefinition {
+                    font_number,
+                    checksum: font.check,
+                    at_size: font.size,
+                    design_size: font.dsize,
+                    area: &font.area,
+                    name: &font.name,
+                    first_char: font.bc,
+                    last_char: font.ec,
+                    existing_codes: &existing_codes[..existing_code_count],
+                })
                 .unwrap();
             self.defined_fonts[font_position] = true;
         }
