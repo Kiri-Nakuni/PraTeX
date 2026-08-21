@@ -885,8 +885,12 @@ impl Eqtb {
         self.primitive_unexpandable(b"lastskip", UnexpandableCommand::LastSkip);
         self.primitive_unexpandable(b"inputlineno", UnexpandableCommand::InputLineNumber);
         self.primitive_unexpandable(b"badness", UnexpandableCommand::Badness);
-        // ==== e-TeX の問い合わせ ====
+        // ==== e-TeX / pdfTeX の問い合わせ ====
         self.primitive_unexpandable(b"eTeXversion", UnexpandableCommand::ETeXVersion);
+        self.primitive_unexpandable(
+            b"pdfshellescape",
+            UnexpandableCommand::PdfShellEscape,
+        );
         self.primitive_unexpandable(
             b"interactionmode",
             UnexpandableCommand::Prefixable(PrefixableCommand::InteractionMode),

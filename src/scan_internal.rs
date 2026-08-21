@@ -136,8 +136,10 @@ fn scan_something_internal(
         InternalCommand::LastKern => fetch_last_kern(scanner, eqtb),
         InternalCommand::LastSkip => fetch_last_skip(scanner, eqtb),
         InternalCommand::Badness => InternalValue::Int(eqtb.last_badness),
-        // ==== e-TeX の問い合わせ ====
+        // ==== e-TeX / pdfTeX の問い合わせ ====
         InternalCommand::ETeXVersion => InternalValue::Int(2),
+        // 外部コマンドの実行を許さないため、読み取り専用の無効状態だけを答える。
+        InternalCommand::PdfShellEscape => InternalValue::Int(0),
         InternalCommand::CurrentGroupLevel => {
             InternalValue::Int(eqtb.cur_level_for_etex())
         }

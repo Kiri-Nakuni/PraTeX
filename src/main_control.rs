@@ -337,6 +337,7 @@ pub fn main_control(
                 | UnexpandableCommand::LastSkip
                 | UnexpandableCommand::Badness
                 | UnexpandableCommand::ETeXVersion
+                | UnexpandableCommand::PdfShellEscape
                 | UnexpandableCommand::CurrentGroupLevel
                 | UnexpandableCommand::CurrentGroupType
                 | UnexpandableCommand::CurrentIfLevel
@@ -601,6 +602,7 @@ pub fn main_control(
                 | UnexpandableCommand::LastSkip
                 | UnexpandableCommand::Badness
                 | UnexpandableCommand::ETeXVersion
+                | UnexpandableCommand::PdfShellEscape
                 | UnexpandableCommand::CurrentGroupLevel
                 | UnexpandableCommand::CurrentGroupType
                 | UnexpandableCommand::CurrentIfLevel
@@ -1010,6 +1012,7 @@ pub fn main_control(
                 | UnexpandableCommand::LastSkip
                 | UnexpandableCommand::Badness
                 | UnexpandableCommand::ETeXVersion
+                | UnexpandableCommand::PdfShellEscape
                 | UnexpandableCommand::CurrentGroupLevel
                 | UnexpandableCommand::CurrentGroupType
                 | UnexpandableCommand::CurrentIfLevel

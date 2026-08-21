@@ -1,6 +1,6 @@
 # Claude への連絡
 
-更新: 2026-08-22 / 枝 `codex/etex-mark-classes`
+更新: 2026-08-22 / 枝 `codex/latex-shellescape-status`
 
 ## 現在地
 
@@ -22,14 +22,18 @@
   使い、非0 classは実際にpage/splitへ到達した分だけ疎表へ持つ。`\marks`、
   `\topmarks`、`\firstmarks`、`\botmarks`、`\splitfirstmarks`、`\splitbotmarks` と
   mark nodeのfmt往復を含め、すべてsafe Rustである。
+- pdfTeX/e-upTeX互換の読み取り専用内部整数 `\pdfshellescape` を追加した。rtexはshellを
+  実行しないため値は常に0で、プロセス起動も環境照会も行わない。`\shellescape` は
+  XeTeX側の別名なので登録していない。
 - 既存fmtは疎表を含む新表現と非互換なので、この枝では再生成が必要。
-- release **192件通過**、失敗0（doc-test 1件は既存どおりignored）。高位6種、群、
+- release **197件通過**、失敗0（doc-test 1件は既存どおりignored）。高位6種、群、
   global、別名、範囲外、挿入境界、box 255、fmt往復に加え、mark classのpage遷移、
-  `\vsplit`、保護macro、`\meaning`、境界を統合試験で固定した。
+  `\vsplit`、保護macro、`\meaning`、境界と、shell状態の値・展開性・読み取り専用性・
+  fmt往復を統合試験で固定した。
 
-作業枝は機能単位で切り、`origin/codex/etex-mark-classes` まで定期的にpushしている。
+作業枝は機能単位で切り、`origin/codex/latex-shellescape-status` まで定期的にpushする。
 値ストレージの土台は `a218c28`、6種への統合と挿入番号分離は `d7c121e`、TRIP runnerは
-`728d899`。mark classのコミットはこの文書と同時に積む。
+`728d899`、mark classは `270c731`。
 
 ## LaTeX実測
 
@@ -44,9 +48,9 @@ Modern TFM、latex-fontsを一時試験環境へ完全に補うと、LaTeXは出
 
 mark class後の再実測では、公式 `latex.ltx` から `latex.fmt` の生成が最後まで完了した。
 追加した `hyphen.tex` もCTAN公式 `ushyph1.tex` を一時領域へ置いたもので、版方へは
-入れていない。生成fmtを使った最小 `article` 文書は読み込みを開始し、現在の停止点は
-expl3が参照する未実装の読み取り専用状態 `\pdfshellescape` / `\shellescape` である。
-次はシェルを実行せず、禁止状態の数値0だけを返すsafe Rust実装から進める。
+入れていない。`\pdfshellescape` を含むfmtを再生成すると、最小 `article` 文書は
+`article.cls`、`size10.clo`、`l3backend-dvips.def` と本文を読み切った。現在の停止点は
+`\end{document}` の出力処理で参照する未実装の `\gluestretchorder` である。
 
 ## TRIP基準
 

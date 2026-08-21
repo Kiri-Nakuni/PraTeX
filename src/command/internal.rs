@@ -15,9 +15,11 @@ pub enum InternalCommand {
     LastSkip,
     Toks(ToksCommand),
     Badness,
-    // ==== e-TeX の問い合わせ ====
+    // ==== e-TeX / pdfTeX の問い合わせ ====
     /// `\eTeXversion`
     ETeXVersion,
+    /// `\pdfshellescape`（読み取り専用）
+    PdfShellEscape,
     /// `\currentgrouplevel`
     CurrentGroupLevel,
     /// `\currentgrouptype`

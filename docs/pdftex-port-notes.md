@@ -32,3 +32,22 @@ TDS archive を一時領域へ展開し、配布物そのものはこのリポ�
 
 rtex では既存の general text 走査を二度使い、展開後のバイト列を辞書順で比較する。
 現行CTANの `expl3-code.tex` はこの命令を文字列比較の土台にしている。
+
+## `\pdfshellescape`
+
+公式マニュアル §4.24.2 の契約:
+
+- 読み取り専用の内部整数である。
+- 無制限のshell escapeなら `1`、許可表に限るrestricted modeなら `2`、それ以外は `0`。
+- `\the`、`\number`、整数代入や `\ifnum` の数値走査に使えるが、命令自身は展開命令ではない。
+
+2026-08-22に公式TeX Live 2026のpdfTeX 1.40.29、e-pTeX p4.1.2-u2.02、e-upTeX
+p4.1.2-u2.02を黒箱実行した。三エンジンとも綴りは `\pdfshellescape` だけで、
+`-no-shell-escape` / restricted / unrestricted に対して `0` / `2` / `1` を返した。
+`\meaning` は `\pdfshellescape`、直接の `\edef` では命令を残し、`\the` を挟むと数へ
+展開され、`\advance` では書き込みを拒んだ。XeTeXの `\shellescape` は別の互換面なので
+aliasにしない。
+
+rtexはshell実行機能をまだ持たないため、安全側の固定値 `0` だけを返す。プロセス起動や
+環境照会は行わない。将来CLIとkpathsea相当の設定を導入するときに、状態の決定箇所を
+この内部整数へ接続する。

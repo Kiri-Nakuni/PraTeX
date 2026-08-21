@@ -311,6 +311,111 @@ fn interactionmodeは現在値を読み書きできる() {
 }
 
 #[test]
+fn pdfshellescapeは無効状態を内部整数として答える() {
+    let log = run_tex(
+        "pdfshellescapeの値",
+        "\\chardef\\status=\\pdfshellescape\n\
+         \\count0=\\pdfshellescape\n\
+         \\message{[value=\\the\\pdfshellescape/\\the\\status/\\the\\count0/\
+         \\ifnum\\pdfshellescape=0 Y\\else N\\fi]}",
+    );
+    assert!(log.contains("[value=0/0/0/Y]"), "{log}");
+}
+
+#[test]
+fn pdfshellescapeのmeaningは後続字句を消費しない() {
+    let log = run_tex(
+        "pdfshellescapeのmeaning",
+        "\\message{[meaning=\\meaning\\pdfshellescape/after]}",
+    );
+    assert!(
+        log.contains("[meaning=\\pdfshellescape/after]"),
+        "{log}"
+    );
+}
+
+#[test]
+fn pdfshellescape自身は展開せずtheだけが数へ展開する() {
+    let log = run_tex(
+        "pdfshellescapeの展開性",
+        "\\edef\\raw{\\pdfshellescape}
+         \\edef\\value{\\the\\pdfshellescape}
+         \\message{[raw=\\meaning\\raw/value=\\meaning\\value]}",
+    );
+    assert!(
+        log.contains("[raw=macro:->\\pdfshellescape "),
+        "primitive自身が残らなかった: {log}"
+    );
+    assert!(
+        log.contains("/value=macro:->0]"),
+        "\\theを介して数へ展開されなかった: {log}"
+    );
+}
+
+#[test]
+fn pdfshellescapeは書き換えを拒み無効状態を保つ() {
+    let log = run_tex(
+        "pdfshellescapeの読み取り専用性",
+        "\\advance\\pdfshellescape by 1
+         \\message{[after=\\the\\pdfshellescape]}",
+    );
+    assert!(log.contains("You can't use"), "書き換えを拒まなかった: {log}");
+    assert!(log.contains("[after=0]"), "無効状態が変わった: {log}");
+}
+
+#[test]
+fn pdfshellescape命令はfmtを往復する() {
+    let dir = std::env::temp_dir().join(format!("pdfshellescape-fmt-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let fmt = dir.join("mk.fmt");
+    let _ = std::fs::remove_file(&fmt);
+    let use_log = dir.join("use.log");
+    let _ = std::fs::remove_file(&use_log);
+
+    std::fs::write(
+        dir.join("mk.tex"),
+        "\\catcode123=1\n\\catcode125=2\n\\batchmode\n\
+         \\let\\status=\\pdfshellescape\n\\dump\n",
+    )
+    .unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_rtex"))
+        .arg("mk.tex")
+        .current_dir(&dir)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success() && fmt.exists(),
+        "fmtを生成できなかった: {}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    std::fs::write(
+        dir.join("use.tex"),
+        "\\message{[primitive=\\the\\pdfshellescape/alias=\\the\\status/meaning=\\meaning\\status]}\n\
+         \\end\n",
+    )
+    .unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_rtex"))
+        .arg("&mk")
+        .arg("use.tex")
+        .current_dir(&dir)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success() && use_log.exists(),
+        "fmtを読み戻せなかった: {}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let log = join_log(&use_log);
+    assert!(
+        log.contains("[primitive=0/alias=0/meaning=\\pdfshellescape]"),
+        "{log}"
+    );
+}
+
+#[test]
 fn 拡張レジスタの両端を六種類とも読み書きできる() {
     let log = run_tex(
         "拡張レジスタの両端",

@@ -133,8 +133,9 @@ pub enum UnexpandableCommand {
     LastKern,
     LastSkip,
     Badness,
-    // ==== e-TeX の問い合わせ ====
+    // ==== e-TeX / pdfTeX の問い合わせ ====
     ETeXVersion,
+    PdfShellEscape,
     CurrentGroupLevel,
     CurrentGroupType,
     CurrentIfLevel,
@@ -221,6 +222,7 @@ impl UnexpandableCommand {
             Self::LastSkip => Some(InternalCommand::LastSkip),
             Self::Badness => Some(InternalCommand::Badness),
             Self::ETeXVersion => Some(InternalCommand::ETeXVersion),
+            Self::PdfShellEscape => Some(InternalCommand::PdfShellEscape),
             Self::CurrentGroupLevel => Some(InternalCommand::CurrentGroupLevel),
             Self::CurrentGroupType => Some(InternalCommand::CurrentGroupType),
             Self::CurrentIfLevel => Some(InternalCommand::CurrentIfLevel),
@@ -350,6 +352,7 @@ impl UnexpandableCommand {
             Self::LastSkip => printer.print_esc_str(b"lastskip"),
             Self::Badness => printer.print_esc_str(b"badness"),
             Self::ETeXVersion => printer.print_esc_str(b"eTeXversion"),
+            Self::PdfShellEscape => printer.print_esc_str(b"pdfshellescape"),
             Self::CurrentGroupLevel => printer.print_esc_str(b"currentgrouplevel"),
             Self::CurrentGroupType => printer.print_esc_str(b"currentgrouptype"),
             Self::CurrentIfLevel => printer.print_esc_str(b"currentiflevel"),
