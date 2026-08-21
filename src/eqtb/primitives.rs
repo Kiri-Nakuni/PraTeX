@@ -910,6 +910,19 @@ impl Eqtb {
         self.primitive_expandable(b"ifcsname", ExpandableCommand::IfTest(IfTest::IfCsName));
         self.primitive_expandable(b"iffontchar", ExpandableCommand::IfTest(IfTest::IfFontChar));
         self.primitive_expandable(b"unless", ExpandableCommand::Unless);
+        self.primitive_expandable(b"expanded", ExpandableCommand::Expanded);
+        // pdfTeX 由来の道具。**組版に触らない**
+        for (n, c) in [
+            (b"pdffilesize".as_slice(), ConvertCommand::PdfFileSize),
+            (b"pdfmdfivesum".as_slice(), ConvertCommand::PdfMdFiveSum),
+            (b"pdfescapehex".as_slice(), ConvertCommand::PdfEscapeHex),
+            (b"pdfunescapehex".as_slice(), ConvertCommand::PdfUnescapeHex),
+            (b"pdfescapestring".as_slice(), ConvertCommand::PdfEscapeString),
+            (b"pdfescapename".as_slice(), ConvertCommand::PdfEscapeName),
+            (b"pdfcreationdate".as_slice(), ConvertCommand::PdfCreationDate),
+        ] {
+            self.primitive_expandable(n, ExpandableCommand::Convert(c));
+        }
 
         // See 491.
         self.primitive_expandable(b"fi", ExpandableCommand::FiOrElse(FiOrElse::Fi));

@@ -422,6 +422,9 @@ impl Dumpable for ExpandableCommand {
             Self::Unless => {
                 writeln!(target, "Unless")?;
             }
+            Self::Expanded => {
+                writeln!(target, "Expanded")?;
+            }
             &Self::VaakCall(id) => {
                 // **本体を書き出す。** 番号は走らせるたびに付け直されるので、
                 // 書き出すべきは番号ではなく本体である
@@ -444,6 +447,7 @@ impl Dumpable for ExpandableCommand {
             "Namespace" => Ok(Self::Namespace),
             "VaakInput" => Ok(Self::VaakInput),
             "Unless" => Ok(Self::Unless),
+            "Expanded" => Ok(Self::Expanded),
             "VaakCall" => {
                 let hex = lines.next().ok_or(FormatError::IncompleteFile)?;
                 let mut src = Vec::with_capacity(hex.len() / 2);
@@ -629,6 +633,27 @@ impl Dumpable for ConvertCommand {
             Self::JobName => {
                 writeln!(target, "JobName")?;
             }
+            Self::PdfFileSize => {
+                writeln!(target, "PdfFileSize")?;
+            }
+            Self::PdfMdFiveSum => {
+                writeln!(target, "PdfMdFiveSum")?;
+            }
+            Self::PdfEscapeHex => {
+                writeln!(target, "PdfEscapeHex")?;
+            }
+            Self::PdfUnescapeHex => {
+                writeln!(target, "PdfUnescapeHex")?;
+            }
+            Self::PdfEscapeString => {
+                writeln!(target, "PdfEscapeString")?;
+            }
+            Self::PdfEscapeName => {
+                writeln!(target, "PdfEscapeName")?;
+            }
+            Self::PdfCreationDate => {
+                writeln!(target, "PdfCreationDate")?;
+            }
         }
         Ok(())
     }
@@ -642,6 +667,13 @@ impl Dumpable for ConvertCommand {
             "Meaning" => Ok(Self::Meaning),
             "FontName" => Ok(Self::FontName),
             "JobName" => Ok(Self::JobName),
+            "PdfFileSize" => Ok(Self::PdfFileSize),
+            "PdfMdFiveSum" => Ok(Self::PdfMdFiveSum),
+            "PdfEscapeHex" => Ok(Self::PdfEscapeHex),
+            "PdfUnescapeHex" => Ok(Self::PdfUnescapeHex),
+            "PdfEscapeString" => Ok(Self::PdfEscapeString),
+            "PdfEscapeName" => Ok(Self::PdfEscapeName),
+            "PdfCreationDate" => Ok(Self::PdfCreationDate),
             _ => Err(FormatError::ParseError),
         }
     }

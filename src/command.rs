@@ -425,6 +425,11 @@ pub enum ExpandableCommand {
     /// **`\csname` が global に作ってしまう**からである——
     /// 登録は `\endcsname` に達した一箇所で起きるので、そこへ名前空間を渡すしかない。
     Namespace,
+    /// `\expanded{…}` — **中身を展開しきってから戻す。**
+    ///
+    /// `\edef` と違って**名前に束縛しない。** その場に置き直す。
+    /// expl3 が最も使う命令の一つである（本体で 23 箇所）。
+    Expanded,
     /// e-TeX の `\unless` — **次の条件を反転する。**
     ///
     /// 取れるのは `\if…` だけである（`\ifcase` は取れない——腕が複数あるので）。
@@ -449,6 +454,7 @@ impl ExpandableCommand {
             Self::VaakInput => printer.print_esc_str(b"vaakinput"),
             Self::Namespace => printer.print_esc_str(b"namespace"),
             Self::Unless => printer.print_esc_str(b"unless"),
+            Self::Expanded => printer.print_esc_str(b"expanded"),
             &Self::VaakCall(id) => {
                 printer.print_str("vaak:->");
                 for c in crate::vaak::source_of(id) {
