@@ -372,6 +372,21 @@ pub enum ExpandableCommand {
     /// `\count0=\directvaak{…}` で展開が空だと走査が壊れる。
     /// したがって**必ず数字を出す**（エラーでも `0`）。
     DirectVaak,
+    /// `\vaakinput 名前.vaak` — **ファイルを読んで走らせる。**
+    ///
+    /// `\directvaak{…}` との違いは**字句器を通らない**ことである。
+    ///
+    /// | | `\directvaak{…}` | `\vaakinput` |
+    /// |---|---|---|
+    /// | 改行 | 空白に潰れる | **残る** |
+    /// | `%` | TeX の注釈。閉じ括弧まで食う | **Vaak の注釈** |
+    /// | `#` `$` `~` | TeX の意味で解釈される | **ただの文字** |
+    /// | 名前空間の印 | 本体の中で発火する | **しない** |
+    /// | マクロで組み立てる | **できる** | できない |
+    ///
+    /// LuaTeX が「長い Lua は別ファイルに置け」と言うのと同じ分担である——
+    /// ただし**こちらは字句器を通さないので、本当に元のまま読める。**
+    VaakInput,
     /// `\vaakdef\名前{本体}` で作られた命令。**本体は定義の時点で組んである。**
     ///
     /// `\directvaak{…}` は呼ぶたびに本体を字句として走査し直す——
@@ -405,6 +420,7 @@ impl ExpandableCommand {
             Self::Convert(convert_command) => convert_command.display(printer),
             Self::The => printer.print_esc_str(b"the"),
             Self::DirectVaak => printer.print_esc_str(b"directvaak"),
+            Self::VaakInput => printer.print_esc_str(b"vaakinput"),
             Self::Namespace => printer.print_esc_str(b"namespace"),
             &Self::VaakCall(id) => {
                 printer.print_str("vaak:->");

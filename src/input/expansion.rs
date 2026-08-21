@@ -45,6 +45,7 @@ pub fn expand(
         ExpandableCommand::DirectVaak => {
             crate::vaak::direct_vaak(token, scanner, eqtb, logger)
         }
+        ExpandableCommand::VaakInput => crate::vaak::vaak_input(scanner, eqtb, logger),
         ExpandableCommand::VaakCall(id) => {
             crate::vaak::vaak_call(id, scanner, eqtb, logger)
         }

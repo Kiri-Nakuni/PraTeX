@@ -396,3 +396,84 @@ eqtb.integers.set(IntegerVariable::Count(5), 42);   // 通る
 
 **`dimen` を使わないスクリプトにも `dimen` を渡している。**
 名前ごとに遅延させられれば、その分が消える。
+
+## 15. `\vaakinput` — ファイルから読む
+
+### `\directlua` を調べた
+
+**素の `\directlua` は Lua ソースとして壊れる。** TeX Live 2026 で実測した:
+
+| 書いたもの | 起きること |
+|---|---|
+| **改行** | **失われる。** チャンクは常に 1 行——誤りが必ず `[\directlua]:1:` |
+| **`--` 行注釈** | **残り全部を食う** |
+| **`%`** | TeX の注釈。**閉じ括弧まで食って Runaway** |
+| **`#`** | TeX のマクロ引数文字 |
+| **活性文字**（plain の `~`） | 展開される。`\penalty` が Lua に混ざる |
+
+**LuaTeX はこれを知っていて、直さないと決めている。** マニュアルが回避策を書く:
+
+> you normally can not use Lua line comments… You will either need to use TeX-style
+> line comments, or change the TeX category codes locally.
+
+> Often, you will only see **the line number of the right brace**.
+
+そして長い Lua については:
+
+> for longer stretches of Lua code it is **easier to keep the code in a separate file**
+
+### なぜ直さないか
+
+**`⟨general text⟩` であることが機能だからである。**
+
+1. **展開可能**である。`\edef` や数値走査の中でも働く——
+   そのとき入力は**トークンリスト**であって、**生の文字が存在しない。**
+   逐語は原理的に不可能である（`\verb` がマクロ引数で使えないのと同じ）
+2. **マクロで組み立てられる。** TeX 側の値を差し込める
+3. `\message` / `\write` / `\special` と**同じ形**である
+
+代わりに LuaTeX は `\catcodetable` を足し、**逐語の層はパッケージに作らせた**
+（`luacode.sty` は逐語表 ＋ `\endlinechar=10` ＋ 行ごとの掴み直しでやっている）。
+
+### したがって分担する
+
+**`\directvaak{…}` は崩さない。** `\directlua` と同じ契約のまま一級で残す。
+
+| 命令 | 何のためか |
+|---|---|
+| **`\directvaak{…}`** | **接着剤。** マクロで組み立てられる。展開可能 |
+| **`\vaakinput 名前.vaak`** | **プログラムを書く場所。** 字句器を通らない |
+| **`\vaakdef\名前{…}`** | 一度組んで名前で呼ぶ（`\luadef` に当たる） |
+
+### `\vaakinput` の綴り
+
+`\input` と同じで括弧を取らない。拡張子が無ければ `.vaak` を足す。
+
+```tex
+\vaakinput setup.vaak
+\count0=\vaakinput compute
+```
+
+**展開可能で、終了コードを10進で展開する**——`\directvaak` と同じである。
+
+### 何が直るか
+
+| | `\directvaak{…}` | `\vaakinput` |
+|---|---|---|
+| 改行 | 空白に潰れる | **残る** |
+| `%` 行注釈 | **偶然通る**（TeX の `%` と一致するので） | 通る |
+| `%{ … }%` 塊注釈 | **壊れる。** `}%` の `}` が群を早く閉じる | **通る** |
+| 閉じ括弧の直前の `%` | **Runaway** | 通る |
+| `#` `$` `~` | TeX の意味 | **ただの文字** |
+| 名前空間の印 | **本体の中で発火する** | しない |
+| マクロで組み立てる | **できる** | できない |
+
+**行注釈が偶然通ることに頼れない。** 塊注釈と末尾の注釈で崩れる。
+
+### balanced text の逐語読み
+
+**まだ入れていない。** 入れるなら `\vaakdef` の側である——
+定義の時点はほぼ必ずファイルから読んでいるので、生の文字がある。
+
+ただし `\vaakdef` がトークンリストの中に現れたら逐語は不可能なので、
+**一般テキスト走査に落ちる**と決めねばならない。

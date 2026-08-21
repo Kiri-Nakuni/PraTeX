@@ -700,6 +700,7 @@ impl Eqtb {
         }
         self.primitive_expandable(b"namespace", ExpandableCommand::Namespace);
         self.primitive_expandable(b"directvaak", ExpandableCommand::DirectVaak);
+        self.primitive_expandable(b"vaakinput", ExpandableCommand::VaakInput);
         self.primitive_unexpandable(
             b"usingnamespace",
             UnexpandableCommand::Prefixable(PrefixableCommand::UsingNamespace),

@@ -281,6 +281,56 @@ fn build(source: &[u8]) -> Result<Built, Vec<String>> {
     })
 }
 
+/// `\vaakinput 名前.vaak` — **ファイルを読んで走らせる。**
+///
+/// # なぜ別の命令なのか
+///
+/// `\directvaak{…}` は**一般テキスト**を取る（`\directlua` と同じ契約）。
+/// マクロで組み立てられるし、`\edef` の中でも働く——**それは機能である。**
+///
+/// だが字句器を通るので、Vaak のソースとしては壊れる:
+///
+/// | | `\directvaak{…}` | `\vaakinput` |
+/// |---|---|---|
+/// | 改行 | **空白に潰れる**（`%` 行注釈が残り全部を食う） | **残る** |
+/// | `%` | TeX の注釈。**閉じ括弧まで食う** | **Vaak の注釈** |
+/// | `#` `$` `~` | TeX の意味で解釈される | **ただの文字** |
+/// | 名前空間の印 | **本体の中で発火する** | しない |
+/// | マクロで組み立てる | **できる** | できない |
+///
+/// LuaTeX のマニュアルは「長い Lua は別ファイルに置け」と言う。同じ分担である——
+/// **ただしこちらは字句器を通さないので、本当に元のまま読める。**
+///
+/// # 綴り
+///
+/// `\input` と同じで、括弧を取らない。空白で終わる。
+///
+/// ```tex
+/// \vaakinput setup.vaak
+/// \count0=\vaakinput compute.vaak
+/// ```
+///
+/// 拡張子が無ければ `.vaak` を足す。
+pub fn vaak_input(scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Logger) {
+    let name = scanner.scan_file_name(eqtb, logger);
+    let mut path = std::path::PathBuf::from(String::from_utf8_lossy(&name).into_owned());
+    if path.extension().is_none() {
+        path.set_extension("vaak");
+    }
+
+    let (code, error) = match std::fs::read(&path) {
+        // **生のまま渡す。** 字句器を通さないので、注釈も改行もそのまま
+        Ok(src) => run_vaak(&src, eqtb, logger),
+        Err(_) => (0, Some(format!("cannot read {}", path.display()))),
+    };
+    if let Some(msg) = error {
+        report_error(&msg, scanner, eqtb, logger);
+    }
+    let mut buf = [0u8; 12];
+    let toks = str_toks(itoa(code, &mut buf));
+    scanner.ins_list(toks, eqtb, logger);
+}
+
 /// `\directvaak{…}` を実行し、終了コードを展開する。
 pub fn direct_vaak(token: Token, scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Logger) {
     let Token::CSToken { cs } = token else {
