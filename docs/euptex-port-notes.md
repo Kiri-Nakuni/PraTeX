@@ -65,8 +65,9 @@ Rust なら疎な表（`HashMap` か区画表）で引けるので、**UTF-16 �
 | **0** | **和文の寸法単位 `Q` `H` `zw` `zh`** | **済**（枝 `jdimen`、試験 7 本） |
 | 1a | e-TeX の**式**（`\numexpr` `\dimexpr` `\glueexpr` `\muexpr`） | **済**（枝 `etex-expr`、試験 12 本） |
 | 1b | 疎レジスタ（0–32767） | **済**（低位密＋高位疎、6種、挿入番号は別型） |
-| 2 | e-TeX の**字句系**（`\detokenize` `\unexpanded` `\scantokens` `\readline` `\protected` `\everyeof`） | 未 |
-| 3 | e-TeX の**内省**（`\currentgrouplevel` `\lastnodetype` `\fontchar*` `\showgroups` …） | 未 |
+| 1c | e-TeX のmark class（0–32767） | **済**（class 0は従来状態、非0は疎表、pageと`\vsplit`） |
+| 2 | e-TeX の**字句系** | **一部済**（`\detokenize` `\unexpanded` `\readline` `\protected` `\everyeof`。`\scantokens` は未） |
+| 3 | e-TeX の**内省** | **一部済**（`\currentgroup*` `\currentif*` `\lastnodetype` `\iffontchar`。`\fontchar*` `\showgroups` `\showtokens` 等は未） |
 | 4 | **UTF-8 の文字分類**（`\kcatcode` を疎な表で。和文かどうかだけ） | 未 |
 | 5 | **JFM**（和文フォントの寸法表）と `\jfont` | 未 |
 | 6 | **`\kanjiskip` / `\xkanjiskip`** を主ループに差し込む | 未 |

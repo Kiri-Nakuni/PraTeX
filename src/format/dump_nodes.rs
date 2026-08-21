@@ -1,6 +1,6 @@
 use super::{Dumpable, FormatError};
 use crate::dimension::Dimension;
-use crate::eqtb::{undump_insertion_index, FontIndex, SkipVariable};
+use crate::eqtb::{undump_insertion_index, undump_mark_class_index, FontIndex, SkipVariable};
 use crate::nodes::noads::{ChoiceNode, Noad, StyleNode};
 use crate::nodes::{
     AdjustNode, CharNode, CloseNode, DimensionOrder, DiscNode, GlueNode, GlueRatio, GlueSign,
@@ -298,13 +298,15 @@ impl Dumpable for InsNode {
 
 impl Dumpable for MarkNode {
     fn dump(&self, target: &mut impl Write) -> Result<(), std::io::Error> {
+        self.class.dump(target)?;
         self.mark.dump(target)?;
         Ok(())
     }
 
     fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
+        let class = undump_mark_class_index(lines)?;
         let mark = std::rc::Rc::undump(lines)?;
-        Ok(Self { mark })
+        Ok(Self { class, mark })
     }
 }
 
@@ -843,6 +845,7 @@ mod tests {
             float_cost: -1234,
         });
         let mark = Node::Mark(MarkNode {
+            class: 0,
             mark: std::rc::Rc::new(vec![
                 Token::LeftBrace(1),
                 Token::MacParam(3),
@@ -1109,6 +1112,7 @@ mod tests {
     #[test]
     fn dump_mark_node() {
         let mark_node = MarkNode {
+            class: 32_767,
             mark: std::rc::Rc::new(vec![
                 Token::RightBrace(12),
                 Token::OtherChar(1),
@@ -1123,6 +1127,15 @@ mod tests {
         let mut lines = input.lines();
         let mark_node_undumped = MarkNode::undump(&mut lines).unwrap();
         assert_eq!(mark_node, mark_node_undumped);
+    }
+
+    #[test]
+    fn mark_nodeは範囲外のclassを書式から読まない() {
+        let mut lines = std::iter::once("32768");
+        assert!(matches!(
+            MarkNode::undump(&mut lines),
+            Err(FormatError::ParseError)
+        ));
     }
 
     #[test]

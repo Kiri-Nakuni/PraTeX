@@ -70,6 +70,10 @@ pub type InsertionIndex = u8;
 pub const MAX_INSERTION_INDEX: InsertionIndex = 254;
 pub(crate) const VADJUST_INSERTION_CODE: InsertionIndex = 255;
 
+/// e-TeX の mark class。通常レジスタと同じ15 bitだが、意味を混ぜない別名にする。
+pub type MarkClassIndex = u16;
+pub const MAX_MARK_CLASS_INDEX: MarkClassIndex = 32_767;
+
 /// 書式ファイルから通常レジスタ番号を読む。型として表現できても、e-TeX の
 /// 15 bit 上限を越える値は後段のストレージへ渡さない。
 pub(crate) fn undump_register_index<'a>(
@@ -88,6 +92,17 @@ pub(crate) fn undump_insertion_index<'a>(
 ) -> Result<InsertionIndex, FormatError> {
     let index = InsertionIndex::undump(lines)?;
     if index <= MAX_INSERTION_INDEX {
+        Ok(index)
+    } else {
+        Err(FormatError::ParseError)
+    }
+}
+
+pub(crate) fn undump_mark_class_index<'a>(
+    lines: &mut impl Iterator<Item = &'a str>,
+) -> Result<MarkClassIndex, FormatError> {
+    let index = MarkClassIndex::undump(lines)?;
+    if index <= MAX_MARK_CLASS_INDEX {
         Ok(index)
     } else {
         Err(FormatError::ParseError)
@@ -214,13 +229,7 @@ impl Eqtb {
             page_dims: PageDimensions::new(),
             page_contents: PageContents::Empty,
             last_node_on_page: LastNodeInfo::Other,
-            marks: Marks {
-                top: None,
-                first: None,
-                bot: None,
-                split_first: None,
-                split_bot: None,
-            },
+            marks: Marks::new(),
             line_number: 0,
             mode_type: Mode::Vertical,
             prev_graf: 0,
@@ -1511,13 +1520,7 @@ impl Dumpable for Eqtb {
             page_dims: PageDimensions::new(),
             page_contents: PageContents::Empty,
             last_node_on_page: LastNodeInfo::Other,
-            marks: Marks {
-                top: None,
-                first: None,
-                bot: None,
-                split_first: None,
-                split_bot: None,
-            },
+            marks: Marks::new(),
             line_number: 0,
             mode_type: Mode::Vertical,
             prev_graf: 0,
@@ -1558,6 +1561,18 @@ mod register_index_tests {
         let mut reserved = std::iter::once("255");
         assert!(matches!(
             undump_insertion_index(&mut reserved),
+            Err(FormatError::ParseError)
+        ));
+    }
+
+    #[test]
+    fn 書式のmark_class番号は十五ビットに限る() {
+        let mut valid = std::iter::once("32767");
+        assert_eq!(undump_mark_class_index(&mut valid).unwrap(), 32767);
+
+        let mut invalid = std::iter::once("32768");
+        assert!(matches!(
+            undump_mark_class_index(&mut invalid),
             Err(FormatError::ParseError)
         ));
     }

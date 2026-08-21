@@ -13,7 +13,7 @@ use crate::command::{
     Command, ExpandableCommand, IfTest, MacroCall, MathCommand, UnexpandableCommand,
 };
 use crate::eqtb::{
-    ControlSequence, Eqtb, InsertionIndex, RegisterIndex, MAX_INSERTION_INDEX,
+    ControlSequence, Eqtb, InsertionIndex, MarkClassIndex, RegisterIndex, MAX_INSERTION_INDEX,
     MAX_REGISTER_INDEX,
 };
 use crate::error::fatal_error;
@@ -669,6 +669,16 @@ impl Scanner {
                 0
             }
         }
+    }
+
+    /// Scan an e-TeX mark class.  Its public range is the same 15-bit range as
+    /// an extended register, while its semantic type remains distinct.
+    pub fn scan_mark_class_index(
+        &mut self,
+        eqtb: &mut Eqtb,
+        logger: &mut Logger,
+    ) -> MarkClassIndex {
+        self.scan_register_index(eqtb, logger)
     }
 
     /// See 434.

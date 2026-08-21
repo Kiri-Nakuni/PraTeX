@@ -1,7 +1,9 @@
 use super::conditional::{conditional, terminate_current_conditional_and_skip_to_fi};
 use super::macro_expand::macro_expand;
 use super::{Scanner, TokenSourceType};
-use crate::command::{Command, ExpandableCommand, MarkCommand, UnexpandableCommand};
+use crate::command::{
+    Command, ExpandableCommand, MarkClassOperand, MarkCommand, UnexpandableCommand,
+};
 use crate::eqtb::{ControlSequence, ControlSequenceId, Eqtb, IntegerVariable};
 use crate::error::overflow;
 use crate::logger::Logger;
@@ -363,10 +365,14 @@ pub fn x_token(
 fn insert_appropriate_mark_text_into_scanner(
     mark_command: MarkCommand,
     scanner: &mut Scanner,
-    eqtb: &Eqtb,
+    eqtb: &mut Eqtb,
     logger: &mut Logger,
 ) {
-    let mark = eqtb.marks.get(mark_command);
+    let class = match mark_command.class {
+        MarkClassOperand::Zero => 0,
+        MarkClassOperand::Scan => scanner.scan_mark_class_index(eqtb, logger),
+    };
+    let mark = eqtb.marks.get(mark_command.query, class);
     if let Some(token_list) = mark {
         scanner.input_stack.begin_token_list(
             token_list.clone(),

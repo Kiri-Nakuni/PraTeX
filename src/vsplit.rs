@@ -20,10 +20,7 @@ pub fn vsplit(
     logger: &mut Logger,
 ) -> Option<ListNode> {
     let v = eqtb.boxes.set(BoxVariable(n), None);
-    if eqtb.marks.split_first.is_some() {
-        eqtb.marks.split_first = None;
-        eqtb.marks.split_bot = None;
-    }
+    eqtb.marks.clear_split_marks();
     // From 978.
     let Some(list_node) = v else {
         return None;
@@ -75,15 +72,11 @@ pub fn vsplit(
 }
 
 /// See 979.
-fn look_at_all_marks_in_split_off_list(split_off_list: &Vec<Node>, eqtb: &mut Eqtb) {
+fn look_at_all_marks_in_split_off_list(split_off_list: &[Node], eqtb: &mut Eqtb) {
     for node in split_off_list {
         if let Node::Mark(mark_node) = node {
-            if eqtb.marks.split_first.is_none() {
-                eqtb.marks.split_first = Some(mark_node.mark.clone());
-                eqtb.marks.split_bot = Some(mark_node.mark.clone());
-            } else {
-                eqtb.marks.split_bot = Some(mark_node.mark.clone());
-            }
+            eqtb.marks
+                .update_split_mark(mark_node.class, &mark_node.mark);
         }
     }
 }

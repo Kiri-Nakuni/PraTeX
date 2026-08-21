@@ -1,5 +1,5 @@
 use crate::alignment::AlignState;
-use crate::command::{Hskip, RemoveItem, UnexpandableCommand, Vskip};
+use crate::command::{Hskip, MarkClassOperand, RemoveItem, UnexpandableCommand, Vskip};
 use crate::dimension::{scan_mu_dimen, scan_normal_dimen, Dimension};
 use crate::eqtb::save_stack::{DiscGroupType, GroupType, SubformulaType};
 use crate::eqtb::{
@@ -821,6 +821,7 @@ pub fn begin_adjust(
 /// See 1101.
 pub fn make_mark(
     token: Token,
+    class_operand: MarkClassOperand,
     scanner: &mut Scanner,
     eqtb: &mut Eqtb,
     logger: &mut Logger,
@@ -828,8 +829,14 @@ pub fn make_mark(
     let Token::CSToken { cs } = token else {
         panic!("Impossible")
     };
+    let class = if class_operand.is_classed() {
+        scanner.scan_mark_class_index(eqtb, logger)
+    } else {
+        0
+    };
     let token_list = scanner.scan_toks(cs, true, eqtb, logger);
     let mark_node = MarkNode {
+        class,
         mark: Rc::new(token_list),
     };
     Node::Mark(mark_node)

@@ -1,4 +1,6 @@
-use crate::command::{Command, ConvertCommand, ExpandableCommand, MacroCall, UnexpandableCommand};
+use crate::command::{
+    Command, ConvertCommand, ExpandableCommand, MacroCall, MarkClassOperand, UnexpandableCommand,
+};
 use crate::eqtb::{ControlSequence, Eqtb};
 use crate::fonts::scan_font_ident;
 use crate::input::expansion::get_x_token;
@@ -68,10 +70,12 @@ pub fn print_meaning(command: Command, printer: &mut impl Printer, eqtb: &Eqtb) 
         printer.print_ln();
     }
     if let Command::Expandable(ExpandableCommand::Mark(mark_command)) = command {
-        printer.print_char(b':');
-        printer.print_ln();
-        if let Some(token_list) = eqtb.marks.get(mark_command) {
-            show_token_list(token_list, 10_000_000, printer, eqtb);
+        if mark_command.class == MarkClassOperand::Zero {
+            printer.print_char(b':');
+            printer.print_ln();
+            if let Some(token_list) = eqtb.marks.get(mark_command.query, 0) {
+                show_token_list(token_list, 10_000_000, printer, eqtb);
+            }
         }
     }
 }

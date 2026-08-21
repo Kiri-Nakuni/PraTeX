@@ -1,10 +1,10 @@
 use crate::box_building::{end_graf, normal_paragraph};
-use crate::command::MarkCommand;
+use crate::command::MarkQuery;
 use crate::dimension::{Dimension, MAX_DIMEN};
 use crate::eqtb::save_stack::GroupType;
 use crate::eqtb::{
     BoxVariable, DimensionVariable, Eqtb, InsertionIndex, IntegerVariable, LastNodeInfo,
-    SkipVariable, TokenListVariable,
+    MarkClassIndex, SkipVariable, TokenListVariable,
 };
 use crate::hyphenation::Hyphenator;
 use crate::input::token_source::TokenSourceType;
@@ -24,7 +24,7 @@ use crate::token_lists::RcTokenList;
 use crate::vertical_mode::VerticalMode;
 use crate::vsplit::{prune_page_top, vert_break, DEPLORABLE};
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 #[derive(Debug)]
 pub struct PageBuilder {
@@ -762,18 +762,11 @@ impl PageBuilder {
         eqtb: &mut Eqtb,
         logger: &mut Logger,
     ) {
-        if let Some(rc_token_list) = &eqtb.marks.bot {
-            eqtb.marks.top = Some(rc_token_list.clone());
-            eqtb.marks.first = None;
-        }
+        eqtb.marks.prepare_for_page_output();
 
         self.put_optimal_currentpage_into_box(contributions, scanner, eqtb, logger);
 
-        if eqtb.marks.first.is_none() {
-            if let Some(rc_token_list) = &eqtb.marks.top {
-                eqtb.marks.first = Some(rc_token_list.clone());
-            }
-        }
+        eqtb.marks.finish_page_output();
         if let Some(output_routine) = eqtb.token_lists.get(TokenListVariable::OutputRoutine) {
             if eqtb.dead_cycles >= eqtb.integer(IntegerVariable::MaxDeadCycles) {
                 PageBuilder::explain_that_too_many_dead_cycles_have_occurred_in_a_row(
@@ -884,10 +877,8 @@ impl PageBuilder {
 
     /// See 1016.
     fn update_values_of_first_mark_and_bot_mark(mark_node: &MarkNode, eqtb: &mut Eqtb) {
-        if eqtb.marks.first.is_none() {
-            eqtb.marks.first = Some(mark_node.mark.clone());
-        }
-        eqtb.marks.bot = Some(mark_node.mark.clone());
+        eqtb.marks
+            .update_page_mark(mark_node.class, &mark_node.mark);
     }
 
     /// Move everything after the page break to the front of the contribution list.
@@ -1208,23 +1199,133 @@ fn move_contributions_back(mut contributions: Vec<Node>, nest: &mut SemanticStat
     *nest.base_list_mut() = contributions;
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
+struct MarkState {
+    top: Option<RcTokenList>,
+    first: Option<RcTokenList>,
+    bot: Option<RcTokenList>,
+    split_first: Option<RcTokenList>,
+    split_bot: Option<RcTokenList>,
+}
+
+impl MarkState {
+    fn get(&self, query: MarkQuery) -> Option<&RcTokenList> {
+        match query {
+            MarkQuery::Top => self.top.as_ref(),
+            MarkQuery::First => self.first.as_ref(),
+            MarkQuery::Bot => self.bot.as_ref(),
+            MarkQuery::SplitFirst => self.split_first.as_ref(),
+            MarkQuery::SplitBot => self.split_bot.as_ref(),
+        }
+    }
+
+    fn prepare_for_page_output(&mut self) {
+        if let Some(bot) = &self.bot {
+            self.top = Some(bot.clone());
+            self.first = None;
+        }
+    }
+
+    fn finish_page_output(&mut self) {
+        if self.first.is_none() {
+            if let Some(top) = &self.top {
+                self.first = Some(top.clone());
+            }
+        }
+    }
+
+    fn update_page_mark(&mut self, mark: &RcTokenList) {
+        if self.first.is_none() {
+            self.first = Some(mark.clone());
+        }
+        self.bot = Some(mark.clone());
+    }
+
+    fn clear_split_marks(&mut self) {
+        self.split_first = None;
+        self.split_bot = None;
+    }
+
+    fn is_empty(&self) -> bool {
+        self.top.is_none()
+            && self.first.is_none()
+            && self.bot.is_none()
+            && self.split_first.is_none()
+            && self.split_bot.is_none()
+    }
+
+    fn update_split_mark(&mut self, mark: &RcTokenList) {
+        if self.split_first.is_none() {
+            self.split_first = Some(mark.clone());
+        }
+        self.split_bot = Some(mark.clone());
+    }
+}
+
+/// Runtime values of classed marks.
+///
+/// Class zero is kept inline because it is used by plain TeX. Other classes are
+/// allocated only after a mark node of that class reaches a page or split list.
+#[derive(Debug, Default)]
 pub struct Marks {
-    pub top: Option<RcTokenList>,
-    pub first: Option<RcTokenList>,
-    pub bot: Option<RcTokenList>,
-    pub split_first: Option<RcTokenList>,
-    pub split_bot: Option<RcTokenList>,
+    class_zero: MarkState,
+    classes: HashMap<MarkClassIndex, MarkState>,
 }
 
 impl Marks {
-    pub fn get(&self, mark_command: MarkCommand) -> &Option<RcTokenList> {
-        match mark_command {
-            MarkCommand::Top => &self.top,
-            MarkCommand::First => &self.first,
-            MarkCommand::Bot => &self.bot,
-            MarkCommand::SplitFirst => &self.split_first,
-            MarkCommand::SplitBot => &self.split_bot,
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Querying an unused nonzero class must not grow the sparse table.
+    pub fn get(&self, query: MarkQuery, class: MarkClassIndex) -> Option<&RcTokenList> {
+        if class == 0 {
+            self.class_zero.get(query)
+        } else {
+            self.classes.get(&class).and_then(|state| state.get(query))
         }
+    }
+
+    fn state_mut(&mut self, class: MarkClassIndex) -> &mut MarkState {
+        if class == 0 {
+            &mut self.class_zero
+        } else {
+            self.classes.entry(class).or_default()
+        }
+    }
+
+    /// See 1012.
+    fn prepare_for_page_output(&mut self) {
+        self.class_zero.prepare_for_page_output();
+        for state in self.classes.values_mut() {
+            state.prepare_for_page_output();
+        }
+    }
+
+    /// See 1012.
+    fn finish_page_output(&mut self) {
+        self.class_zero.finish_page_output();
+        for state in self.classes.values_mut() {
+            state.finish_page_output();
+        }
+    }
+
+    /// See 1016.
+    fn update_page_mark(&mut self, class: MarkClassIndex, mark: &RcTokenList) {
+        self.state_mut(class).update_page_mark(mark);
+    }
+
+    /// See 978.
+    pub(crate) fn clear_split_marks(&mut self) {
+        self.class_zero.clear_split_marks();
+        for state in self.classes.values_mut() {
+            state.clear_split_marks();
+        }
+        self.classes.retain(|_, state| !state.is_empty());
+    }
+
+    /// See 979.
+    pub(crate) fn update_split_mark(&mut self, class: MarkClassIndex, mark: &RcTokenList) {
+        self.state_mut(class).update_split_mark(mark);
     }
 }

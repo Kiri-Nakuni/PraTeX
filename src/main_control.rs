@@ -314,8 +314,8 @@ pub fn main_control(
                 }
                 UnexpandableCommand::UpperCase => shift_to_upper_case(token, scanner, eqtb, logger),
                 UnexpandableCommand::LowerCase => shift_to_lower_case(token, scanner, eqtb, logger),
-                UnexpandableCommand::Mark => {
-                    hmode.append_node(make_mark(token, scanner, eqtb, logger), eqtb)
+                UnexpandableCommand::Mark(class) => {
+                    hmode.append_node(make_mark(token, class, scanner, eqtb, logger), eqtb)
                 }
                 UnexpandableCommand::Vskip(_)
                 | UnexpandableCommand::Halign
@@ -511,8 +511,8 @@ pub fn main_control(
                     vmode.set_prev_depth(IGNORE_DEPTH, eqtb);
                 }
                 UnexpandableCommand::Insert => begin_insert(nest, scanner, eqtb, logger),
-                UnexpandableCommand::Mark => {
-                    vmode.append_node(make_mark(token, scanner, eqtb, logger), eqtb)
+                UnexpandableCommand::Mark(class) => {
+                    vmode.append_node(make_mark(token, class, scanner, eqtb, logger), eqtb)
                 }
                 UnexpandableCommand::Show(show_command) => {
                     show_whatever(show_command, nest, page_builder, scanner, eqtb, logger)
@@ -761,8 +761,8 @@ pub fn main_control(
                     mmode.append_node(Node::Rule(rule_node), eqtb);
                 }
                 UnexpandableCommand::Insert => begin_insert(nest, scanner, eqtb, logger),
-                UnexpandableCommand::Mark => {
-                    mmode.append_node(make_mark(token, scanner, eqtb, logger), eqtb)
+                UnexpandableCommand::Mark(class) => {
+                    mmode.append_node(make_mark(token, class, scanner, eqtb, logger), eqtb)
                 }
                 UnexpandableCommand::Show(show_command) => {
                     show_whatever(show_command, nest, page_builder, scanner, eqtb, logger)

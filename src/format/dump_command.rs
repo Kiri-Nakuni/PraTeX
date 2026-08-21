@@ -1,8 +1,8 @@
 use super::{Dumpable, FormatError};
 use crate::command::{
     Command, ConvertCommand, ExpandableCommand, FiOrElse, Hskip, IfTest, MacroCall, MakeBox,
-    MarkCommand, MathCommand, PrefixableCommand, RemoveItem, ShowCommand, UnexpandableCommand,
-    Vskip,
+    MarkClassOperand, MarkCommand, MarkQuery, MathCommand, PrefixableCommand, RemoveItem,
+    ShowCommand, UnexpandableCommand, Vskip,
 };
 use crate::nodes::LeaderKind;
 
@@ -97,7 +97,10 @@ impl Dumpable for UnexpandableCommand {
             Self::LowerCase => writeln!(target, "LowerCase")?,
             Self::Raise => writeln!(target, "Raise")?,
             Self::Lower => writeln!(target, "Lower")?,
-            Self::Mark => writeln!(target, "Mark")?,
+            Self::Mark(class) => {
+                writeln!(target, "Mark")?;
+                class.dump(target)?;
+            }
             Self::MakeBox(make_box) => {
                 writeln!(target, "MakeBox")?;
                 make_box.dump(target)?;
@@ -261,7 +264,7 @@ impl Dumpable for UnexpandableCommand {
             "LowerCase" => Ok(Self::LowerCase),
             "Raise" => Ok(Self::Raise),
             "Lower" => Ok(Self::Lower),
-            "Mark" => Ok(Self::Mark),
+            "Mark" => Ok(Self::Mark(MarkClassOperand::undump(lines)?)),
             "MakeBox" => {
                 let make_box = MakeBox::undump(lines)?;
                 Ok(Self::MakeBox(make_box))
@@ -691,24 +694,11 @@ impl Dumpable for ConvertCommand {
     }
 }
 
-impl Dumpable for MarkCommand {
+impl Dumpable for MarkClassOperand {
     fn dump(&self, target: &mut impl Write) -> Result<(), std::io::Error> {
         match self {
-            Self::Top => {
-                writeln!(target, "Top")?;
-            }
-            Self::First => {
-                writeln!(target, "First")?;
-            }
-            Self::Bot => {
-                writeln!(target, "Bot")?;
-            }
-            Self::SplitFirst => {
-                writeln!(target, "SplitFirst")?;
-            }
-            Self::SplitBot => {
-                writeln!(target, "SplitBot")?;
-            }
+            Self::Zero => writeln!(target, "Zero")?,
+            Self::Scan => writeln!(target, "Scan")?,
         }
         Ok(())
     }
@@ -716,6 +706,30 @@ impl Dumpable for MarkCommand {
     fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
         let variant = lines.next().ok_or(FormatError::IncompleteFile)?;
         match variant {
+            "Zero" => Ok(Self::Zero),
+            "Scan" => Ok(Self::Scan),
+            _ => Err(FormatError::ParseError),
+        }
+    }
+}
+
+impl Dumpable for MarkQuery {
+    fn dump(&self, target: &mut impl Write) -> Result<(), std::io::Error> {
+        writeln!(
+            target,
+            "{}",
+            match self {
+                Self::Top => "Top",
+                Self::First => "First",
+                Self::Bot => "Bot",
+                Self::SplitFirst => "SplitFirst",
+                Self::SplitBot => "SplitBot",
+            }
+        )
+    }
+
+    fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
+        match lines.next().ok_or(FormatError::IncompleteFile)? {
             "Top" => Ok(Self::Top),
             "First" => Ok(Self::First),
             "Bot" => Ok(Self::Bot),
@@ -723,6 +737,20 @@ impl Dumpable for MarkCommand {
             "SplitBot" => Ok(Self::SplitBot),
             _ => Err(FormatError::ParseError),
         }
+    }
+}
+
+impl Dumpable for MarkCommand {
+    fn dump(&self, target: &mut impl Write) -> Result<(), std::io::Error> {
+        self.query.dump(target)?;
+        self.class.dump(target)
+    }
+
+    fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
+        Ok(Self {
+            query: MarkQuery::undump(lines)?,
+            class: MarkClassOperand::undump(lines)?,
+        })
     }
 }
 
@@ -796,7 +824,10 @@ mod tests {
         let cs_name = ExpandableCommand::CsName;
         let convert = ExpandableCommand::Convert(ConvertCommand::Number);
         let the = ExpandableCommand::The;
-        let mark = ExpandableCommand::Mark(MarkCommand::Top);
+        let mark = ExpandableCommand::Mark(MarkCommand::new(
+            MarkQuery::Top,
+            MarkClassOperand::Zero,
+        ));
         let macro_call = ExpandableCommand::Macro(MacroCall {
             protected: false,
             long: false,
@@ -1006,30 +1037,28 @@ mod tests {
 
     #[test]
     fn dump_mark_command() {
-        let top = MarkCommand::Top;
-        let first = MarkCommand::First;
-        let bot = MarkCommand::Bot;
-        let split_first = MarkCommand::SplitFirst;
-        let split_bot = MarkCommand::SplitBot;
+        let commands = [
+            MarkCommand::new(MarkQuery::Top, MarkClassOperand::Zero),
+            MarkCommand::new(MarkQuery::First, MarkClassOperand::Zero),
+            MarkCommand::new(MarkQuery::Bot, MarkClassOperand::Zero),
+            MarkCommand::new(MarkQuery::SplitFirst, MarkClassOperand::Zero),
+            MarkCommand::new(MarkQuery::SplitBot, MarkClassOperand::Zero),
+            MarkCommand::new(MarkQuery::Top, MarkClassOperand::Scan),
+            MarkCommand::new(MarkQuery::First, MarkClassOperand::Scan),
+            MarkCommand::new(MarkQuery::Bot, MarkClassOperand::Scan),
+            MarkCommand::new(MarkQuery::SplitFirst, MarkClassOperand::Scan),
+            MarkCommand::new(MarkQuery::SplitBot, MarkClassOperand::Scan),
+        ];
 
         let mut file = Vec::new();
-        top.dump(&mut file).unwrap();
-        first.dump(&mut file).unwrap();
-        bot.dump(&mut file).unwrap();
-        split_first.dump(&mut file).unwrap();
-        split_bot.dump(&mut file).unwrap();
+        for command in commands {
+            command.dump(&mut file).unwrap();
+        }
 
         let input = String::from_utf8(file).unwrap();
         let mut lines = input.lines();
-        let top_undumped = MarkCommand::undump(&mut lines).unwrap();
-        let first_undumped = MarkCommand::undump(&mut lines).unwrap();
-        let bot_undumped = MarkCommand::undump(&mut lines).unwrap();
-        let split_first_undumped = MarkCommand::undump(&mut lines).unwrap();
-        let split_bot_undumped = MarkCommand::undump(&mut lines).unwrap();
-        assert_eq!(top, top_undumped);
-        assert_eq!(first, first_undumped);
-        assert_eq!(bot, bot_undumped);
-        assert_eq!(split_first, split_first_undumped);
-        assert_eq!(split_bot, split_bot_undumped);
+        for command in commands {
+            assert_eq!(command, MarkCommand::undump(&mut lines).unwrap());
+        }
     }
 }

@@ -28,7 +28,7 @@ pub use internal::{InternalCommand, ToksCommand};
 pub use limits::LimitType;
 pub use macro_call::MacroCall;
 pub use make_box::MakeBox;
-pub use mark::MarkCommand;
+pub use mark::{MarkClassOperand, MarkCommand, MarkQuery};
 pub use math_command::MathCommand;
 pub use page_dimension::PageDimension;
 pub use prefix::Prefix;
@@ -84,7 +84,7 @@ pub enum UnexpandableCommand {
     Leaders(LeaderKind),
     UpperCase,
     LowerCase,
-    Mark,
+    Mark(MarkClassOperand),
     MakeBox(MakeBox),
     MoveLeft,
     MoveRight,
@@ -169,7 +169,7 @@ impl UnexpandableCommand {
             | Self::Leaders(_)
             | Self::UpperCase
             | Self::LowerCase
-            | Self::Mark
+            | Self::Mark(_)
             | Self::MakeBox(_)
             | Self::MoveLeft
             | Self::MoveRight
@@ -265,7 +265,9 @@ impl UnexpandableCommand {
             Self::ShipOut => printer.print_esc_str(b"shipout"),
             Self::UpperCase => printer.print_esc_str(b"uppercase"),
             Self::LowerCase => printer.print_esc_str(b"lowercase"),
-            Self::Mark => printer.print_esc_str(b"mark"),
+            Self::Mark(class) => {
+                printer.print_esc_str(if class.is_classed() { b"marks" } else { b"mark" })
+            }
             Self::MakeBox(make_box) => make_box.display(printer),
             Self::MoveLeft => printer.print_esc_str(b"moveleft"),
             Self::MoveRight => printer.print_esc_str(b"moveright"),

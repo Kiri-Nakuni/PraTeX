@@ -5,7 +5,8 @@ use super::{
 };
 use crate::command::{
     ArithCommand, BoxDimension, Command, ConvertCommand, DefCommand, ExpandableCommand, FiOrElse,
-    FractionCommand, FractionType, Hskip, IfTest, LimitType, MakeBox, MarkCommand, MathCommand,
+    FractionCommand, FractionType, Hskip, IfTest, LimitType, MakeBox, MarkClassOperand,
+    MarkCommand, MarkQuery, MathCommand,
     PageDimension, Prefix, PrefixableCommand, RemoveItem, ShorthandDef, ShowCommand,
     UnexpandableCommand, Vskip,
 };
@@ -701,7 +702,14 @@ impl Eqtb {
         self.primitive_unexpandable(b"hrule", UnexpandableCommand::Hrule);
         self.primitive_unexpandable(b"ignorespaces", UnexpandableCommand::IgnoreSpaces);
         self.primitive_unexpandable(b"insert", UnexpandableCommand::Insert);
-        self.primitive_unexpandable(b"mark", UnexpandableCommand::Mark);
+        self.primitive_unexpandable(
+            b"mark",
+            UnexpandableCommand::Mark(MarkClassOperand::Zero),
+        );
+        self.primitive_unexpandable(
+            b"marks",
+            UnexpandableCommand::Mark(MarkClassOperand::Scan),
+        );
         self.primitive_unexpandable(
             b"mathaccent",
             UnexpandableCommand::Math(MathCommand::MathAccent),
@@ -796,17 +804,34 @@ impl Eqtb {
         self.primitive_expandable(b"endinput", ExpandableCommand::EndInput);
 
         // See 384.
-        self.primitive_expandable(b"topmark", ExpandableCommand::Mark(MarkCommand::Top));
-        self.primitive_expandable(b"firstmark", ExpandableCommand::Mark(MarkCommand::First));
-        self.primitive_expandable(b"botmark", ExpandableCommand::Mark(MarkCommand::Bot));
-        self.primitive_expandable(
-            b"splitfirstmark",
-            ExpandableCommand::Mark(MarkCommand::SplitFirst),
-        );
-        self.primitive_expandable(
-            b"splitbotmark",
-            ExpandableCommand::Mark(MarkCommand::SplitBot),
-        );
+        for (singular, plural, query) in [
+            (b"topmark".as_slice(), b"topmarks".as_slice(), MarkQuery::Top),
+            (
+                b"firstmark".as_slice(),
+                b"firstmarks".as_slice(),
+                MarkQuery::First,
+            ),
+            (b"botmark".as_slice(), b"botmarks".as_slice(), MarkQuery::Bot),
+            (
+                b"splitfirstmark".as_slice(),
+                b"splitfirstmarks".as_slice(),
+                MarkQuery::SplitFirst,
+            ),
+            (
+                b"splitbotmark".as_slice(),
+                b"splitbotmarks".as_slice(),
+                MarkQuery::SplitBot,
+            ),
+        ] {
+            self.primitive_expandable(
+                singular,
+                ExpandableCommand::Mark(MarkCommand::new(query, MarkClassOperand::Zero)),
+            );
+            self.primitive_expandable(
+                plural,
+                ExpandableCommand::Mark(MarkCommand::new(query, MarkClassOperand::Scan)),
+            );
+        }
 
         // See 411.
         self.primitive_unexpandable(

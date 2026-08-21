@@ -2,7 +2,7 @@ pub mod noads;
 
 use crate::dimension::{is_running, scan_normal_dimen, Dimension, NULL_FLAG};
 use crate::eqtb::Eqtb;
-use crate::eqtb::{ControlSequence, FontIndex, InsertionIndex, SkipVariable};
+use crate::eqtb::{ControlSequence, FontIndex, InsertionIndex, MarkClassIndex, SkipVariable};
 use crate::input::Scanner;
 use crate::logger::Logger;
 use crate::print::{Printer, MAX_PRINT_LINE};
@@ -404,13 +404,19 @@ impl InsNode {
 /// See 141.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MarkNode {
+    pub class: MarkClassIndex,
     pub mark: RcTokenList,
 }
 
 impl MarkNode {
     /// See 196.
     fn display(&self, eqtb: &Eqtb, logger: &mut Logger) {
-        logger.print_esc_str(b"mark");
+        if self.class == 0 {
+            logger.print_esc_str(b"mark");
+        } else {
+            logger.print_esc_str(b"marks");
+            logger.print_int(self.class as i32);
+        }
         print_mark(&self.mark, eqtb, logger);
     }
 }
