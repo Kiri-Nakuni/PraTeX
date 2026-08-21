@@ -1,0 +1,28 @@
+# e-TeX 移植記録
+
+## クリーンルームの境界
+
+e-TeX の原実装は参照せず、公開マニュアルとブラックボックス試験から書き直す。
+
+現在の一次資料:
+
+- *The ε-TeX manual*: <https://texdoc.org/serve/e-TeX/0>
+- 2026-08-21 閲覧
+
+LaTeX / expl3 は互換性を測る試験入力としてのみ使い、実装の資料にはしない。
+
+## `\everyeof`
+
+公開マニュアル §3.7 の契約:
+
+- `\everyeof={<token list>}` は token-list parameter である。
+- 実ファイルまたは `\scantokens` の疑似ファイルでEOFの先を読もうとしたときに入る。
+- runaway検査とファイルを閉じる処理より前に読む。
+
+rtex の各ファイル入力源に「すでに挿入したか」を持たせ、EOFで一度だけ既存の
+token-list input source を積む。読み終えた後に元のファイル入力へ戻り、二度目のEOFで
+通常どおり閉じる。この順なら既存のrunaway検査は `\everyeof` の後になる。
+
+子ファイルを読む統合試験で、本文の後、閉じ括弧がログへ出る前に一度だけ実行される
+ことを固定した。release全160試験を通し、現行LaTeXの停止点は
+`\tex_everyeof:D` から `\tex_readline:D` へ進んだ。

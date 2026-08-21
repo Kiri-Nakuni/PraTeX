@@ -50,6 +50,7 @@ pub enum TokenSourceType {
     EveryVboxText,
     EveryJobText,
     EveryCrText,
+    EveryEofText,
     MarkText,
     WriteText,
 }
@@ -78,6 +79,7 @@ impl TokenSourceType {
             EveryVboxText => TokenListVariable::EveryVbox.to_string(),
             EveryJobText => TokenListVariable::EveryJob.to_string(),
             EveryCrText => TokenListVariable::EveryCr.to_string(),
+            EveryEofText => TokenListVariable::EveryEof.to_string(),
         };
         logger.begin_diagnostic(eqtb.tracing_online());
         logger.print_nl_str("");

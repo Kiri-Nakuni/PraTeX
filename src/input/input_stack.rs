@@ -1,7 +1,9 @@
 use super::line_lexer::LineLexer;
 use super::macro_reader::MacroReader;
 use super::token_source::{AlignCommand, TokenListReader, TokenSourceType};
-use crate::eqtb::{ControlSequence, ControlSequenceId, Eqtb, IntegerVariable};
+use crate::eqtb::{
+    ControlSequence, ControlSequenceId, Eqtb, IntegerVariable, TokenListVariable,
+};
 use crate::error::{fatal_error, overflow};
 use crate::logger::{InteractionMode, Logger};
 use crate::macros::{show_macro_pseudo, Macro, MacroToken};
@@ -65,7 +67,11 @@ pub enum InputSource {
 #[derive(Debug)]
 pub enum SourceType {
     /// An input file.
-    File { file: Box<BufReader<File>> },
+    File {
+        file: Box<BufReader<File>>,
+        /// e-TeX の `\everyeof` は一つの入力源につき一度だけ読む。
+        every_eof_seen: bool,
+    },
     /// An inserted line from the terminal.
     TerminalInsert,
     /// The terminal base.
@@ -234,6 +240,7 @@ impl InputStack {
             lexer: LineLexer::new(first_line),
             source_type: SourceType::File {
                 file: Box::new(buf_reader),
+                every_eof_seen: false,
             },
         };
         self.push_input(input, eqtb, logger)
@@ -268,7 +275,10 @@ impl InputStack {
                             token
                         }
                         Ok(None) => match source_type {
-                            SourceType::File { ref mut file, .. } => {
+                            SourceType::File {
+                                ref mut file,
+                                ref mut every_eof_seen,
+                            } => {
                                 // If we are allowed to get more lines from the file.
                                 if !force_eof {
                                     let mut line = Vec::new();
@@ -287,6 +297,25 @@ impl InputStack {
                                         return NextResult::LineEnded;
                                     }
                                 }
+                                // e-TeX: EOF を閉じる前に `\everyeof` を一度だけ読む。
+                                // 先に印を付けるので、そのトークン列が空でも再挿入しない。
+                                if !*every_eof_seen {
+                                    *every_eof_seen = true;
+                                    if let Some(tokens) = eqtb
+                                        .token_lists
+                                        .get(TokenListVariable::EveryEof)
+                                        .clone()
+                                    {
+                                        self.begin_token_list(
+                                            tokens,
+                                            TokenSourceType::EveryEofText,
+                                            eqtb,
+                                            logger,
+                                        );
+                                        continue;
+                                    }
+                                }
+
                                 // Close the current file.
                                 logger.print_char(b')');
                                 logger.update_terminal();
@@ -776,6 +805,7 @@ impl InputStack {
             EveryVboxText => "<everyvbox> ",
             EveryJobText => "<everyjob> ",
             EveryCrText => "<everycr> ",
+            EveryEofText => "<everyeof> ",
             MarkText => "<mark> ",
             WriteText => "<write> ",
         };

@@ -9,7 +9,8 @@
 - Windowsでも release 全試験を走らせられるよう、ファイル名のOS境界を共通化した。
 - pdfTeX互換の general text 走査を `nested_scan_toks` に統一した。
 - pdfTeX公式マニュアルの公開仕様だけから `\pdfstrcmp` を実装した。
-- release **159件通過**。
+- e-TeX公式マニュアルの公開仕様だけから `\everyeof` を実装した。
+- release **160件通過**。
 
 作業枝は `origin/codex/euptex-pdftex-integration` へ定期的に push する。
 
@@ -20,9 +21,10 @@ CTAN TDS archive を一時領域に展開している。配布物は版方へ入
 - latex-base: 2026-06-01
 - l3kernel: 2026-08-10
 
-`\pdfstrcmp` の前は `expl3-code.tex:5781` で停止していた。追加後は
-**12660行目の `\tex_everyeof:D`** まで進んだ。次の最小単位は e-TeX の
-`\everyeof`。
+`\pdfstrcmp` の前は `expl3-code.tex:5781`、追加後は12660行目の
+`\tex_everyeof:D` で停止していた。`\everyeof` の追加後は、Computer Modernの
+`cmr10.tfm` とCTAN `unicode-data` を一時試験環境へ補い、**36005行目の
+`\tex_readline:D`** まで進んだ。次の最小単位は e-TeX の `\readline`。
 
 ## 権利と調査境界
 

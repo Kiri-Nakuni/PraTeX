@@ -246,3 +246,27 @@ fn pdfstrcmpは展開した文字列を比較する() {
     );
     assert!(log.contains("[0/-1/1]"), "{log}");
 }
+
+#[test]
+fn everyeofはファイルを閉じる前に一度だけ入る() {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    "everyeof".hash(&mut h);
+    let dir = std::env::temp_dir().join(format!("etex-{}-{:x}", std::process::id(), h.finish()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("child.tex"), "\\message{[child]}\n").unwrap();
+    std::fs::write(
+        dir.join("t.tex"),
+        "\\catcode`\\{=1\n\\catcode`\\}=2\n\\batchmode\n\
+         \\count0=0 \\everyeof{\\advance\\count0 by1 \\message{[eof]}}\n\
+         \\input child.tex\n\\message{[after=\\the\\count0]}\n\\end\n",
+    )
+    .unwrap();
+    Command::new(env!("CARGO_BIN_EXE_rtex"))
+        .arg("t.tex")
+        .current_dir(&dir)
+        .output()
+        .unwrap();
+    let log = join_log(&dir.join("t.log"));
+    assert!(log.contains("[child] [eof]) [after=1]"), "{log}");
+}

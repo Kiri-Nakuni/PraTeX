@@ -176,6 +176,7 @@ pub struct VariableLevels {
     every_vbox: Level,
     every_job: Level,
     every_cr: Level,
+    every_eof: Level,
     err_help: Level,
     toks: Vec<Level>,
 }
@@ -347,6 +348,7 @@ impl VariableLevels {
             every_vbox: 0,
             every_job: 0,
             every_cr: 0,
+            every_eof: 0,
             err_help: 0,
             toks: vec![0; RegisterIndex::MAX as usize + 1],
         }
@@ -521,6 +523,7 @@ impl VariableLevels {
                 TokenListVariable::EveryVbox => self.every_vbox,
                 TokenListVariable::EveryJob => self.every_job,
                 TokenListVariable::EveryCr => self.every_cr,
+                TokenListVariable::EveryEof => self.every_eof,
                 TokenListVariable::ErrHelp => self.err_help,
                 TokenListVariable::Toks(register_index) => self.toks[register_index as usize],
             },
@@ -693,6 +696,7 @@ impl VariableLevels {
                 TokenListVariable::EveryVbox => &mut self.every_vbox,
                 TokenListVariable::EveryJob => &mut self.every_job,
                 TokenListVariable::EveryCr => &mut self.every_cr,
+                TokenListVariable::EveryEof => &mut self.every_eof,
                 TokenListVariable::ErrHelp => &mut self.err_help,
                 TokenListVariable::Toks(register_index) => &mut self.toks[register_index as usize],
             },
@@ -869,6 +873,7 @@ impl Dumpable for VariableLevels {
         self.every_vbox.dump(target)?;
         self.every_job.dump(target)?;
         self.every_cr.dump(target)?;
+        self.every_eof.dump(target)?;
         self.err_help.dump(target)?;
         self.toks.dump(target)?;
 
@@ -1040,6 +1045,7 @@ impl Dumpable for VariableLevels {
         let every_vbox = Dumpable::undump(lines)?;
         let every_job = Dumpable::undump(lines)?;
         let every_cr = Dumpable::undump(lines)?;
+        let every_eof = Dumpable::undump(lines)?;
         let err_help = Dumpable::undump(lines)?;
         let toks = Dumpable::undump(lines)?;
 
@@ -1189,6 +1195,7 @@ impl Dumpable for VariableLevels {
             every_vbox,
             every_job,
             every_cr,
+            every_eof,
             err_help,
             toks,
         })

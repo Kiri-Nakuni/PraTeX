@@ -15,6 +15,7 @@ pub struct TokenListParameters {
     every_vbox: Option<RcTokenList>,
     every_job: Option<RcTokenList>,
     every_cr: Option<RcTokenList>,
+    every_eof: Option<RcTokenList>,
     err_help: Option<RcTokenList>,
     toks: Vec<Option<RcTokenList>>,
 }
@@ -32,6 +33,7 @@ impl TokenListParameters {
             every_vbox: None,
             every_job: None,
             every_cr: None,
+            every_eof: None,
             err_help: None,
             toks: vec![None; RegisterIndex::MAX as usize + 1],
         }
@@ -47,6 +49,7 @@ impl TokenListParameters {
             TokenListVariable::EveryVbox => &self.every_vbox,
             TokenListVariable::EveryJob => &self.every_job,
             TokenListVariable::EveryCr => &self.every_cr,
+            TokenListVariable::EveryEof => &self.every_eof,
             TokenListVariable::ErrHelp => &self.err_help,
             TokenListVariable::Toks(register) => &self.toks[register as usize],
         }
@@ -62,6 +65,7 @@ impl TokenListParameters {
             TokenListVariable::EveryVbox => &mut self.every_vbox,
             TokenListVariable::EveryJob => &mut self.every_job,
             TokenListVariable::EveryCr => &mut self.every_cr,
+            TokenListVariable::EveryEof => &mut self.every_eof,
             TokenListVariable::ErrHelp => &mut self.err_help,
             TokenListVariable::Toks(register) => &mut self.toks[register as usize],
         }
@@ -92,6 +96,7 @@ pub enum TokenListVariable {
     EveryVbox,
     EveryJob,
     EveryCr,
+    EveryEof,
     ErrHelp,
     Toks(RegisterIndex),
 }
@@ -109,6 +114,7 @@ impl TokenListVariable {
             Self::EveryVbox => b"everyvbox".to_vec(),
             Self::EveryJob => b"everyjob".to_vec(),
             Self::EveryCr => b"everycr".to_vec(),
+            Self::EveryEof => b"everyeof".to_vec(),
             Self::ErrHelp => b"errhelp".to_vec(),
             Self::Toks(register) => format!("toks{}", register).as_bytes().to_vec(),
         }
@@ -125,6 +131,7 @@ impl Dumpable for TokenListParameters {
         self.every_vbox.dump(target)?;
         self.every_job.dump(target)?;
         self.every_cr.dump(target)?;
+        self.every_eof.dump(target)?;
         self.err_help.dump(target)?;
         self.toks.dump(target)?;
         Ok(())
@@ -139,6 +146,7 @@ impl Dumpable for TokenListParameters {
         let every_vbox = <Option<RcTokenList>>::undump(lines)?;
         let every_job = <Option<RcTokenList>>::undump(lines)?;
         let every_cr = <Option<RcTokenList>>::undump(lines)?;
+        let every_eof = <Option<RcTokenList>>::undump(lines)?;
         let err_help = <Option<RcTokenList>>::undump(lines)?;
         let toks = Dumpable::undump(lines)?;
         Ok(Self {
@@ -150,6 +158,7 @@ impl Dumpable for TokenListParameters {
             every_vbox,
             every_job,
             every_cr,
+            every_eof,
             err_help,
             toks,
         })
@@ -167,6 +176,7 @@ impl Dumpable for TokenListVariable {
             Self::EveryVbox => writeln!(target, "EveryVbox")?,
             Self::EveryJob => writeln!(target, "EveryJob")?,
             Self::EveryCr => writeln!(target, "EveryCr")?,
+            Self::EveryEof => writeln!(target, "EveryEof")?,
             Self::ErrHelp => writeln!(target, "ErrHelp")?,
             Self::Toks(n) => {
                 writeln!(target, "Toks")?;
@@ -187,6 +197,7 @@ impl Dumpable for TokenListVariable {
             "EveryVbox" => Ok(Self::EveryVbox),
             "EveryJob" => Ok(Self::EveryJob),
             "EveryCr" => Ok(Self::EveryCr),
+            "EveryEof" => Ok(Self::EveryEof),
             "ErrHelp" => Ok(Self::ErrHelp),
             "Toks" => {
                 let n = RegisterIndex::undump(lines)?;

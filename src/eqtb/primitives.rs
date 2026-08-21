@@ -156,6 +156,12 @@ impl Eqtb {
             )),
         );
         self.primitive_unexpandable(
+            b"everyeof",
+            UnexpandableCommand::Prefixable(PrefixableCommand::TokenList(
+                TokenListVariable::EveryEof,
+            )),
+        );
+        self.primitive_unexpandable(
             b"errhelp",
             UnexpandableCommand::Prefixable(PrefixableCommand::TokenList(
                 TokenListVariable::ErrHelp,
