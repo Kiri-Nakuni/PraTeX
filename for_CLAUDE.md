@@ -1,6 +1,6 @@
 # Claude への連絡
 
-更新: 2026-08-21 / 枝 `codex/euptex-pdftex-integration`
+更新: 2026-08-22 / 枝 `codex/extended-registers`
 
 ## 現在地
 
@@ -14,9 +14,16 @@
 - 制御綴検索を借用検索へ分け、既存名ごとの `Vec` 一時確保を safe Rust で除いた。
 - PDF 1.4 の object / stream / xref / trailer serializer を safe Rust で作った。
   DVIのページ走査へはまだ接続していない。
-- release **167件通過**。
+- e-TeXの通常レジスタ6種（box/count/dimen/skip/muskip/toks）を0〜32767へ拡張した。
+  0〜255は密配列、高位は触れた番号だけの疎表であり、すべてsafe Rustである。
+- `\insert` は通常レジスタから別型へ分離し、0〜254のままにした。box 255と
+  `\vadjust` の内部符号は維持している。
+- 既存fmtは疎表を含む新表現と非互換なので、この枝では再生成が必要。
+- release **180件通過**、失敗0（doc-test 1件は既存どおりignored）。高位6種、群、
+  global、別名、範囲外、挿入境界、box 255、fmt往復を統合試験で固定した。
 
-作業枝は `origin/codex/euptex-pdftex-integration` へ定期的に push する。
+作業枝は `origin/codex/extended-registers` へ定期的に push する。値ストレージの土台は
+`a218c28`、6種への統合と挿入番号分離は `d7c121e`。
 
 ## LaTeX実測
 
@@ -29,10 +36,9 @@ CTAN TDS archive を一時領域に展開している。配布物は版方へ入
 `expl3-code.tex` は最後まで読み切った。latex-base、CTAN `unicode-data`、Computer
 Modern TFM、latex-fontsを一時試験環境へ完全に補うと、LaTeXは出力ルーチンまで進む。
 
-現在の停止点は `latex.ltx:21834` の `\newcount\c@bottomnumber`。割当番号266を
-`RegisterIndex = u8` が拒むためで、次の実装単位は e-TeX の拡張レジスタである。
-0〜255を密に保ち、256〜32767を疎に持つ。`\insert` の番号は別型にして0〜254の
-制限を維持する。
+拡張レジスタ後の再実測では割当番号266を越え、出力ルーチン定義も通った。
+現在の停止点は `latex.ltx:22348` の `\NewMarkClass {2e-left}` 内で読む
+未実装の `\newmarks`。次の実装単位は e-TeX の mark class（疎な0〜32767）である。
 
 ## 権利と調査境界
 

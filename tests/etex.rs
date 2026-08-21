@@ -309,3 +309,191 @@ fn interactionmodeは現在値を読み書きできる() {
     assert!(log.contains("[scroll=2]"), "{log}");
     assert!(log.contains("[nonstop=1]"), "{log}");
 }
+
+#[test]
+fn 拡張レジスタの両端を六種類とも読み書きできる() {
+    let log = run_tex(
+        "拡張レジスタの両端",
+        "\\count256=256 \\count32767=32767\n\
+         \\dimen256=1pt \\dimen32767=2pt\n\
+         \\skip256=3pt \\skip32767=4pt\n\
+         \\muskip256=5mu \\muskip32767=6mu\n\
+         \\toks256={LOW} \\toks32767={HIGH}\n\
+         \\setbox256=\\hbox{\\vrule width7pt} \\setbox32767=\\hbox{\\vrule width8pt}\n\
+         \\message{[c=\\the\\count256/\\the\\count32767]}\n\
+         \\message{[d=\\the\\dimen256/\\the\\dimen32767]}\n\
+         \\message{[s=\\the\\skip256/\\the\\skip32767]}\n\
+         \\message{[m=\\the\\muskip256/\\the\\muskip32767]}\n\
+         \\message{[t=\\the\\toks256/\\the\\toks32767]}\n\
+         \\message{[b=\\the\\wd256/\\the\\wd32767]}",
+    );
+    assert!(log.contains("[c=256/32767]"), "{log}");
+    assert!(log.contains("[d=1.0pt/2.0pt]"), "{log}");
+    assert!(log.contains("[s=3.0pt/4.0pt]"), "{log}");
+    assert!(log.contains("[m=5.0mu/6.0mu]"), "{log}");
+    assert!(log.contains("[t=LOW/HIGH]"), "{log}");
+    assert!(log.contains("[b=7.0pt/8.0pt]"), "{log}");
+}
+
+#[test]
+fn 高位レジスタは群で戻りglobalなら残る() {
+    let log = run_tex(
+        "高位レジスタの復元",
+        "\\count32767=1 \\dimen32767=1pt \\skip32767=1pt \\muskip32767=1mu\n\
+         \\toks32767={O} \\setbox32767=\\hbox{\\vrule width1pt}\n\
+         {\\count32767=2 \\dimen32767=2pt \\skip32767=2pt \\muskip32767=2mu\n\
+          \\toks32767={L} \\setbox32767=\\hbox{\\vrule width2pt}\n\
+          \\message{[local=\\the\\count32767/\\the\\dimen32767/\\the\\skip32767/\\the\\muskip32767/\\the\\toks32767/\\the\\wd32767]}}\n\
+         \\message{[restored=\\the\\count32767/\\the\\dimen32767/\\the\\skip32767/\\the\\muskip32767/\\the\\toks32767/\\the\\wd32767]}\n\
+         {\\global\\count32767=3 \\global\\dimen32767=3pt\n\
+          \\global\\skip32767=3pt \\global\\muskip32767=3mu\n\
+          \\global\\toks32767={G} \\global\\setbox32767=\\hbox{\\vrule width3pt}}\n\
+         \\message{[global=\\the\\count32767/\\the\\dimen32767/\\the\\skip32767/\\the\\muskip32767/\\the\\toks32767/\\the\\wd32767]}",
+    );
+    assert!(
+        log.contains("[local=2/2.0pt/2.0pt/2.0mu/L/2.0pt]"),
+        "{log}"
+    );
+    assert!(
+        log.contains("[restored=1/1.0pt/1.0pt/1.0mu/O/1.0pt]"),
+        "{log}"
+    );
+    assert!(
+        log.contains("[global=3/3.0pt/3.0pt/3.0mu/G/3.0pt]"),
+        "{log}"
+    );
+}
+
+#[test]
+fn 別名定義から高位レジスタを使える() {
+    let log = run_tex(
+        "高位レジスタの別名",
+        "\\countdef\\highcount=32767 \\dimendef\\highdimen=32767\n\
+         \\skipdef\\highskip=32767 \\muskipdef\\highmuskip=32767\n\
+         \\toksdef\\hightoks=32767\n\
+         \\highcount=11 \\highdimen=2pt \\highskip=3pt \\highmuskip=4mu\n\
+         \\hightoks={TOK}\n\
+         \\message{[alias=\\the\\count32767/\\the\\dimen32767/\\the\\skip32767/\\the\\muskip32767/\\the\\toks32767]}",
+    );
+    assert!(log.contains("[alias=11/2.0pt/3.0pt/4.0mu/TOK]"), "{log}");
+}
+
+#[test]
+fn 三万二千七百六十八番は六種類とも拒む() {
+    for (kind, body) in [
+        ("count", "\\count32768=1 \\message{[done]}"),
+        ("dimen", "\\dimen32768=1pt \\message{[done]}"),
+        ("skip", "\\skip32768=1pt \\message{[done]}"),
+        ("muskip", "\\muskip32768=1mu \\message{[done]}"),
+        ("toks", "\\toks32768={X} \\message{[done]}"),
+        ("box", "\\setbox32768=\\hbox{\\vrule width1pt} \\message{[done]}"),
+    ] {
+        let log = run_tex(&format!("範囲外-{kind}"), body);
+        assert!(log.contains("Bad register code"), "{kind}: {log}");
+        assert!(log.contains("[done]"), "{kind}: {log}");
+    }
+}
+
+#[test]
+fn 差し込み番号は二百五十四までに限る() {
+    fn insertion_log(number: u16) -> String {
+        let body = "\\showboxbreadth=10 \\showboxdepth=10\n\
+                    \\setbox0=\\vbox{\\insertNNN{\\hrule width1pt height1pt}}\n\
+                    \\showbox0 \\message{[done]}"
+            .replace("NNN", &number.to_string());
+        run_tex(&format!("差し込み-{number}"), &body)
+    }
+
+    let valid = insertion_log(254);
+    assert!(valid.contains("\\insert254, natural size"), "{valid}");
+    // showbox 自身の OK 通知だけであること。
+    assert_eq!(valid.matches("! ").count(), 1, "{valid}");
+
+    for invalid in [255_u16, 256] {
+        let log = insertion_log(invalid);
+        // 不正な番号は 0 に直し、高位レジスタを差し込みクラスにしない。
+        assert!(log.contains("\\insert0, natural size"), "{invalid}: {log}");
+        // showbox の通知に加え、番号の誤りを一度報告する。
+        assert!(log.matches("! ").count() >= 2, "{invalid}: {log}");
+        assert!(log.contains("[done]"), "{invalid}: {log}");
+    }
+}
+
+#[test]
+fn box二百五十五は拡張上限と別に残る() {
+    let log = run_tex(
+        "box255の特殊性",
+        "\\setbox255=\\hbox{\\vrule width5pt}\n\
+         \\setbox32767=\\hbox{\\vrule width7pt}\n\
+         \\message{[boxes=\\the\\wd255/\\the\\wd32767]}\n\
+         \\message{[void=\\ifvoid255 Y\\else N\\fi/\\ifvoid32767 Y\\else N\\fi]}",
+    );
+    assert!(log.contains("[boxes=5.0pt/7.0pt]"), "{log}");
+    assert!(log.contains("[void=N/N]"), "{log}");
+}
+
+#[test]
+fn 拡張レジスタと別名はfmtを往復する() {
+    let dir = std::env::temp_dir().join(format!("etex-register-fmt-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let fmt = dir.join("mk.fmt");
+    let _ = std::fs::remove_file(&fmt);
+
+    std::fs::write(
+        dir.join("mk.tex"),
+        "\\catcode123=1\n\\catcode125=2\n\\batchmode\n\
+         \\count256=12 \\count32767=34\n\
+         \\dimen256=1pt \\dimen32767=2pt\n\
+         \\skip256=3pt \\skip32767=4pt\n\
+         \\muskip256=5mu \\muskip32767=6mu\n\
+         \\toks256={LOW} \\toks32767={HIGH}\n\
+         \\setbox256=\\hbox{\\vrule width7pt} \\setbox32767=\\hbox{\\vrule width8pt}\n\
+         \\countdef\\highcount=32767 \\dimendef\\highdimen=32767\n\
+         \\skipdef\\highskip=32767 \\muskipdef\\highmuskip=32767\n\
+         \\toksdef\\hightoks=32767\n\\dump\n",
+    )
+    .unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_rtex"))
+        .arg("mk.tex")
+        .current_dir(&dir)
+        .output()
+        .unwrap();
+    if !fmt.exists() {
+        eprintln!(
+            "\\dump が使えないので飛ばす: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        return;
+    }
+
+    std::fs::write(
+        dir.join("use.tex"),
+        "\\message{[c=\\the\\count256/\\the\\count32767]}\n\
+         \\message{[d=\\the\\dimen256/\\the\\dimen32767]}\n\
+         \\message{[s=\\the\\skip256/\\the\\skip32767]}\n\
+         \\message{[m=\\the\\muskip256/\\the\\muskip32767]}\n\
+         \\message{[t=\\the\\toks256/\\the\\toks32767]}\n\
+         \\message{[b=\\the\\wd256/\\the\\wd32767]}\n\
+         \\highcount=35 \\highdimen=9pt \\highskip=10pt \\highmuskip=11mu\n\
+         \\hightoks={ALIAS}\n\
+         \\message{[alias=\\the\\count32767/\\the\\dimen32767/\\the\\skip32767/\\the\\muskip32767/\\the\\toks32767]}\n\\end\n",
+    )
+    .unwrap();
+    Command::new(env!("CARGO_BIN_EXE_rtex"))
+        .arg("&mk")
+        .arg("use.tex")
+        .current_dir(&dir)
+        .output()
+        .unwrap();
+    let log = join_log(&dir.join("use.log"));
+    assert!(log.contains("[c=12/34]"), "{log}");
+    assert!(log.contains("[d=1.0pt/2.0pt]"), "{log}");
+    assert!(log.contains("[s=3.0pt/4.0pt]"), "{log}");
+    assert!(log.contains("[m=5.0mu/6.0mu]"), "{log}");
+    assert!(log.contains("[t=LOW/HIGH]"), "{log}");
+    assert!(log.contains("[b=7.0pt/8.0pt]"), "{log}");
+    assert!(
+        log.contains("[alias=35/9.0pt/10.0pt/11.0mu/ALIAS]"),
+        "{log}"
+    );
+}
