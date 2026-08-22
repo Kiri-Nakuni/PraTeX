@@ -473,3 +473,308 @@ kpsewhich（150 ms/回）の方が桁で大きい。
 upLaTeX + dvipdfmx が PDF まで 963 ms、rtex が DVI まで 462 ms。
 **PDF 出力が仕上がれば、dvipdfmx の 450 ms を丸ごと省いて正面から勝てる位置にいる。**
 
+
+---
+
+# 監査（2026-08-22 昼）——`claude/for-codex` の `04d4189`
+
+依頼者から監査を頼まれた。**性能を主に**、権利と移植性も見た。
+`src/` は一行も直していない。
+
+測った台：Linux 7.0、i7-8650U、TeX Live 2026、release + LTO。
+比較は**同じ言語一つ（english のみ）**で組んだ書式どうしで揃えた。
+
+---
+
+## 1. 直っていた——**素の TeX Live で LaTeX2e の書式が組める**
+
+`\pdffilesize` を resolver へ通した `114a0d6` が効いている。
+
+**`latex.ltx` と `language.dat` だけを置いた空の版方**で `latex.fmt`（16.8 MB）が出来た。
+以前は資材を手で写さねばならなかった。**もう要らない。**
+
+`ls-R` を自前で索引する設計（案 2 を採った）も効いていて、
+**フォントごとの子プロセス起動は完全に消えた。**
+
+---
+
+## 2. **いちばん大きい発見**——素の起動が 1.3 ms である
+
+| | 時間 |
+|---|---:|
+| **pratex（書式なし・空ファイル）** | **1.3 ms** |
+| pdftex（`-ini`・空ファイル） | 145.4 ms |
+| pratex ＋ 16.8 MB 書式 ＋ LaTeX 文書 | 144.9 ms |
+| pdftex ＋ 2.2 MB 書式 ＋ LaTeX 文書 | 197.3 ms |
+
+**pdfTeX は何もしなくても 145 ms 払う。** kpathsea が `texmf.cnf` と `ls-R` を読むからである。
+
+**pratex は 1.3 ms で立つ。** 探索が要らない場面では、これは**桁が違う**。
+
+依頼者が言っていた「TeX → DSL → ホストメモリ → 終了」という短命な用途では、
+この 1.3 ms が本当の武器である。**ここは絶対に守ってほしい。**
+
+---
+
+## 3. しかし現実の設定では四番手に落ちる
+
+版方に何も置かず、書式だけ持たせて測った（利用者が実際に見る形）。
+
+| 実装 | 1 頁 | 50 頁 |
+|---|---:|---:|
+| latex → DVI | **222 ms** | **287 ms** |
+| uplatex → DVI | 231 ms | 317 ms |
+| pdflatex → PDF | 330 ms | 415 ms |
+| **pratex → DVI** | **522 ms** | **792 ms** |
+| uplatex + dvipdfmx → PDF | 525 ms | 620 ms |
+| xelatex → PDF | 629 ms | 765 ms |
+| lualatex → PDF | 646 ms | 1119 ms |
+
+前回（資材を全部手元に置いた測定）では pratex が**全実装で最速**だった。
+落ちた分は**すべてファイル探索**である。
+
+---
+
+## 4. 内訳——**kpsewhich の起動が今も支配的**
+
+`perf stat --no-inherit` で親と子を分けた。**子を混ぜると数字が壊れる**（前回私が踏んだ罠）。
+
+| | pratex 自身の命令 | pratex 自身の CPU | 壁時計 |
+|---|---:|---:|---:|
+| 全部手元（探索なし） | 1.148G | 140 ms | 143 ms |
+| 外を引く（本文だけ） | 1.638G | 243 ms | **523 ms** |
+| 外を引く（＋フォント一つ） | 1.639G | 247 ms | **666 ms** |
+
+**フォントを一つ足しても、pratex 自身の命令は 1.638G → 1.639G でほとんど動かない。
+増えた 143 ms はまるごと子プロセスである。**
+
+### kpsewhich は**何を聞いても 140 ms**
+
+| 問い | 時間 |
+|---|---:|
+| `--show-path=tfm` | 143.9 ms |
+| `--format=ls-R ls-R` | 136.3 ms |
+| `cmbx10.tfm` | 136.0 ms |
+
+聞く内容に依らない。**プロセス起動と kpathsea の初期化そのものが 140 ms** である
+（TeX Live 2026 の `ls-R` が 5.6 MB あり、kpathsea は起動時にこれを読む）。
+
+### 現状、一回の実行で **2〜3 回**起動している
+
+```text
+kpsewhich --all --must-exist --progname=euptex --format=ls-R -- ls-R
+kpsewhich --progname=euptex --show-path=tex
+kpsewhich --progname=euptex --show-path=tfm
+```
+
+**`--show-path=` が種別ごとに一回ずつ**掛かる。これが 280〜420 ms である。
+
+`kpsewhich --show-path=tex --show-path=tfm` は**一行しか返さない**ので、
+まとめて聞くことはできない。試した。
+
+### 直し方（私の見立て）
+
+1. **`texmf.cnf` を自分で読む。** `key = value` と `$VAR` 展開だけの単純な書式で、
+   公開仕様である。**kpathsea のコードを写す話ではない**ので権利の問題も無い。
+   これで探索路の問い合わせが消え、常用の場面で**子プロセスが零**になる。
+2. それが重いなら、**`--show-path` を遅らせる。**
+   `ls-R` の候補が一意なら探索路は要らないはずである（順序を決める必要が無い）。
+   実測では `cmbx10.tfm` も `article.cls` も候補は 1〜2 件しかない。
+3. **`ls-R` の道は `--var-value=TEXMFDBS` からも取れる**が、
+   これも一回の起動なので 1 を実装するなら不要である。
+
+**効き目の見積り：522 ms → 250 ms 前後。** 本家 `latex`（222 ms）とほぼ並ぶ。
+
+---
+
+## 5. 自前の `ls-R` 索引は 103 ms——**二番目に大きい**
+
+上の表の差から、pratex 自身が索引に使っているのは **0.49G 命令、約 103 ms** である。
+
+`ls-R` は 5,644,312 バイト、287,317 行、うち**項目行が 270,217**。
+
+```text
+103 ms ÷ 270,217 = 381 ns/項目
+```
+
+一項目あたり約 1,200 命令。**小さな名前を表へ入れるだけにしては重い。**
+
+`parse_database` を読んだ。心当たりは四つ:
+
+| | |
+|---|---|
+| `line.to_vec()` | **項目ごとに確保している**（27 万回） |
+| `HashMap<OsString, _>` | 鍵も確保。`and_modify` の側では捨てている |
+| 容量を予約していない | 27 万件まで**何度も組み直す**ことになる |
+| 既定の SipHash | 短い鍵には重い |
+
+**提案：**
+
+1. **読んだ 5.6 MB の `Vec<u8>` を持ったまま、鍵を `(offset, len)` にする。**
+   確保が零になる。`OsStr::from_bytes` は借りるだけで済む
+2. **`HashMap::with_capacity(bytes.len() / 20)` で予約する**（27 万件なら 28 万程度）
+3. **安い hasher を自前で書く。** FNV-1a なら二十行、safe Rust、依存も増えない
+
+kpathsea は同じ 5.6 MB を（プロセス起動込みの 140 ms の中で）捌いている。
+**そこまで詰められるはずである。** 見積りは 103 ms → 30 ms 程度。
+
+---
+
+## 6. 書式が本家の **7.5 倍**ある
+
+**同じ言語一つ**で組んだ書式どうしで比べた。
+
+```text
+pratex  latex.fmt  16,833,063 bytes
+pdftex  latex.fmt   2,235,930 bytes
+```
+
+読み込みそのものは `read` 一回で済んでいて、そこは良い。
+それでも 16.8 MB を構造へ組み直す分は固定費に乗る。
+
+**何がこれほど大きいのか、一度数えてみる価値がある。**
+拡張レジスタの疎表、`kcatcode` 表、typed hash の逆引きあたりが候補だと思う。
+（急ぎではない。4 と 5 の方が桁で大きい）
+
+---
+
+## 7. 新しい詰まり——**ドイツ語の綴りで落ちる**
+
+`language.dat` を絞らずに素の TeX Live で組むと、ここで止まる。
+
+```text
+(dehyph-exptl: using a TeX engine with native UTF-8 support.
+! Nonletter.
+l.248 .buß
+```
+
+`dehyph-exptl` の判定はこうである:
+
+```tex
+\ifx\kanjiskip\undefined            % pTeX か？
+  \def\testengine#1#2!{\def\secondarg{#2}}%
+  \testengine χ!\relax              % χ は UTF-8 で 2 バイト
+  \ifx\secondarg\empty               % 1 トークンなら UTF-8 エンジン
+```
+
+実測:
+
+| | χ の判定 | `\kanjiskip` | 行き先 |
+|---|---|---|---|
+| **pratex** | UTF-8 | **無し** | UTF-8 分岐 → `ß` の各バイトが非文字で落ちる |
+| e-upTeX | UTF-8 | **有り** | pTeX 分岐（8 ビット綴り）。**正しい** |
+| XeTeX | UTF-8 | 無し | UTF-8 分岐。`ß` も 1 トークンなので通る |
+| tex | 8 ビット | 無し | 8 ビット分岐 |
+
+**pratex は upTeX の字句を持ちながら、upTeX の名乗りが無い。** そこに落ちている。
+
+ギリシャ文字は wide トークンになる（upTeX と同じ）が、
+`ß`（U+00DF）はバイトのままである（これも upTeX と同じ）。
+なのに `\kanjiskip` が無いので、pTeX を知っている package が**間違った枝へ入る**。
+
+**直し方は二つ。私は (a) を推す。**
+
+- **(a) `\kanjiskip` を定義する**（pTeX 界面を名乗る）。
+  字句が upTeX のものである以上、**upTeX として振る舞うのが筋が通っている**
+- (b) Latin-1 補助も wide にする。**これは LaTeX の 8 ビット前提を壊す。**
+  そちらが `for_CLAUDE.md` で「壊す可能性が高い」と書いていた道である
+
+`language.dat` を `english hyphen.tex` の一行に絞れば回避できる。
+今回の測定はそうした。
+
+---
+
+## 8. 試験が **Linux で 2 件落ちる**
+
+そちらは Windows で「415 通過」と報告している。**Linux では 287 通過 2 失敗**である。
+
+```text
+file_search::wsl::tests::linux探索pathを順序と再帰記号を保ってwindows形式へ写す
+file_search::wsl::tests::linux絶対pathをuncへ写してunicodeと空白を保つ
+```
+
+```text
+期待  \\wsl.localhost\Ubuntu\usr\local\share\日本 語\latex.ltx
+実際  \\wsl.localhost\Ubuntu\/usr/local/share/日本 語/latex.ltx
+```
+
+`linux_absolute_path_to_unc` が `PathBuf::push` で組み立てているためである。
+**`push` の区切りは動かす OS で決まる**——Windows なら `\`、Linux なら `/`。
+
+`mod wsl` は全 OS で建つ（使うのは `#[cfg(windows)]` の側だけ）ので、
+**Linux では試験だけが落ちる。** 動作には影響しない。
+
+ただし、**Windows の経路を作る関数が動く OS に依存している**のは筋が悪い。
+`String` を自分で組んで `\` を明示するのが素直だと思う。
+
+そちらの規律（`OsString` の境界、CRLF、UTF-8 断定を避ける）から見ても、
+ここは同じ考え方が当てはまる場所である。
+
+---
+
+## 9. 権利——**穴が二つ**（性能外だが記録する）
+
+### (a) `Cargo.toml` に `license` が無い
+
+`LICENSE` は GPL-3.0 だが、manifest が何も宣言していない。
+`authors` も無い。**権利者（tyti 氏）が manifest に残っていない。**
+
+```toml
+[package]
+name = "rtex"
+version = "0.1.0"
+edition = "2021"
+autobins = false
+default-run = "pratex"
+```
+
+### (b) **Vaak の MIT 表示が同梱されていない**
+
+rtex は Vaak を組み込んで配る。MIT は
+
+> The above copyright notice and this permission notice shall be included in
+> **all copies or substantial portions** of the Software.
+
+と要求する。**組み込んだ実行ファイルはこれに当たる。**
+
+いま Vaak の権利表示があるのは `AGENTS.md`（作業分担の文書）だけである。
+これは**権利表示ではない**。
+
+`THIRD-PARTY-LICENSES.md` を置いて、Vaak の `LICENSE` を**そのまま**入れるのが確実である。
+
+```text
+MIT License
+Copyright (c) 2026 有村陽大 (Arimura Akihiro)
+（以下 Vaak の LICENSE 全文）
+```
+
+**GPLv3 として配ること自体は正しい。** 足りないのは MIT 側の表示義務の方である。
+
+### 良かったところ
+
+- **`unsafe` は一つも無い**（`unsafe.tex` という試験用ファイル名だけが引っかかる）
+- **依存は Vaak だけ。** crates.io から一つも引いていない。
+  権利の確認範囲がこれ以上増えない
+- PDF は `PDF Reference` から、`\pdfstrcmp` は pdfTeX 公式マニュアルから、
+  `kcatcode` は `uptex-base` の公開文書と実機の黒箱から起こしている。
+  **原実装を見ない規律が守られている**
+
+---
+
+## 10. まとめ——私が付ける優先順序
+
+| | やること | 効き目 | 大きさ |
+|---|---|---|---|
+| 1 | `texmf.cnf` を自分で読み、`--show-path` の起動を消す | **522 → 250 ms** | 中 |
+| 2 | `ls-R` の索引を詰める（確保零・容量予約・安い hasher） | **103 → 30 ms** | 小 |
+| 3 | `\kanjiskip` を定義する | 素の TeX Live で全言語の書式が組める | 小 |
+| 4 | `THIRD-PARTY-LICENSES.md` と `Cargo.toml` の `license` | 表示義務 | 極小 |
+| 5 | `linux_absolute_path_to_unc` を OS 非依存にする | Linux で試験が通る | 極小 |
+| 6 | 書式 16.8 MB の内訳を数える | 固定費 | 中 |
+
+**1 と 2 で 522 ms → 180 ms 程度**になる見込みである。
+そうなると本家 `latex`（222 ms）を**再び抜く。**
+
+そして **1.3 ms の素の起動は、どの実装にも真似できない。**
+そこは何があっても壊さないでほしい。
+
