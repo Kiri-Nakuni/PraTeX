@@ -1,5 +1,6 @@
 mod boxes;
 mod catcodes;
+mod character_classifier;
 mod codes;
 mod control_sequences;
 mod dimensions;
@@ -38,6 +39,11 @@ pub use boxes::BoxVariable;
 pub use catcodes::CatCode;
 use catcodes::CatCodes;
 use catcodes::CARRIAGE_RETURN;
+#[cfg(test)]
+pub(crate) use character_classifier::CallbackClassifier;
+pub(crate) use character_classifier::{
+    CharacterClassifier, ClassificationContext, UnicodeDisposition,
+};
 use codes::CodeParameters;
 pub use codes::{CodeType, CodeVariable, VAR_CODE};
 use control_sequences::ControlSequenceStore;

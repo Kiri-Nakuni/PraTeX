@@ -2,6 +2,7 @@ use crate::command::{
     Command, ConvertCommand, ExpandableCommand, MacroCall, MarkClassOperand, UnexpandableCommand,
 };
 use crate::eqtb::{ControlSequence, Eqtb, KCatCode};
+use crate::file_search::FileKind;
 use crate::fonts::scan_font_ident;
 use crate::input::expansion::get_x_token;
 use crate::input::{Scanner, ScannerStatus};
@@ -281,10 +282,16 @@ fn scan_and_print_argument_for_convert_command(
             // `\pdffilesize` の引数は ⟨general text⟩。展開した結果を名前にする。
             // ファイル名走査を使うと `{name}` の括弧まで名前として読んでしまう。
             let name = scan_general_text_as_string(scanner, eqtb, logger);
-            let path = std::path::PathBuf::from(crate::os_string_from_bytes(name));
+            let logical_path = std::path::PathBuf::from(crate::os_string_from_bytes(name));
+            let path = scanner
+                .resolve_file_path(FileKind::Tex, &logical_path)
+                .ok()
+                .flatten();
             // **無ければ空を返す。** 誤りにしない（pdfTeX と同じ）
-            if let Ok(m) = std::fs::metadata(&path) {
-                string_printer.print_int(m.len() as i32);
+            if let Some(path) = path {
+                if let Ok(metadata) = std::fs::metadata(path) {
+                    string_printer.print_int(metadata.len() as i32);
+                }
             }
         }
         ConvertCommand::PdfMdFiveSum => {

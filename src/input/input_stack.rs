@@ -213,14 +213,16 @@ impl InputStack {
         logger: &mut Logger,
     ) {
         let path_bytes = path.as_os_str().as_encoded_bytes();
-        if logger.term_offset + path_bytes.len() > MAX_PRINT_LINE - 2 {
-            logger.print_ln();
-        } else if logger.term_offset > 0 || logger.file_offset > 0 {
-            logger.print_char(b' ');
-        }
-        logger.print_char(b'(');
-        logger.slow_print_str(path_bytes);
-        logger.update_terminal();
+        logger.automatic_output(|logger| {
+            if logger.term_offset + path_bytes.len() > MAX_PRINT_LINE - 2 {
+                logger.print_ln();
+            } else if logger.term_offset > 0 || logger.file_offset > 0 {
+                logger.print_char(b' ');
+            }
+            logger.print_char(b'(');
+            logger.slow_print_str(path_bytes);
+            logger.update_terminal();
+        });
 
         self.line_number_stack.push(self.line_number);
         self.line_number = 1;
@@ -251,14 +253,12 @@ impl InputStack {
     ) -> NextResult {
         // We start over if an input source has been exhausted or if we need to expand a parameter
         loop {
-            let cat_code = |c| eqtb.cat_code(c);
-            let kcat_code = |code_point| eqtb.kcat_code(code_point);
-
             // We distinguish here between text and token sources.
             let force_eof = self.force_eof;
             let token = match self.current_source_mut() {
                 InputSource::TextSource { lexer, source_type } => {
-                    match lexer.scan_next_token(&cat_code, &kcat_code) {
+                    let lex_result = lexer.scan_next_token_with_classifier(eqtb);
+                    match lex_result {
                         Ok(Some(lexer_token)) => {
                             let Ok(token) = lexer_token.to_token(allow_new_cs, eqtb) else {
                                 overflow(
@@ -312,8 +312,10 @@ impl InputStack {
                                 }
 
                                 // Close the current file.
-                                logger.print_char(b')');
-                                logger.update_terminal();
+                                logger.automatic_output(|logger| {
+                                    logger.print_char(b')');
+                                    logger.update_terminal();
+                                });
                                 self.force_eof = false;
                                 self.pop_input();
                                 self.line_number = self.line_number_stack.pop().unwrap();
@@ -840,7 +842,9 @@ impl InputStack {
                 ..
             } = self.cur_source
             {
-                logger.print_str(" )");
+                logger.automatic_output(|logger| {
+                    logger.print_str(" )");
+                });
             }
             self.pop_input();
         }

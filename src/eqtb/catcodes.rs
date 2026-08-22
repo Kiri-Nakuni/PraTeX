@@ -7,6 +7,7 @@ pub const CARRIAGE_RETURN: u8 = 13;
 const INVALID_CODE: u8 = 127;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(u8)]
 pub enum CatCode {
     Escape = 0,
     LeftBrace = 1,
