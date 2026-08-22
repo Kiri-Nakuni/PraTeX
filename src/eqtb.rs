@@ -509,6 +509,21 @@ impl Eqtb {
                 Err(_) => None,
             };
         }
+
+        // At the bottom level, local and global definitions have identical
+        // semantics: there is no enclosing value to save and every variable
+        // level is already zero.  Integer arithmetic is frequent enough that
+        // avoiding the Definition/Variable dispatch here matters.  See 278.
+        if self.cur_level == 0 {
+            debug_assert_eq!(
+                self.variable_levels.get(Variable::Integer(int_var)),
+                0,
+                "an integer at the bottom level must have level zero"
+            );
+            self.integers.set(int_var, value);
+            return;
+        }
+
         self.define(Definition::Integer(int_var, value), global);
     }
 
