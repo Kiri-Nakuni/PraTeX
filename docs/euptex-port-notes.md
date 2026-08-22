@@ -148,7 +148,7 @@ U+2E7F 以下でも `15..20` と表示される。この回復も回帰試験へ
 | 4a | **Unicode block 分類表と `\kcatcode`**（代入・group・fmtまで） | **済**（U+10FFFFまで） |
 | 4b | **UTF-8 字句解析と CJK文字 token**（`16`〜`20`を一文字一token、分類をtokenへ固定） | **済**（typed制御綴、条件・展開・表示・fmtまで。JFM/文字nodeは後段） |
 | 4c | **`latin_ucs` と16 bit欧文表**（U+2E7F、OFM Level-0へ接続） | 未 |
-| 5 | **JFM**（和文フォントの寸法表）と `\jfont` | 未 |
+| 5 | **JFM**（和文フォントの寸法表）と `\jfont` | **進行中**（公開仕様だけによるbounded reader、横/縦・24-bit code・現行glue/kern拡張・直接class対表まで。font選択とscale接続は未） |
 | 6 | **Unicode 文字 node と DVI `set2` / `set3`** | 未 |
 | 7 | **`\kanjiskip` / `\xkanjiskip`** を主ループに差し込む | 未 |
 | 8 | **禁則**（`\prebreakpenalty` / `\postbreakpenalty` / `\inhibitxspcode`） | 未 |

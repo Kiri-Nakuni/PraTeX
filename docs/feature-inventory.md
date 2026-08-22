@@ -94,14 +94,15 @@ OTF shapingは未実装である。詳しい境界は
 | 状態 | 機能 | 現在の範囲と境界 |
 |---|---|---|
 | 実装 | 和文寸法単位 `Q`、`H` | どちらも厳密に0.25 mm。通常寸法、糊、式の既存寸法走査を通る |
-| 部分 | 和文寸法単位 `zw`、`zh` | 綴りは使えるが、JFMがないため両方とも現在の欧文fontの`em`幅で代用する |
+| 部分 | 和文寸法単位 `zw`、`zh` | 綴りは使えるが、JFMがcurrent和文fontへ未接続のため両方とも現在の欧文fontの`em`幅で代用する |
+| 部分 | JFM reader/model | 公開JFM仕様から独立実装。横組11／縦組9、24-bit raw文字code、u8 class、skip・再配置・256超glue/kern indexをboundedに検査し、class対をload時に直接表へcompileする。`\jfont`/`\tfont`、scale、wide nodeには未接続 |
 | 実装 | `\kcatcode`表・照会・代入 | 公開値14〜20。U+0000〜U+10FFFFをUnicode 17.0.0のblock、upTeX擬似境界、7例外集合で保存する。block単位の局所/global/globaldefs復元とfmt往復を含む |
 | 部分 | `latin_ucs`（kcatcode 14） | 表へ代入・照会はできるが、16-bit欧文catcode表とUnicode欧文tokenは未実装。入力は現在kcatcode 15と同じ元UTF-8 byte列へ戻す |
 | 部分 | UTF-8 CJK一文字token | kcatcode 16〜20を符号位置と入力時categoryを持つ一tokenにし、macro、`\edef`、`\let`、条件、`\string`、`\detokenize`、`\write`、fmtまで保持する。ただし組版時はJFM不足を診断して文字を捨てる |
 | 実装 | Unicodeを含むtyped制御綴 | `Byte(u8)`と`Unicode(u32)`を別identityにし、同じ見た目のraw UTF-8 byte名とwide名を混同しない。CJK categoryはtokenには固定するが制御綴identityには含めない |
 | 部分 | upTeX互換UTF-8 decoder | 公式black-box観測に合わせ、overlong・surrogateを含む入力規則と不正列の一byte再同期を実装。入力上限はU+10FFFE、表とtokenはU+10FFFFまでで、upTeX独自の0x110000以上は扱わない |
 
-CJK tokenは「日本語をPDF/DVIへ組める」という意味ではない。JFM、和文font/node、DVI
+CJK tokenとJFM readerは「日本語をPDF/DVIへ組める」という意味ではない。和文font/node、DVI
 `set2`/`set3`、`\jfont`/`\tfont`、`\kanjiskip`/`\xkanjiskip`、禁則、縦組は未実装である。
 `\kchar`、`\kchardef`、`\ucs`、`\forcecjktoken`もまだない。`\uppercase`/`\lowercase`は
 CJK tokenを現在変更しない。

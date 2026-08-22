@@ -1,5 +1,24 @@
 # safe Rust 性能測定
 
+## 到達目標: upTeX / e-upTeX と正面比較する
+
+PraTeXの最終性能目標は、単に「Rust実装として十分速い」ことではなく、同じ入力を同じ
+意味でDVIへ組むupTeX / e-upTeXと同等のthroughputを得ることである。機能を省いた短い
+fixtureだけで達成扱いにせず、pTeX相当P0の完成に合わせて次を継続測定する。
+
+- process起動、TeX Live探索、fmt復元、展開、段落整形、JFM class対処理、page build、
+  DVI shipoutを分離したmicro/macro benchmark
+- ASCII、和文、和欧混植、禁則が多い狭い段落、100頁、横組、縦組の固定corpus
+- 同一TeX Live tree・warm/cold条件・CPU affinity・release LTOで交互に走らせたwall/CPU値
+- `updvitype`で正規化したnode/命令・sp座標が一致する実行だけを性能標本に採用
+
+P0のperformance gateは、engine本体のcorpus幾何平均をe-upTeXの5%以内、各主要caseを
+10%以内に置く。探索を含むend-to-endも別列で同じ水準を目指す。PDF直接出力はupTeX単体と
+同じ仕事ではないため、DVI core比較へ混ぜず、upTeX + driverのpipelineと別に測る。
+
+最適化はsafe Rustを既定にする。意味一致を固定したprofileで必要性が残り、`unsafe`を試す
+場合は専用枝を先に切り、安全条件・差分・性能値を独立に審査できるようにする。
+
 性能変更は、同じrelease設定・同じ合成入力で変更前後を交互に走らせ、出力の一致を
 確認してから採用する。測定用入力、実行ファイルの複製、logはリポジトリ外の
 `%TEMP%` にだけ置き、版方へ入れない。

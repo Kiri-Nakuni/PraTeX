@@ -456,3 +456,45 @@ pTeX互換の実意味をcoreへ入れる。標準日本語をVaak callbackへ�
 VaakのMIT表示を配布物へ同梱する必要とCargo manifestのlicense欠落も確認した。ただし
 権利表示は文言を推測せず、`../vaak/LICENSE`の原文とrtex GPL-3.0の関係を保つ独立した
 housekeeping commitにする。Linux上のUNC組立試験のOS依存も別枝で再現してから直す。
+
+## JFM core開始とupTeX性能目標
+
+`codex/ptex-jfm-core`で、公開JFM仕様だけからsafe Rustのbounded reader/modelを追加中。
+横組ID 11、縦組ID 9、14 halfword長、24-bit raw文字code + u8 class、char_info、fix_word、
+glue/kern、skip、再配置、256超indexを検査する。JFM内のcodeはUnicode/JISを自己記述しないため、
+parserで推測せず、後段の和文font定義に明示encodingを持たせる。
+
+組版時にprogramを逐次解釈しないよう、load時にclass対を`u16`の直接表へcompileする。
+raw codeからclassへの検索もwide glyph生成時の一度だけにし、nodeへ`JfmClassId`を保持する予定。
+標準日本語経路のVaak/WASM callbackは0のままで、Vaak API変更はまだ不要。
+
+WSL TeX Live 2026の配布JFM 96件を上流source/testなしで黒箱走査した。横56／縦40、全件
+`bc=0,np=9`。`upjisr-h.tfm`（812 bytes、SHA-256
+`7d686f3edaa70f30195b2ced00c0babfc54910dcadfe93a80061d99b61dfaedf`）を環境依存試験で
+実際にparse済み。配布96件には非零skip、再配置、256超indexがなかったため、現行拡張は
+独立合成fixtureで固定する。
+
+依頼者が性能の最終条件を明確化した。PraTeXは同一意味のDVI workloadでupTeX/e-upTeXと
+正面比較できる水準を目標にする。起動、探索、fmt、展開、和文class対、line/page、shipoutを
+分離し、P0 corpusのengine幾何平均5%以内・主要case10%以内をgateとして文書化した。
+safe Rustを先に詰め、unsafeを試す場合は明示専用枝へ分離する。
+
+このreader段階は合成14試験、`upjisr-h`単体、配布JFM 96件全件のignored試験を通した。
+全releaseは503 passed、0 failed、6 ignored。TRIP二段exit 0、`tripos.tex`一致、DVI hashは直前と同じ
+`b20af20a1463c6846f0c4c1ce687cd6354ce1a5f65ee401507627570787ae9fe`。
+Vaak側で追従する変更はない。
+
+## Windows PraTeX対WSL e-upTeXの基線と性能枝への切替
+
+依頼者が比較基準をさらに明確化した。Windows版TeX Liveの遅さへ勝つだけでは足りず、
+**同じPCのWSL上で動くe-upTeX**にタメを張る。PraTeX/e-upTeXをINITEX、fmtなし、探索なし、
+同じ1000万回のmacro展開＋整数加算で2回warm-up後に各11回測った中央値は次だった。
+
+- Windows native PraTeX release LTO: 2,751.868 ms
+- TeX Live 2026 Windows e-upTeX: 1,454.809 ms
+- WSL TeX Live 2026 e-upTeX: 1,213.808 ms
+
+PraTeXはWSL e-upTeXの約2.27倍で、依頼者が再設計の目安にした1.2倍を明確に越える。
+JFM readerをcommit/pushした後、safe Rust専用の性能枝へ切り替え、展開器、token入力stack、
+整数走査をprofileする。勝敗はWSL e-upTeX比1.2倍未満、TRIPと全試験の意味一致で判定する。
+Windows e-upTeX値は参考に留め、性能gateには使わない。

@@ -18,6 +18,8 @@ mod hyphenation;
 mod input;
 mod input_streams;
 mod integer;
+#[allow(dead_code)]
+mod jfm;
 mod line_breaking;
 mod logger;
 mod macros;

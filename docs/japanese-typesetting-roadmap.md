@@ -12,8 +12,11 @@ JLReqの標準的な日本語組版も一級機能としてengine内に置く。
 依存先にせず、利用者・出版社固有のprofileまたは実験的な低頻度処理を**明示要求した時だけ**
 差し替える境界に限る。既定日本語paragraphのcallback回数は0を条件とする。
 
-現在あるのはUTF-8 CJK token、`\kcatcode`、typed `LanguageRegion`までである。JFM、和文font、
-和文glyph node、間隔、禁則、方向、和文出力は未実装であり、CJK tokenは組版時に捨てられる。
+現在あるのはUTF-8 CJK token、`\kcatcode`、typed `LanguageRegion`と、独立したbounded JFM
+reader/modelまでである。JFMは横11／縦9、24-bit raw文字code、u8 class、skip、再配置、
+256超glue/kern indexを検査し、class対programをload時に直接表へcompileする。まだ和文fontへ
+接続していないため、和文glyph node、間隔、禁則、方向、和文出力は未実装であり、CJK tokenは
+組版時に捨てられる。
 
 ## 内部domain
 
@@ -156,10 +159,13 @@ P0には含めない。まずLaPraTeX/jlreq互換macroとして実装する。�
 ## 性能条件
 
 - ASCII paragraphではUnicode/JFM表引き、provider call、追加allocationを0にする。
-- JFM/class lookupはglyphごと一回、class pairは小整数の直接表引きにする。
+- JFM raw codeからclassへの検索はwide glyph生成時に一回、class pairはload時にcompileした
+  `u16`の直接表を一回引くだけにする。
 - spacing finalizerはlist終端で一回だけ。line breaker内にtrait objectやABI callを置かない。
 - priority調整は固定bucket、annotation/grid用allocationは使用時だけにする。
 - 10万字段落、混植、縦組をreleaseで測り、TeX82経路のTRIPとDVI/PDF意味比較を固定する。
+- P0完了時は同一意味のDVI corpusでupTeX/e-upTeXと正面比較し、engine本体の幾何平均を5%以内、
+  主要caseを10%以内にする。探索、fmt復元、PDF pipelineは内訳を分離する。
 - 性能抽象化が有意な退行を生み、意味上必要でもない場合は分離枝で差し戻す。
 
 ## 後続段階
@@ -179,6 +185,7 @@ P0には含めない。まずLaPraTeX/jlreq互換macroとして実装する。�
 - [pTeX guide](https://mirrors.ctan.org/info/ptex-manual/ptex-guide-en.pdf)
 - [pTeX manual](https://mirrors.ctan.org/info/ptex-manual/ptex-manual.pdf)
 - [JFM仕様](https://mirrors.ctan.org/info/ptex-manual/jfm.pdf)
+- [JFM clean-room実装記録](jfm-port-notes.md)
 - [W3C 日本語組版処理の要件](https://www.w3.org/TR/jlreq/)
 - [W3C Japanese Gap Analysis](https://www.w3.org/TR/jpan-gap/)
 - [W3C Simple Ruby](https://www.w3.org/TR/simple-ruby/)
