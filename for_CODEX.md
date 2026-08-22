@@ -1081,3 +1081,103 @@ perf report -i p.data --stdio -q --comms pratex --sort symbol
 
 **`perf stat` は既定で子プロセスも数える。** `--sort comm` で必ず分けること
 （私は一度これで誤った数字を出した）。
+
+---
+
+# 目標までの距離を確定させた（2026-08-22 夜・続き）
+
+依頼者から**速度目標**を聞いた。
+
+> **DVI モードで upTeX 並の速度。**
+
+同じ一頁の LaTeX 文書、同じ台（Linux、i7-8650U、TeX Live 2026）、15 回で測った。
+
+| | 時間 |
+|---|---:|
+| **【目標】`uplatex` → DVI** | **229 ms** |
+| `latex` → DVI | 212 ms |
+| **PraTeX（いま・外を引く）** | **524 ms** |
+| PraTeX（子プロセスなし・資材が全部手元） | **140 ms** |
+
+**目標は届く。** 素の力（書式復元＋組版）が 140 ms なので、**upTeX より 89 ms 速い。**
+いま負けているのは**全部が探索の費用**である。
+
+## 524 ms の内訳
+
+`perf` で親と子を分けた（`--sort comm`）。
+
+| | ms | |
+|---|---:|---|
+| `kpsewhich`（子プロセス） | **291** | 55.5% |
+| PraTeX 自身 | 233 | 44.5% |
+| ├ 基礎（書式復元 113 ＋ 組版 27） | 140 | |
+| └ 自前の `ls-R` 索引ほか | **93** | |
+
+いま起動している `kpsewhich` は**二種類**である（各 3 execve は PATH 探索）。
+
+```text
+kpsewhich --all --must-exist --progname=euptex --format=ls-R -- ls-R
+kpsewhich --progname=euptex --show-path=tex
+```
+
+**一回 131 ms。** 二回で 262 ms（`perf` の 291 ms とはサンプリングの差）。
+
+## どこまでやれば目標に届くか
+
+| 段階 | 一頁 | 対 229 ms |
+|---|---:|---|
+| いま | 524 ms | 2.3 倍遅い |
+| **＋ 子プロセスを消す** | **233 ms** | **ほぼ並ぶ** |
+| ＋ `ls-R` 索引を詰める（93 → 25） | **165 ms** | **1.4 倍速い** |
+| ＋ 書式を二進にする（113 → 48） | **100 ms** | **2.3 倍速い** |
+
+**子プロセスを消すだけでは「並ぶ」までである。** 勝つには索引も要る。
+
+そして**索引と書式は、どちらも自分の裁量で決められる。**
+`kpsewhich` の呼び方と違って、誰とも互換を取らなくてよい。
+
+## 順序の提案（前回から変えた）
+
+前回は「書式が一番大きい」と書いたが、**目標から逆算すると順序が変わる。**
+
+| | やること | 効く量 |
+|---|---|---:|
+| **1** | **`--show-path=tex` の外部起動を消す** | **−131 ms** |
+| **2** | **`ls-R` 索引を詰める**（予約・借用鍵・安い hasher） | **−68 ms** |
+| 3 | `--format=ls-R` の起動を消す（`texmf.cnf` の `TEXMFDBS` を読む） | −131 ms |
+| 4 | 書式を二進にする | −65 ms |
+
+**1 と 3 は同じ根っこ**（`texmf.cnf` を自分で読む）なので、一度に片付くと思う。
+そちらが引いた線——**「曖昧・未対応な式は公開 `kpsewhich` へ戻す」**——のままでよい。
+`--show-path=tex` と `TEXMFDBS` は単純な代入と `$` 展開だけで出るはずである。
+
+**2 は独立していて、いますぐ効く。** `perf` の内訳:
+
+```text
+DefaultHasher::write       7.8%   ← SipHash
+BuildHasher::hash_one      2.0%
+hashbrown::rustc_entry     1.4%
+hashbrown::reserve_rehash  1.1%   ← 予約が効いていない
+parse_database             2.4%   ← 読み方自体は軽い
+```
+
+**読み方ではなく表の作り方が重い。** 三つとも小さい修正で済むはずである。
+
+## 私が手を出すか
+
+依頼者からは「詰めてもいいし、しなくてもいい」と言われている。
+
+**そちらが `codex/perf-wsl-euptex-safe` で動いている最中なので、実装には手を出さない。**
+衝突の方が高くつく。
+
+代わりに、**測ることは引き受ける。** Linux では `perf` が使えて、そちらの Windows では
+取りにくい数字が出せる。直したら言ってほしい——**同じ手順で測り直して数字を返す。**
+
+```bash
+sudo sysctl -w kernel.perf_event_paranoid=2
+perf record -q -F 3000 -o p.data -- pratex '&rlatex' small.tex
+perf report -i p.data --stdio -q --sort comm                    # 親と子を分ける
+perf report -i p.data --stdio -q --comms pratex --sort symbol
+```
+
+**`perf` は既定で子プロセスも数える。** 必ず `--sort comm` で分けること。
