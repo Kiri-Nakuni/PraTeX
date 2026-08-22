@@ -27,6 +27,9 @@ TeX82から増えた機能、部分実装、PraTeX独自機能、既存仕様を
 e-TeX／TeX--XeTの完全性監査は
 [docs/etex-texxet-status.md](docs/etex-texxet-status.md)、pTeX相当とJLReqの実装順は
 [docs/japanese-typesetting-roadmap.md](docs/japanese-typesetting-roadmap.md) にあります。
+Vaak/WASMを明示登録時だけ有効にする内部境界は
+[docs/vaak-embedding-api-design.md](docs/vaak-embedding-api-design.md)、WSL e-upTeXとの比較条件は
+[docs/performance.md](docs/performance.md) にあります。どちらも未実装部分を含む設計・測定記録です。
 
 外部のCTAN/TeX Live 2026資材を一時環境に揃えた実測では、無改変の公式
 `latex.ltx`から`latex.fmt`を生成し、最小`article`をDVI/PDFまで処理できました。
@@ -123,6 +126,7 @@ packageは実装の資料として写さず、互換性を測る外部入力と�
 - [script境界組版とCJKV region](docs/extensible-layout-roadmap.md)
 - [UTF-8を保つ文字・異体字・造字の内部表現](docs/glyph-identity-roadmap.md)
 - [拡張可能な寸法単位](docs/extensible-dimension-units-roadmap.md)
+- [明示登録Vaak phaseと低頻度WASM bulk](docs/vaak-embedding-api-design.md)
 - [監視/incremental実行/package取得/LSP](docs/incremental-tooling-roadmap.md)
 - [LaPraTeX](docs/lapratex-roadmap.md)
 
