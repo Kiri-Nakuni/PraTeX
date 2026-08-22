@@ -18,6 +18,10 @@ reader/modelまでである。JFMは横11／縦9、24-bit raw文字code、u8 cla
 接続していないため、和文glyph node、間隔、禁則、方向、和文出力は未実装であり、CJK tokenは
 組版時に捨てられる。
 
+`\kanjiskip` / `\xkanjiskip`のprimitive、JFMとのhybrid、暗黙K、
+script-pair拡張のclean-room設計は
+[和文間隔core設計](kanjiskip-core-design.md)に分離した。
+
 ## 内部domain
 
 catcodeへ組版情報を押し込まない。少なくとも次を別の型として保つ。

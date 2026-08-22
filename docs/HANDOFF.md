@@ -123,13 +123,35 @@ UTF-8を判定する。PraTeXはCJK/wide tokenによりこの試験を真にす�
 `src/hyphenation*`、`src/command*`、`src/alignment.rs`、`src/math.rs`、
 `src/macros.rs`、`tests/latin_ucs.rs`。正確な一覧は必ず`git status --short`で取り直す。
 
-完了条件:
+Stage 4c単体の完了条件:
 
 1. focused unit/process testsとfmt roundtripが通る。
-2. 通常resolver経由の`latex.ltx`が`.buß3`を越える。
+2. 明示的なkcatcode 14 fixtureで`.buß3`を一文字patternとして登録できる。
 3. 特殊catcode、active/control分離、case cross-lane、detokenizeを黒箱期待値で固定する。
 4. corrupt fmtと境界値でpanicしない。
 5. ASCII pathへUnicode表引き・heap確保を増やさない。
+
+通常resolverの無改変`latex.ltx`は、Stage 4cのLatin初期値を偽装して越えない。
+本物の`\kanjiskip`を追加しpTeX branchへ入れる次段で再測定する。
+
+## 完了済み設計: `\kanjiskip` / `\xkanjiskip`
+
+状態: **2026-08-22にclean-room設計を完了、code未着手**。
+
+- 文書: `docs/kanjiskip-core-design.md`
+- INITEX既定0pt、通常glue parameterとしての代入・group・算術・fmt・表示を黒箱固定した。
+- K/Xとxsp/inhibitはlist終端値で全境界を再評価する。暗黙Kはshow/lastskipへ見せず、
+  Xは幅0でも実glue nodeとして残る。
+- JFMは途中で観測・除去できるためmain-loopで早期挿入し、K/Xだけclose-timeで再評価する
+  hybridにする。
+- 最終形のKはwide glyphのbit＋hlist単位specをline breaker/packer/outputが仮想glueとして扱い、
+  純和文のnode数を倍増させない。
+- standard Japaneseは`BuiltInPtex`のmonomorphic core経路で、Vaak/WASM callは0。
+  Hangul–Latin等は同じscript-pair機構へ後から載せる。
+
+最初のcommitはnamed `SkipVariable`二個とgeneric glue parameter試験でよいが、
+LaTeXのpTeX検出を変えるので「日本語組版完成」や検出stubとは呼ばない。実挿入、JFM、禁則、
+line breaking、DVI/PDFまで連続して進める。
 
 ## 進行中 2: `\lastnodetype` page状態
 
