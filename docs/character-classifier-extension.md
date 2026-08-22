@@ -11,6 +11,12 @@ namespace、`kcatcode=16` は kanji である。同じ整数を同じ列挙値�
 class を別領域に置く。これは crate 内部IDであり、将来公開するWASM ABIの値は別途
 versionを付けて固定する。
 
+この`CharClassId`は**字句分類**であり、組版用の`ScriptClassId`ではない。Han/Kana/Hangulと
+CJKV layout region、TeX `\language`を分ける規則は
+[script境界組版roadmap](extensible-layout-roadmap.md)に置く。
+異体字、IVS、外部文字集合、造字のidentityも字句分類とは別であり、
+[文字・異体字・造字の内部表現](glyph-identity-roadmap.md)で扱う。
+
 ## 現在の組込み経路
 
 組込み経路では `Eqtb` 自身がtraitを実装し、中間objectを作らず次の二つを返す。

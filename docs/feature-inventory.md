@@ -1,7 +1,7 @@
 # PraTeXのTeX82外機能と独立実装
 
 更新: 2026-08-22
-監査対象: `6bf22aa`（`ls-R`索引とWindows--WSL探索境界まで）
+監査対象: `ac6ad90`（`LanguageRegion` R0まで）
 
 この文書は、PraTeXが現在持つ機能のうちTeX82の中核にはないものと、PraTeXで新たに
 書いた実装を区別して記録する。将来構想を現在の対応機能として数えないこと、既存engineの
@@ -134,6 +134,7 @@ mktex生成は未実装である。一意性を証明できないcache missで�
 |---|---|---|
 | 部分 | Vaak bridge | `\directvaak{...}`、`\vaakdef\cs{...}`、`\vaakinput file`。終了値を10進整数として展開し、低位`count[0..255]`と`dimen[0..255]`をi32として読み書きする。書戻しはTeXの保存stackを通りgroupで戻る。同一sourceのcompile結果とVM runnerを再利用する |
 | 部分 | 名前空間つき制御綴 | catcode 16、`\namespace`、`\usingnamespace`、`\namespacechar`。一文字・複数文字・active・Unicode制御綴、group/global、参照時探索、表示、fmtまで実装。interface名の確定、`\halign` preamble再利用などPhase 8の検証は残る |
+| 実装 | typedな組版region状態 | `\pratexregion=0..5`で`und`、`ja`、`zh-Hans`、`zh-Hant`、`ko`、`vi`を選ぶ。local/global/globaldefs、save stack、fmt、`\the`、`\showthe`、`\meaning`、`\let`を通し、TeX `\language`から独立する。R0の状態だけで、まだ組版結果に影響しない |
 | 実装 | PraTeXの実行名 | primary/default binaryとbannerは`pratex`。移行用の`rtex`互換binaryは残す。crate/library名も現在は`rtex`のまま |
 | 実装 | 自動出力だけを抑える`--quiet` | banner、file括弧、page番号、通常summaryだけをterminalから消す。log、明示`\message`、`\write16`、`\show`、tracing、error、promptは残す |
 | 実装 | Type 1埋込みの明示opt-in | `--pdf-font-map`を指定した時だけ限定map parserと埋込み経路を有効にし、暗黙のresource選択を避ける |
@@ -144,6 +145,8 @@ capabilityはまだない。根拠は
 [Vaak実装](../src/vaak.rs)、
 [統合設計と測定](vaak-integration.md)、
 [名前空間roadmap](NAMESPACE_ROADMAP.md)、
+[組版region試験](../tests/language_region.rs)、
+[拡張可能なscript境界組版](extensible-layout-roadmap.md)、
 [quiet試験](../tests/quiet_mode.rs) にある。
 
 ## 完全に独立して書いた実装の範囲
@@ -164,6 +167,7 @@ capabilityはまだない。根拠は
 | 名前空間 | PraTeX固有仕様 | catcode 16から字句・eqtb・探索・表示・fmtまでのnamespaced control-sequence経路 |
 | 出力backend境界 | PraTeX内部設計 | 一度のnode walkをDVI/PDF eventへ流す静的`ShipoutBackend`と、既存DVI writerのbyte互換adapter |
 | 文字分類境界 | PraTeX内部設計 | `CatCode`を`repr(u8)`に保ち、catcode、kcatcode、将来拡張IDを別domainに置く`CharacterClassifier`問い合わせ面 |
+| 組版region状態 | PraTeX内部設計 | 地域組版localeをTeXのhyphenation番号やUnicode scriptから推定せず、1 byteのtyped parameterとしてeqtb/save stack/fmt/内部量へ通す |
 | CLIとportability層 | web2c系option慣行とPraTeX固有policy | OS文字列を壊さないoption parser、PDF/quiet選択、CRLF処理、PraTeX/rtex二binary境界 |
 | 検証・性能tooling | TRIP、公開DVI仕様 | 第三者資材をvendorしないhash固定TRIP runner、DVI意味比較、safe Rustの回帰・性能fixture |
 
@@ -187,8 +191,14 @@ runtimeは別MIT projectを依存として使う。PraTeX側からMITのVaakへG
 | 設計のみ | 生文字列register、`\therawstring`、raw専用`\showthe` | [設計文書](raw-string-registers.md)だけ。production primitive、storage、testはない |
 | 設計のみ | run-local Vaak疑似callback | 特定のVaak実行が明示要求した時だけ有効にする方針だけ。常設callback表はない |
 | 設計のみ | version付きWASM ABI | class/rule ID、buffer、capability、fuel境界の案だけ。ABI export、runtime、providerはない |
+| 設計のみ | script境界組版とregion R1〜R7 | `ScriptClassId`、RegionNode、JFM/wide glyph、spacing finalizer、Vaak table、WASM batchのroadmapだけ。R0の`\pratexregion`以外は利用できない |
+| 設計のみ | IVS・外字・造字のidentity | inline Unicode scalarと`AtomRef`、namespaceつき外部文字、嘘字/TRON importer、variant graphの[設計](glyph-identity-roadmap.md)だけ。現在はIVS shapingも造字もない |
+| 設計のみ | 拡張可能な寸法単位 | registry、Vaak table、WASM providerの[設計](extensible-dimension-units-roadmap.md)だけ。組込み`Q/H/zw/zh`の現行経路とは分ける |
+| 設計のみ | 監視・incremental・package取得・LSP | epoch、checkpoint、managed overlay、実行経路上のsemantic eventの[roadmap](incremental-tooling-roadmap.md)だけ。daemon/LSP serverはない |
+| 設計のみ | LaPraTeX | 公式LaTeX sourceから分離したclean-room formatの[roadmap](lapratex-roadmap.md)だけ。`lapratex.ltx` / `lapratex.fmt`はない |
 | 部分的な内部基盤 | 外部文字分類provider | 組込み`CharacterClassifier`と別domain IDまではあるが、通常buildの外部provider、registry、cache、generation管理はない。callback adapterはtest専用 |
 | 未実装 | `^^^^hhhh`、`^^^^^^hhhhhh` | TeX82の`^^`だけ。XeTeX/LuaTeX型の4/6 caret Unicode入力はない |
+| 未実装 | Web2C TCX input translation | `--translate-file`、`%& -translate-file`、`-8bit`、TCXの`xord/xchr/xprn`三表はまだない。既定UTF-8と分けたlegacy input profileは[文字identity roadmap](glyph-identity-roadmap.md)で設計のみ |
 | 未実装 | OTF/TrueTypeとRustyBuzz | dependencyもbackendもない。RustyBuzzを入れる場合はunsafe専用branchかつdefault-offにする |
 | 未実装 | 完全なe-TeX | `\eTeXrevision`、`\scantokens`、`\showtokens`、`\showgroups`、`\showifs`、`\middle`、`\mutoglue`、`\gluetomu`、`\fontcharwd/ht/dp/ic`、`\parshapelength/indent/dimen`、各種penalty配列、`\pagediscards`、`\splitdiscards`、`\beginL/\endL/\beginR/\endR`などが残る |
 | 未実装 | 横組・縦組の日本語組版 | JFM、和文node/font、和文glue、禁則、方向node、縦組が残る |

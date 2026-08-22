@@ -131,13 +131,15 @@ filesystemをsandbox化することと同義ではない。
 現在のcacheは一実行内だけを対象とする。長寿命daemonへそのまま持ち上げると、cache hitが
 database再検証より前に返るため古い成功・不在を保持し得る。監視機能ではresolver plan、
 database snapshot、positive/negative cacheを同じgenerationへ結び、完全に読めた次世代へ
-原子的に切り替える必要がある。
+原子的に切り替える必要がある。package取得とLSPを含む段階は
+[監視・incremental実行roadmap](incremental-tooling-roadmap.md)へ分けた。
 
 ## 検証と一次資料
 
 合成試験は、探索順、重複、stale entry、壊れたdatabase、`!!`、利用者tree、用途分離、
 native/WSLを混ぜない条件、UNC変換、cache消去を固定する。2026-08-22時点で
-`cargo test --release --no-fail-fast`は455件通過、失敗0、環境依存等4件skipである。
+`codex/kpse-lsr-index`の`dc1c554`では`cargo test --release --no-fail-fast`が455件通過、
+失敗0、環境依存等4件skipである。
 
 - [Kpathsea manual](https://tug.org/texinfohtml/kpathsea.html)
 - [Microsoft: Run Linux commands from Windows](https://learn.microsoft.com/en-us/windows/wsl/filesystems#run-linux-tools-from-a-windows-command-line)

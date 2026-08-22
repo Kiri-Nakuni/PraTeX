@@ -159,6 +159,11 @@ U+2E7F 以下でも `15..20` と表示される。この回復も回帰試験へ
 
 **4〜8 で「横組みの日本語が組める」。** 段 9 は別の山である。
 
+段7の内部機構は日本語専用に固定しない。JFMとUnicode文字nodeの後で、Han--Latin、
+Hangul--Latinなどを同じfinalizerへ渡し、CJKV region、Vaakの宣言表、低頻度WASM batchを
+別domainとして接続する。互換primitiveの表面は保持する。詳細は
+[拡張可能なscript境界組版とCJKV region](extensible-layout-roadmap.md)にある。
+
 ## 5. 見立て
 
 | | |
