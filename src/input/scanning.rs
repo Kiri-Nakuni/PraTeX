@@ -7,6 +7,11 @@ use crate::eqtb::Eqtb;
 use crate::logger::Logger;
 use crate::token::Token;
 
+// All keywords currently understood by the engine fit here (the longest are
+// `scaled`, `height`, and `spread`).  Keep a correct heap fallback so future extensions
+// can add longer keywords without silently imposing a new input limit.
+const KEYWORD_STACK_CAPACITY: usize = 6;
+
 impl Scanner {
     /// Keep getting and expanding tokens until a non-spacer token is found.
     /// See 406.
@@ -92,11 +97,16 @@ impl Scanner {
     /// Return true if the keyword was successfully scanned, false otherwise.
     /// See 407.
     pub fn scan_keyword(&mut self, keyword: &[u8], eqtb: &mut Eqtb, logger: &mut Logger) -> bool {
-        let mut scanned_tokens = Vec::new();
+        // A successful keyword scan is a very hot path (for example, every
+        // `\advance` scans `by`).  Retain all current engine keywords on the
+        // stack and only allocate when a failed match has to put them back.
+        let mut stack_tokens = [Token::Null; KEYWORD_STACK_CAPACITY];
+        let mut overflow_tokens = Vec::new();
+        let mut scanned_len = 0;
         for chr in keyword {
             // Allow leading spaces.
             let (mut unexpandable_command, mut token) = get_x_token(self, eqtb, logger);
-            if scanned_tokens.is_empty() {
+            if scanned_len == 0 {
                 while let UnexpandableCommand::Spacer = unexpandable_command {
                     (unexpandable_command, token) = get_x_token(self, eqtb, logger);
                 }
@@ -116,7 +126,16 @@ impl Scanner {
                 | Token::Letter(c)
                 | Token::OtherChar(c) => {
                     if c == *chr || c == (*chr - b'a' + b'A') {
-                        scanned_tokens.push(token);
+                        if scanned_len < KEYWORD_STACK_CAPACITY {
+                            stack_tokens[scanned_len] = token;
+                        } else {
+                            if overflow_tokens.is_empty() {
+                                overflow_tokens = Vec::with_capacity(keyword.len());
+                                overflow_tokens.extend_from_slice(&stack_tokens);
+                            }
+                            overflow_tokens.push(token);
+                        }
+                        scanned_len += 1;
                         continue;
                     }
                 }
@@ -128,7 +147,12 @@ impl Scanner {
             }
 
             self.back_input(token, eqtb, logger);
-            if !scanned_tokens.is_empty() {
+            if scanned_len != 0 {
+                let scanned_tokens = if scanned_len <= KEYWORD_STACK_CAPACITY {
+                    stack_tokens[..scanned_len].to_vec()
+                } else {
+                    overflow_tokens
+                };
                 self.back_list(scanned_tokens, eqtb, logger);
             }
             return false;
@@ -227,5 +251,84 @@ impl Scanner {
 
         self.name_in_progress = false;
         file_name
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Scanner;
+    use crate::eqtb::Eqtb;
+    use crate::logger::{InteractionMode, Logger};
+    use crate::token::Token;
+
+    fn 入力器を作る(tokens: Vec<Token>) -> (Scanner, Eqtb, Logger) {
+        let mut scanner = Scanner::new(Vec::new(), 0);
+        let eqtb = Eqtb::new();
+        let mut logger = Logger::new(String::new(), InteractionMode::Batch);
+        scanner.back_list(tokens, &eqtb, &mut logger);
+        (scanner, eqtb, logger)
+    }
+
+    #[test]
+    fn 先頭空白と大文字を許してキーワードを読む() {
+        let (mut scanner, mut eqtb, mut logger) = 入力器を作る(vec![
+            Token::SPACE_TOKEN,
+            Token::Letter(b'B'),
+            Token::OtherChar(b'Y'),
+            Token::Letter(b'z'),
+        ]);
+
+        assert!(scanner.scan_keyword(b"by", &mut eqtb, &mut logger));
+        assert_eq!(
+            scanner.get_token(&mut eqtb, &mut logger),
+            Token::Letter(b'z')
+        );
+    }
+
+    #[test]
+    fn 部分一致に失敗した字句を不一致字句より前へ戻す() {
+        let input = vec![
+            Token::Letter(b'b'),
+            Token::OtherChar(b'X'),
+            Token::Letter(b'z'),
+        ];
+        let (mut scanner, mut eqtb, mut logger) = 入力器を作る(input.clone());
+
+        assert!(!scanner.scan_keyword(b"by", &mut eqtb, &mut logger));
+        for expected in input {
+            assert_eq!(scanner.get_token(&mut eqtb, &mut logger), expected);
+        }
+    }
+
+    #[test]
+    fn 七字以上のキーワードも読める() {
+        let mut input = b"seventh"
+            .iter()
+            .copied()
+            .map(Token::Letter)
+            .collect::<Vec<_>>();
+        input.push(Token::Letter(b'z'));
+        let (mut scanner, mut eqtb, mut logger) = 入力器を作る(input);
+
+        assert!(scanner.scan_keyword(b"seventh", &mut eqtb, &mut logger));
+        assert_eq!(
+            scanner.get_token(&mut eqtb, &mut logger),
+            Token::Letter(b'z')
+        );
+    }
+
+    #[test]
+    fn 七字一致した後の失敗でも全字句を順に戻す() {
+        let input = b"seventhX"
+            .iter()
+            .copied()
+            .map(Token::Letter)
+            .collect::<Vec<_>>();
+        let (mut scanner, mut eqtb, mut logger) = 入力器を作る(input.clone());
+
+        assert!(!scanner.scan_keyword(b"seventhy", &mut eqtb, &mut logger));
+        for expected in input {
+            assert_eq!(scanner.get_token(&mut eqtb, &mut logger), expected);
+        }
     }
 }
