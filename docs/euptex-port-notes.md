@@ -147,7 +147,7 @@ U+2E7F 以下でも `15..20` と表示される。この回復も回帰試験へ
 | 3 | e-TeX の**内省** | **一部済**（`\currentgroup*` `\currentif*` `\lastnodetype` `\iffontchar`。`\fontchar*` `\showgroups` `\showtokens` 等は未） |
 | 4a | **Unicode block 分類表と `\kcatcode`**（代入・group・fmtまで） | **済**（U+10FFFFまで） |
 | 4b | **UTF-8 字句解析と CJK文字 token**（`16`〜`20`を一文字一token、分類をtokenへ固定） | **済**（typed制御綴、条件・展開・表示・fmtまで。JFM/文字nodeは後段） |
-| 4c | **`latin_ucs` と16 bit欧文表**（U+2E7F、OFM Level-0へ接続） | 未 |
+| 4c | **Unicode欧文 token とpattern alphabet**（`14`を一文字一token、cat/lc/uc/sf・case・active・fmt・hyphen trieまで） | **済**（U+0080〜U+2E7F。wide font nodeとnamespaced Unicode active生成は後段） |
 | 5 | **JFM**（和文フォントの寸法表）と `\jfont` | **進行中**（公開仕様だけによるbounded reader、横/縦・24-bit code・現行glue/kern拡張・直接class対表まで。font選択とscale接続は未） |
 | 6 | **Unicode 文字 node と DVI `set2` / `set3`** | 未 |
 | 7 | **`\kanjiskip` / `\xkanjiskip`** を主ループに差し込む | 未 |
@@ -158,7 +158,9 @@ U+2E7F 以下でも `15..20` と表示される。この回復も回帰試験へ
 未定義primitiveなしで通過した。最初のhard errorはGerman hyphenation pattern
 `dehypht-x-2024-02-28.pat`の`.buß3`に対する`Nonletter`である。一時的な空`hyphen.cfg`で
 pattern読込みだけを隔離すると、無改変`latex.ltx`はerror 0で`latex.fmt`をdumpした。
-したがってLaTeX初期化の現在のblockerはe-TeX/pdfTeX primitiveではなく段4cである。
+段4cでこの`.buß3`自体は解消した。ただし通常のLaTeX wrapperはPraTeXに`\kanjiskip`が無いため
+非pTeXのnative UTF-8 engine分岐へ入り、kcatcode 18のU+2019を含む後続patternで止まる。
+現在の次段は初期分類の偽装ではなく、一級の`\kanjiskip` / `\xkanjiskip`実装である。
 ASCIIの`ushyph1.tex`だけでformatを作れた過去の測定と、通常TeX Live探索でUnicode patternを
 読めない現状を混同しない。
 

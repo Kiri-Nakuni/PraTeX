@@ -1,6 +1,6 @@
 # PraTeX 作業引継ぎ
 
-更新: 2026-08-22 夜
+更新: 2026-08-22 夜（`565c0d3`時点）
 
 この文書は、現在の Codex セッションから別のエージェントへ作業が移っても、
 検証済みの境界と未commitの作業を失わないための生きた引継ぎである。
@@ -10,8 +10,8 @@
 
 1. リポジトリ直下の `AGENTS.md` を最初から最後まで読む。
 2. 現在の枝は `codex/euptex-integration-resume`。`main`を汚さない。
-3. 現在の作業木には複数の未commit実装がある。`reset --hard`、checkoutによる破棄、
-   一括format、無関係な差戻しをしない。
+3. Unicode欧文と`\lastnodetype`は`565c0d3`へcommit済み。既存の未追跡`texput.log`を
+   引継ぎ対象と誤認せず、`reset --hard`や無関係な差戻しをしない。
 4. 通常実装はsafe Rustだけ。unsafe Rustを試す場合は、利用者の明示方針どおり専用枝を切る。
    ただしunsafe tuningは「一通り動いた後」まで保留中である。
 5. pTeX/upTeX/e-TeX/pdfTeXの実装sourceや上流testを移植しない。公開manual、公開file format、
@@ -22,28 +22,31 @@
 ## 枝と共有状態
 
 - 枝: `codex/euptex-integration-resume`
-- 現在の未commit実装を始めた共有基点: `df6e71e`
-- 引継ぎ・性能記録の更新`961920e`は`origin/codex/euptex-integration-resume`へpush済み
+- 現在の実装checkpoint: `565c0d3`
+- `565c0d3`以前は`origin/codex/euptex-integration-resume`へpush済み（本更新も直後にpushする）
 - 直近の共有commit:
   - `9587e25`: `\mutoglue` / `\gluetomu`
   - `43cd6c9`: e-TeX機能一覧の同期
   - `eda7dd1`: `\scantokens` clean-room設計
   - `df6e71e`: 本引継ぎ文書とREADMEからの導線
   - `961920e`: `ls-R` safe Rust実験の結果と再現限界
+  - `fb58687`: Unicode欧文の契約とLaTeX停止理由
+  - `d0b6f46`: `\kanjiskip` / `\xkanjiskip` core設計
+  - `565c0d3`: Unicode欧文token、u16 hyphen trie、`\lastnodetype` page状態
 - 性能枝 `codex/perf-wsl-euptex-safe` は `9bb6023`までpush済みで、現在は停止中
 - Claudeの連絡枝 `origin/claude/for-codex` は `82fa3a2`まで確認済み
 - Vaak `origin/codex/main` は `64ccf4e`まで確認済み
 
-## 進行中 1: upTeX `latin_ucs` とUnicode pattern
+## 完了済み: upTeX `latin_ucs` とUnicode pattern
 
-状態: **実装中、未commit**。現在の作業木の大半を占める。途中で分割して破棄しない。
+状態: **`565c0d3`で実装・commit済み**。safe Rustのみ。
 
 目的は、通常のTeX Liveで`latex.ltx`を作る際に
 `dehypht-x-2024-02-28.pat`の`.buß3`で出る`Nonletter`を解消することである。
-一時的に空の`hyphen.cfg`を使うと`latex.ltx`はerror 0でfmtをdumpするため、現在の最初の
-hard blockerは未定義primitiveではなくStage 4cである。
+一時的に空の`hyphen.cfg`を使うと`latex.ltx`はerror 0でfmtをdumpしたため、このsliceの
+hard blockerは未定義primitiveではなくStage 4cだった。`565c0d3`で解消済みである。
 
-実装中の範囲:
+実装済みの範囲:
 
 - U+0000..U+2E7Fのcatcode/lccode/uccode/sfcode表、group level、save stack、fmt
 - ASCII/8 bit hot pathを従来の固定表のまま保つUnicode欧文token
@@ -90,7 +93,8 @@ hard blockerは未定義primitiveではなくStage 4cである。
 - non-INITEX `\patterns`のerror recoveryはLatin cat2で停止する。
 - `\string`は現在のcatcodeにかかわらずcat12、Latin cat6の`\meaning`は文字を一度だけ表示する。
 
-監査終了時の`cargo test --release --test latin_ucs`は16 passed、0 failed。監査担当がrepo rootへ
+監査終了時の`cargo test --release --test latin_ucs`は16 passed、0 failed。最終実装では
+17 passed、0 failedへ増えた。監査担当がrepo rootへ
 作った`codex-latin-*` log/DVIは正確な対象だけ削除し、再列挙0を確認した。
 
 監査終了時点の重要残件は、破損fmtが`LatinUcsToken(U+0000..U+007F)`を作れることだった。
@@ -119,11 +123,7 @@ UTF-8を判定する。PraTeXはCJK/wide tokenによりこの試験を真にす�
 `\kanjiskip` / `\xkanjiskip`実装である。将来のscript-pair抽象化をcore側に置き、通常の
 日本語経路をVaak/WASM callbackへ逃がさない。
 
-主な未commit fileは`src/token.rs`、`src/input*`、`src/eqtb*`、
-`src/hyphenation*`、`src/command*`、`src/alignment.rs`、`src/math.rs`、
-`src/macros.rs`、`tests/latin_ucs.rs`。正確な一覧は必ず`git status --short`で取り直す。
-
-Stage 4c単体の完了条件:
+Stage 4c単体の完了条件は満たした:
 
 1. focused unit/process testsとfmt roundtripが通る。
 2. 明示的なkcatcode 14 fixtureで`.buß3`を一文字patternとして登録できる。
@@ -133,6 +133,19 @@ Stage 4c単体の完了条件:
 
 通常resolverの無改変`latex.ltx`は、Stage 4cのLatin初期値を偽装して越えない。
 本物の`\kanjiskip`を追加しpTeX branchへ入れる次段で再測定する。
+
+最終実測:
+
+- debug全suite: 563 passed、0 failed、6 ignored（最終二修正前。二修正は個別回帰済み）
+- `cargo test --release --locked --test latin_ucs`: 17 passed、0 failed
+- `.buß3`は明示kcatcode 14 fixtureで完走。次のU+2019 `.af6ro’`はkcatcode 18なので本slice外
+- 最小fmt: 102,891 byte → 419,593 byte（+316,702、約4.08倍）。dense Latin表の費用
+- ASCII/NotCjk hot pathへ追加のkcat表引き・heap確保は入れていない。性能再測定は未実施
+
+破損fmt監査で今回のtoken/trie境界は固めた。一方、既存の broader gapとして
+`VariableLevels.escaped`と`ControlSequenceStore.escaped`の長さを`Eqtb::undump`で照合しておらず、
+短い前者を後でindexしてpanicし得る。両型へcrate内の長さgetterを足し、undump直後に一致検査する。
+`ControlSequence::Escaped(n)`と実CS数の包括的照合も後段である。
 
 ## 完了済み設計: `\kanjiskip` / `\xkanjiskip`
 
@@ -153,9 +166,9 @@ Stage 4c単体の完了条件:
 LaTeXのpTeX検出を変えるので「日本語組版完成」や検出stubとは呼ばない。実挿入、JFM、禁則、
 line breaking、DVI/PDFまで連続して進める。
 
-## 進行中 2: `\lastnodetype` page状態
+## 完了済み: `\lastnodetype` page状態
 
-状態: **実装済み、Unicode作業と同じ作業木で未commit**。
+状態: **`565c0d3`で実装・commit済み**。release focused testは2 passed、0 failed。
 
 修正前はpage上のpenalty後に空のnested `\setbox`を作ると、e-upTeXは13だがPraTeXは-1へ
 化けた。page builderが`LastNodeInfo`だけを保持し、e-TeX node typeを同期していなかったためである。
@@ -170,8 +183,7 @@ line breaking、DVI/PDFまで連続して進める。
 主なfile: `src/eqtb.rs`、`src/page_breaking.rs`、`src/semantic_nest.rs`、
 `src/vertical_mode.rs`、`tests/etex.rs`。
 
-Unicode差分も`src/eqtb.rs`を触るため、部分差戻しで互いを消さない。Unicode compileが安定した後に
-focused testを実行し、可能なら意味単位を分けてcommitする。
+Unicode差分も`src/eqtb.rs`を触るため、安全なcheckpointを優先して同じcommitへ収めた。
 
 ## 完了済み設計: `\scantokens`
 
@@ -244,23 +256,22 @@ Claude `82fa3a2`のLinux perf分解:
 
 ## LaTeXと日本語組版の次順
 
-1. `latin_ucs`＋Unicode patternで通常`latex.ltx`の現在blockerを越える。
-2. `\lastnodetype`を検証・commitする。
-3. `\scantokens`を設計どおり実装する。
-4. JFM reader枝`codex/ptex-jfm-core`の検証済みcoreを統合し、`\jfont`/`\tfont`、wide node、
+1. 本物の`\kanjiskip` / `\xkanjiskip`を通常glue parameterとして実装し、LaTeXのpTeX分岐を再測定する。
+2. JFM reader枝`codex/ptex-jfm-core`の検証済みcoreを統合し、`\jfont`/`\tfont`、wide node、
    DVI `set2/set3`へ進む。
-5. `\kanjiskip`/`\xkanjiskip`、禁則、横組、縦組をengine coreへ入れる。
+3. K/X spacing、禁則、横組、縦組をengine coreへ連続して入れる。
+4. LaTeXが次に要求した時点で`\scantokens`を設計どおり実装する。
 
 日本語の最低線は横組smokeではなくpTeX相当であり、縦組を含む。割注はP0には含めない。
 
 ## 検証
 
-Unicode/lastnodetypeの作業がまとまった後、少なくとも次を順に行う。
+Unicode/lastnodetypeのcheckpoint後、次はまず現状確認から始める。
 
 ```powershell
 cargo test --release --locked --test latin_ucs
 cargo test --release --locked --test etex lastnodetype
-cargo test --release --locked --no-fail-fast
+cargo test --release --locked --no-fail-fast # checkpoint後の全release再走は未実施
 ```
 
 その後、既存のTRIP作業rootを再利用する。
@@ -271,7 +282,7 @@ pwsh -NoProfile -File tools/run-trip.ps1 `
   -Step Build,Stage1,Stage2,Compare
 ```
 
-直前の既知正常値:
+直前の既知正常値（TRIPは`565c0d3`後に未再走）:
 
 - release: 507 passed、0 failed、6 ignored
 - TRIP Stage1/Stage2 exit 0
@@ -279,7 +290,8 @@ pwsh -NoProfile -File tools/run-trip.ps1 `
 - DVI SHA-256: `b20af20a1463c6846f0c4c1ce687cd6354ce1a5f65ee401507627570787ae9fe`
 - 既知の999 records差分は許容項目除外後の意味差0
 
-Unicode table追加でtext fmtのsizeは増える。増分を実測し、破損fmtがparse errorになることを確認する。
+Unicode table追加後の最小fmt増分は上記のとおり実測済み。full LaTeX fmtは本物のpTeX検出面を
+入れた後に測る。
 
 ## その他の利用者指定
 
@@ -300,5 +312,5 @@ git log --oneline --decorate -8
 git diff --stat
 ```
 
-作業木がdirtyなのは現在正常である。まずこの文書と`for_CLAUDE.md`、
+`565c0d3`直後の追跡対象はcleanで、未追跡`texput.log`だけが残っていた。まずこの文書と`for_CLAUDE.md`、
 `docs/euptex-port-notes.md`、`docs/etex-texxet-status.md`を読み、誰の変更かを確認してから触る。

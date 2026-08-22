@@ -43,7 +43,7 @@
 | 実装 | 条件 `\ifdefined`、`\ifcsname`、`\unless` | 未定義制御綴を副作用で作らない。`\unless`は対応する条件を反転する |
 | 部分 | 条件 `\iffontchar` | TFMの文字存在判定へ接続済み。専用のprocess-level回帰試験はまだない |
 | 実装 | 内省 `\currentgrouplevel`、`\currentgrouptype`、`\currentiflevel`、`\currentiftype`、`\currentifbranch` | e-TeX番号で現在のgroupと条件状態を内部整数として返す |
-| 部分 | `\lastnodetype` | node種類の追跡と内部整数化は接続済み。専用のfocused testはまだない |
+| 実装 | `\lastnodetype` | node種類の追跡と内部整数化に加え、page→nested list→pageの復帰を保持する。空list、基本node型、page状態のfocused testを持つ |
 | 実装 | `\eTeXversion` | 内部整数として`2`を返す |
 | 部分 | `\everyeof` | 一つの実file入力源につき、閉じる前に一度だけtoken listを挿入する。`\scantokens`疑似fileに対する契約は、`\scantokens`自体が未実装のため未達 |
 | 実装 | `\readline` | `\read`と同じstreamから一行を読み、空白だけcatcode 10、その他をcatcode 12としてmacroへ定義する |
@@ -98,7 +98,7 @@ OTF shapingは未実装である。詳しい境界は
 | 部分 | 和文寸法単位 `zw`、`zh` | 綴りは使えるが、JFMがcurrent和文fontへ未接続のため両方とも現在の欧文fontの`em`幅で代用する |
 | 部分 | JFM reader/model | 公開JFM仕様から独立実装。横組11／縦組9、24-bit raw文字code、u8 class、skip・再配置・256超glue/kern indexをboundedに検査し、class対をload時に直接表へcompileする。`\jfont`/`\tfont`、scale、wide nodeには未接続 |
 | 実装 | `\kcatcode`表・照会・代入 | 公開値14〜20。U+0000〜U+10FFFFをUnicode 17.0.0のblock、upTeX擬似境界、7例外集合で保存する。block単位の局所/global/globaldefs復元とfmt往復を含む |
-| 部分 | `latin_ucs`（kcatcode 14） | 表へ代入・照会はできるが、16-bit欧文catcode表とUnicode欧文tokenは未実装。入力は現在kcatcode 15と同じ元UTF-8 byte列へ戻す |
+| 実装 | `latin_ucs`（kcatcode 14） | U+0080〜U+2E7FをUnicode欧文一文字tokenとして保持し、cat/lc/uc/sf、group/fmt、active/control identity、特殊catcode、case変換、表示へ通す。pattern/exception/trieもu16 alphabetで一文字として扱う。runtime namespaced Unicode active生成とwide font nodeは後段 |
 | 部分 | UTF-8 CJK一文字token | kcatcode 16〜20を符号位置と入力時categoryを持つ一tokenにし、macro、`\edef`、`\let`、条件、`\string`、`\detokenize`、`\write`、fmtまで保持する。ただし組版時はJFM不足を診断して文字を捨てる |
 | 実装 | Unicodeを含むtyped制御綴 | `Byte(u8)`と`Unicode(u32)`を別identityにし、同じ見た目のraw UTF-8 byte名とwide名を混同しない。CJK categoryはtokenには固定するが制御綴identityには含めない |
 | 部分 | upTeX互換UTF-8 decoder | 公式black-box観測に合わせ、overlong・surrogateを含む入力規則と不正列の一byte再同期を実装。入力上限はU+10FFFE、表とtokenはU+10FFFFまでで、upTeX独自の0x110000以上は扱わない |
