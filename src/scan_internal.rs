@@ -165,6 +165,9 @@ fn scan_something_internal(
         ),
         InternalCommand::Expr(kind) => scan_expr(kind, scanner, eqtb, logger),
         InternalCommand::Integer(int_var) => InternalValue::Int(eqtb.integer(int_var)),
+        InternalCommand::LanguageRegion => {
+            InternalValue::Int(i32::from(eqtb.language_region().code()))
+        }
         InternalCommand::Dimension(dim_var) => InternalValue::Dimen(eqtb.dimen(dim_var)),
         InternalCommand::Glue(glue_var) => InternalValue::Glue(eqtb.skips.get(glue_var).clone()),
         InternalCommand::MuGlue(mu_glue_var) => {

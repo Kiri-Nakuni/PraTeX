@@ -8,6 +8,7 @@ mod extended_registers;
 mod fonts;
 mod integers;
 mod kcatcodes;
+mod language_region;
 mod levels;
 mod parshape;
 mod primitives;
@@ -58,6 +59,7 @@ use integers::IntegerParameters;
 pub use integers::IntegerVariable;
 use kcatcodes::KCatCodes;
 pub use kcatcodes::{KCatCode, KCatCodeBlock};
+pub use language_region::LanguageRegion;
 use levels::{Level, VariableLevels};
 use parshape::ParShapeParameter;
 pub use parshape::{ParShapeVariable, ParagraphShape};
@@ -137,6 +139,7 @@ pub struct Eqtb {
 
     // Region 4
     pub par_shape: ParShapeParameter,
+    language_region: LanguageRegion,
     /// **参照時に探しに行く名前空間。** `\usingnamespace` が足す。
     ///
     /// 空なら**素の TeX82 とまったく同じ道**を通る——
@@ -218,6 +221,7 @@ impl Eqtb {
             control_sequences: ControlSequenceStore::new(),
             skips: SkipParameters::new(),
             par_shape: ParShapeParameter::new(),
+            language_region: LanguageRegion::default(),
             using_namespaces: Vec::new(),
             last_node_type: -1,
             token_lists: TokenListParameters::new(),
@@ -375,6 +379,10 @@ impl Eqtb {
         *self.integers.get(int_var)
     }
 
+    pub fn language_region(&self) -> LanguageRegion {
+        self.language_region
+    }
+
     pub fn dimen(&self, dim_var: DimensionVariable) -> Dimension {
         *self.dimensions.get(dim_var)
     }
@@ -430,6 +438,10 @@ impl Eqtb {
 
     pub fn par_shape_define(&mut self, value: ParagraphShape, global: bool) {
         self.define(Definition::ParShape(value), global);
+    }
+
+    pub fn language_region_define(&mut self, value: LanguageRegion, global: bool) {
+        self.define(Definition::LanguageRegion(value), global);
     }
 
     /// A token list version of `define`.
@@ -537,6 +549,10 @@ impl Eqtb {
             Definition::ParShape(paragraph_shape) => {
                 let prev_paragraph_shape = self.par_shape.set(ParShapeVariable, paragraph_shape);
                 Definition::ParShape(prev_paragraph_shape)
+            }
+            Definition::LanguageRegion(language_region) => {
+                let previous = std::mem::replace(&mut self.language_region, language_region);
+                Definition::LanguageRegion(previous)
             }
             Definition::UsingNamespaces(list) => {
                 let prev = std::mem::replace(&mut self.using_namespaces, list);
@@ -729,6 +745,11 @@ impl Eqtb {
             }
             Variable::Skip(skip_var) => self.show_equivalent_of_skip_variable(skip_var, logger),
             Variable::ParShape => self.show_equivalent_of_par_shape(logger),
+            Variable::LanguageRegion => {
+                logger.print_esc_str(b"pratexregion");
+                logger.print_char(b'=');
+                logger.print_int(i32::from(self.language_region.code()));
+            }
             Variable::UsingNamespaces => self.show_using_namespaces(logger),
             Variable::TokenList(token_list_var) => {
                 self.show_equivalent_of_token_list_variable(token_list_var, logger)
@@ -1416,6 +1437,7 @@ pub enum Variable {
     ControlSequence(ControlSequence),
     Skip(SkipVariable),
     ParShape,
+    LanguageRegion,
     UsingNamespaces,
     TokenList(TokenListVariable),
     BoxRegister(BoxVariable),
@@ -1433,6 +1455,7 @@ pub enum Definition {
     ControlSequence(ControlSequence, Command),
     Skip(SkipVariable, Skip),
     ParShape(ParagraphShape),
+    LanguageRegion(LanguageRegion),
     UsingNamespaces(Vec<NamespaceId>),
     TokenList(TokenListVariable, Option<RcTokenList>),
     BoxRegister(BoxVariable, Option<ListNode>),
@@ -1452,6 +1475,7 @@ impl Definition {
             }
             Self::Skip(skip_variable, _) => Variable::Skip(skip_variable),
             Self::ParShape(_) => Variable::ParShape,
+            Self::LanguageRegion(_) => Variable::LanguageRegion,
             Self::UsingNamespaces(_) => Variable::UsingNamespaces,
             Self::TokenList(token_list_variable, _) => Variable::TokenList(token_list_variable),
             Self::BoxRegister(box_variable, _) => Variable::BoxRegister(box_variable),
@@ -1490,6 +1514,9 @@ impl Dumpable for Variable {
             }
             Self::ParShape => {
                 writeln!(target, "ParShape")?;
+            }
+            Self::LanguageRegion => {
+                writeln!(target, "LanguageRegion")?;
             }
             Self::TokenList(token_list_variable) => {
                 writeln!(target, "TokenList")?;
@@ -1540,6 +1567,7 @@ impl Dumpable for Variable {
                 Ok(Self::Skip(skip_variable))
             }
             "ParShape" => Ok(Self::ParShape),
+            "LanguageRegion" => Ok(Self::LanguageRegion),
             "UsingNamespaces" => Ok(Self::UsingNamespaces),
             "TokenList" => {
                 let token_list_variable = TokenListVariable::undump(lines)?;
@@ -1585,6 +1613,7 @@ impl Dumpable for Eqtb {
         self.control_sequences.dump(target)?;
         self.skips.dump(target)?;
         self.par_shape.dump(target)?;
+        self.language_region.dump(target)?;
         self.using_namespaces.dump(target)?;
         self.token_lists.dump(target)?;
         self.boxes.dump(target)?;
@@ -1610,6 +1639,7 @@ impl Dumpable for Eqtb {
         let control_sequences = ControlSequenceStore::undump(lines)?;
         let skips = SkipParameters::undump(lines)?;
         let par_shape = ParShapeParameter::undump(lines)?;
+        let language_region = LanguageRegion::undump(lines)?;
         let using_namespaces: Vec<NamespaceId> = Vec::undump(lines)?;
         let token_lists = TokenListParameters::undump(lines)?;
         let boxes = BoxParameters::undump(lines)?;
@@ -1640,6 +1670,7 @@ impl Dumpable for Eqtb {
             control_sequences,
             skips,
             par_shape,
+            language_region,
             using_namespaces,
             last_node_type: -1,
             token_lists,
