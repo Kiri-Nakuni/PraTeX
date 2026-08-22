@@ -373,19 +373,16 @@ impl<W: Write> ShipoutBackend for PdfBackend<W> {
                 }
             })?;
             let loaded = loader.load(tfm_name)?;
-            let descriptor_flags =
-                loaded
-                    .font_flags
-                    .ok_or_else(|| PdfBackendError::MissingType1FontFlags {
-                        tfm_name: tfm_name.to_owned(),
-                    })?;
+            let missing_stem_v = loaded
+                .private_std_vw
+                .map_or(MissingStemVPolicy::Reject, MissingStemVPolicy::Use);
             let prepared = prepare_type1_font(PdfType1FontRequest {
                 program: loaded.font_program.value(),
                 afm: loaded.metrics.value(),
                 encoding: loaded.encoding.as_ref().map(|encoding| encoding.value()),
                 embedding: loaded.embedding,
-                descriptor_flags,
-                missing_stem_v: MissingStemVPolicy::Reject,
+                descriptor_flags: loaded.descriptor_flags,
+                missing_stem_v,
                 used_codes: font.existing_codes,
             })
             .map_err(PdfDocumentError::from)?;
@@ -568,9 +565,6 @@ pub(crate) enum PdfBackendError {
         font_number: u32,
         name: Vec<u8>,
     },
-    MissingType1FontFlags {
-        tfm_name: String,
-    },
     UndefinedFont(u32),
     NoCurrentFont,
     CharacterOutsideEmbeddedFont {
@@ -620,10 +614,6 @@ impl fmt::Display for PdfBackendError {
             Self::InvalidLogicalFontName { font_number, name } => write!(
                 formatter,
                 "logical name bytes {name:?} for PDF font number {font_number} are not UTF-8"
-            ),
-            Self::MissingType1FontFlags { tfm_name } => write!(
-                formatter,
-                "Type 1 map entry for TFM `{tfm_name}` has no descriptor flags"
             ),
             Self::UndefinedFont(font) => write!(formatter, "undefined PDF font number {font}"),
             Self::NoCurrentFont => formatter.write_str("no current PDF font"),
@@ -782,8 +772,26 @@ mod tests {
             bytes
         }
 
+        let mut key = 55_665u16;
+        let encrypted: Vec<u8> = b"rand"
+            .iter()
+            .copied()
+            .chain(
+                b"/Private 1 dict dup begin\n/StdVW [80] ND\n/Subrs 0 array\n"
+                    .iter()
+                    .copied(),
+            )
+            .map(|plain| {
+                let cipher = plain ^ (key >> 8) as u8;
+                key = key
+                    .wrapping_add(u16::from(cipher))
+                    .wrapping_mul(52_845)
+                    .wrapping_add(22_719);
+                cipher
+            })
+            .collect();
         let mut bytes = segment(1, b"%!PS synthetic\n");
-        bytes.extend_from_slice(&segment(2, &[1, 2, 3, 4]));
+        bytes.extend_from_slice(&segment(2, &encrypted));
         bytes.extend_from_slice(&segment(1, b"cleartomark\n"));
         bytes.extend_from_slice(&[0x80, 3]);
         bytes
@@ -800,7 +808,6 @@ CapHeight 680\n\
 XHeight 430\n\
 Ascender 700\n\
 Descender -200\n\
-StdVW 80\n\
 StartCharMetrics 1\n\
 C 65 ; WX 750 ; N A ;\n\
 EndCharMetrics\n\
@@ -1090,6 +1097,7 @@ EndFontMetrics\n"
 
         assert!(含む(&pdf, b"/BaseFont /BackendSynthetic"));
         assert!(含む(&pdf, b"/FontFile "));
+        assert!(含む(&pdf, b"/StemV 80"));
         assert!(含む(&pdf, b"/Length1 "));
         assert!(含む(&pdf, b"%!PS synthetic\n"));
         assert!(含む(&pdf, b"/F2 "));
@@ -1115,21 +1123,25 @@ EndFontMetrics\n"
     }
 
     #[test]
-    fn mapのflags省略と非utf8論理名を明示的に拒む() {
+    fn mapのflags省略はpdftex既定のsymbolicを使う() {
         let (_directory, loader, tfm_name) = synthetic_loader("<<", None);
         let mut backend = PdfBackend::with_type1_loader(Vec::new(), 1000, loader).unwrap();
-        assert!(matches!(
-            backend.define_font(OutputFontDefinition {
+        backend
+            .define_font(OutputFontDefinition {
                 name: tfm_name.as_bytes(),
                 first_char: b'A',
                 last_char: b'A',
                 existing_codes: &[b'A'],
                 ..font_definition(3, 10 * 65536)
-            }),
-            Err(PdfBackendError::MissingType1FontFlags { tfm_name: found })
-                if found == tfm_name
-        ));
+            })
+            .unwrap();
+        let (pdf, _) = backend.finish_with_target().unwrap();
 
+        assert!(含む(&pdf, b"/Flags 4"));
+    }
+
+    #[test]
+    fn 非utf8論理名を明示的に拒む() {
         let (_directory, loader, _) = synthetic_loader("<<", Some(6));
         let mut backend = PdfBackend::with_type1_loader(Vec::new(), 1000, loader).unwrap();
         assert!(matches!(

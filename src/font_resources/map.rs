@@ -14,15 +14,28 @@ pub(crate) struct MapEntry {
     pub(crate) postscript_name: Option<String>,
     pub(crate) font_flags: Option<u32>,
     pub(crate) special: Option<QuotedSpecial>,
-    pub(crate) encoding_file: Option<String>,
-    pub(crate) font_file: Option<FontFile>,
+    /// map行に書かれた順序を保ったdownload resource。
+    ///
+    /// parserはsuffixからencoding/font/headerを決めない。対応可否と重複policyは、
+    /// 実際にそのTFMを使うloaderが決める。
+    pub(crate) resources: Vec<MapResource>,
 }
 
-/// 埋め込むfont resourceと、map markerが指定した埋め込み方。
+/// map markerと、その直後または次のfieldに書かれたresource名。
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct FontFile {
+pub(crate) struct MapResource {
     pub(crate) name: String,
-    pub(crate) embedding: EmbedPolicy,
+    pub(crate) marker: ResourceMarker,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ResourceMarker {
+    /// `<font.pfb`または`< font.pfb`。
+    Subset,
+    /// `<<font.pfb`または`<< font.pfb`。
+    Full,
+    /// `<[vector.enc`または`<[ vector.enc`。
+    BracketedEncoding,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -95,8 +108,7 @@ fn parse_line(line: &str, line_number: usize) -> Result<Option<MapEntry>, MapPar
         postscript_name: None,
         font_flags: None,
         special: None,
-        encoding_file: None,
-        font_file: None,
+        resources: Vec::new(),
     };
 
     let mut index = 1;
@@ -124,14 +136,14 @@ fn parse_line(line: &str, line_number: usize) -> Result<Option<MapEntry>, MapPar
         }
     }
 
-    for token in &tokens[index..] {
+    while let Some(token) = tokens.get(index) {
         match &token.kind {
             TokenKind::Quoted(raw) => {
                 if entry.special.is_some() {
                     return Err(MapParseError::new(
                         line_number,
                         token.column,
-                        MapParseErrorKind::DuplicateResource(ResourceKind::Special),
+                        MapParseErrorKind::DuplicateSpecial,
                     ));
                 }
                 let words: Vec<&str> = raw.split_ascii_whitespace().collect();
@@ -140,9 +152,13 @@ fn parse_line(line: &str, line_number: usize) -> Result<Option<MapEntry>, MapPar
                     mentions_slant_font: words.contains(&"SlantFont"),
                     mentions_extend_font: words.contains(&"ExtendFont"),
                 });
+                index += 1;
             }
             TokenKind::Bare(value) if value.starts_with('<') => {
-                parse_resource(value, line_number, token.column, &mut entry)?;
+                let (resource, consumed) =
+                    parse_resource(value, tokens.get(index + 1), line_number, token.column)?;
+                entry.resources.push(resource);
+                index += consumed;
             }
             TokenKind::Bare(value) if looks_like_decimal_integer(value) => {
                 return Err(MapParseError::new(
@@ -180,10 +196,10 @@ fn looks_like_decimal_integer(value: &str) -> bool {
 
 fn parse_resource(
     value: &str,
+    next: Option<&Token>,
     line: usize,
     column: usize,
-    entry: &mut MapEntry,
-) -> Result<(), MapParseError> {
+) -> Result<(MapResource, usize), MapParseError> {
     let (marker, name) = if let Some(name) = value.strip_prefix("<<") {
         (ResourceMarker::Full, name)
     } else if let Some(name) = value.strip_prefix("<[") {
@@ -192,70 +208,41 @@ fn parse_resource(
         (ResourceMarker::Subset, &value[1..])
     };
 
-    if name.is_empty() {
+    if !name.is_empty() {
+        return Ok((
+            MapResource {
+                name: name.to_owned(),
+                marker,
+            },
+            1,
+        ));
+    }
+
+    let Some(Token {
+        kind: TokenKind::Bare(name),
+        ..
+    }) = next
+    else {
+        return Err(MapParseError::new(
+            line,
+            column,
+            MapParseErrorKind::EmptyResourceName,
+        ));
+    };
+    if name.starts_with('<') {
         return Err(MapParseError::new(
             line,
             column,
             MapParseErrorKind::EmptyResourceName,
         ));
     }
-
-    if name.ends_with(".enc") {
-        if marker == ResourceMarker::Full {
-            return Err(MapParseError::new(
-                line,
-                column,
-                MapParseErrorKind::FullEmbeddingEncoding,
-            ));
-        }
-        if entry.encoding_file.is_some() {
-            return Err(MapParseError::new(
-                line,
-                column,
-                MapParseErrorKind::DuplicateResource(ResourceKind::Encoding),
-            ));
-        }
-        entry.encoding_file = Some(name.to_owned());
-        return Ok(());
-    }
-
-    if marker == ResourceMarker::BracketedEncoding {
-        return Err(MapParseError::new(
-            line,
-            column,
-            MapParseErrorKind::BracketedResourceMustBeEncoding,
-        ));
-    }
-    if entry.font_file.is_some() {
-        return Err(MapParseError::new(
-            line,
-            column,
-            MapParseErrorKind::DuplicateResource(ResourceKind::Font),
-        ));
-    }
-    let embedding = match marker {
-        ResourceMarker::Subset => EmbedPolicy::Subset,
-        ResourceMarker::Full => EmbedPolicy::Full,
-        ResourceMarker::BracketedEncoding => {
-            return Err(MapParseError::new(
-                line,
-                column,
-                MapParseErrorKind::BracketedResourceMustBeEncoding,
-            ));
-        }
-    };
-    entry.font_file = Some(FontFile {
-        name: name.to_owned(),
-        embedding,
-    });
-    Ok(())
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum ResourceMarker {
-    Subset,
-    Full,
-    BracketedEncoding,
+    Ok((
+        MapResource {
+            name: name.clone(),
+            marker,
+        },
+        2,
+    ))
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -335,13 +322,6 @@ fn lex_line(line: &str, line_number: usize) -> Result<Vec<Token>, MapParseError>
     Ok(tokens)
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum ResourceKind {
-    Encoding,
-    Font,
-    Special,
-}
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct MapParseError {
     pub(crate) line: usize,
@@ -367,9 +347,7 @@ pub(crate) enum MapParseErrorKind {
     MissingFieldSeparator,
     UnexpectedBareField,
     EmptyResourceName,
-    FullEmbeddingEncoding,
-    BracketedResourceMustBeEncoding,
-    DuplicateResource(ResourceKind),
+    DuplicateSpecial,
 }
 
 impl fmt::Display for MapParseError {
@@ -405,13 +383,7 @@ impl fmt::Display for MapParseErrorKind {
             }
             Self::UnexpectedBareField => formatter.write_str("unexpected unmarked field"),
             Self::EmptyResourceName => formatter.write_str("resource marker has no file name"),
-            Self::FullEmbeddingEncoding => {
-                formatter.write_str("an encoding cannot use the full-font marker")
-            }
-            Self::BracketedResourceMustBeEncoding => {
-                formatter.write_str("`<[` must name an .enc file")
-            }
-            Self::DuplicateResource(kind) => write!(formatter, "duplicate {kind:?} resource"),
+            Self::DuplicateSpecial => formatter.write_str("duplicate quoted special"),
         }
     }
 }
@@ -434,21 +406,18 @@ mod tests {
     fn 部分埋め込みを読む() {
         let entry = &parse_map(b"cmr10 CMR10 <cmr10.pfb\n").unwrap()[0];
         assert_eq!(
-            entry.font_file,
-            Some(FontFile {
+            entry.resources,
+            vec![MapResource {
                 name: "cmr10.pfb".to_owned(),
-                embedding: EmbedPolicy::Subset,
-            })
+                marker: ResourceMarker::Subset,
+            }]
         );
     }
 
     #[test]
     fn 完全埋め込みを区別する() {
         let entry = &parse_map(b"fullfont PSName <<font.pfb").unwrap()[0];
-        assert_eq!(
-            entry.font_file.as_ref().unwrap().embedding,
-            EmbedPolicy::Full
-        );
+        assert_eq!(entry.resources[0].marker, ResourceMarker::Full);
     }
 
     #[test]
@@ -457,16 +426,22 @@ mod tests {
             b"first FirstPS <first.enc <first.pfb\nsecond SecondPS <second.pfb <second.enc",
         )
         .unwrap();
-        assert_eq!(entries[0].encoding_file.as_deref(), Some("first.enc"));
-        assert_eq!(entries[0].font_file.as_ref().unwrap().name, "first.pfb");
-        assert_eq!(entries[1].encoding_file.as_deref(), Some("second.enc"));
-        assert_eq!(entries[1].font_file.as_ref().unwrap().name, "second.pfb");
+        assert_eq!(entries[0].resources[0].name, "first.enc");
+        assert_eq!(entries[0].resources[1].name, "first.pfb");
+        assert_eq!(entries[1].resources[0].name, "second.pfb");
+        assert_eq!(entries[1].resources[1].name, "second.enc");
     }
 
     #[test]
     fn 角括弧つき符号化指定を読む() {
         let entry = &parse_map(b"encoded Encoded <[vector.enc <font.pfb").unwrap()[0];
-        assert_eq!(entry.encoding_file.as_deref(), Some("vector.enc"));
+        assert_eq!(
+            entry.resources[0],
+            MapResource {
+                name: "vector.enc".to_owned(),
+                marker: ResourceMarker::BracketedEncoding,
+            }
+        );
     }
 
     #[test]
@@ -483,7 +458,7 @@ mod tests {
         let entry = &parse_map(b"scalabletype3").unwrap()[0];
         assert_eq!(entry.tfm_name, "scalabletype3");
         assert_eq!(entry.postscript_name, None);
-        assert_eq!(entry.font_file, None);
+        assert!(entry.resources.is_empty());
     }
 
     #[test]
@@ -508,22 +483,9 @@ mod tests {
     }
 
     #[test]
-    fn 同種の資源を二度指定できない() {
-        let encoding = parse_map(b"font PS <one.enc <two.enc").unwrap_err();
-        assert_eq!(
-            encoding.kind,
-            MapParseErrorKind::DuplicateResource(ResourceKind::Encoding)
-        );
-        let font = parse_map(b"font PS <one.pfb <<two.pfb").unwrap_err();
-        assert_eq!(
-            font.kind,
-            MapParseErrorKind::DuplicateResource(ResourceKind::Font)
-        );
+    fn specialを二度指定できない() {
         let special = parse_map(b"font PS \"one\" \"two\"").unwrap_err();
-        assert_eq!(
-            special.kind,
-            MapParseErrorKind::DuplicateResource(ResourceKind::Special)
-        );
+        assert_eq!(special.kind, MapParseErrorKind::DuplicateSpecial);
     }
 
     #[test]
@@ -539,18 +501,122 @@ mod tests {
     }
 
     #[test]
-    fn 空または誤種別の資源名を拒む() {
+    fn 空の資源名を拒む() {
         assert_eq!(
             parse_map(b"font PS <").unwrap_err().kind,
             MapParseErrorKind::EmptyResourceName
         );
+    }
+
+    #[test]
+    fn 実物clm行の複数資源を順序と印つきで保つ() {
+        let entry = &parse_map(
+            b"frankClmNkd FrankRuehlCLM-Medium-Menukad \" HE8Encoding ReEncodeFont \" <he8.enc <<FrankRuehlCLM-Medium-Menukad.t3 <FrankRuehlCLM-Medium.pfb",
+        )
+        .unwrap()[0];
         assert_eq!(
-            parse_map(b"font PS <[font.pfb").unwrap_err().kind,
-            MapParseErrorKind::BracketedResourceMustBeEncoding
+            entry.resources,
+            vec![
+                MapResource {
+                    name: "he8.enc".to_owned(),
+                    marker: ResourceMarker::Subset,
+                },
+                MapResource {
+                    name: "FrankRuehlCLM-Medium-Menukad.t3".to_owned(),
+                    marker: ResourceMarker::Full,
+                },
+                MapResource {
+                    name: "FrankRuehlCLM-Medium.pfb".to_owned(),
+                    marker: ResourceMarker::Subset,
+                },
+            ]
         );
+    }
+
+    #[test]
+    fn 単独の小なり記号と次の語を一つの資源として読む() {
+        let entry = &parse_map(b"plimsoll < plimsoll.enc < plimsoll.pfb").unwrap()[0];
         assert_eq!(
-            parse_map(b"font PS <<vector.enc").unwrap_err().kind,
-            MapParseErrorKind::FullEmbeddingEncoding
+            entry.resources,
+            vec![
+                MapResource {
+                    name: "plimsoll.enc".to_owned(),
+                    marker: ResourceMarker::Subset,
+                },
+                MapResource {
+                    name: "plimsoll.pfb".to_owned(),
+                    marker: ResourceMarker::Subset,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn 単独の資源印が行末なら位置つきで拒む() {
+        for (line, expected_column) in [("font PS <", 9), ("font PS <<", 9), ("font PS <[", 9)] {
+            let error = parse_map(line.as_bytes()).unwrap_err();
+            assert_eq!(error.line, 1);
+            assert_eq!(error.column, expected_column);
+            assert_eq!(error.kind, MapParseErrorKind::EmptyResourceName);
+        }
+    }
+
+    #[test]
+    fn 符号化と補助資源とfont資源を混在順のまま保つ() {
+        let entry =
+            &parse_map(b"font PS <font.pfb <<helper.t3 <[vector.data <<font.otf").unwrap()[0];
+        assert_eq!(
+            entry.resources,
+            vec![
+                MapResource {
+                    name: "font.pfb".to_owned(),
+                    marker: ResourceMarker::Subset,
+                },
+                MapResource {
+                    name: "helper.t3".to_owned(),
+                    marker: ResourceMarker::Full,
+                },
+                MapResource {
+                    name: "vector.data".to_owned(),
+                    marker: ResourceMarker::BracketedEncoding,
+                },
+                MapResource {
+                    name: "font.otf".to_owned(),
+                    marker: ResourceMarker::Full,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn 同名資源もparserでは失わず二個保つ() {
+        let entry = &parse_map(b"font PS <same.pfb <<same.pfb").unwrap()[0];
+        assert_eq!(entry.resources.len(), 2);
+        assert_eq!(entry.resources[0].name, "same.pfb");
+        assert_eq!(entry.resources[0].marker, ResourceMarker::Subset);
+        assert_eq!(entry.resources[1].name, "same.pfb");
+        assert_eq!(entry.resources[1].marker, ResourceMarker::Full);
+    }
+
+    #[test]
+    fn 分離した三種の資源印を同じ構造へ正規化する() {
+        let entry = &parse_map(b"font PS < subset.pfb << full.t3 <[ vector.enc").unwrap()[0];
+        assert_eq!(
+            entry.resources,
+            vec![
+                MapResource {
+                    name: "subset.pfb".to_owned(),
+                    marker: ResourceMarker::Subset,
+                },
+                MapResource {
+                    name: "full.t3".to_owned(),
+                    marker: ResourceMarker::Full,
+                },
+                MapResource {
+                    name: "vector.enc".to_owned(),
+                    marker: ResourceMarker::BracketedEncoding,
+                },
+            ]
         );
     }
 

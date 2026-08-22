@@ -3,10 +3,12 @@
 //! この層は PostScript や map special を実行しない。探索には常に論理名と
 //! `FileKind` を渡し、解決後の物理 path は bounded read にだけ用いる。
 
-use super::afm::{AfmFont, AfmParseError};
+use super::afm::{AfmFont, AfmNumber, AfmParseError};
 use super::encoding::{EncodingError, EncodingVector};
-use super::map::{parse_map, EmbedPolicy, MapEntry, MapParseError};
-use super::type1::{parse_pfb, PfbError, Type1FontProgram};
+use super::map::{parse_map, EmbedPolicy, MapEntry, MapParseError, MapResource, ResourceMarker};
+use super::type1::{
+    extract_private_std_vw, parse_pfb, PfbError, Type1FontProgram, Type1MetadataError,
+};
 use crate::file_search::{FileKind, FileResolver, LogicalFileName, ResolveError, ResolvedFile};
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -16,6 +18,8 @@ use std::io::{self, Read};
 use std::path::Path;
 
 pub(crate) const DEFAULT_FONT_MAP: &str = "pdftex.map";
+/// pdfTeX manualで、mapのfontflags省略時に定義されているSymbolic既定値。
+pub(crate) const PDFTEX_DEFAULT_FONT_FLAGS: u32 = 4;
 
 // 実在する TeX Live 資材より十分大きく、壊れた入力を無制限に複製しない上限。
 pub(crate) const MAX_FONT_MAP_BYTES: usize = 16 * 1024 * 1024;
@@ -83,8 +87,12 @@ pub(crate) struct LoadedType1Font {
     pub(crate) declared_postscript_name: Option<String>,
     /// map 指定があれば検査済みの値、なければ AFM の FontName。
     pub(crate) postscript_name: String,
-    /// `None` を推論値へ置き換えず、そのまま保持する。
-    pub(crate) font_flags: Option<u32>,
+    /// mapにfontflagsが明記されていたかを、既定値と分けて保持する。
+    pub(crate) declared_font_flags: Option<u32>,
+    /// map明記値、またはpdfTeX map契約の既定値4。
+    pub(crate) descriptor_flags: u32,
+    /// AFMが`StdVW`を省略した場合だけ、Type 1 Private辞書から得た値。
+    pub(crate) private_std_vw: Option<AfmNumber>,
     pub(crate) embedding: EmbedPolicy,
     pub(crate) font_program: LoadedResource<Type1FontProgram>,
     pub(crate) metrics: LoadedResource<AfmFont>,
@@ -170,14 +178,9 @@ impl<R: FileResolver> FontResourceLoader<R> {
             }
         })?;
 
-        validate_entry_before_loading(&entry)?;
-        let font_file =
-            entry
-                .font_file
-                .clone()
-                .ok_or_else(|| FontResourceError::MissingFontFile {
-                    tfm_name: entry.tfm_name.clone(),
-                })?;
+        let selected = select_entry_resources(&entry)?;
+        let embedding = selected.embedding;
+        let font_file = selected.font_file;
         let font_logical_name = LogicalFileName::new(font_file.name.as_str());
         let afm_logical_name = afm_name_from_font_file(&entry.tfm_name, &font_file.name)?;
 
@@ -219,13 +222,23 @@ impl<R: FileResolver> FontResourceLoader<R> {
                 });
             }
         }
+        let private_std_vw = if metrics.descriptor.std_vw.is_none() {
+            extract_private_std_vw(font_program.value()).map_err(|source| {
+                FontResourceError::Type1Metadata {
+                    resource: font_program.resolved.clone(),
+                    source,
+                }
+            })?
+        } else {
+            None
+        };
         let metrics = LoadedResource {
             resolved: afm_resolved,
             value: metrics,
         };
 
-        let encoding = if let Some(encoding_name) = &entry.encoding_file {
-            let logical_name = LogicalFileName::new(encoding_name.as_str());
+        let encoding = if let Some(encoding_file) = selected.encoding_file {
+            let logical_name = LogicalFileName::new(encoding_file.name.as_str());
             let resolved = resolve_required(&mut self.resolver, FileKind::Encoding, &logical_name)?;
             let bytes = read_bounded(
                 &resolved,
@@ -248,8 +261,10 @@ impl<R: FileResolver> FontResourceLoader<R> {
             tfm_name: entry.tfm_name,
             declared_postscript_name: entry.postscript_name,
             postscript_name,
-            font_flags: entry.font_flags,
-            embedding: font_file.embedding,
+            declared_font_flags: entry.font_flags,
+            descriptor_flags: entry.font_flags.unwrap_or(PDFTEX_DEFAULT_FONT_FLAGS),
+            private_std_vw,
+            embedding,
             font_program,
             metrics,
             encoding,
@@ -267,7 +282,13 @@ impl<R: FileResolver> Type1ResourceLoader for FontResourceLoader<R> {
     }
 }
 
-fn validate_entry_before_loading(entry: &MapEntry) -> Result<(), FontResourceError> {
+struct SelectedEntryResources {
+    font_file: MapResource,
+    embedding: EmbedPolicy,
+    encoding_file: Option<MapResource>,
+}
+
+fn select_entry_resources(entry: &MapEntry) -> Result<SelectedEntryResources, FontResourceError> {
     if let Some(special) = &entry.special {
         return Err(FontResourceError::UnsupportedMapSpecial {
             tfm_name: entry.tfm_name.clone(),
@@ -276,23 +297,73 @@ fn validate_entry_before_loading(entry: &MapEntry) -> Result<(), FontResourceErr
             mentions_extend_font: special.mentions_extend_font,
         });
     }
-    let Some(font_file) = &entry.font_file else {
-        return Err(FontResourceError::MissingFontFile {
-            tfm_name: entry.tfm_name.clone(),
-        });
+
+    let mut font_file: Option<MapResource> = None;
+    let mut encoding_file: Option<MapResource> = None;
+    for resource in &entry.resources {
+        let is_encoding = resource.marker == ResourceMarker::BracketedEncoding
+            || extension_is(&resource.name, "enc");
+        if is_encoding {
+            if resource.marker == ResourceMarker::Full {
+                return Err(FontResourceError::FullEmbeddingEncoding {
+                    tfm_name: entry.tfm_name.clone(),
+                    logical_name: resource.name.clone(),
+                });
+            }
+            if let Some(first) = &encoding_file {
+                return Err(FontResourceError::MultipleEncodingFiles {
+                    tfm_name: entry.tfm_name.clone(),
+                    first: first.name.clone(),
+                    duplicate: resource.name.clone(),
+                });
+            }
+            encoding_file = Some(resource.clone());
+            continue;
+        }
+
+        if !extension_is(&resource.name, "pfb") {
+            return Err(FontResourceError::UnsupportedResourceType {
+                tfm_name: entry.tfm_name.clone(),
+                logical_name: resource.name.clone(),
+                expected_extension: "pfb",
+            });
+        }
+        if let Some(first) = &font_file {
+            return Err(FontResourceError::MultipleType1FontFiles {
+                tfm_name: entry.tfm_name.clone(),
+                first: first.name.clone(),
+                duplicate: resource.name.clone(),
+            });
+        }
+        font_file = Some(resource.clone());
+    }
+
+    let font_file = font_file.ok_or_else(|| FontResourceError::MissingFontFile {
+        tfm_name: entry.tfm_name.clone(),
+    })?;
+    let embedding = match font_file.marker {
+        ResourceMarker::Subset => EmbedPolicy::Subset,
+        ResourceMarker::Full => EmbedPolicy::Full,
+        ResourceMarker::BracketedEncoding => {
+            return Err(FontResourceError::UnsupportedResourceType {
+                tfm_name: entry.tfm_name.clone(),
+                logical_name: font_file.name,
+                expected_extension: "enc",
+            })
+        }
     };
-    let extension_is_pfb = Path::new(&font_file.name)
+    Ok(SelectedEntryResources {
+        font_file,
+        embedding,
+        encoding_file,
+    })
+}
+
+fn extension_is(logical_name: &str, expected: &str) -> bool {
+    Path::new(logical_name)
         .extension()
         .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("pfb"));
-    if !extension_is_pfb {
-        return Err(FontResourceError::UnsupportedResourceType {
-            tfm_name: entry.tfm_name.clone(),
-            logical_name: font_file.name.clone(),
-            expected_extension: "pfb",
-        });
-    }
-    Ok(())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case(expected))
 }
 
 fn afm_name_from_font_file(
@@ -430,6 +501,20 @@ pub(crate) enum FontResourceError {
     MissingFontFile {
         tfm_name: String,
     },
+    MultipleType1FontFiles {
+        tfm_name: String,
+        first: String,
+        duplicate: String,
+    },
+    MultipleEncodingFiles {
+        tfm_name: String,
+        first: String,
+        duplicate: String,
+    },
+    FullEmbeddingEncoding {
+        tfm_name: String,
+        logical_name: String,
+    },
     UnsupportedResourceType {
         tfm_name: String,
         logical_name: String,
@@ -442,6 +527,10 @@ pub(crate) enum FontResourceError {
     PfbParse {
         resource: ResolvedFile,
         source: PfbError,
+    },
+    Type1Metadata {
+        resource: ResolvedFile,
+        source: Type1MetadataError,
     },
     AfmParse {
         resource: ResolvedFile,
@@ -539,6 +628,29 @@ impl fmt::Display for FontResourceError {
             Self::MissingFontFile { tfm_name } => {
                 write!(formatter, "TFM `{tfm_name}` has no embedded font file")
             }
+            Self::MultipleType1FontFiles {
+                tfm_name,
+                first,
+                duplicate,
+            } => write!(
+                formatter,
+                "TFM `{tfm_name}` names more than one Type 1 font file: `{first}` and `{duplicate}`"
+            ),
+            Self::MultipleEncodingFiles {
+                tfm_name,
+                first,
+                duplicate,
+            } => write!(
+                formatter,
+                "TFM `{tfm_name}` names more than one encoding file: `{first}` and `{duplicate}`"
+            ),
+            Self::FullEmbeddingEncoding {
+                tfm_name,
+                logical_name,
+            } => write!(
+                formatter,
+                "TFM `{tfm_name}` uses the full-font marker for encoding `{logical_name}`"
+            ),
             Self::UnsupportedResourceType {
                 tfm_name,
                 logical_name,
@@ -557,6 +669,12 @@ impl fmt::Display for FontResourceError {
             Self::PfbParse { resource, source } => write!(
                 formatter,
                 "cannot parse Type 1 font `{}` at `{}`: {source}",
+                resource.logical_name().as_os_str().to_string_lossy(),
+                resource.physical_path().display()
+            ),
+            Self::Type1Metadata { resource, source } => write!(
+                formatter,
+                "cannot read Type 1 metadata from `{}` at `{}`: {source}",
                 resource.logical_name().as_os_str().to_string_lossy(),
                 resource.physical_path().display()
             ),
@@ -594,6 +712,7 @@ impl std::error::Error for FontResourceError {
             Self::Io { source, .. } => Some(source),
             Self::MapParse { source, .. } => Some(source),
             Self::PfbParse { source, .. } => Some(source),
+            Self::Type1Metadata { source, .. } => Some(source),
             Self::AfmParse { source, .. } => Some(source),
             Self::EncodingParse { source, .. } => Some(source),
             Self::ResourceNotFound { .. }
@@ -604,6 +723,9 @@ impl std::error::Error for FontResourceError {
             | Self::TfmEntryNotFound { .. }
             | Self::UnsupportedMapSpecial { .. }
             | Self::MissingFontFile { .. }
+            | Self::MultipleType1FontFiles { .. }
+            | Self::MultipleEncodingFiles { .. }
+            | Self::FullEmbeddingEncoding { .. }
             | Self::UnsupportedResourceType { .. }
             | Self::InvalidFontFileName { .. }
             | Self::PostScriptNameMismatch { .. } => None,
@@ -772,16 +894,39 @@ mod tests {
         }
     }
 
+    fn pfb_segment(kind: u8, payload: &[u8]) -> Vec<u8> {
+        let mut bytes = vec![0x80, kind];
+        bytes.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(payload);
+        bytes
+    }
+
     fn pfb() -> Vec<u8> {
-        fn segment(kind: u8, payload: &[u8]) -> Vec<u8> {
-            let mut bytes = vec![0x80, kind];
-            bytes.extend_from_slice(&(payload.len() as u32).to_le_bytes());
-            bytes.extend_from_slice(payload);
-            bytes
-        }
-        let mut bytes = segment(1, b"%!PS synthetic\n");
-        bytes.extend_from_slice(&segment(2, &[1, 2, 3, 4]));
-        bytes.extend_from_slice(&segment(1, b"cleartomark\n"));
+        let mut bytes = pfb_segment(1, b"%!PS synthetic\n");
+        bytes.extend_from_slice(&pfb_segment(2, &[1, 2, 3, 4]));
+        bytes.extend_from_slice(&pfb_segment(1, b"cleartomark\n"));
+        bytes.extend_from_slice(&[0x80, 3]);
+        bytes
+    }
+
+    fn private辞書つきpfb(private: &[u8]) -> Vec<u8> {
+        let mut key = 55_665u16;
+        let encrypted: Vec<u8> = b"rand"
+            .iter()
+            .copied()
+            .chain(private.iter().copied())
+            .map(|plain| {
+                let cipher = plain ^ (key >> 8) as u8;
+                key = key
+                    .wrapping_add(u16::from(cipher))
+                    .wrapping_mul(52_845)
+                    .wrapping_add(22_719);
+                cipher
+            })
+            .collect();
+        let mut bytes = pfb_segment(1, b"%!PS synthetic\ncurrentfile eexec\n");
+        bytes.extend_from_slice(&pfb_segment(2, &encrypted));
+        bytes.extend_from_slice(&pfb_segment(1, b"cleartomark\n"));
         bytes.extend_from_slice(&[0x80, 3]);
         bytes
     }
@@ -854,7 +999,9 @@ mod tests {
             Some("SyntheticPS")
         );
         assert_eq!(loaded.postscript_name, "SyntheticPS");
-        assert_eq!(loaded.font_flags, Some(42));
+        assert_eq!(loaded.declared_font_flags, Some(42));
+        assert_eq!(loaded.descriptor_flags, 42);
+        assert_eq!(loaded.private_std_vw, None);
         assert_eq!(loaded.embedding, EmbedPolicy::Full);
         assert_eq!(
             loaded.font_program.logical_name().as_os_str(),
@@ -884,7 +1031,7 @@ mod tests {
     }
 
     #[test]
-    fn ps名とflagsを未指定のまま勝手に補わない() {
+    fn ps名の宣言有無とflagsの既定値を分けて保つ() {
         let directory = TestDirectory::new();
         let (tfm_name, pfb_name, _afm_name, _encoding_name, map_name) = unique_names();
         let map_path = directory.write(
@@ -904,9 +1051,43 @@ mod tests {
 
         assert_eq!(loaded.declared_postscript_name, None);
         assert_eq!(loaded.postscript_name, "NameFromAfm");
-        assert_eq!(loaded.font_flags, None);
+        assert_eq!(loaded.declared_font_flags, None);
+        assert_eq!(loaded.descriptor_flags, PDFTEX_DEFAULT_FONT_FLAGS);
+        assert_eq!(loaded.private_std_vw, None);
         assert_eq!(loaded.embedding, EmbedPolicy::Subset);
         assert!(loaded.encoding.is_none());
+    }
+
+    #[test]
+    fn afmにstdvwが無ければpfbのprivate辞書だけをfallbackにする() {
+        let directory = TestDirectory::new();
+        let (tfm_name, pfb_name, _afm_name, _encoding_name, map_name) = unique_names();
+        let map_path = directory.write(
+            "private-stdvw.map",
+            format!("{tfm_name} NameFromAfm <<{pfb_name}\n").as_bytes(),
+        );
+        let pfb_path = directory.write(
+            "font.bin",
+            &private辞書つきpfb(b"/Private 1 dict dup begin\n/StdVW [69] ND\n/Subrs 0 array\n"),
+        );
+        let afm_without_std_vw = String::from_utf8(afm("NameFromAfm"))
+            .unwrap()
+            .replace("StdVW 80\n", "");
+        let afm_path = directory.write("metrics.data", afm_without_std_vw.as_bytes());
+        let (resolver, _) = fake_resolver([
+            FakeResolution::Found(map_path),
+            FakeResolution::Found(pfb_path),
+            FakeResolution::Found(afm_path),
+        ]);
+
+        let mut loader = FontResourceLoader::with_map(resolver, map_name).unwrap();
+        let loaded = loader.load(&tfm_name).unwrap();
+
+        assert_eq!(loaded.metrics.value().descriptor.std_vw, None);
+        assert_eq!(
+            loaded.private_std_vw,
+            Some(AfmNumber::checked_from_integer(69).unwrap())
+        );
     }
 
     #[test]
@@ -965,6 +1146,85 @@ mod tests {
                 mentions_extend_font: true,
                 ..
             })
+        ));
+        assert_eq!(calls.borrow().len(), 1);
+    }
+
+    #[test]
+    fn 未使用entryの複数資源と分離markerはmap全体を止めない() {
+        let directory = TestDirectory::new();
+        let (tfm_name, pfb_name, _, _, map_name) = unique_names();
+        let map_path = directory.write(
+            "texlive-shapes.map",
+            format!(
+                "unused Clm \"HE8Encoding ReEncodeFont\" <he8.enc <<helper.t3 <font.pfb\n\
+                 plimsoll < plimsoll.enc < plimsoll.pfb\n\
+                 {tfm_name} SyntheticPS 6 <<{pfb_name}\n"
+            )
+            .as_bytes(),
+        );
+        let pfb_path = directory.write("font.bin", &pfb());
+        let afm_path = directory.write("metrics.data", &afm("SyntheticPS"));
+        let (resolver, calls) = fake_resolver([
+            FakeResolution::Found(map_path),
+            FakeResolution::Found(pfb_path),
+            FakeResolution::Found(afm_path),
+        ]);
+
+        let mut loader = FontResourceLoader::with_map(resolver, map_name).unwrap();
+        let loaded = loader.load(&tfm_name).unwrap();
+
+        assert_eq!(loaded.postscript_name, "SyntheticPS");
+        assert_eq!(calls.borrow().len(), 3);
+    }
+
+    #[test]
+    fn 選んだentryの補助資源だけを局所的に拒む() {
+        let directory = TestDirectory::new();
+        let (tfm_name, pfb_name, _, encoding_name, map_name) = unique_names();
+        let map_path = directory.write(
+            "auxiliary.map",
+            format!("{tfm_name} SyntheticPS <{encoding_name} <<helper.t3 <{pfb_name}\n").as_bytes(),
+        );
+        let (resolver, calls) = fake_resolver([FakeResolution::Found(map_path)]);
+        let mut loader = FontResourceLoader::with_map(resolver, map_name).unwrap();
+
+        assert!(matches!(
+            loader.load(&tfm_name),
+            Err(FontResourceError::UnsupportedResourceType {
+                logical_name,
+                expected_extension: "pfb",
+                ..
+            }) if logical_name == "helper.t3"
+        ));
+        assert_eq!(calls.borrow().len(), 1);
+    }
+
+    #[test]
+    fn 選んだentryの複数pfbと複数encodingを黙って選ばない() {
+        let directory = TestDirectory::new();
+        let (first_tfm, first_pfb, _, first_encoding, map_name) = unique_names();
+        let second_tfm = format!("{first_tfm}-encoding");
+        let map_path = directory.write(
+            "ambiguous.map",
+            format!(
+                "{first_tfm} PS <{first_pfb} <<second.pfb\n\
+                 {second_tfm} PS <{first_encoding} <second.enc <<{first_pfb}\n"
+            )
+            .as_bytes(),
+        );
+        let (resolver, calls) = fake_resolver([FakeResolution::Found(map_path)]);
+        let mut loader = FontResourceLoader::with_map(resolver, map_name).unwrap();
+
+        assert!(matches!(
+            loader.load(&first_tfm),
+            Err(FontResourceError::MultipleType1FontFiles { first, duplicate, .. })
+                if first == first_pfb && duplicate == "second.pfb"
+        ));
+        assert!(matches!(
+            loader.load(&second_tfm),
+            Err(FontResourceError::MultipleEncodingFiles { first, duplicate, .. })
+                if first == first_encoding && duplicate == "second.enc"
         ));
         assert_eq!(calls.borrow().len(), 1);
     }

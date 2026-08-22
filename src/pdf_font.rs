@@ -298,13 +298,8 @@ fn validate_descriptor_flags(flags: u32, afm: &AfmFont) -> Result<(), PdfFontErr
     if symbolic == nonsymbolic {
         return Err(PdfFontError::AmbiguousCharacterSetFlags { flags });
     }
-    let flag_says_fixed = flags & FIXED_PITCH_FLAG != 0;
-    if flag_says_fixed != afm.descriptor.is_fixed_pitch {
-        return Err(PdfFontError::FixedPitchFlagMismatch {
-            flags,
-            afm_is_fixed_pitch: afm.descriptor.is_fixed_pitch,
-        });
-    }
+    // pdfTeX mapのflagsはPDF descriptorへ渡す宣言値である。省略時の公開既定値4は
+    // fixed-pitch AFMにも使われるため、AFM IsFixedPitchからbit 1を再推論しない。
     if afm.descriptor.encoding_scheme.as_deref() == Some("FontSpecific") && !symbolic {
         return Err(PdfFontError::EncodingSchemeFlagMismatch {
             flags,
@@ -540,10 +535,6 @@ pub(crate) enum PdfFontError {
     AmbiguousCharacterSetFlags {
         flags: u32,
     },
-    FixedPitchFlagMismatch {
-        flags: u32,
-        afm_is_fixed_pitch: bool,
-    },
     EncodingSchemeFlagMismatch {
         flags: u32,
         encoding_scheme: String,
@@ -606,13 +597,6 @@ impl fmt::Display for PdfFontError {
             Self::AmbiguousCharacterSetFlags { flags } => write!(
                 formatter,
                 "FontDescriptor Flags {flags:#x} must set exactly one of Symbolic and Nonsymbolic"
-            ),
-            Self::FixedPitchFlagMismatch {
-                flags,
-                afm_is_fixed_pitch,
-            } => write!(
-                formatter,
-                "FontDescriptor Flags {flags:#x} disagree with AFM IsFixedPitch={afm_is_fixed_pitch}"
             ),
             Self::EncodingSchemeFlagMismatch {
                 flags,
@@ -833,15 +817,16 @@ mod tests {
     }
 
     #[test]
-    fn descriptorの旗をafmと公開仕様に照らす() {
+    fn descriptorの旗はmap宣言をafmから再推論しない() {
         let program = synthetic_program();
         let afm = synthetic_afm(true);
-        let mut invalid = request(&program, &afm, None, EmbedPolicy::Full, &[65]);
-        invalid.descriptor_flags = SYMBOLIC_FLAG;
-        assert!(matches!(
-            prepare_type1_font(invalid),
-            Err(PdfFontError::FixedPitchFlagMismatch { .. })
-        ));
+        let mut fixed_with_pdftex_default = request(&program, &afm, None, EmbedPolicy::Full, &[65]);
+        fixed_with_pdftex_default.descriptor_flags = SYMBOLIC_FLAG;
+        let prepared = prepare_type1_font(fixed_with_pdftex_default).unwrap();
+        let mut writer = PdfWriter::new(Vec::new()).unwrap();
+        let font = prepared.write(&mut writer).unwrap();
+        let pdf = writer.finish(font.object()).unwrap();
+        assert!(String::from_utf8_lossy(&pdf).contains("/Flags 4"));
 
         let afm = synthetic_afm(false);
         let mut ambiguous = request(&program, &afm, None, EmbedPolicy::Full, &[65]);
