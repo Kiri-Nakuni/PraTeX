@@ -22,12 +22,13 @@
 ## 枝と共有状態
 
 - 枝: `codex/euptex-integration-resume`
-- この文書作成時のHEAD: `eda7dd1`
-- `origin/codex/euptex-integration-resume`へ`eda7dd1`までpush済み
+- 現在の共有HEAD: `df6e71e`
+- `origin/codex/euptex-integration-resume`へ`df6e71e`までpush済み
 - 直近の共有commit:
   - `9587e25`: `\mutoglue` / `\gluetomu`
   - `43cd6c9`: e-TeX機能一覧の同期
   - `eda7dd1`: `\scantokens` clean-room設計
+  - `df6e71e`: 本引継ぎ文書とREADMEからの導線
 - 性能枝 `codex/perf-wsl-euptex-safe` は `9bb6023`までpush済みで、現在は停止中
 - Claudeの連絡枝 `origin/claude/for-codex` は `82fa3a2`まで確認済み
 - Vaak `origin/codex/main` は `64ccf4e`まで確認済み
@@ -56,8 +57,11 @@ hard blockerは未定義primitiveではなくStage 4cである。
 - lc/ucの**代入値**だけは0..=U+2E80を受理する。U+2E80は後続で停止し得るsentinelなので、
   Rust panicにせず明示境界として扱う。
 - case conversionはbyteとLatinUcsを跨ぎ、元のcatcodeを保持する。
-- catcode 1/2はmain実行時にgroupを開閉するが、undelimited macro引数の外括弧にはならない。
-  raw tokenのbrace判定とcommandとしてのbrace判定を混ぜない。
+- catcode 1/2はmain実行時にgroupを開閉するが、通常のbalanced textやmacro replacement、
+  undelimited macro引数では構造括弧にならない。raw tokenのbrace判定はASCIIだけにする。
+- 一方、明示的な`scan_left_brace`はLatinUcs catcode 1を受け入れ、alignmentの`align_state`は
+  LatinUcs catcode 1/2でも増減する。raw token、command実行、明示brace要求、alignmentの
+  四つの意味を一つのpredicateへ潰さない。
 - catcode 3/4/6/7/8はmath shift、alignment tab、macro parameter、super/subscriptとして実動する。
 - catcode 0/5/9/10/14もescape、line end、ignore、space、commentとして実動する。
 - kcatcode 14 + catcode 15はinvalid errorではなく和文tokenへfallbackする。
@@ -65,10 +69,8 @@ hard blockerは未定義primitiveではなくStage 4cである。
 - `\detokenize`はcatcode 12を返す。
 - catcode 11/12の同一符号位置は`\if`が真、`\ifcat`が偽。
 
-未確定・要追試:
+既知差分・後段の追試:
 
-- LatinUcs catcode 1/2がbalanced general text、macro replacement scan、alignmentの
-  `align_state`へどう効くか。undelimited argumentの結果だけから推測しない。
 - e-upTeX固有の`\string`表示（U+0100が`^^@`、activeが`.6`等）は既知差分として
   後段に残してよいが、互換済みとは記載しない。
 
@@ -121,13 +123,31 @@ focused testを実行し、可能なら意味単位を分けてcommitする。
 `\endinput`では発火しない。`newlinechar`は生成時、`endlinechar`は各行読取時である。
 詳細と20個の必須回帰は設計文書を読むこと。
 
-## 進行中 3: safe Rust性能実験
+## 完了済み実験: `ls-R`のsafe Rust表現
 
-状態: **実験のみ、repo編集・統合なし**。
+状態: **2026-08-22に読取専用実験を完了、repoへの実装・統合なし**。
 
-別sub-agentがWSL `/tmp/pratex-lsr-safe-probe-*`だけを使い、TeX Live `ls-R`索引を比較中。
-現行意味、容量予約、deterministic FNV-1a、byte arena＋offset/hash bucketの4方式を、
-同じname→candidate列とchecksumを条件に測る。結果が良くても現在枝へ実装しない。
+WSL `/tmp/pratex-lsr-safe-probe-*`だけで、現行意味の再現(A)、`RandomState`のまま正確な
+件数を予約(B)、deterministic FNV-1a(C)、byte arena＋offset/hash bucket(D)を比較した。
+TeX Live 2026の最大`ls-R`は5,674,350 byte、254,397 entry、231,561 unique basename。
+全方式でbyte-sortした全name→candidate directory列、固定hit/miss corpus、合成した非UTF-8・
+重複・hidden entry fixtureが完全一致した。
+
+24回を交互に測った最大fixtureの結果:
+
+| 方式 | build中央値 | hit ns/query | miss ns/query | VmHWM |
+|---|---:|---:|---:|---:|
+| A 現行意味の再現 | 49.562 ms | 60.287 | 21.101 | 56,832 KiB |
+| B `RandomState`＋正確な予約 | 27.112 ms | 61.090 | 22.026 | 44,464 KiB |
+| C FNV `HashMap` | 25.830 ms | 53.898 | 31.733 | 44,464 KiB |
+| D FNV byte arena | 24.164 ms | 56.285 | 42.479 | 32,168 KiB |
+
+追試の第一候補はBだが、今回の予約数は計測区間外で得たoracleであり、そのまま統合しない。
+現実の一回読取りで安価に得られる容量hintを使って再測定する。C/Dはmissが50.4%/101.3%悪化し、
+unkeyed FNVによるhash-flooding DoSもあるため非推奨。Windowsのstrict UTF-8拒否方針もarena化を
+理由に変えない。詳細なfixture hash、toolchain、p10/p90は[性能測定](performance.md)に固定した。
+prototype sourceは一時WSL `/tmp`の消去で残っておらず、hashだけからbit-for-bit再現はできない。
+従ってこの値を性能gateにせず、採否時は永続的なprobeとrunnerを先にcommitして測り直す。
 
 性能統合は利用者の方針により、一通りの機能が動いた後まで保留する。unsafe Rustは試さない。
 

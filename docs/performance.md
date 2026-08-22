@@ -183,6 +183,70 @@ Windows側から開くend-to-end試験は8.87 sだった。release LTOのlink 3�
 同じ解決結果を条件に、lazy/adaptive索引化とWSL内でのbounded読込みを別々に比較する。
 詳細は [TeX Live探索の移植記録](kpathsea-port-notes.md) にある。
 
+### `ls-R`索引表現のisolated safe-Rust実験（2026-08-22）
+
+end-to-end変更へ先走らないため、実リポジトリを編集せず、WSL
+`/tmp/pratex-lsr-safe-probe-*`の独立prototypeで次の四方式を比較した。
+
+- A: 現行readerの所有`HashMap`意味を再現
+- B: `RandomState`を保ち、unique name数とdirectory数を正確に予約
+- C: deterministic FNV-1aの所有`HashMap`
+- D: 一つのbyte arenaにoffset/lengthを持ち、FNV bucketをcollision-safeなbyte比較で連鎖
+
+環境はWSL2 Ubuntu 24.04、Linux 6.18.33.2、i7-13620H、CPU 2固定、rustc 1.97.1
+（LLVM 22.1.6）、`-O -C codegen-units=1`。warm-up 3回後、方式順を回転して24標本を取った。
+probe source SHA-256は
+`824b6b2220d46315d377552b6a0deda53193e506b75125f25a7302b9ed6f7e87`、binaryは
+`71839ced31f7706565482331243cf8bba8452eadd72d3b48b2256004be3f3149`である。
+ただしsourceとbinaryはWSL `/tmp/pratex-lsr-safe-probe-20260822`の消去により残っていない。
+このhashは当日のartifact同一性の記録であって、hashだけから再現はできない。従って本節は
+探索的測定として扱い、性能gateには使わない。採否を決める再測定では、A--D、意味論assert、
+合成非UTF-8 fixture、interleaved測定、RSS child modeを持つ`tools/lsr_safe_probe.rs`と、
+fixture発見・一時directory・toolchain/hash収集・CPU固定を行うrunnerを先にcommitする。
+
+公開CLI `kpsewhich --all ls-R`で得たfixtureは次の三つ。最大のdist treeは
+288,994行、17,298 directory、254,397 accepted entry、231,561 unique basename、
+22,836 cross-directory extra candidateだった。
+
+| fixture | byte | SHA-256 |
+|---|---:|---|
+| config | 80 | `418d569540155c83d3e01fb88cf8ecbf5870deedc3844f86d38df2f9b4d4f5b2` |
+| var | 3,330 | `25692224564e8ce593b8bbf8cabd142557b129aa69303d4d2021f4a6433c9e26` |
+| dist | 5,674,350 | `17677745673338040a914c26c1935da2c6515d573d3bc7fb3d1b7dbaf4cc0d9e` |
+
+全方式でbasenameをbyte-sortした**全name→candidate directory列**を直接`assert_eq`し、
+distのsemantic FNV64 `aa62d954fb168fec`が一致した。4096件の固定hit/miss corpusも結果列を
+直接比較し、checksumはhit `11f73eace8743fef`、miss `9eb4e710cf95c4fd`で一致した。
+非UTF-8 basename `na\xffme.tex`、重複抑制、hidden entry拒否を含む合成fixtureも一致した。
+
+最大distのbuild時間:
+
+| 方式 | 中央値 | 平均 | p10 / p90 | A比 |
+|---|---:|---:|---:|---:|
+| A | 49.562 ms | 52.726 ms | 45.849 / 61.076 ms | -- |
+| B | 27.112 ms | 27.768 ms | 22.836 / 31.496 ms | -45.3% |
+| C | 25.830 ms | 26.871 ms | 21.956 / 30.436 ms | -47.9% |
+| D | 24.164 ms | 25.823 ms | 21.556 / 28.646 ms | -51.3% |
+
+最大distのlookup中央値（ns/query）と個別process `/proc` VmHWM:
+
+| 方式 | hit | miss | VmHWM（raw入力込み） |
+|---|---:|---:|---:|
+| A | 60.287 | 21.101 | 56,832 KiB |
+| B | 61.090 | 22.026 | 44,464 KiB |
+| C | 53.898 | 31.733 | 44,464 KiB |
+| D | 56.285 | 42.479 | 32,168 KiB |
+
+Bはbuildとpeak memoryを大きく改善したが、正確なunique-name/directory件数を測定区間外から
+与えたoracle上限である。従って採用結果ではない。実readerが一回の走査で安価に作れる
+過大容量hintを設計し、end-to-end resolverで再測定する第一候補とする。
+
+C/DはhitだけならAより速い一方、missが50.4%/101.3%悪化した。さらにunkeyed FNVは、外部から
+細工できる`ls-R`に対するhash-flooding DoSを許し、Dのchainはbuild/lookupとも線形へ退化する。
+したがって現状は非推奨で、`RandomState`を外さない。Unix prototypeはraw byteを保持したが、
+Windows readerがinvalid UTF-8を拒む既存platform policyも表現変更で勝手に変えない。
+この絶対値は現行意味を模したprototype内訳であり、PraTeX end-to-end値ではない。
+
 ## Linux TeX Liveでの費用分解
 
 Claudeが`codex/euptex-utf8-cjk-token`系の`04d4189`をLinux 7.0、i7-8650U、TeX Live 2026、
