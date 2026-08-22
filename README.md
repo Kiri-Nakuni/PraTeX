@@ -15,7 +15,8 @@ PraTeXは、tyti氏によるTeX82のRust再実装`rtex`を基礎に、現代的�
 - `-output-format=pdf`による外部DVI driverを必要としないPDF直接出力
 - PDFへの暫定的なStandard 14 font出力と、明示したmapによるType 1 font全埋込み
 - UTF-8入力からのCJK一文字token、`catcode`と`kcatcode`を分離した文字分類基盤
-- `kpsewhich`の公開CLIを利用したTeX入力、font、mapなどの部分的な探索
+- `ls-R`索引と`kpsewhich`の公開CLIを組み合わせたTeX入力、font、mapなどの部分的な探索
+- native `kpsewhich`がないWindowsから、resolver内でbackendを混ぜずに既定WSLを使うfallback
 - `\directvaak`、`\vaakdef`、`\vaakinput`によるVaakとの実験的な連携
 
 TeX82から増えた機能、部分実装、PraTeX独自機能、既存仕様を独立して書き直した範囲は
@@ -64,6 +65,8 @@ format、TFM、LaTeX一式、fontは同梱していません。例えば`plain.f
 
 PDF backendの現在の範囲と制約は
 [docs/pdf-backend-notes.md](docs/pdf-backend-notes.md) を参照してください。
+TeX Live探索の対応範囲、WSL境界、性能値は
+[docs/kpathsea-port-notes.md](docs/kpathsea-port-notes.md) に記録しています。
 
 ## 試験
 
@@ -88,13 +91,17 @@ packageは実装の資料として写さず、互換性を測る外部入力と�
 - e-TeXおよびpdfTeX原始命令の残りと、現代のLaTeX2eを最後まで処理する互換性
 - upTeXの`latin_ucs`、JFM、Unicode文字node、和文glue・禁則・縦組
 - OTF／TrueType、CID font、ToUnicode、font subsetを含むPDF font処理
-- kpathseaの`ls-R`、設定、探索順を含む完全な互換性
+- `texmf.cnf`、全path expression、alias、`mktex*`を含むkpathseaの完全な互換性
 - `jsarticle`、`jlreq`、`ltjsarticle`、`hyperref`を実用的に動かすための互換層
 - 実行ごとに明示して有効化するVaak callbackと、低頻度で複雑な拡張向けWASM ABI
 
-`kpsewhich`が利用できない環境でも従来のローカル探索へ戻りますが、TeX Liveと同じ探索を
-保証するものではありません。PDF出力も現段階では文字の見た目やtext extractionまで
-pdfTeX相当ではありません。
+直接pathは外部探索より常に優先します。索引から探索順を一意に証明できない場合は
+one-shot `kpsewhich`へ戻ります。外部programを起動できない場合、TeX入力などは従来の
+ローカル探索へ戻り、PDF font資材などは探索errorとして報告します。
+Windowsではnative `kpsewhich`の起動fileがない時だけ既定WSLを選び、各resolver instance内で
+backendを混ぜません。現在はScannerとPDF資材loaderが別instanceなので、run-globalに一つの
+TeX Liveを固定するところまでは未実装です。完全なKpathsea互換も保証しません。
+PDF出力も現段階では文字の見た目やtext extractionまでpdfTeX相当ではありません。
 
 ## 実装方針と権利
 

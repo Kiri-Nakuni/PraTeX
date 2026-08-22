@@ -1,7 +1,7 @@
 # PraTeXのTeX82外機能と独立実装
 
 更新: 2026-08-22
-監査対象: `114a0d6`（この文書を追加する直前の実装）
+監査対象: `6bf22aa`（`ls-R`索引とWindows--WSL探索境界まで）
 
 この文書は、PraTeXが現在持つ機能のうちTeX82の中核にはないものと、PraTeXで新たに
 書いた実装を区別して記録する。将来構想を現在の対応機能として数えないこと、既存engineの
@@ -111,16 +111,19 @@ CJK tokenを現在変更しない。
 
 | 状態 | 機能 | 現在の範囲と境界 |
 |---|---|---|
-| 部分 | kpathsea/web2c相当の探索 | 直接pathを優先し、見つからなければshellを介さず一回の`kpsewhich` CLIで用途別に探す。TeX入力、`\openin`、`\pdffilesize`、TFM、map、encoding、Type 1、AFM、Vaak入力へ接続し、run内で成功・不在をcacheする |
+| 部分 | kpathsea/web2c相当の探索 | 直接pathを優先し、用途別`--show-path`とrun-local `ls-R`索引で一意な候補を証明できれば外部processを省く。曖昧・stale・未対応ならshellを介さないone-shot `kpsewhich`へ戻す。TeX入力、`\openin`、`\pdffilesize`、TFM、map、encoding、Type 1、AFM、Vaak入力へ接続し、run内で成功・不在をcacheする |
+| 部分 | Windows--WSL TeX Live bridge | production既定値ではnative `kpsewhich`の起動fileがない時だけ既定WSLへ移り、選んだbackendをresolver instance内で固定する。Linux絶対pathと探索pathを検証つきUNCへ写す。nativeの不在回答や異常を別TeX Liveで覆わない。ScannerとPDF loaderを跨ぐrun-global固定は未実装 |
 | 実装 | 論理名と物理pathの分離 | 解決したTEXMF上のpathをTFM名、DVI font名、PDF map keyなどの論理identityへ漏らさない |
 | 部分 | OS固有file名 | CLIは`args_os`、Unixの非UTF-8名はbyteのまま、WindowsのUnicode名は`OsString`で運ぶ。単一argv中の空白やWindows絶対pathをTeX入力としてどう引用するかは未解決 |
 | 実装 | CRLF入力 | `\r\n`を一つの行末として読み、出力先名などへ`\r`を混ぜない |
 | 実装 | 引用符つきfile名 | `\openin0="target file.tex"`の引用符を名前から除き、空白を含む論理名として扱う |
 
-これはkpathsea C APIの実装ではない。`ls-R`、`texmf.cnf`、path expression、探索順、
-mktex生成、常駐問い合わせは未実装で、cache missごとに`kpsewhich` processを起動する。
+これはkpathsea C APIの実装ではない。`ls-R`と展開済み探索pathの保守的な部分集合だけを
+読む。`texmf.cnf`、未展開変数・brace等を含む完全なpath expression、alias、case folding、
+mktex生成は未実装である。一意性を証明できないcache missでは`kpsewhich` processを起動する。
 実装と合成試験は [file resolver](../src/file_search.rs) と
-[入力接続試験](../src/input/file_search_tests.rs) にある。
+[入力接続試験](../src/input/file_search_tests.rs)、対応境界は
+[TeX Live探索の移植記録](kpathsea-port-notes.md) にある。
 
 ## PraTeX独自機能
 
@@ -156,7 +159,7 @@ capabilityはまだない。根拠は
 | PDF直接出力 | PDF 1.4、pdfTeX manual、Adobe font仕様 | object/stream/xref/trailer serializer、page tree、固定小数座標変換、content backend、型付きfont object |
 | Type 1 resource処理 | Adobe PFB/AFM/PDF仕様、pdfTeX map契約 | bounded PFB、AFM、map、encoding vector parserとloader。PostScriptやfont programを実行しない |
 | upTeX互換入力層 | upTeX 2.02公開文書、Unicode 17.0.0、公式binaryのblack-box観測 | block型kcatcode表、専用decoder、packed CJK token、typed制御綴key、表示・fmt伝播 |
-| kpathsea相当resolver | `kpsewhich`公開CLI契約 | logical/physical name型、用途別query、process境界、positive/negative cache、異常応答の分類 |
+| kpathsea相当resolver | Kpathsea公開manualと`kpsewhich` CLI契約 | logical/physical name型、用途別query、bounded `ls-R` reader、保守的な探索path照合、process境界、positive/negative cache、異常応答の分類、nativeとWSLを混ぜないUNC bridge |
 | Vaak bridge | Vaak公開Rust API | TeX general text/file/定義をVaak VMへ渡すadapter、触れたregisterだけのsnapshotと保存stack経由の書戻し |
 | 名前空間 | PraTeX固有仕様 | catcode 16から字句・eqtb・探索・表示・fmtまでのnamespaced control-sequence経路 |
 | 出力backend境界 | PraTeX内部設計 | 一度のnode walkをDVI/PDF eventへ流す静的`ShipoutBackend`と、既存DVI writerのbyte互換adapter |

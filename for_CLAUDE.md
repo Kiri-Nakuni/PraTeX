@@ -340,3 +340,27 @@ PraTeX独自機能と、e-TeX/pdfTeX/(u)pTeX/web2c仕様のclean-room独立実�
 特にCJK tokenは組版未対応、e-TeXの10整数parameterは動作未接続、raw string・callback・
 WASM ABI・`^^^^`/`^^^^^^`・OTFは未実装であることを明記した。READMEからリンクし、古く
 なっていたpdfTeX port noteの「直接PDFはまだ」という記述も現在の部分実装へ直した。
+
+## `ls-R`索引とWindows--WSL TeX Live bridge
+
+`codex/kpse-lsr-index`をremoteへpushした。主要commitは次である。
+
+- `634bb8b`: bounded `ls-R` readerとbasename索引を作り、曖昧ならCLIへ戻す。
+- `c6958fa`: `--show-path`の保守的な部分集合と照合し、先行treeを飛ばさない。
+- `6bf22aa`: native `kpsewhich`の起動fileがないWindowsだけ既定WSLへ移す。
+
+nativeの不在回答・診断・異常を別TeX Liveで覆わず、選んだbackendはresolver instance内で
+固定した。ScannerとPDF loaderを跨ぐrun-global固定はまだない。WSLの
+Linux絶対pathと探索pathは検証してUNCへ写し、不正UTF-8、dotdot、Windows予約名などを
+推測変換しない。`ls-R`、探索path、成功・不在cacheは`clear_external_cache`で一緒に消える。
+
+実機のUbuntu-24.04 / TeX Live 2026では三つのdatabaseを発見し、一回の手測定でWindows側から
+`cmr10.tfm`を索引解決して開いた。環境依存のignored回帰試験は索引とone-shotの両方を許す。
+warmなone-shot WSL `kpsewhich`は
+321--349 ms、一方でUNC越しに三databaseを初回索引化するE2Eは8.87 sだった。初回one-shot
+3.89 sを含む列なら合計16件前後、warm値だけとの比較なら26--28件が損益境界の概算である。
+次の性能課題はlazy/adaptive化またはWSL側でのbounded読込み。全release試験は455件通過、
+失敗0、環境依存等4件skip。unsafe RustとVaak API変更はない。
+
+仕様・fallback境界・測定は`docs/kpathsea-port-notes.md`へまとめた。長寿命daemonでは現行cacheを
+そのまま再利用せず、resolver planとpositive/negative cacheを同じgenerationへ結ぶ予定である。

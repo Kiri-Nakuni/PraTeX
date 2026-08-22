@@ -74,6 +74,24 @@ stdout SHA-256は全22回で
 されなかった。組込み経路は `Eqtb` 自身へ静的dispatchし、中間object、allocation、
 Unicode表引き、拡張class ID生成をASCIIに加えない。`CatCode` は `repr(u8)` である。
 
+## WSL TeX Liveの探索cost
+
+Windows側にnative `kpsewhich`がない実環境で、Ubuntu-24.04上のTeX Live 2026
+（Kpathsea 6.4.2）を測った。`kpsewhich`を一件ずつWSLで起動する測定は同じqueryを5回行い、
+初回3,892.4994 ms、以後349.3728、321.1636、328.9875、348.1094 msだった。
+
+PraTeXの既定resolverが三つの`ls-R`を発見・UNC越しに索引化し、`cmr10.tfm`を解決して
+Windows側から開くend-to-end試験は8.87 sだった。release LTOのlink 3分23秒はこの値に
+含めない。索引は以後の同名検索でone-shot processを省けるが、現在の全database先読みは
+短い一件だけなら遅い。初回3.89 sと追加query約0.33 sの列と比べると合計16件前後
+（初回後さらに約15件）、warm値だけで8.87 sを割ると26--28件が概算の損益境界である。
+
+これは一台のWindows--WSL/UNC構成の値で、native TeX Liveや他のstorageを代表しない。
+一回の手測定であり、再現用の環境依存試験は解決経路を索引だけに固定していない。
+正しさのため、曖昧な候補や実在する利用者treeでは引き続きone-shot CLIへ戻す。次の性能枝では
+同じ解決結果を条件に、lazy/adaptive索引化とWSL内でのbounded読込みを別々に比較する。
+詳細は [TeX Live探索の移植記録](kpathsea-port-notes.md) にある。
+
 ## 次の候補
 
 測定済みの次候補は、入力行bufferの再利用、PDF文字命令の一時 `String` 除去、fmt復元時の
