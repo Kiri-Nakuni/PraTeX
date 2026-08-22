@@ -6,9 +6,13 @@
 
 mod lsr;
 mod search_path;
+mod wsl;
 
 use self::lsr::LsRDatabase;
 use self::search_path::{SearchPath, SearchPathElement};
+use self::wsl::{
+    linux_absolute_path_to_unc, parse_wsl_root_output, translate_linux_search_path, WslContext,
+};
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::fmt;
@@ -87,6 +91,7 @@ pub(crate) enum ResolutionSource {
     DirectPath,
     FilenameDatabase,
     Kpsewhich,
+    WslKpsewhich,
 }
 
 /// 開くパスと、照会に使った論理名を分離して保持する。
@@ -138,12 +143,23 @@ pub(crate) enum FilenameDatabaseSearch {
     Explicit(Vec<PathBuf>),
 }
 
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) enum WslFallbackPolicy {
+    #[default]
+    Disabled,
+    AutoDefault,
+    Distribution(OsString),
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ResolverOptions {
     kpsewhich_program: OsString,
     program_name: OsString,
     external_format_search: ExternalFormatSearch,
     filename_database_search: FilenameDatabaseSearch,
+    wsl_fallback: WslFallbackPolicy,
+    wsl_program: OsString,
+    wsl_kpsewhich_program: OsString,
 }
 
 impl Default for ResolverOptions {
@@ -153,6 +169,9 @@ impl Default for ResolverOptions {
             program_name: OsString::from("euptex"),
             external_format_search: ExternalFormatSearch::LocalOnly,
             filename_database_search: FilenameDatabaseSearch::Disabled,
+            wsl_fallback: WslFallbackPolicy::Disabled,
+            wsl_program: OsString::from("wsl.exe"),
+            wsl_kpsewhich_program: OsString::from("kpsewhich"),
         }
     }
 }
@@ -175,6 +194,16 @@ impl ResolverOptions {
 
     pub(crate) fn with_filename_database_search(mut self, policy: FilenameDatabaseSearch) -> Self {
         self.filename_database_search = policy;
+        self
+    }
+
+    pub(crate) fn with_wsl_fallback(mut self, policy: WslFallbackPolicy) -> Self {
+        self.wsl_fallback = policy;
+        self
+    }
+
+    pub(crate) fn with_wsl_program(mut self, program: impl Into<OsString>) -> Self {
+        self.wsl_program = program.into();
         self
     }
 }
@@ -236,22 +265,45 @@ enum DatabaseCatalog {
     Ready(Vec<LsRDatabase>),
 }
 
+enum BackendState {
+    Undecided,
+    Native,
+    Wsl(WslContext),
+}
+
+#[derive(Clone, Copy)]
+enum ExecutedBackend {
+    Native,
+    Wsl,
+}
+
+struct ExecutedKpsewhich {
+    backend: ExecutedBackend,
+    output: CommandOutput,
+}
+
 /// 直接パスと `kpsewhich` を順に試す resolver。
 ///
-/// Windows でも既定の実行ファイルは `kpsewhich` だけであり、WSL への暗黙の fallback は
-/// 行わない。必要なら呼び出し側が `ResolverOptions` へ実行ファイルを明示する。
+/// Windows の実運用既定値は、native `kpsewhich` が存在しない場合だけ既定 WSL へ移る。
+/// 明示 constructor の既定値は WSL 無効のため、埋め込み側が異なる TeX Live を意図せず
+/// 混ぜることはない。一度選んだ backend は run 中固定する。
 pub(crate) struct KpsewhichResolver<E = ProcessCommandExecutor> {
     options: ResolverOptions,
     executor: E,
     external_cache: HashMap<Query, Option<CachedExternalResolution>>,
     database_catalog: DatabaseCatalog,
     search_paths: HashMap<FileKind, Option<SearchPath>>,
+    backend_state: BackendState,
 }
 
 impl Default for KpsewhichResolver<ProcessCommandExecutor> {
     fn default() -> Self {
-        let options =
+        let mut options =
             ResolverOptions::default().with_filename_database_search(FilenameDatabaseSearch::Auto);
+        #[cfg(windows)]
+        {
+            options = options.with_wsl_fallback(WslFallbackPolicy::AutoDefault);
+        }
         Self::new(options, ProcessCommandExecutor)
     }
 }
@@ -264,6 +316,7 @@ impl<E> KpsewhichResolver<E> {
             external_cache: HashMap::new(),
             database_catalog: DatabaseCatalog::Uninitialized,
             search_paths: HashMap::new(),
+            backend_state: BackendState::Undecided,
         }
     }
 
@@ -272,6 +325,7 @@ impl<E> KpsewhichResolver<E> {
         self.external_cache.clear();
         self.database_catalog = DatabaseCatalog::Uninitialized;
         self.search_paths.clear();
+        self.backend_state = BackendState::Undecided;
     }
 }
 
@@ -332,33 +386,166 @@ impl<E: CommandExecutor> FileResolver for KpsewhichResolver<E> {
         }
 
         let arguments = self.kpsewhich_arguments(&query);
-        let output = self
-            .executor
-            .execute(&self.options.kpsewhich_program, &arguments)
-            .map_err(|source| ResolveError::LaunchKpsewhich {
-                program: self.options.kpsewhich_program.clone(),
-                source,
-            })?;
-
-        let physical_path = classify_kpsewhich_output(output)?;
+        let executed = self.execute_kpsewhich(&arguments)?;
+        let (physical_path, source) = match executed.backend {
+            ExecutedBackend::Native => (
+                classify_kpsewhich_output(executed.output)?,
+                ResolutionSource::Kpsewhich,
+            ),
+            ExecutedBackend::Wsl => {
+                let context = self.wsl_context().expect("WSL backend without a context");
+                (
+                    classify_wsl_kpsewhich_output(executed.output, context)?,
+                    ResolutionSource::WslKpsewhich,
+                )
+            }
+        };
         self.external_cache.insert(
             query,
             physical_path
                 .clone()
                 .map(|physical_path| CachedExternalResolution {
                     physical_path,
-                    source: ResolutionSource::Kpsewhich,
+                    source,
                 }),
         );
         Ok(physical_path.map(|physical_path| ResolvedFile {
             logical_name: logical_name.clone(),
             physical_path,
-            source: ResolutionSource::Kpsewhich,
+            source,
         }))
     }
 }
 
 impl<E: CommandExecutor> KpsewhichResolver<E> {
+    fn execute_kpsewhich(
+        &mut self,
+        arguments: &[OsString],
+    ) -> Result<ExecutedKpsewhich, ResolveError> {
+        match &self.backend_state {
+            BackendState::Native => {
+                return self.execute_native_kpsewhich(arguments);
+            }
+            BackendState::Wsl(context) => {
+                let context = context.clone();
+                return self.execute_wsl_kpsewhich(&context, arguments);
+            }
+            BackendState::Undecided => {}
+        }
+
+        match self
+            .executor
+            .execute(&self.options.kpsewhich_program, arguments)
+        {
+            Ok(output) => {
+                self.backend_state = BackendState::Native;
+                Ok(ExecutedKpsewhich {
+                    backend: ExecutedBackend::Native,
+                    output,
+                })
+            }
+            Err(source)
+                if source.kind() == io::ErrorKind::NotFound
+                    && self.options.wsl_fallback != WslFallbackPolicy::Disabled =>
+            {
+                let context = self.discover_wsl_context()?;
+                self.backend_state = BackendState::Wsl(context.clone());
+                self.execute_wsl_kpsewhich(&context, arguments)
+            }
+            Err(source) => Err(ResolveError::LaunchKpsewhich {
+                program: self.options.kpsewhich_program.clone(),
+                source,
+            }),
+        }
+    }
+
+    fn execute_native_kpsewhich(
+        &mut self,
+        arguments: &[OsString],
+    ) -> Result<ExecutedKpsewhich, ResolveError> {
+        let output = self
+            .executor
+            .execute(&self.options.kpsewhich_program, arguments)
+            .map_err(|source| ResolveError::LaunchKpsewhich {
+                program: self.options.kpsewhich_program.clone(),
+                source,
+            })?;
+        Ok(ExecutedKpsewhich {
+            backend: ExecutedBackend::Native,
+            output,
+        })
+    }
+
+    fn discover_wsl_context(&mut self) -> Result<WslContext, ResolveError> {
+        let mut arguments = Vec::new();
+        if let WslFallbackPolicy::Distribution(distribution) = &self.options.wsl_fallback {
+            arguments.push(OsString::from("--distribution"));
+            arguments.push(distribution.clone());
+        }
+        arguments.extend([
+            OsString::from("--cd"),
+            OsString::from("/"),
+            OsString::from("--exec"),
+            OsString::from("wslpath"),
+            OsString::from("-w"),
+            OsString::from("/"),
+        ]);
+        let output = self
+            .executor
+            .execute(&self.options.wsl_program, &arguments)
+            .map_err(|source| ResolveError::LaunchWsl {
+                program: self.options.wsl_program.clone(),
+                source,
+            })?;
+        if output.code != Some(0) {
+            return Err(ResolveError::WslDiscoveryFailed {
+                code: output.code,
+                stderr: output.stderr,
+            });
+        }
+        parse_wsl_root_output(&output.stdout).map_err(ResolveError::MalformedWslOutput)
+    }
+
+    fn execute_wsl_kpsewhich(
+        &mut self,
+        context: &WslContext,
+        kpsewhich_arguments: &[OsString],
+    ) -> Result<ExecutedKpsewhich, ResolveError> {
+        if kpsewhich_arguments
+            .iter()
+            .any(|argument| argument.to_str().is_none())
+        {
+            return Err(ResolveError::UnrepresentableWslArgument);
+        }
+        let mut arguments = vec![
+            OsString::from("--distribution"),
+            context.distribution_name().to_os_string(),
+            OsString::from("--cd"),
+            OsString::from("/"),
+            OsString::from("--exec"),
+            self.options.wsl_kpsewhich_program.clone(),
+        ];
+        arguments.extend_from_slice(kpsewhich_arguments);
+        let output = self
+            .executor
+            .execute(&self.options.wsl_program, &arguments)
+            .map_err(|source| ResolveError::LaunchWsl {
+                program: self.options.wsl_program.clone(),
+                source,
+            })?;
+        Ok(ExecutedKpsewhich {
+            backend: ExecutedBackend::Wsl,
+            output,
+        })
+    }
+
+    fn wsl_context(&self) -> Option<&WslContext> {
+        match &self.backend_state {
+            BackendState::Wsl(context) => Some(context),
+            BackendState::Undecided | BackendState::Native => None,
+        }
+    }
+
     fn probe_filename_database(&mut self, query: &Query) -> Option<PathBuf> {
         self.ensure_database_catalog();
         if !matches!(self.database_catalog, DatabaseCatalog::Ready(_)) {
@@ -429,11 +616,13 @@ impl<E: CommandExecutor> KpsewhichResolver<E> {
             OsString::from("--"),
             OsString::from("ls-R"),
         ];
-        let output = self
-            .executor
-            .execute(&self.options.kpsewhich_program, &arguments)
-            .ok()?;
-        parse_database_discovery_output(output)
+        let executed = self.execute_kpsewhich(&arguments).ok()?;
+        match executed.backend {
+            ExecutedBackend::Native => parse_database_discovery_output(executed.output),
+            ExecutedBackend::Wsl => {
+                parse_wsl_database_discovery_output(executed.output, self.wsl_context()?)
+            }
+        }
     }
 
     fn ensure_search_path(&mut self, kind: FileKind) {
@@ -449,11 +638,16 @@ impl<E: CommandExecutor> KpsewhichResolver<E> {
         {
             arguments.push(OsString::from("--engine=rtex"));
         }
-        let search_path = self
-            .executor
-            .execute(&self.options.kpsewhich_program, &arguments)
-            .ok()
-            .and_then(parse_search_path_output);
+        let search_path =
+            self.execute_kpsewhich(&arguments)
+                .ok()
+                .and_then(|executed| match executed.backend {
+                    ExecutedBackend::Native => parse_search_path_output(executed.output),
+                    ExecutedBackend::Wsl => parse_wsl_search_path_output(
+                        executed.output,
+                        self.wsl_context().expect("WSL backend without a context"),
+                    ),
+                });
         self.search_paths.insert(kind, search_path);
     }
 }
@@ -615,6 +809,28 @@ fn parse_database_discovery_output(output: CommandOutput) -> Option<Vec<PathBuf>
     (!paths.is_empty()).then_some(paths)
 }
 
+fn parse_wsl_database_discovery_output(
+    output: CommandOutput,
+    context: &WslContext,
+) -> Option<Vec<PathBuf>> {
+    if output.code != Some(0) || output.stdout.len() > MAX_DATABASE_DISCOVERY_OUTPUT {
+        return None;
+    }
+    let mut paths = Vec::new();
+    for raw_line in output.stdout.split(|&byte| byte == b'\n') {
+        let line = raw_line.strip_suffix(b"\r").unwrap_or(raw_line);
+        if line.is_empty() {
+            continue;
+        }
+        if line.contains(&0) || line.contains(&b'\r') {
+            return None;
+        }
+        let linux_path = std::str::from_utf8(line).ok()?;
+        paths.push(linux_absolute_path_to_unc(context, linux_path).ok()?);
+    }
+    (!paths.is_empty()).then_some(paths)
+}
+
 fn parse_search_path_output(output: CommandOutput) -> Option<SearchPath> {
     if output.code != Some(0) || output.stdout.len() > MAX_SEARCH_PATH_OUTPUT {
         return None;
@@ -625,6 +841,61 @@ fn parse_search_path_output(output: CommandOutput) -> Option<SearchPath> {
     }
     let value = os_string_from_output(bytes.to_vec()).ok()?;
     SearchPath::parse(&value)
+}
+
+fn parse_wsl_search_path_output(output: CommandOutput, context: &WslContext) -> Option<SearchPath> {
+    if output.code != Some(0) || output.stdout.len() > MAX_SEARCH_PATH_OUTPUT {
+        return None;
+    }
+    let translated = translate_linux_search_path(context, &output.stdout).ok()?;
+    SearchPath::parse(&translated)
+}
+
+fn classify_wsl_kpsewhich_output(
+    output: CommandOutput,
+    context: &WslContext,
+) -> Result<Option<PathBuf>, ResolveError> {
+    if output.code == Some(0) {
+        let bytes = trim_line_endings(&output.stdout);
+        if bytes.is_empty() {
+            return Ok(None);
+        }
+        if bytes.contains(&0) || bytes.contains(&b'\n') || bytes.contains(&b'\r') {
+            return Err(ResolveError::MalformedWslOutput(
+                "kpsewhich returned more than one Linux pathname",
+            ));
+        }
+        let linux_path = std::str::from_utf8(bytes)
+            .map_err(|_| ResolveError::MalformedWslOutput("Linux pathname is not valid UTF-8"))?;
+        let physical_path = linux_absolute_path_to_unc(context, linux_path)
+            .map_err(ResolveError::MalformedWslOutput)?;
+        match fs::metadata(&physical_path) {
+            Ok(metadata) if metadata.is_file() => return Ok(Some(physical_path)),
+            Ok(_) => {
+                return Err(ResolveError::MalformedWslOutput(
+                    "kpsewhich pathname is not a regular file",
+                ));
+            }
+            Err(source) => {
+                return Err(ResolveError::InspectWslPath {
+                    path: physical_path,
+                    source,
+                });
+            }
+        }
+    }
+
+    if output.code == Some(1)
+        && trim_line_endings(&output.stdout).is_empty()
+        && trim_ascii_whitespace(&output.stderr).is_empty()
+    {
+        return Ok(None);
+    }
+
+    Err(ResolveError::KpsewhichFailed {
+        code: output.code,
+        stderr: output.stderr,
+    })
 }
 
 fn parse_output_path(mut bytes: Vec<u8>) -> Result<Option<PathBuf>, ResolveError> {
@@ -690,6 +961,20 @@ pub(crate) enum ResolveError {
         program: OsString,
         source: io::Error,
     },
+    LaunchWsl {
+        program: OsString,
+        source: io::Error,
+    },
+    WslDiscoveryFailed {
+        code: Option<i32>,
+        stderr: Vec<u8>,
+    },
+    MalformedWslOutput(&'static str),
+    UnrepresentableWslArgument,
+    InspectWslPath {
+        path: PathBuf,
+        source: io::Error,
+    },
     KpsewhichFailed {
         code: Option<i32>,
         stderr: Vec<u8>,
@@ -708,6 +993,30 @@ impl fmt::Display for ResolveError {
                 "cannot launch `{}`: {source}",
                 program.to_string_lossy()
             ),
+            Self::LaunchWsl { program, source } => write!(
+                formatter,
+                "cannot launch WSL through `{}`: {source}",
+                program.to_string_lossy()
+            ),
+            Self::WslDiscoveryFailed { code, stderr } => write!(
+                formatter,
+                "WSL distribution discovery failed with status {code:?}: {}",
+                String::from_utf8_lossy(stderr)
+            ),
+            Self::MalformedWslOutput(reason) => {
+                write!(formatter, "WSL returned malformed output: {reason}")
+            }
+            Self::UnrepresentableWslArgument => {
+                write!(
+                    formatter,
+                    "the filename cannot be represented in a WSL argument"
+                )
+            }
+            Self::InspectWslPath { path, source } => write!(
+                formatter,
+                "WSL found `{}`, but Windows cannot inspect it: {source}",
+                path.display()
+            ),
             Self::KpsewhichFailed { code, stderr } => write!(
                 formatter,
                 "kpsewhich failed with status {code:?}: {}",
@@ -723,10 +1032,15 @@ impl fmt::Display for ResolveError {
 impl std::error::Error for ResolveError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::InspectDirectPath { source, .. } | Self::LaunchKpsewhich { source, .. } => {
-                Some(source)
-            }
-            Self::KpsewhichFailed { .. } | Self::MalformedKpsewhichOutput(_) => None,
+            Self::InspectDirectPath { source, .. }
+            | Self::LaunchKpsewhich { source, .. }
+            | Self::LaunchWsl { source, .. }
+            | Self::InspectWslPath { source, .. } => Some(source),
+            Self::WslDiscoveryFailed { .. }
+            | Self::MalformedWslOutput(_)
+            | Self::UnrepresentableWslArgument
+            | Self::KpsewhichFailed { .. }
+            | Self::MalformedKpsewhichOutput(_) => None,
         }
     }
 }
@@ -736,7 +1050,7 @@ mod tests {
     use super::{
         CommandExecutor, CommandOutput, ExternalFormatSearch, FileKind, FileResolver,
         FilenameDatabaseSearch, KpsewhichResolver, LogicalFileName, ResolutionSource, ResolveError,
-        ResolverOptions,
+        ResolverOptions, WslFallbackPolicy,
     };
     use std::cell::RefCell;
     use std::collections::VecDeque;
@@ -1012,6 +1326,177 @@ mod tests {
         let invocations = fake.invocations.borrow();
         assert_eq!(invocations.len(), 1);
         assert_eq!(invocations[0].program, OsString::from("kpsewhich"));
+    }
+
+    #[test]
+    fn nativeが起動できればwslを混ぜない() {
+        let options = ResolverOptions::default()
+            .with_wsl_fallback(WslFallbackPolicy::AutoDefault)
+            .with_wsl_program("fake-wsl");
+        let fake = FakeExecutor::with_responses([success(b"/native/found.tex"), missing()]);
+        let mut resolver = KpsewhichResolver::new(options, fake.clone());
+
+        let found = resolver
+            .resolve(FileKind::Tex, &unique_absent_name("native-found.tex"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(found.source(), ResolutionSource::Kpsewhich);
+        assert!(resolver
+            .resolve(FileKind::Tex, &unique_absent_name("native-missing.tex"))
+            .unwrap()
+            .is_none());
+
+        let invocations = fake.invocations.borrow();
+        assert_eq!(invocations.len(), 2);
+        assert!(invocations
+            .iter()
+            .all(|invocation| invocation.program == OsString::from("kpsewhich")));
+    }
+
+    #[test]
+    fn nativeの不在回答をwslで覆わない() {
+        let options = ResolverOptions::default()
+            .with_wsl_fallback(WslFallbackPolicy::AutoDefault)
+            .with_wsl_program("fake-wsl");
+        let fake = FakeExecutor::with_responses([missing()]);
+        let mut resolver = KpsewhichResolver::new(options, fake.clone());
+
+        assert!(resolver
+            .resolve(FileKind::Tex, &unique_absent_name("native-none.tex"))
+            .unwrap()
+            .is_none());
+        assert_eq!(fake.invocation_count(), 1);
+        assert_eq!(
+            fake.invocations.borrow()[0].program,
+            OsString::from("kpsewhich")
+        );
+    }
+
+    #[test]
+    fn native実行fileが無いときだけ既定wslへ移る() {
+        let options = ResolverOptions::default()
+            .with_wsl_fallback(WslFallbackPolicy::AutoDefault)
+            .with_wsl_program("fake-wsl");
+        let fake = FakeExecutor::with_responses([
+            Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "native kpsewhichなし",
+            )),
+            success(br"\\wsl.localhost\Ubuntu-24.04\"),
+            missing(),
+            missing(),
+        ]);
+        let mut resolver = KpsewhichResolver::new(options, fake.clone());
+
+        for suffix in ["first.tex", "second.tex"] {
+            assert!(resolver
+                .resolve(FileKind::Tex, &unique_absent_name(suffix))
+                .unwrap()
+                .is_none());
+        }
+
+        let invocations = fake.invocations.borrow();
+        assert_eq!(invocations.len(), 4);
+        assert_eq!(invocations[0].program, OsString::from("kpsewhich"));
+        assert!(invocations[1..]
+            .iter()
+            .all(|invocation| invocation.program == OsString::from("fake-wsl")));
+        assert_eq!(
+            invocations[1].arguments,
+            ["--cd", "/", "--exec", "wslpath", "-w", "/"].map(OsString::from)
+        );
+        assert!(invocations[2]
+            .arguments
+            .windows(2)
+            .any(|pair| pair == ["--distribution", "Ubuntu-24.04"]));
+    }
+
+    #[test]
+    fn nativeの異常をwslで隠さない() {
+        for error_response in [
+            Ok(CommandOutput {
+                code: Some(2),
+                stdout: Vec::new(),
+                stderr: b"native broken".to_vec(),
+            }),
+            Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "native denied",
+            )),
+        ] {
+            let options = ResolverOptions::default()
+                .with_wsl_fallback(WslFallbackPolicy::AutoDefault)
+                .with_wsl_program("fake-wsl");
+            let fake = FakeExecutor::with_responses([error_response]);
+            let mut resolver = KpsewhichResolver::new(options, fake.clone());
+
+            assert!(resolver
+                .resolve(FileKind::Tex, &unique_absent_name("native-error.tex"))
+                .is_err());
+            assert_eq!(fake.invocation_count(), 1);
+        }
+    }
+
+    #[test]
+    fn 明示distributionを一argumentでwslpathへ渡す() {
+        let distribution = "TeX Live 日本語";
+        let options = ResolverOptions::default()
+            .with_wsl_fallback(WslFallbackPolicy::Distribution(OsString::from(
+                distribution,
+            )))
+            .with_wsl_program("fake-wsl");
+        let root = format!("\\\\wsl.localhost\\{distribution}\\");
+        let fake = FakeExecutor::with_responses([
+            Err(io::Error::new(io::ErrorKind::NotFound, "nativeなし")),
+            success(root.as_bytes()),
+            missing(),
+        ]);
+        let mut resolver = KpsewhichResolver::new(options, fake.clone());
+
+        assert!(resolver
+            .resolve(FileKind::Tex, &unique_absent_name("explicit-wsl.tex"))
+            .unwrap()
+            .is_none());
+        let invocation = &fake.invocations.borrow()[1];
+        assert_eq!(invocation.arguments[0], OsString::from("--distribution"));
+        assert_eq!(invocation.arguments[1], OsString::from(distribution));
+    }
+
+    #[test]
+    fn clear後はwsl_backendも再発見する() {
+        let cycle = || {
+            [
+                Err(io::Error::new(io::ErrorKind::NotFound, "nativeなし")),
+                success(br"\\wsl.localhost\Ubuntu-24.04\"),
+                missing(),
+            ]
+        };
+        let fake = FakeExecutor::with_responses(cycle().into_iter().chain(cycle()));
+        let options = ResolverOptions::default()
+            .with_wsl_fallback(WslFallbackPolicy::AutoDefault)
+            .with_wsl_program("fake-wsl");
+        let mut resolver = KpsewhichResolver::new(options, fake.clone());
+        let logical = unique_absent_name("clear-wsl.tex");
+
+        assert!(resolver.resolve(FileKind::Tex, &logical).unwrap().is_none());
+        resolver.clear_external_cache();
+        assert!(resolver.resolve(FileKind::Tex, &logical).unwrap().is_none());
+        assert_eq!(fake.invocation_count(), 6);
+    }
+
+    #[test]
+    fn local限定fmtではwslも起動しない() {
+        let options = ResolverOptions::default()
+            .with_wsl_fallback(WslFallbackPolicy::AutoDefault)
+            .with_wsl_program("fake-wsl");
+        let fake = FakeExecutor::with_responses([]);
+        let mut resolver = KpsewhichResolver::new(options, fake.clone());
+
+        assert!(resolver
+            .resolve(FileKind::Format, &LogicalFileName::new("external.fmt"))
+            .unwrap()
+            .is_none());
+        assert_eq!(fake.invocation_count(), 0);
     }
 
     #[test]
@@ -1481,6 +1966,24 @@ mod tests {
         assert_eq!(resolved.source(), ResolutionSource::FilenameDatabase);
         assert!(fs::metadata(resolved.physical_path()).unwrap().is_file());
         assert_eq!(fake.invocation_count(), 1);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "PRATEX_TEST_WSL=1 の実環境でだけ WSL TeX Live を照合"]
+    fn 既定resolverがwsl_tex_liveのtfmをwindowsから開ける() {
+        assert_eq!(std::env::var("PRATEX_TEST_WSL").as_deref(), Ok("1"));
+        let mut resolver = KpsewhichResolver::default();
+        let resolved = resolver
+            .resolve(FileKind::Tfm, &LogicalFileName::new("cmr10.tfm"))
+            .unwrap()
+            .unwrap();
+
+        assert!(matches!(
+            resolved.source(),
+            ResolutionSource::FilenameDatabase | ResolutionSource::WslKpsewhich
+        ));
+        assert!(fs::File::open(resolved.physical_path()).is_ok());
     }
 
     #[cfg(unix)]
