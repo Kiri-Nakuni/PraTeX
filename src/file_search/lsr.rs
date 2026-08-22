@@ -163,6 +163,12 @@ impl LsRDatabase {
         &self.root
     }
 
+    pub(super) fn may_have_aliases(&self) -> bool {
+        fs::metadata(self.root.join("aliases"))
+            .map(|metadata| metadata.is_file())
+            .unwrap_or(false)
+    }
+
     /// run-local snapshot が書き換わっていない場合だけ true を返す。
     pub(super) fn is_unchanged(&self) -> bool {
         fs::metadata(&self.database_path)
