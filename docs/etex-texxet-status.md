@@ -21,7 +21,7 @@ TeX--XeTは二つの整数parameterを保存できるだけで、**組版機能�
 | group/if内省 | 部分 | `\currentgroup*`、`\currentif*`は動くが、複雑な入れ子の試験と`\showgroups`、`\showifs`がない |
 | 拡張register 0--32767 | 実装 | count/dimen/skip/muskip/toks/boxの局所・大域・別名・fmtを試験済み |
 | class別mark 0--32767 | 実装 | page遷移、`\vsplit`、class 0互換、fmtを試験済み |
-| `\readline`、`\everyeof` | 部分 | 実fileでは動く。`\scantokens`疑似fileがないため、そのEOF契約は未達 |
+| `\readline`、`\everyeof` | 部分 | 実fileでは動く。`\scantokens`疑似fileがないため、そのEOF契約は未達。自然EOFと`\endinput`、typed行境界は[疑似入力設計](scantokens-design.md)で固定済み |
 | 糊成分の照会と型変換 | 実装 | `\gluestretch`等4種と`\mutoglue`、`\gluetomu`を内部量へ接続。係数・次数・単位不一致回復・式・fmtを試験済み |
 | `\eTeXversion`、対話状態 | 部分 | `\eTeXversion=2`、`\interactionmode`、`\errorcontextlines`は動く。`\eTeXrevision`はない |
 | `\lastnodetype` | 部分 | node追跡はあるが専用試験がなく、base pageへ移す経路で型を同期しない可能性がある |
@@ -57,8 +57,8 @@ left-to-right/right-to-left区間は公開意味論が異なるため、一つ�
 日本語組版を優先しつつ、後で同じ基盤を作り直さない順序を採る。
 
 1. `\lastnodetype`のpage遷移を直し、全node種・空list・page builder移動を試験する。
-2. `\scantokens`をboundedなvirtual input sourceとして実装し、`\everyeof`、
-   `\tracingscantokens`、nested token走査を一箇所へ接続する。
+2. [`\scantokens`をboundedなvirtual input sourceとして実装](scantokens-design.md)し、
+   `\everyeof`、`\tracingscantokens`、nested token走査を一箇所へ接続する。
 3. `\fontchar*`を8-bit TFM専用APIにせず、TFM、将来のJFM、Unicode font metricを同じ
    typed query境界から参照する。
 4. parshape照会とpenalty配列を局所代入、fmt、line breakingまで実装する。JLReqの段落処理も

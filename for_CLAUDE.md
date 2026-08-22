@@ -571,3 +571,22 @@ dumpした。以前のASCII `ushyph1.tex`測定と矛盾せず、通常配布tre
 次のprimitiveを一個足す段階ではなく、Unicode欧文token、cat/lccode save stack/fmt、Unicode
 pattern alphabet/trie、文字数上限が一単位になる。PraTeX側でStage 4cの第一sliceを設計中。
 標準LaTeX/日本語経路なのでVaak/WASMへ逃がさずengine coreへ置く。
+
+## Vaak `64ccf4e` と性能監査 `a7d18bb` の確認
+
+Vaak `origin/codex/main` の `64ccf4e` までfetchした。resolved `Place` による入れ子代入は
+根集合を複製せず、Fenwick構造体版が修正前から約10.3倍、flat版との差が1.63倍まで縮んだ
+という実測を確認した。`Program2` / `Runner` の利用APIは変わっておらず、PraTeXは公開
+`Op`を網羅matchしないため追随変更は不要である。S-22 `run_writeback` 接続もそのまま通る。
+
+PraTeX側 `origin/claude/for-codex` の `a7d18bb` も確認した。fmt復元の
+`CountedLines::next`、`ls-R`索引のSipHash、外部`kpsewhich`が大きいというperf分解は、
+次回の性能段階に使う。依頼者の判断で、unsafe Rustだけでなく性能専用の作業自体を、まず
+e-TeX/pdfTeX/e-upTeXと日本語組版が一通り動くまで保留した。二進fmtは破損検出、版番号、
+決定的dump、旧fmtの扱いを設計してから独立枝で検証し、現在の統合枝へ混ぜない。
+
+現在は通常TeX Liveの`latex.ltx`で露出した`latin_ucs`、再現済みのpage遷移後
+`\lastnodetype`、その次の`\scantokens` virtual inputを進めている。`\scantokens`は
+`docs/scantokens-design.md`にclean-room黒箱契約を固定した。標準日本語経路は引き続き
+engine coreであり、Vaak/WASM callbackは置かない。Vaak側のnamed entry、typed HostFn完了値、
+opaque token、suspend/resumeが正式化されるまでは、PraTeXのphase hook実装を先走らせない。

@@ -53,7 +53,7 @@
 | 実装 | 糊成分の照会と型変換 | `\gluestretch`、`\glueshrink`、`\gluestretchorder`、`\glueshrinkorder`、`\mutoglue`、`\gluetomu`。normal/fil/fill/filll、負値、零係数、数式糊の回復、fmtを扱う |
 | 表面のみ | tracing register | `\tracingassigns`、`\tracinggroups`、`\tracingifs`、`\tracingscantokens`、`\tracingnesting`は値の代入・group・fmtだけ。対応するtrace出力は未接続 |
 | 表面のみ | 組版制御register | `\predisplaydirection`、`\lastlinefit`、`\savingvdiscards`、`\savinghyphcodes`、`\TeXXeTstate`は値を保持するだけで、組版・discard保存・TeX--XeT動作は未接続 |
-| 未実装 | 疑似入力と表示 | `\scantokens`、`\showtokens`、`\showgroups`、`\showifs`、`\eTeXrevision` |
+| 未実装 | 疑似入力と表示 | `\scantokens`（[clean-room設計済み](scantokens-design.md)）、`\showtokens`、`\showgroups`、`\showifs`、`\eTeXrevision` |
 | 未実装 | font・段落・math照会 | `\fontcharwd/ht/dp/ic`、`\parshapelength/indent/dimen`、`\middle` |
 | 未実装 | penalty配列とdiscard | `\interlinepenalties`、`\clubpenalties`、`\widowpenalties`、`\displaywidowpenalties`、`\pagediscards`、`\splitdiscards` |
 | 未実装 | TeX--XeT組版 | `\beginL`/`\endL`/`\beginR`/`\endR`、LR node/stack、区間反転、line packing、DVI/PDF shipout |
