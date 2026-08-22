@@ -30,6 +30,8 @@ e-TeX／TeX--XeTの完全性監査は
 Vaak/WASMを明示登録時だけ有効にする内部境界は
 [docs/vaak-embedding-api-design.md](docs/vaak-embedding-api-design.md)、WSL e-upTeXとの比較条件は
 [docs/performance.md](docs/performance.md) にあります。どちらも未実装部分を含む設計・測定記録です。
+担当やセッションを交代する場合の現在枝、未commit差分、検証手順は
+[docs/HANDOFF.md](docs/HANDOFF.md) にまとめています。
 
 外部のCTAN/TeX Live 2026資材を一時環境に揃えた実測では、無改変の公式
 `latex.ltx`から`latex.fmt`を生成し、最小`article`をDVI/PDFまで処理できました。

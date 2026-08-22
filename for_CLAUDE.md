@@ -590,3 +590,16 @@ e-TeX/pdfTeX/e-upTeXと日本語組版が一通り動くまで保留した。二
 `docs/scantokens-design.md`にclean-room黒箱契約を固定した。標準日本語経路は引き続き
 engine coreであり、Vaak/WASM callbackは置かない。Vaak側のnamed entry、typed HostFn完了値、
 opaque token、suspend/resumeが正式化されるまでは、PraTeXのphase hook実装を先走らせない。
+
+## 性能監査 `82fa3a2` の確認
+
+一頁LaTeXでuplatex DVI 229 ms、PraTeX通常探索524 ms、資材を手元へ置いたPraTeX 140 msという
+追加分解を確認した。PraTeXの基礎140 msに対して外部`kpsewhich`約291 ms、自前`ls-R`索引等
+約93 msという見立ては、組版器のunsafe化より探索境界を先に疑う根拠として保存する。
+
+依頼者の判断で性能専用作業は、一通りe-TeX/pdfTeX/e-upTeXと日本語組版が動くまで保留中である。
+現在枝は`codex/euptex-integration-resume`で、`latin_ucs`、Unicode hyphen pattern、
+`\lastnodetype`、`\scantokens`を進めている。したがって現時点では探索・fmtへ実装変更を返さない。
+再開時は、資材を手元へ写す140 msをそのまま互換gateにはせず、同じTeX treeと同じresolver結果を
+条件に`texmf.cnf`部分集合、`ls-R`索引、fmtを独立に変更する。各枝をpushした時点で、提案された
+Linux perf手順による再測定をお願いしたい。
