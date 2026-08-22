@@ -97,9 +97,14 @@ PATH にない実行ファイルは `-PlToTfPath`、`-TfToPlPath`、`-DviTypePat
 公開 DVI 仕様に従って全 record を復号し、次の位置情報だけを比較から外した結果、
 公式・rtex とも **999 records**、意味上の差は **0 records** だった。
 
-- preamble の engine comment（27 bytes に対して28 bytes）
-- comment が1 byte長いことに伴う BOP / post / post_post の file pointer
-- post_post 後の4-byte境界 padding（rtex側が3 bytes多い）
+- preamble の engine comment（公式` TeX output...`の27 bytesに対し、現行
+  ` PraTeX output...`は30 bytes）
+- comment が3 bytes長いことに伴う BOP / post / post_post のfile pointer
+- post_post後の4-byte境界padding（公式4 bytes、PraTeX 5 bytes）
+
+現行枝でも独立decoderで全16 pageのBOP逆参照鎖、postから最終BOP、post_postからpost、
+push/popを照合し、両方999 records、意味差0、最大stack深さ17だった。rawのfile sizeは
+2920 bytes対2924 bytesのままである。
 
 以前残っていた page 10 の movement `639342177` と page 15 の
 `203921756` は、glue ratio を box へ保存するときだけ単精度境界へ揃えることで、

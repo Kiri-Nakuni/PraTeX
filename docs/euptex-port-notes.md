@@ -154,10 +154,13 @@ U+2E7F 以下でも `15..20` と表示される。この回復も回帰試験へ
 | 8 | **禁則**（`\prebreakpenalty` / `\postbreakpenalty` / `\inhibitxspcode`） | 未 |
 | 9 | **縦組**（dir ノード） | 未。**ここが一番遠い** |
 
-**1〜3 で e-TeX 相当になる。** LaTeX2e が要求するのはほぼここまでなので、
-**「LaTeX2e が動くか」は段 3 の後で試せる。**
+**1〜3を全て終えれば e-TeX 相当になる。** 現在は一部が未完であり、LaTeX2eが動くことを
+e-TeX完全対応の代用にはしない。欠落とTeX--XeTの実処理は
+[e-TeXとTeX--XeTの対応状況](etex-texxet-status.md)で追跡する。
 
-**4〜8 で「横組みの日本語が組める」。** 段 9 は別の山である。
+**4〜8で横組みの日本語が組めるのは中間checkpointである。** 依頼者が定める最低限は
+pTeX相当なので、段9の縦組まで含めて完了とする。割注はpTeX primitiveではなく、ここには
+含めない。詳細は[pTeX相当からJLReq一級対応へ進むroadmap](japanese-typesetting-roadmap.md)にある。
 
 段7の内部機構は日本語専用に固定しない。JFMとUnicode文字nodeの後で、Han--Latin、
 Hangul--Latinなどを同じfinalizerへ渡し、CJKV region、Vaakの宣言表、低頻度WASM batchを

@@ -8,10 +8,11 @@ script境界spacing、Vaak table、WASM batch、font fallbackは設計のみで�
 ## 目的
 
 PraTeXの`\kanjiskip` / `\xkanjiskip`相当を「日本語と欧文の間だけ」に固定せず、
-Han--Latin、Hangul--Latin、その他のscript境界を同じ機構で扱う。単純または高頻度の規則は
-Vaakから宣言的な表として登録し、複雑だが低頻度の規則だけをversion付きWASM ABIへbatchで
-問い合わせる。callbackは、そのPraTeX実行中にVaak codeが能力を明示要求した場合だけ有効にし、
-LuaTeX型の常設・全callback有効化は行わない。
+Han--Latin、Hangul--Latin、その他のscript境界を同じ機構で扱う。pTeX互換とJLReqの標準規則は
+engine coreに一級実装し、Vaak/WASMを既定日本語組版の依存先にしない。利用者・出版社固有の
+単純または高頻度な差替えだけVaakから宣言表として登録し、実験的で複雑だが低頻度の規則だけを
+version付きWASM ABIへbatchで問い合わせる。callbackは、そのPraTeX実行中にVaak codeが能力を
+明示要求した場合だけ有効にし、LuaTeX型の常設・全callback有効化は行わない。
 
 同時に、中国語・日本語・韓国語・ベトナム語の組版差をengine levelで表す。ここで必要なのは
 Unicode scriptでもTeXのhyphenation番号でもなく、句読点、禁則、font fallback、OpenTypeの
@@ -133,10 +134,10 @@ auto-spacing switchは公開manualと黒箱観測だけから別段階で接続�
 per-boundaryのtrait object callやABI往復をhot loopへ置かない。listを閉じる前に一度だけ
 静的dispatcherを選ぶ。
 
-1. `BuiltIn`: engine内の最小互換規則。
-2. `CompiledTable`: 明示有効化されたVaak/WASMがrange・class pair・action表をuploadし、hostが
-   検証・compileしたものをsafe Rustで引く。単純または高頻度の仕事はここへ置く。
-3. `ExplicitWasm`: 複雑で低頻度の判断だけ、bounded list/batch単位で一度に問い合わせる。
+1. `BuiltIn`: engine内のpTeX互換規則と一級JLReq規則。標準日本語はこの経路だけで完結する。
+2. `CompiledTable`: 明示有効化されたVaak/WASMが利用者固有のrange・class pair・action表をuploadし、
+   hostが検証・compileしたものをsafe Rustで引く。単純または高頻度の差替えはここへ置く。
+3. `ExplicitWasm`: 実験的で複雑・低頻度な判断だけ、bounded list/batch単位で一度に問い合わせる。
 
 Vaak codeの実行だけではcallbackを有効にしない。そのVaak実行がspacing capabilityを明示要求し、
 hostが許可した時だけrun-local handleを発行する。scope終了、取消し、PraTeX実行終了で失効し、
@@ -169,13 +170,15 @@ JFM lookupの基本keyは`(jfm_id, code_point)`である。regionはどのdefaul
 | R1 | `TexLanguage(u8)`で既存hyphenation境界を型付け | 生のi32正規化を一箇所にし、既存意味を変えない |
 | R2 | JFM、Unicode glyph node、DVI/PDF wide glyph event | CJK tokenを捨てず、metricと出力へ到達する |
 | R3 | `ScriptClassId`とRegionNode、list context伝播 | paragraph/hbox/alignment/discretionary/unhbox/fmtを通す |
-| R4 | built-in finalizerとpTeX互換spacing/禁則 | 一箇所の決定でglue・penaltyを挿入し、再実行が冪等 |
-| R5 | explicit Vaak table upload | 無効時call 0、scope失効、host側compiled lookup |
-| R6 | version付きWASM batch ABI | bounded/fuel/fallback、per-boundary ABI call 0 |
+| R4 | built-in finalizer、pTeX互換、一級JLReq spacing/禁則 | 一箇所の決定でglue・penaltyを挿入し、再実行が冪等。標準日本語はprovider不要 |
+| R5 | 利用者固有のexplicit Vaak table upload | 無効時call 0、scope失効、host側compiled lookup |
+| R6 | 実験規則向けversion付きWASM batch ABI | bounded/fuel/fallback、per-boundary ABI call 0 |
 | R7 | font fallback、OTF language system、CJKV policy | region別glyph/shaping fixture、明示font identity不変 |
 
 R0は`ac6ad90`で実装・試験済みである。ただし後段の意味を約束しすぎないengine stateだけであり、
 R3まではregion変更が出力へ影響しない。R2より前にR4を急がない。
+日本語組版のpTeX相当完了条件と、e-upTeXにないJLReq意味論の優先順は
+[pTeX相当からJLReq一級対応へ進むroadmap](japanese-typesetting-roadmap.md)に分けて固定する。
 
 ## 試験と性能の採否条件
 

@@ -13,7 +13,8 @@ PraTeXは、tyti氏によるTeX82のRust再実装`rtex`を基礎に、現代的�
 - TeX82の中核、formatの生成・読込み、DVI出力
 - e-TeXおよびpdfTeXの原始命令の一部
 - `-output-format=pdf`による外部DVI driverを必要としないPDF直接出力
-- PDFへの暫定的なStandard 14 font出力と、明示したmapによるType 1 font全埋込み
+- PDFへの暫定的なStandard 14 font出力と、明示したmapによるType 1 font全埋込み。実配布
+  `pdftex.map`の複数resource構文、flags既定値、PFB Private `StdVW` fallbackまで読める
 - UTF-8入力からのCJK一文字token、`catcode`と`kcatcode`を分離した文字分類基盤
 - `\pratexregion=0..5`によるCJKV組版locale状態。group/global/fmt/表示は対応済みだが、
   まだ文字間隔やfont選択には影響しない
@@ -23,12 +24,20 @@ PraTeXは、tyti氏によるTeX82のRust再実装`rtex`を基礎に、現代的�
 
 TeX82から増えた機能、部分実装、PraTeX独自機能、既存仕様を独立して書き直した範囲は
 [docs/feature-inventory.md](docs/feature-inventory.md) に一覧化しています。
+e-TeX／TeX--XeTの完全性監査は
+[docs/etex-texxet-status.md](docs/etex-texxet-status.md)、pTeX相当とJLReqの実装順は
+[docs/japanese-typesetting-roadmap.md](docs/japanese-typesetting-roadmap.md) にあります。
 
 外部のCTAN/TeX Live 2026資材を一時環境に揃えた実測では、無改変の公式
 `latex.ltx`から`latex.fmt`を生成し、最小`article`をDVI/PDFまで処理できました。
 DVIは1 page / 392 bytesで、TeX LiveのpdfTeX結果と正規化した`dvitype`命令列の差は0、
 直接PDFは1 page / 2169 bytesで構造読込みと描画まで確認しています。これは
 一般のclass/package互換性やPDFの字形・抽出互換性を保証するものではありません。
+TeX Live 2026の実物`cmr10.pfb`を検証用full-mapで埋め込む試験も1 page / 37,491 bytesで
+strict parseとPoppler描画まで通しています。正規mapの`<cmr10.pfb`はsubset指定なので、
+subset未実装中は意図的に拒否します。
+固定幅の実物`cmtt10.pfb`でも、map flags省略時の`/Flags 4`とPFB由来`/StemV 69`を確認して
+おり、AFMからflagsを暗黙に作り直しません。
 
 TRIPではDVIの全999 recordを復号した意味比較が公式結果と一致しています。ただし、
 banner、診断、容量、拡張された範囲などのlog差まで解消したという意味ではありません。

@@ -168,14 +168,15 @@ subset未実装中に黙ってfull embedへ昇格させない。初期実測の
 page resource、shipoutを接続し、`--pdf-font-map=<name>` または分離値で通常CLIから
 明示的に有効化できる。合成full-mapのprocess E2EではPFB payload、FontDescriptor、
 Font resource、`<41> Tj` を同じstandalone PDFで確認した。map初期化、parse、資材欠落も
-panicせずfatal診断へ戻す。次はsubset、flags/StemVの明示policy、同一物理fontのsize間
-object共有を実装する。
+panicせずfatal診断へ戻す。flags/StemV policyは後述の実配布map対応で実装した。次は
+subsetと同一物理fontのsize間object共有を実装する。
 資材はTEXMFから実行時探索し、版方へコピーしない。
 
 公式CTAN `amsfonts.zip` は一時領域だけへ展開して実資材を照合した。`cmr10.pfb` は
 Length1/2/3 = 4287/30900/545、wrapper除去後35732 bytesでparserを通る。公開
 `cmr10.afm` は `StdVW` / `StdHW` を省略し、同一glyphを複数codeへ同じ幅で割り当てるため、
-前者を明示fallback対象、後者を同幅の場合だけ許すよう修正した。archiveは版方にない。
+前者はPFB Private辞書の`/StdVW`だけをfallbackにし、後者は同幅の場合だけ許すよう修正した。
+archiveは版方にない。
 
 ## LaTeX実測
 
@@ -296,7 +297,8 @@ resolverを通らない再現、kpsewhich process一回あたり約150 msとい�
 2. 引数なしkpsewhichのline protocolを一つの子processとしてrun中だけ保持し、cache missごとの
    process起動を除く。失敗、壊れた応答、子process終了時のfallback境界をprocess試験で固定する。
 3. 100 pageの命令数上位をprofileし、safe Rustのまま不要な仕事を減らす。
-4. 通常LaTeXで残る1 sp差と、実配布`pdftex.map`の複数font resource、flags、StemVを分けて直す。
+4. 通常LaTeXで残る1 sp差と、実配布`pdftex.map`のType 1 subsetを分けて直す。複数resource、
+   flags、StemVは2026-08-22の`codex/pdf-texlive-type1`で解消した。
 
 進行中の `codex/pratex-quiet-readme` ではprimary binaryとbannerをPraTeXへ変更し、旧`rtex`
 binaryを互換aliasとして残した。`--quiet`はbanner、入力括弧、通常page marker、output/transcript
@@ -401,3 +403,56 @@ TCX、glyph identity、任意寸法単位、watcher/downloader/LSP、LaPraTeXは
 現時点でClaude側へ必要なVaak API追加はない。将来table upload capabilityを始める時に、
 一文字・一境界ごとのcallbackではなく、run-localな明示要求とhost-owned compiled tableの
 契約を先に相談する。
+
+## TeX Live Type 1 resource互換
+
+`codex/pdf-texlive-type1`で、TeX Live 2026の5,573,038 byte・46,380行の`pdftex.map`を
+未使用entryで止めずに読めるようにした。map resourceは順序と`<` / `<<` / `<[`を保持し、
+`.t3 + .pfb`併記や`< file.pfb`の分離markerを構文段階で失わない。対応可否と重複は実際に
+選んだTFMだけで検査し、未対応headerを黙って実行・無視しない。
+
+mapのfontflags省略時はpdfTeX manualの既定値4を使う。AFMに`StdVW`が無い場合はAdobe Type 1
+仕様のeexecをsafe Rustでstream復号し、先頭4 byteを捨ててPrivate辞書の`/StdVW`だけを読む。
+PostScriptは実行せず、token長128 byte、Private走査1 MiBの上限を持ち、Subrs/CharStringsで
+止める。固定StemVは推測しない。Vaak API変更とunsafe Rustはない。
+
+実機Ubuntu-24.04 / TeX Live 2026では、正規`cmr10 CMR10 <cmr10.pfb`が新しいmap/flags/StemV
+経路を通り、未実装subsetだけで停止した。検証用の一時`<<cmr10.pfb` mapでは実物PFB/AFMから
+1 page / 37,491 bytesのPDFを生成し、strict pypdf、Poppler PDF 1.4 parse、144 dpi renderを
+通した。`/BaseFont /CMR10`、`/Flags 4`、`/StemV 69`、Length1/2/3=4287/30900/545を確認した。
+正規mapのsubset要求をfullへ昇格してはいない。次の独立課題はType 1 subsetである。
+
+固定幅の実物`cmtt10`も別の一時full mapで通した。AFMはfixed pitchだが、pdfTeXの省略時
+契約を優先して`/Flags 4`のままにし、AFMからbit 1を再推論しない。strict pypdfで`ABC`、
+`/BaseFont /CMTT10`、PFB由来`/StemV 69`、Length1/2/3=4364/26170/545、Poppler描画を確認した。
+
+## e-TeX / TeX--XeT監査と日本語組版の優先境界
+
+e-TeXは式、protected展開、拡張register、class別mark、readline、糊成分などが動く一方、
+完全対応ではない。`\scantokens`、show群、fontchar群、parshape照会、penalty配列、discard、
+`\middle`等が残る。`\lastnodetype`にはpage遷移で型を同期しない可能性も見つかった。
+TeX--XeTは`\TeXXeTstate`と`\predisplaydirection`の値保存だけで、begin/end L/R、方向node、
+LR stack、反転、shipoutは未実装。詳細は`docs/etex-texxet-status.md`へ記録した。
+
+日本語の最低線は横組smokeではなくpTeX相当で、JFM、和文font/node、自動spacing、禁則、
+横・縦方向、DVI/PDFをengine coreで完成させる。JLReqの標準規則もcoreに置き、Vaak/WASMは
+利用者固有・実験的な明示差替えだけにする。Claude側APIはまだ変更不要。将来table uploadを
+始める場合も、既定日本語経路へcallbackを置かない。段階とe-upTeXに足りない意味論は
+`docs/japanese-typesetting-roadmap.md`へまとめた。
+
+## `claude/for-codex` 56f1d90を確認
+
+性能監査の訂正と費用分解を確認した。組版約27 ms対pdfTeX約25 ms、探索約381 ms、fmt復元
+約113 msという同一Linux fixtureの内訳を`docs/performance.md`へ記録した。子processを含む
+`perf stat`の古い結論は使わず、探索不要時の約1.3 ms起動をhard boundaryにする。
+`texmf.cnf`部分集合、fmt内訳、`ls-R`確保削減はそれぞれ別枝・同じ出力で測る。
+
+Type 1の三つの指摘（実map複数resource、flags省略、AFM `StdVW`省略）は今回の`bb7235f`で
+対応した。正規subset指定は黙ってfullへ変えず、次の独立課題に残した。
+
+`\kanjiskip`はpackage判定だけを通すdummyにはせず、JFM・和文node・spacing・禁則と一緒に
+pTeX互換の実意味をcoreへ入れる。標準日本語をVaak callbackへ逃がさない。
+
+VaakのMIT表示を配布物へ同梱する必要とCargo manifestのlicense欠落も確認した。ただし
+権利表示は文言を推測せず、`../vaak/LICENSE`の原文とrtex GPL-3.0の関係を保つ独立した
+housekeeping commitにする。Linux上のUNC組立試験のOS依存も別枝で再現してから直す。

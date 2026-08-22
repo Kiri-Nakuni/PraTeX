@@ -92,8 +92,38 @@ Windows側から開くend-to-end試験は8.87 sだった。release LTOのlink 3�
 同じ解決結果を条件に、lazy/adaptive索引化とWSL内でのbounded読込みを別々に比較する。
 詳細は [TeX Live探索の移植記録](kpathsea-port-notes.md) にある。
 
+## Linux TeX Liveでの費用分解
+
+Claudeが`codex/euptex-utf8-cjk-token`系の`04d4189`をLinux 7.0、i7-8650U、TeX Live 2026、
+release LTOで外部監査した。現在枝そのものやWindows--WSLの数値ではないため絶対値を混ぜないが、
+同じ一頁LaTeX入力を12回測って費用を段階的に足した結果は次だった。
+
+| 段階 | PraTeX | 増分 |
+|---|---:|---:|
+| 書式なし・空入力 | 約1.3 ms | process起動 |
+| 16.8 MiBのLaTeX fmtを読む | 約114 ms | fmt復元 約113 ms |
+| 一頁を組む | 約141 ms | 組版 約27 ms |
+| TeX Live外部探索を使う | 約522 ms | 探索 約381 ms |
+
+同じ条件のpdfTeXは一頁約196 msで、内訳の推定はkpathsea初期化約137 ms、fmtと組版約50 ms。
+PraTeXの組版部分は約27 ms対約25 msでほぼ同じであり、少なくともこのfixtureから
+「safe Rustの組版意味論が支配的に遅い」とは言えない。現時点の大きな費用は探索とfmt復元である。
+
+監査では用途別`--show-path`等の外部起動が一回約137--144 ms、自前`ls-R`索引が約103 msだった。
+したがって優先候補を次とする。
+
+1. 公開`texmf.cnf`の必要な部分集合を独立実装するか、正しさを証明できる場合だけ
+   `--show-path`を遅延し、外部kpathsea初期化回数を減らす。
+2. fmt 16.8 MiBの内訳を型・表ごとに計測し、既知個数の予約や疎表の表現を個別に比較する。
+3. `ls-R`の一行ごとの確保、HashMapの予約不足、短いkeyのhash costをprofileし、変更前後を
+   同じ索引結果で比較する。
+
+`texmf.cnf`全体を推測実装して探索順を変える最適化は採らない。曖昧・未対応な式は従来どおり
+公開`kpsewhich`へ戻す。1.3 msの探索不要起動、ASCII fast path、TRIP意味一致をhard boundaryにし、
+数値は同じcommit、TeX tree、language設定、親processのみの計測で取り直してから採否を決める。
+
 ## 次の候補
 
-測定済みの次候補は、入力行bufferの再利用、PDF文字命令の一時 `String` 除去、fmt復元時の
-既知個数による容量予約である。一つの枝へ混ぜず、同じ出力hashとTRIPを条件に個別採否を
-決める。
+測定済みの次候補は、探索外部processの削減、fmt内訳の計測、`ls-R`索引の確保削減、
+入力行bufferの再利用、PDF文字命令の一時`String`除去である。一つの枝へ混ぜず、同じ
+出力hashとTRIPを条件に個別採否を決める。
