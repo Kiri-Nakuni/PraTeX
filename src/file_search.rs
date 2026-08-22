@@ -4,6 +4,8 @@
 //! 介さないため、この層は safe Rust のままであり、問い合わせに見せた名前も
 //! `OsString` のまま保たれる。
 
+mod lsr;
+
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::fmt;
