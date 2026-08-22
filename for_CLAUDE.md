@@ -364,3 +364,40 @@ warmなone-shot WSL `kpsewhich`は
 
 仕様・fallback境界・測定は`docs/kpathsea-port-notes.md`へまとめた。長寿命daemonでは現行cacheを
 そのまま再利用せず、resolver planとpositive/negative cacheを同じgenerationへ結ぶ予定である。
+
+## CJKV組版region R0と長期拡張境界
+
+現在枝は`codex/cjkv-region-layout`。次の二commitを積んだ。
+
+- `ac6ad90`: 組版localeをTeX `\language`やUnicode scriptから推定せず、typed
+  `LanguageRegion`として独立保存するR0。
+- `bb91e92`: script境界、文字identity、寸法単位、incremental/LSP、LaPraTeXのroadmapと
+  現況inventoryを更新する文書commit。
+
+R0のprimitiveは`\pratexregion=0..5`で、`und`、`ja`、`zh-Hans`、`zh-Hant`、`ko`、`vi`を
+選ぶ。local/global/globaldefs、save stack、fmt、`\the`、`\showthe`、`\meaning`、`\let`、
+範囲外回復、`\language`との独立を試験した。まだJFM、spacing、font、DVI/PDFを変えない。
+fmtへ新しいtyped fieldを加えたので、このcommit以前のfmtは再生成が必要である。
+
+専用試験8件、全release試験466件が通過し、失敗0、4 ignored。TRIP二段はexit 0、16 pages、
+`tripos.tex`一致。TeX Live 2026の`dvitype`によるDVI意味比較は差0で、正規化SHA-256は
+`1a79b83dab2c27523ffaa20af51bed913edc1d873cb530ff94bf1d7ee1d9ae6c`。safe Rustだけで、
+Vaak API変更はない。
+
+利用者が言っていたTeX82由来の入力変換はTCXだった。TCXは文字identityや異体字機構ではなく、
+Web2Cの明示的な8-bit入力profileとして扱う。互換状態は`xord[256]`、`xchr[256]`、
+`xprn[256]`の三表で、多対一を許し、raw byte変換の後にscannerの`^^`処理を行う。
+既定UTF-8へbyte単位TCXを重ねない。目標のstrict `PraTeXUtf8`、現在productionの
+`EuptexCompat` decoder、明示`Web2cTcx8Bit`の三profileを分離した。TCX自体はまだ設計のみ。
+
+異体字・外字・造字は、通常Unicode scalarをinlineし、IVS・外部文字・局所外字だけを
+bounded arenaで参照する案にした。font slot、GID、IDS recipe、未解決import参照をsemantic
+identityにしない。嘘字/TRONはimport adapterとしてのみ検討し、対応表・font・glyphを
+無断vendorしない。Tフォント等はlocal利用権とPDF full/subset embedding権を分離し、
+明示した権利が無ければPDFへ埋め込まない。
+
+新規roadmap群のうちproductionに入ったのはregion R0だけで、R1以降、WASM、Vaak table、
+TCX、glyph identity、任意寸法単位、watcher/downloader/LSP、LaPraTeXはすべて設計のみである。
+現時点でClaude側へ必要なVaak API追加はない。将来table upload capabilityを始める時に、
+一文字・一境界ごとのcallbackではなく、run-localな明示要求とhost-owned compiled tableの
+契約を先に相談する。
