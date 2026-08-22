@@ -567,7 +567,7 @@ pub fn prefixed_command(
             eqtb.par_shape_define(shape, global);
         }
         PrefixableCommand::CatCode => {
-            let chr = scanner.scan_char_num(eqtb, logger);
+            let chr = scanner.scan_latin_ucs_char_num(eqtb, logger);
             scanner.scan_optional_equals(eqtb, logger);
             let value = Integer::scan_int(scanner, eqtb, logger);
             let cat_code = match CatCode::try_from(value) {
@@ -582,7 +582,7 @@ pub fn prefixed_command(
                     CatCode::Escape
                 }
             };
-            eqtb.cat_code_define(chr, cat_code, global);
+            eqtb.latin_ucs_cat_code_define(chr, cat_code, global);
         }
         PrefixableCommand::KCatCode => {
             let code_point = scanner.scan_unicode_code_point(eqtb, logger);
@@ -605,7 +605,12 @@ pub fn prefixed_command(
             eqtb.kcat_code_define(code_point, kcat_code, global);
         }
         PrefixableCommand::Code(code) => {
-            let n = scanner.scan_char_num(eqtb, logger) as usize;
+            let n = match code {
+                CodeType::LcCode | CodeType::UcCode | CodeType::SfCode => {
+                    scanner.scan_latin_ucs_char_num(eqtb, logger) as usize
+                }
+                CodeType::MathCode | CodeType::DelCode => scanner.scan_char_num(eqtb, logger) as usize,
+            };
             let code_var = code.to_variable(n);
             let n = largest_legal_code_value(code);
             scanner.scan_optional_equals(eqtb, logger);
@@ -840,7 +845,13 @@ pub fn prefixed_command(
                 logger.error(help, scanner, eqtb);
                 loop {
                     let (command, _) = scanner.get_command_and_token(eqtb, logger);
-                    if let Command::Unexpandable(UnexpandableCommand::RightBrace(_)) = command {
+                    if matches!(
+                        command,
+                        Command::Unexpandable(
+                            UnexpandableCommand::RightBrace(_)
+                                | UnexpandableCommand::LatinUcsRightBrace(_)
+                        )
+                    ) {
                         break;
                     }
                 }
@@ -1096,8 +1107,8 @@ fn alter_insert_penalties(scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut L
 /// See 1233.
 fn largest_legal_code_value(code: CodeType) -> i32 {
     match code {
-        CodeType::LcCode => 255,
-        CodeType::UcCode => 255,
+        CodeType::LcCode => crate::eqtb::MAX_LATIN_UCS_CASE_CODE as i32,
+        CodeType::UcCode => crate::eqtb::MAX_LATIN_UCS_CASE_CODE as i32,
         CodeType::SfCode => 0o77777,
         CodeType::MathCode => 0o100000,
         CodeType::DelCode => 0o77777777,
@@ -1377,6 +1388,7 @@ pub(crate) fn get_r_token(scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut L
             | Token::Spacer(_)
             | Token::Letter(_)
             | Token::OtherChar(_)
+            | Token::LatinUcsChar(_)
             | Token::CjkChar(_)
             | Token::CSToken {
                 cs:
@@ -1410,6 +1422,7 @@ pub(crate) fn get_r_token(scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut L
                     | Token::Spacer(_)
                     | Token::Letter(_)
                     | Token::OtherChar(_)
+                    | Token::LatinUcsChar(_)
                     | Token::CjkChar(_) => scanner.back_input(token, eqtb, logger),
                     Token::CSToken { .. } => {}
                     Token::Null => {
@@ -1439,6 +1452,7 @@ fn scan_namespace_name(scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Logg
         let (command, token) = crate::input::expansion::get_x_token(scanner, eqtb, logger);
         match token {
             Token::Letter(c) | Token::OtherChar(c) => name.push(c),
+            Token::LatinUcsChar(c) => c.push_utf8(&mut name),
             Token::CjkChar(c) => c.push_utf8(&mut name),
             // **空白が名前を終える。** `\usingnamespace foo ` と書ける
             Token::Spacer(_) => return name,

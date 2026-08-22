@@ -252,8 +252,8 @@ fn fetch_category_code(
     eqtb: &mut Eqtb,
     logger: &mut Logger,
 ) -> InternalValue {
-    let chr = scanner.scan_char_num(eqtb, logger);
-    let cat_code = *eqtb.cat_codes.get(chr);
+    let chr = scanner.scan_latin_ucs_char_num(eqtb, logger);
+    let cat_code = eqtb.latin_ucs_cat_code(u32::from(chr));
     InternalValue::Int(cat_code as i32)
 }
 
@@ -269,7 +269,12 @@ fn fetch_character_code(
     eqtb: &mut Eqtb,
     logger: &mut Logger,
 ) -> InternalValue {
-    let n = scanner.scan_char_num(eqtb, logger) as usize;
+    let n = match code {
+        CodeType::LcCode | CodeType::UcCode | CodeType::SfCode => {
+            scanner.scan_latin_ucs_char_num(eqtb, logger) as usize
+        }
+        CodeType::MathCode | CodeType::DelCode => scanner.scan_char_num(eqtb, logger) as usize,
+    };
     let code_var = code.to_variable(n);
     let value = *eqtb.codes.get(code_var);
     InternalValue::Int(value)

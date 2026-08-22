@@ -4,10 +4,23 @@ use crate::command::{
     IfTest, MacroCall, MakeBox, MarkClassOperand, MarkCommand, MarkQuery, MathCommand,
     PrefixableCommand, RemoveItem, ShowCommand, UnexpandableCommand, Vskip,
 };
+use crate::eqtb::CatCode;
 use crate::nodes::LeaderKind;
-use crate::token::CjkToken;
+use crate::token::{CjkToken, LatinUcsToken};
 
 use std::io::Write;
+
+fn undump_latin_command<'a>(
+    lines: &mut impl Iterator<Item = &'a str>,
+    allowed_cat_codes: &[CatCode],
+) -> Result<LatinUcsToken, FormatError> {
+    let token = LatinUcsToken::undump(lines)?;
+    if allowed_cat_codes.contains(&token.cat_code()) {
+        Ok(token)
+    } else {
+        Err(FormatError::ParseError)
+    }
+}
 
 impl Dumpable for Command {
     fn dump(&self, target: &mut impl Write) -> Result<(), std::io::Error> {
@@ -80,6 +93,38 @@ impl Dumpable for UnexpandableCommand {
             Self::Other(c) => {
                 writeln!(target, "Other")?;
                 c.dump(target)?;
+            }
+            Self::LatinUcsChar(token) => {
+                writeln!(target, "LatinUcsChar")?;
+                token.dump(target)?;
+            }
+            Self::LatinUcsLeftBrace(token) => {
+                writeln!(target, "LatinUcsLeftBrace")?;
+                token.dump(target)?;
+            }
+            Self::LatinUcsRightBrace(token) => {
+                writeln!(target, "LatinUcsRightBrace")?;
+                token.dump(target)?;
+            }
+            Self::LatinUcsMathShift(token) => {
+                writeln!(target, "LatinUcsMathShift")?;
+                token.dump(target)?;
+            }
+            Self::LatinUcsTabMark(token) => {
+                writeln!(target, "LatinUcsTabMark")?;
+                token.dump(target)?;
+            }
+            Self::LatinUcsMacParam(token) => {
+                writeln!(target, "LatinUcsMacParam")?;
+                token.dump(target)?;
+            }
+            Self::LatinUcsSupMark(token) => {
+                writeln!(target, "LatinUcsSupMark")?;
+                token.dump(target)?;
+            }
+            Self::LatinUcsSubMark(token) => {
+                writeln!(target, "LatinUcsSubMark")?;
+                token.dump(target)?;
             }
             Self::CjkChar(token) => {
                 writeln!(target, "CjkChar")?;
@@ -261,6 +306,38 @@ impl Dumpable for UnexpandableCommand {
                 let c = u8::undump(lines)?;
                 Ok(Self::Other(c))
             }
+            "LatinUcsChar" => Ok(Self::LatinUcsChar(undump_latin_command(
+                lines,
+                &[CatCode::Letter, CatCode::OtherChar],
+            )?)),
+            "LatinUcsLeftBrace" => Ok(Self::LatinUcsLeftBrace(undump_latin_command(
+                lines,
+                &[CatCode::LeftBrace],
+            )?)),
+            "LatinUcsRightBrace" => Ok(Self::LatinUcsRightBrace(undump_latin_command(
+                lines,
+                &[CatCode::RightBrace],
+            )?)),
+            "LatinUcsMathShift" => Ok(Self::LatinUcsMathShift(undump_latin_command(
+                lines,
+                &[CatCode::MathShift],
+            )?)),
+            "LatinUcsTabMark" => Ok(Self::LatinUcsTabMark(undump_latin_command(
+                lines,
+                &[CatCode::TabMark],
+            )?)),
+            "LatinUcsMacParam" => Ok(Self::LatinUcsMacParam(undump_latin_command(
+                lines,
+                &[CatCode::MacParam],
+            )?)),
+            "LatinUcsSupMark" => Ok(Self::LatinUcsSupMark(undump_latin_command(
+                lines,
+                &[CatCode::SupMark],
+            )?)),
+            "LatinUcsSubMark" => Ok(Self::LatinUcsSubMark(undump_latin_command(
+                lines,
+                &[CatCode::SubMark],
+            )?)),
             "CjkChar" => Ok(Self::CjkChar(CjkToken::undump(lines)?)),
             "ParEnd" => Ok(Self::ParEnd),
             "Endv" => Ok(Self::Endv),
@@ -863,6 +940,25 @@ mod tests {
             assert!(matches!(
                 UnexpandableCommand::undump(&mut input.lines()),
                 Err(FormatError::IncompleteFile)
+            ));
+        }
+    }
+
+    #[test]
+    fn unicode欧文命令のvariantとcatcodeが違うformatを拒否する() {
+        for input in [
+            "LatinUcsChar\n256\nLeftBrace\n",
+            "LatinUcsLeftBrace\n256\nRightBrace\n",
+            "LatinUcsRightBrace\n256\nLetter\n",
+            "LatinUcsMathShift\n256\nTabMark\n",
+            "LatinUcsTabMark\n256\nMacParam\n",
+            "LatinUcsMacParam\n256\nSupMark\n",
+            "LatinUcsSupMark\n256\nSubMark\n",
+            "LatinUcsSubMark\n256\nOtherChar\n",
+        ] {
+            assert!(matches!(
+                UnexpandableCommand::undump(&mut input.lines()),
+                Err(FormatError::ParseError)
             ));
         }
     }

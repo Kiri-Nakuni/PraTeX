@@ -155,8 +155,12 @@ pub fn shift_to_upper_case(
         panic!("Impossible")
     };
     let mut token_list = scanner.scan_toks(cs, false, eqtb, logger);
+    let mut unrepresentable = false;
     for token in &mut token_list {
-        change_token_to_upper_case(token, eqtb);
+        unrepresentable |= change_token_case(token, true, eqtb).is_err();
+    }
+    if unrepresentable {
+        report_unrepresentable_case_code(scanner, eqtb, logger);
     }
     scanner.back_list(token_list, eqtb, logger);
 }
@@ -172,79 +176,111 @@ pub fn shift_to_lower_case(
         panic!("Impossible")
     };
     let mut token_list = scanner.scan_toks(cs, false, eqtb, logger);
+    let mut unrepresentable = false;
     for token in &mut token_list {
-        change_token_to_lower_case(token, eqtb);
+        unrepresentable |= change_token_case(token, false, eqtb).is_err();
+    }
+    if unrepresentable {
+        report_unrepresentable_case_code(scanner, eqtb, logger);
     }
     scanner.back_list(token_list, eqtb, logger);
 }
 
 /// See 1289.
-fn change_token_to_upper_case(token: &mut Token, eqtb: &Eqtb) {
-    match token {
-        Token::LeftBrace(c)
-        | Token::RightBrace(c)
-        | Token::MathShift(c)
-        | Token::TabMark(c)
-        | Token::MacParam(c)
-        | Token::SuperMark(c)
-        | Token::SubMark(c)
-        | Token::Spacer(c)
-        | Token::Letter(c)
-        | Token::OtherChar(c) => {
-            let new_character = eqtb.uc_code(*c as usize);
-            if new_character != 0 {
-                *c = new_character as u8;
-            }
+fn change_token_case(token: &mut Token, upper: bool, eqtb: &mut Eqtb) -> Result<(), ()> {
+    if let Some((code_point, cat_code)) = token.character_code_and_cat_code() {
+        let mapped = if upper {
+            eqtb.uc_code(code_point as usize)
+        } else {
+            eqtb.lc_code(code_point as usize)
+        };
+        if mapped != 0 {
+            *token = Token::from_character_code_and_cat_code(mapped as u32, cat_code).ok_or(())?;
         }
-        Token::CSToken { cs } => {
-            // Active characters are also changed.
-            if let ControlSequence::Active(c) = cs {
-                let new_c = eqtb.uc_code((*c) as usize);
-                if new_c != 0 {
-                    *c = new_c as u8;
-                }
-            }
-        }
-        // upTeXの和文uppercase/lowercase表は後段で入れる。入力時に固定した
-        // categoryを壊さないため、この段階ではCJK tokenをそのまま保つ。
-        Token::CjkChar(_) => {}
-        Token::Null => {
-            panic!("Should not appear here")
-        }
+        return Ok(());
     }
+
+    let Token::CSToken { cs } = token else {
+        return Ok(());
+    };
+    // 名前空間つきの活性文字は Escaped 表に載るが、case 変換後も
+    // その名前空間を失ってはならない。Unicode 活性文字は現在globalだけを
+    // lexerが生成するので、ここではglobal identityだけを変換する。
+    let active_code_point = match *cs {
+        ControlSequence::Active(code) => Some(u32::from(code)),
+        _ if eqtb.control_sequences.namespace_of(*cs).is_none() => {
+            eqtb.control_sequences.wide_active_char(*cs)
+        }
+        _ => None,
+    };
+    let Some(code_point) = active_code_point else {
+        return Ok(());
+    };
+    // Wide control-sequence storage also represents CJK-sized names, while
+    // the upTeX case tables end at U+2E7F. Such an active name cannot be
+    // produced by the latin_ucs lexer, but it can arrive through a public API
+    // or a format file; case conversion must leave it alone instead of
+    // indexing beyond the dense table.
+    if code_point > crate::eqtb::MAX_LATIN_UCS_CODE {
+        return Ok(());
+    }
+    let mapped = if upper {
+        eqtb.uc_code(code_point as usize)
+    } else {
+        eqtb.lc_code(code_point as usize)
+    };
+    if mapped == 0 {
+        return Ok(());
+    }
+    *cs = if (0..=0x7F).contains(&mapped) {
+        ControlSequence::Active(mapped as u8)
+    } else if (0..=crate::eqtb::MAX_LATIN_UCS_CODE as i32).contains(&mapped) {
+        eqtb.lookup_or_create_wide_active(mapped as u32)?
+    } else {
+        return Err(());
+    };
+    Ok(())
 }
 
-/// See 1289.
-fn change_token_to_lower_case(token: &mut Token, eqtb: &Eqtb) {
-    match token {
-        Token::LeftBrace(c)
-        | Token::RightBrace(c)
-        | Token::MathShift(c)
-        | Token::TabMark(c)
-        | Token::MacParam(c)
-        | Token::SuperMark(c)
-        | Token::SubMark(c)
-        | Token::Spacer(c)
-        | Token::Letter(c)
-        | Token::OtherChar(c) => {
-            let new_character = eqtb.lc_code(*c as usize);
-            if new_character != 0 {
-                *c = new_character as u8;
-            }
-        }
-        Token::CSToken { cs } => {
-            // Active characters are also changed.
-            if let ControlSequence::Active(c) = cs {
-                let new_c = eqtb.lc_code((*c) as usize);
-                if new_c != 0 {
-                    *c = new_c as u8;
-                }
-            }
-        }
-        Token::CjkChar(_) => {}
-        Token::Null => {
-            panic!("Should not appear here")
-        }
+fn report_unrepresentable_case_code(
+    scanner: &mut Scanner,
+    eqtb: &mut Eqtb,
+    logger: &mut Logger,
+) {
+    logger.print_err("Case conversion produced Unicode European sentinel U+2E80");
+    let help = &[
+        "e-upTeX accepts U+2E80 as an lccode/uccode sentinel,",
+        "but it is not a representable LatinUcs token. I left that token unchanged.",
+    ];
+    logger.error(help, scanner, eqtb);
+}
+
+#[cfg(test)]
+mod latin_ucs_case_tests {
+    use super::*;
+
+    #[test]
+    fn latin表外のwide_activeはcase変換で不変である() {
+        let mut eqtb = Eqtb::new();
+        let cs = eqtb.lookup_or_create_wide_active(0x4E00).unwrap();
+        let mut token = Token::CSToken { cs };
+
+        assert_eq!(change_token_case(&mut token, true, &mut eqtb), Ok(()));
+        assert_eq!(token, Token::CSToken { cs });
+    }
+
+    #[test]
+    fn 名前空間つきbyte_activeはcase変換でidentityを失わない() {
+        let mut eqtb = Eqtb::new();
+        let namespace = eqtb.control_sequences.intern_namespace(b"case");
+        let cs = eqtb
+            .lookup_or_create_ns(Some(namespace), b"a", Some(b'a'))
+            .unwrap();
+        let mut token = Token::CSToken { cs };
+
+        assert_eq!(change_token_case(&mut token, true, &mut eqtb), Ok(()));
+        assert_eq!(token, Token::CSToken { cs });
+        assert_eq!(eqtb.control_sequences.namespace_of(cs), Some(namespace));
     }
 }
 

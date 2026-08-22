@@ -39,7 +39,7 @@ use crate::print::Printer;
 use crate::scaled::xn_over_d;
 use crate::scan_boxes::{begin_box, scan_box, scan_leader_box};
 use crate::semantic_nest::{Mode, RichMode, SemanticState};
-use crate::token::{CjkToken, Token};
+use crate::token::{CjkToken, LatinUcsToken, Token};
 use crate::vertical_mode::{VerticalMode, IGNORE_DEPTH};
 use crate::write_streams::{do_close_out, do_open_out, do_write, implement_immediate};
 
@@ -78,10 +78,12 @@ pub fn main_control(
                 UnexpandableCommand::Relax { .. } => {
                     // Do nothing.
                 }
-                UnexpandableCommand::LeftBrace(_) => {
+                UnexpandableCommand::LeftBrace(_)
+                | UnexpandableCommand::LatinUcsLeftBrace(_) => {
                     eqtb.new_save_level(GroupType::Simple, &scanner.input_stack, logger)
                 }
-                UnexpandableCommand::RightBrace(_) => handle_right_brace(
+                UnexpandableCommand::RightBrace(_)
+                | UnexpandableCommand::LatinUcsRightBrace(_) => handle_right_brace(
                     token,
                     align_state,
                     hyphenator,
@@ -92,7 +94,8 @@ pub fn main_control(
                     eqtb,
                     logger,
                 ),
-                UnexpandableCommand::MathShift(_) => init_math(
+                UnexpandableCommand::MathShift(_)
+                | UnexpandableCommand::LatinUcsMathShift(_) => init_math(
                     hmode.subtype,
                     hyphenator,
                     page_builder,
@@ -139,6 +142,9 @@ pub fn main_control(
                 UnexpandableCommand::CjkChar(c) => {
                     report_cjk_typesetting_unavailable(c, scanner, eqtb, logger)
                 }
+                UnexpandableCommand::LatinUcsChar(c) => {
+                    report_latin_ucs_typesetting_unavailable(c, scanner, eqtb, logger)
+                }
                 UnexpandableCommand::CharNum => {
                     let c = scanner.scan_char_num(eqtb, logger);
                     (unexpandable_command, token) =
@@ -163,6 +169,10 @@ pub fn main_control(
                         }
                         UnexpandableCommand::CjkChar(c) => {
                             report_cjk_typesetting_unavailable(c, scanner, eqtb, logger);
+                            continue;
+                        }
+                        UnexpandableCommand::LatinUcsChar(c) => {
+                            report_latin_ucs_typesetting_unavailable(c, scanner, eqtb, logger);
                             continue;
                         }
                         _ => continue,
@@ -293,7 +303,11 @@ pub fn main_control(
                         off_save(unexpandable_command, token, scanner, eqtb, logger);
                     }
                 }
-                UnexpandableCommand::Math(_) => insert_dollar_sign(token, scanner, eqtb, logger),
+                UnexpandableCommand::Math(_)
+                | UnexpandableCommand::LatinUcsSupMark(_)
+                | UnexpandableCommand::LatinUcsSubMark(_) => {
+                    insert_dollar_sign(token, scanner, eqtb, logger)
+                }
                 UnexpandableCommand::Kern => {
                     hmode.append_node(scan_kern(scanner, eqtb, logger), eqtb)
                 }
@@ -335,6 +349,7 @@ pub fn main_control(
                 UnexpandableCommand::EndCsName => cs_error(scanner, eqtb, logger),
                 UnexpandableCommand::NoAlign => no_align_error(scanner, eqtb, logger),
                 UnexpandableCommand::TabMark(_)
+                | UnexpandableCommand::LatinUcsTabMark(_)
                 | UnexpandableCommand::Span
                 | UnexpandableCommand::CarRet { .. } => {
                     align_error(unexpandable_command, token, scanner, eqtb, logger)
@@ -358,7 +373,8 @@ pub fn main_control(
                 | UnexpandableCommand::EqNo { .. }
                 | UnexpandableCommand::MoveLeft
                 | UnexpandableCommand::MoveRight
-                | UnexpandableCommand::MacParam(_) => {
+                | UnexpandableCommand::MacParam(_)
+                | UnexpandableCommand::LatinUcsMacParam(_) => {
                     report_illegal_case(unexpandable_command, scanner, eqtb, logger)
                 }
                 // Cases that don't depend on mode
@@ -378,10 +394,12 @@ pub fn main_control(
                 UnexpandableCommand::Relax { .. } => {
                     // Do nothing.
                 }
-                UnexpandableCommand::LeftBrace(_) => {
+                UnexpandableCommand::LeftBrace(_)
+                | UnexpandableCommand::LatinUcsLeftBrace(_) => {
                     eqtb.new_save_level(GroupType::Simple, &scanner.input_stack, logger)
                 }
-                UnexpandableCommand::RightBrace(_) => handle_right_brace(
+                UnexpandableCommand::RightBrace(_)
+                | UnexpandableCommand::LatinUcsRightBrace(_) => handle_right_brace(
                     token,
                     align_state,
                     hyphenator,
@@ -478,11 +496,15 @@ pub fn main_control(
                 UnexpandableCommand::CjkChar(c) => {
                     report_cjk_typesetting_unavailable(c, scanner, eqtb, logger)
                 }
+                UnexpandableCommand::LatinUcsChar(c) => {
+                    report_latin_ucs_typesetting_unavailable(c, scanner, eqtb, logger)
+                }
                 UnexpandableCommand::Letter(_)
                 | UnexpandableCommand::Other(_)
                 | UnexpandableCommand::CharGiven(_)
                 | UnexpandableCommand::CharNum
                 | UnexpandableCommand::MathShift(_)
+                | UnexpandableCommand::LatinUcsMathShift(_)
                 | UnexpandableCommand::ExSpace
                 | UnexpandableCommand::NoBoundary
                 | UnexpandableCommand::HyphenBreak
@@ -559,7 +581,11 @@ pub fn main_control(
                     eqtb,
                     logger,
                 ),
-                UnexpandableCommand::Math(_) => insert_dollar_sign(token, scanner, eqtb, logger),
+                UnexpandableCommand::Math(_)
+                | UnexpandableCommand::LatinUcsSupMark(_)
+                | UnexpandableCommand::LatinUcsSubMark(_) => {
+                    insert_dollar_sign(token, scanner, eqtb, logger)
+                }
                 UnexpandableCommand::Kern => {
                     vmode.append_node(scan_kern(scanner, eqtb, logger), eqtb)
                 }
@@ -605,6 +631,7 @@ pub fn main_control(
                     }
                 }
                 UnexpandableCommand::TabMark(_)
+                | UnexpandableCommand::LatinUcsTabMark(_)
                 | UnexpandableCommand::Span
                 | UnexpandableCommand::CarRet { .. } => {
                     align_error(unexpandable_command, token, scanner, eqtb, logger)
@@ -630,7 +657,8 @@ pub fn main_control(
                 | UnexpandableCommand::Vadjust
                 | UnexpandableCommand::Raise
                 | UnexpandableCommand::Lower
-                | UnexpandableCommand::MacParam(_) => {
+                | UnexpandableCommand::MacParam(_)
+                | UnexpandableCommand::LatinUcsMacParam(_) => {
                     report_illegal_case(unexpandable_command, scanner, eqtb, logger)
                 }
                 // Cases that don't depend on mode
@@ -650,7 +678,8 @@ pub fn main_control(
                 UnexpandableCommand::Spacer | UnexpandableCommand::Relax { .. } => {
                     // Do nothing.
                 }
-                UnexpandableCommand::LeftBrace(_) => {
+                UnexpandableCommand::LeftBrace(_)
+                | UnexpandableCommand::LatinUcsLeftBrace(_) => {
                     mmode.append_node(Node::Noad(Noad::Normal(NormalNoad::new())), eqtb);
                     scanner.back_input(token, eqtb, logger);
                     scan_subformula_enclosed_in_braces(
@@ -661,7 +690,8 @@ pub fn main_control(
                         logger,
                     );
                 }
-                UnexpandableCommand::RightBrace(_) => handle_right_brace(
+                UnexpandableCommand::RightBrace(_)
+                | UnexpandableCommand::LatinUcsRightBrace(_) => handle_right_brace(
                     token,
                     align_state,
                     hyphenator,
@@ -672,7 +702,8 @@ pub fn main_control(
                     eqtb,
                     logger,
                 ),
-                UnexpandableCommand::MathShift(_) => {
+                UnexpandableCommand::MathShift(_)
+                | UnexpandableCommand::LatinUcsMathShift(_) => {
                     if let GroupType::MathShift { kind } = eqtb.cur_group.typ {
                         after_math(
                             kind,
@@ -700,6 +731,9 @@ pub fn main_control(
                 }
                 UnexpandableCommand::CjkChar(c) => {
                     report_cjk_typesetting_unavailable(c, scanner, eqtb, logger)
+                }
+                UnexpandableCommand::LatinUcsChar(c) => {
+                    report_latin_ucs_typesetting_unavailable(c, scanner, eqtb, logger)
                 }
                 UnexpandableCommand::CharNum => {
                     let chr = scanner.scan_char_num(eqtb, logger);
@@ -985,6 +1019,12 @@ pub fn main_control(
                     MathCommand::MathCharGiven(c) => set_math_char(mmode, c, eqtb),
                     MathCommand::Radical => math_radical(nest, scanner, eqtb, logger),
                 },
+                UnexpandableCommand::LatinUcsSupMark(_) => {
+                    superscript(nest, scanner, eqtb, logger)
+                }
+                UnexpandableCommand::LatinUcsSubMark(_) => {
+                    subscript(nest, scanner, eqtb, logger)
+                }
                 UnexpandableCommand::Kern => {
                     mmode.append_node(scan_kern(scanner, eqtb, logger), eqtb)
                 }
@@ -1020,6 +1060,7 @@ pub fn main_control(
                 UnexpandableCommand::EndCsName => cs_error(scanner, eqtb, logger),
                 UnexpandableCommand::NoAlign => no_align_error(scanner, eqtb, logger),
                 UnexpandableCommand::TabMark(_)
+                | UnexpandableCommand::LatinUcsTabMark(_)
                 | UnexpandableCommand::Span
                 | UnexpandableCommand::CarRet { .. } => {
                     align_error(unexpandable_command, token, scanner, eqtb, logger)
@@ -1042,7 +1083,8 @@ pub fn main_control(
                 | UnexpandableCommand::InputLineNumber
                 | UnexpandableCommand::MoveLeft
                 | UnexpandableCommand::MoveRight
-                | UnexpandableCommand::MacParam(_) => {
+                | UnexpandableCommand::MacParam(_)
+                | UnexpandableCommand::LatinUcsMacParam(_) => {
                     report_illegal_case(unexpandable_command, scanner, eqtb, logger)
                 }
                 // Cases that don't depend on mode
@@ -1197,6 +1239,26 @@ fn report_cjk_typesetting_unavailable(
         "This engine can preserve this Unicode token, but its JFM and",
         "Japanese character node support have not been enabled yet.",
         "I'll ignore this character and continue without splitting it into bytes.",
+    ];
+    logger.error(help, scanner, eqtb)
+}
+
+/// Stage 4cはUnicode欧文tokenを失わずに字句・patternへ渡す。OFM/文字node
+/// が接続される前に8 bit fontへ切り詰めることはしない。
+fn report_latin_ucs_typesetting_unavailable(
+    token: LatinUcsToken,
+    scanner: &mut Scanner,
+    eqtb: &mut Eqtb,
+    logger: &mut Logger,
+) {
+    logger.print_err("Unicode European typesetting needs an OFM font metric");
+    logger.print_str(" (`");
+    token.print_utf8(logger);
+    logger.print_str("' was ignored)");
+    let help = &[
+        "This engine can preserve this latin_ucs token, but OFM Level-0",
+        "and the corresponding character node are not connected yet.",
+        "I'll ignore this character without splitting its UTF-8 bytes.",
     ];
     logger.error(help, scanner, eqtb)
 }

@@ -2,6 +2,13 @@ use crate::format::{Dumpable, FormatError};
 
 use std::io::Write;
 
+pub(crate) const MAX_ONE_BYTE_CODE: u32 = 0xFF;
+pub const MAX_LATIN_UCS_CODE: u32 = 0x2E7F;
+/// e-upTeX accepts this one-past value on the right-hand side of `\lccode`
+/// and `\uccode`. It is a sentinel, not a tokenizable latin_ucs code point.
+pub const MAX_LATIN_UCS_CASE_CODE: u32 = MAX_LATIN_UCS_CODE + 1;
+pub(crate) const LATIN_UCS_TABLE_LEN: usize = MAX_LATIN_UCS_CODE as usize + 1 - 256;
+
 /// Mask for indicating a math symbol of class 7 (Variable).
 pub const VAR_CODE: u16 = 0x7000;
 
@@ -12,6 +19,10 @@ pub struct CodeParameters {
     sf_codes: [i32; 256],
     math_codes: [i32; 256],
     del_codes: [i32; 256],
+    /// 256..=U+2E7F。低位 256 個は上の TeX82 表を共有する。
+    latin_ucs_lc_codes: Box<[i32]>,
+    latin_ucs_uc_codes: Box<[i32]>,
+    latin_ucs_sf_codes: Box<[i32]>,
 }
 
 impl CodeParameters {
@@ -23,6 +34,9 @@ impl CodeParameters {
             sf_codes: [1000; 256],
             math_codes: [0; 256],
             del_codes: [-1; 256],
+            latin_ucs_lc_codes: vec![0; LATIN_UCS_TABLE_LEN].into_boxed_slice(),
+            latin_ucs_uc_codes: vec![0; LATIN_UCS_TABLE_LEN].into_boxed_slice(),
+            latin_ucs_sf_codes: vec![1000; LATIN_UCS_TABLE_LEN].into_boxed_slice(),
         };
 
         for k in 0..256 {
@@ -48,7 +62,11 @@ impl CodeParameters {
     }
 
     fn index(&self, index: CodeVariable) -> &i32 {
+        assert!(index.is_valid(), "code table index is out of range");
         match index {
+            CodeVariable::LcCode(n) if n >= 256 => &self.latin_ucs_lc_codes[n - 256],
+            CodeVariable::UcCode(n) if n >= 256 => &self.latin_ucs_uc_codes[n - 256],
+            CodeVariable::SfCode(n) if n >= 256 => &self.latin_ucs_sf_codes[n - 256],
             CodeVariable::LcCode(n) => &self.lc_codes[n],
             CodeVariable::UcCode(n) => &self.uc_codes[n],
             CodeVariable::SfCode(n) => &self.sf_codes[n],
@@ -58,7 +76,11 @@ impl CodeParameters {
     }
 
     fn index_mut(&mut self, index: CodeVariable) -> &mut i32 {
+        assert!(index.is_valid(), "code table index is out of range");
         match index {
+            CodeVariable::LcCode(n) if n >= 256 => &mut self.latin_ucs_lc_codes[n - 256],
+            CodeVariable::UcCode(n) if n >= 256 => &mut self.latin_ucs_uc_codes[n - 256],
+            CodeVariable::SfCode(n) if n >= 256 => &mut self.latin_ucs_sf_codes[n - 256],
             CodeVariable::LcCode(n) => &mut self.lc_codes[n],
             CodeVariable::UcCode(n) => &mut self.uc_codes[n],
             CodeVariable::SfCode(n) => &mut self.sf_codes[n],
@@ -72,6 +94,10 @@ impl CodeParameters {
     }
 
     pub fn set(&mut self, code_var: CodeVariable, new_value: i32) -> i32 {
+        assert!(
+            code_var.accepts_value(new_value),
+            "code table value is out of range"
+        );
         let prev_value = *self.index_mut(code_var);
         *self.index_mut(code_var) = new_value;
         prev_value
@@ -92,6 +118,27 @@ pub enum CodeVariable {
 }
 
 impl CodeVariable {
+    pub(crate) fn is_valid(self) -> bool {
+        match self {
+            Self::LcCode(n) | Self::UcCode(n) | Self::SfCode(n) => {
+                n <= MAX_LATIN_UCS_CODE as usize
+            }
+            Self::MathCode(n) | Self::DelCode(n) => n <= u8::MAX as usize,
+        }
+    }
+
+    fn accepts_value(self, value: i32) -> bool {
+        match self {
+            Self::LcCode(_) | Self::UcCode(_) => {
+                (0..=MAX_LATIN_UCS_CASE_CODE as i32).contains(&value)
+            }
+            Self::SfCode(_) => (0..=0o77777).contains(&value),
+            // The legacy tables retain their existing range handling. In
+            // particular, the default delimiter code is -1.
+            Self::MathCode(_) | Self::DelCode(_) => true,
+        }
+    }
+
     /// The name of the code variable without preceding escape character.
     /// See 235. and 242.
     pub fn to_string(self) -> Vec<u8> {
@@ -116,13 +163,15 @@ pub enum CodeType {
 
 impl CodeType {
     pub fn to_variable(self, n: usize) -> CodeVariable {
-        match self {
+        let variable = match self {
             Self::LcCode => CodeVariable::LcCode(n),
             Self::UcCode => CodeVariable::UcCode(n),
             Self::SfCode => CodeVariable::SfCode(n),
             Self::MathCode => CodeVariable::MathCode(n),
             Self::DelCode => CodeVariable::DelCode(n),
-        }
+        };
+        assert!(variable.is_valid(), "code table index is out of range");
+        variable
     }
 
     /// The type of the code without preceding escape character.
@@ -140,6 +189,12 @@ impl CodeType {
 
 impl Dumpable for CodeVariable {
     fn dump(&self, target: &mut impl Write) -> Result<(), std::io::Error> {
+        if !self.is_valid() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "code table index is out of range",
+            ));
+        }
         match self {
             Self::LcCode(n) => {
                 writeln!(target, "LcCode")?;
@@ -167,28 +222,33 @@ impl Dumpable for CodeVariable {
 
     fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
         let variant = lines.next().ok_or(FormatError::IncompleteFile)?;
-        match variant {
+        let variable = match variant {
             "LcCode" => {
                 let n = usize::undump(lines)?;
-                Ok(Self::LcCode(n))
+                Self::LcCode(n)
             }
             "UcCode" => {
                 let n = usize::undump(lines)?;
-                Ok(Self::UcCode(n))
+                Self::UcCode(n)
             }
             "SfCode" => {
                 let n = usize::undump(lines)?;
-                Ok(Self::SfCode(n))
+                Self::SfCode(n)
             }
             "MathCode" => {
                 let n = usize::undump(lines)?;
-                Ok(Self::MathCode(n))
+                Self::MathCode(n)
             }
             "DelCode" => {
                 let n = usize::undump(lines)?;
-                Ok(Self::DelCode(n))
+                Self::DelCode(n)
             }
-            _ => Err(FormatError::ParseError),
+            _ => return Err(FormatError::ParseError),
+        };
+        if variable.is_valid() {
+            Ok(variable)
+        } else {
+            Err(FormatError::ParseError)
         }
     }
 }
@@ -200,22 +260,118 @@ impl Dumpable for CodeParameters {
         self.sf_codes.dump(target)?;
         self.math_codes.dump(target)?;
         self.del_codes.dump(target)?;
+        LATIN_UCS_TABLE_LEN.dump(target)?;
+        for table in [
+            &self.latin_ucs_lc_codes,
+            &self.latin_ucs_uc_codes,
+            &self.latin_ucs_sf_codes,
+        ] {
+            for &value in table.iter() {
+                value.dump(target)?;
+            }
+        }
         Ok(())
     }
 
     fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
-        let lc_codes = Dumpable::undump(lines)?;
-        let uc_codes = Dumpable::undump(lines)?;
-        let sf_codes = Dumpable::undump(lines)?;
+        let lc_codes: [i32; 256] = Dumpable::undump(lines)?;
+        let uc_codes: [i32; 256] = Dumpable::undump(lines)?;
+        let sf_codes: [i32; 256] = Dumpable::undump(lines)?;
         let math_codes = Dumpable::undump(lines)?;
         let del_codes = Dumpable::undump(lines)?;
+        if lc_codes
+            .iter()
+            .any(|&value| !CodeVariable::LcCode(0).accepts_value(value))
+            || uc_codes
+                .iter()
+                .any(|&value| !CodeVariable::UcCode(0).accepts_value(value))
+            || sf_codes
+                .iter()
+                .any(|&value| !CodeVariable::SfCode(0).accepts_value(value))
+        {
+            return Err(FormatError::ParseError);
+        }
+        if usize::undump(lines)? != LATIN_UCS_TABLE_LEN {
+            return Err(FormatError::ParseError);
+        }
+        let mut read_extended = || -> Result<Box<[i32]>, FormatError> {
+            let mut values = vec![0; LATIN_UCS_TABLE_LEN];
+            for value in &mut values {
+                *value = i32::undump(lines)?;
+            }
+            Ok(values.into_boxed_slice())
+        };
+        let latin_ucs_lc_codes = read_extended()?;
+        let latin_ucs_uc_codes = read_extended()?;
+        let latin_ucs_sf_codes = read_extended()?;
+        if latin_ucs_lc_codes
+            .iter()
+            .any(|&value| !CodeVariable::LcCode(256).accepts_value(value))
+            || latin_ucs_uc_codes
+                .iter()
+                .any(|&value| !CodeVariable::UcCode(256).accepts_value(value))
+            || latin_ucs_sf_codes
+                .iter()
+                .any(|&value| !CodeVariable::SfCode(256).accepts_value(value))
+        {
+            return Err(FormatError::ParseError);
+        }
         Ok(Self {
             lc_codes,
             uc_codes,
             sf_codes,
             math_codes,
             del_codes,
+            latin_ucs_lc_codes,
+            latin_ucs_uc_codes,
+            latin_ucs_sf_codes,
         })
+    }
+}
+
+#[cfg(test)]
+mod latin_ucs_tests {
+    use super::*;
+
+    fn 壊した表を読む(line: usize, value: i32) -> Result<CodeParameters, FormatError> {
+        let mut bytes = Vec::new();
+        CodeParameters::new().dump(&mut bytes).unwrap();
+        let text = String::from_utf8(bytes).unwrap();
+        let mut lines: Vec<_> = text.lines().map(str::to_owned).collect();
+        lines[line] = value.to_string();
+        CodeParameters::undump(&mut lines.join("\n").lines())
+    }
+
+    #[test]
+    fn case表はu二e八十sentinelだけを上端として受理する() {
+        assert!(CodeVariable::LcCode(0).accepts_value(MAX_LATIN_UCS_CASE_CODE as i32));
+        assert!(!CodeVariable::LcCode(0).accepts_value(-1));
+        assert!(!CodeVariable::UcCode(0).accepts_value(MAX_LATIN_UCS_CASE_CODE as i32 + 1));
+    }
+
+    #[test]
+    fn format中の壊れたunicode欧文code値を拒否する() {
+        // Five 256-entry legacy tables and the extended-table length precede
+        // the first extended lccode value.
+        let first_extended_lc = 5 * 256 + 1;
+        let first_extended_uc = first_extended_lc + LATIN_UCS_TABLE_LEN;
+        let first_extended_sf = first_extended_uc + LATIN_UCS_TABLE_LEN;
+
+        assert!(matches!(
+            壊した表を読む(first_extended_lc, -1),
+            Err(FormatError::ParseError)
+        ));
+        assert!(matches!(
+            壊した表を読む(
+                first_extended_uc,
+                MAX_LATIN_UCS_CASE_CODE as i32 + 1
+            ),
+            Err(FormatError::ParseError)
+        ));
+        assert!(matches!(
+            壊した表を読む(first_extended_sf, 0o100000),
+            Err(FormatError::ParseError)
+        ));
     }
 }
 

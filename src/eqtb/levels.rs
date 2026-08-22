@@ -1,4 +1,5 @@
 use super::extended_registers::ExtendedRegisterStorage;
+use super::codes::{LATIN_UCS_TABLE_LEN, MAX_LATIN_UCS_CODE};
 use super::kcatcodes::KCAT_CODE_BLOCK_COUNT;
 use super::{
     BoxVariable, CodeVariable, ControlSequence, DimensionVariable, FontIndex, FontVariable,
@@ -18,6 +19,7 @@ pub struct VariableLevels {
 
     // Category codes
     cat_code: [Level; 256],
+    latin_ucs_cat_code: Box<[Level]>,
     kcat_code: [Level; KCAT_CODE_BLOCK_COUNT],
 
     // Codes
@@ -26,6 +28,9 @@ pub struct VariableLevels {
     sf_code: [Level; 256],
     math_code: [Level; 256],
     del_code: [Level; 256],
+    latin_ucs_lc_code: Box<[Level]>,
+    latin_ucs_uc_code: Box<[Level]>,
+    latin_ucs_sf_code: Box<[Level]>,
 
     // Control sequences
     active: [Level; 256],
@@ -194,12 +199,16 @@ impl VariableLevels {
 
             // Codes
             cat_code: [0; 256],
+            latin_ucs_cat_code: vec![0; LATIN_UCS_TABLE_LEN].into_boxed_slice(),
             kcat_code: [0; KCAT_CODE_BLOCK_COUNT],
             lc_code: [0; 256],
             uc_code: [0; 256],
             sf_code: [0; 256],
             math_code: [0; 256],
             del_code: [0; 256],
+            latin_ucs_lc_code: vec![0; LATIN_UCS_TABLE_LEN].into_boxed_slice(),
+            latin_ucs_uc_code: vec![0; LATIN_UCS_TABLE_LEN].into_boxed_slice(),
+            latin_ucs_sf_code: vec![0; LATIN_UCS_TABLE_LEN].into_boxed_slice(),
 
             // Control sequences
             active: [0; 256],
@@ -367,14 +376,27 @@ impl VariableLevels {
     }
 
     pub fn get(&self, variable: Variable) -> usize {
+        if let Variable::CatCode(chr) = variable {
+            assert!(
+                chr <= MAX_LATIN_UCS_CODE as usize,
+                "catcode level index is out of range"
+            );
+        }
+        if let Variable::Code(code) = variable {
+            assert!(code.is_valid(), "code level index is out of range");
+        }
         match variable {
             Variable::BoxRegister(BoxVariable(n)) => *self.boxes.get(n),
-            Variable::CatCode(chr) => self.cat_code[chr as usize],
+            Variable::CatCode(chr) if chr >= 256 => self.latin_ucs_cat_code[chr - 256],
+            Variable::CatCode(chr) => self.cat_code[chr],
             Variable::KCatCode(block) => self.kcat_code[block.index()],
             Variable::Code(code_variable) => match code_variable {
-                CodeVariable::LcCode(n) => self.lc_code[n as usize],
-                CodeVariable::UcCode(n) => self.uc_code[n as usize],
-                CodeVariable::SfCode(n) => self.sf_code[n as usize],
+                CodeVariable::LcCode(n) if n >= 256 => self.latin_ucs_lc_code[n - 256],
+                CodeVariable::UcCode(n) if n >= 256 => self.latin_ucs_uc_code[n - 256],
+                CodeVariable::SfCode(n) if n >= 256 => self.latin_ucs_sf_code[n - 256],
+                CodeVariable::LcCode(n) => self.lc_code[n],
+                CodeVariable::UcCode(n) => self.uc_code[n],
+                CodeVariable::SfCode(n) => self.sf_code[n],
                 CodeVariable::MathCode(n) => self.math_code[n as usize],
                 CodeVariable::DelCode(n) => self.del_code[n as usize],
             },
@@ -540,14 +562,27 @@ impl VariableLevels {
     }
 
     pub fn set(&mut self, variable: Variable, new_level: usize) -> usize {
+        if let Variable::CatCode(chr) = variable {
+            assert!(
+                chr <= MAX_LATIN_UCS_CODE as usize,
+                "catcode level index is out of range"
+            );
+        }
+        if let Variable::Code(code) = variable {
+            assert!(code.is_valid(), "code level index is out of range");
+        }
         let target = match variable {
             Variable::BoxRegister(BoxVariable(n)) => self.boxes.get_mut(n),
-            Variable::CatCode(chr) => &mut self.cat_code[chr as usize],
+            Variable::CatCode(chr) if chr >= 256 => &mut self.latin_ucs_cat_code[chr - 256],
+            Variable::CatCode(chr) => &mut self.cat_code[chr],
             Variable::KCatCode(block) => &mut self.kcat_code[block.index()],
             Variable::Code(code_variable) => match code_variable {
-                CodeVariable::LcCode(n) => &mut self.lc_code[n as usize],
-                CodeVariable::UcCode(n) => &mut self.uc_code[n as usize],
-                CodeVariable::SfCode(n) => &mut self.sf_code[n as usize],
+                CodeVariable::LcCode(n) if n >= 256 => &mut self.latin_ucs_lc_code[n - 256],
+                CodeVariable::UcCode(n) if n >= 256 => &mut self.latin_ucs_uc_code[n - 256],
+                CodeVariable::SfCode(n) if n >= 256 => &mut self.latin_ucs_sf_code[n - 256],
+                CodeVariable::LcCode(n) => &mut self.lc_code[n],
+                CodeVariable::UcCode(n) => &mut self.uc_code[n],
+                CodeVariable::SfCode(n) => &mut self.sf_code[n],
                 CodeVariable::MathCode(n) => &mut self.math_code[n as usize],
                 CodeVariable::DelCode(n) => &mut self.del_code[n as usize],
             },
@@ -723,12 +758,25 @@ impl Dumpable for VariableLevels {
 
         // Codes
         self.cat_code.dump(target)?;
+        LATIN_UCS_TABLE_LEN.dump(target)?;
+        for &level in &self.latin_ucs_cat_code {
+            level.dump(target)?;
+        }
         dump_kcat_code_levels(&self.kcat_code, target)?;
         self.lc_code.dump(target)?;
         self.uc_code.dump(target)?;
         self.sf_code.dump(target)?;
         self.math_code.dump(target)?;
         self.del_code.dump(target)?;
+        for table in [
+            &self.latin_ucs_lc_code,
+            &self.latin_ucs_uc_code,
+            &self.latin_ucs_sf_code,
+        ] {
+            for &level in table.iter() {
+                level.dump(target)?;
+            }
+        }
 
         // Control sequences
         self.active.dump(target)?;
@@ -897,12 +945,19 @@ impl Dumpable for VariableLevels {
 
         // Codes
         let cat_code = Dumpable::undump(lines)?;
+        if usize::undump(lines)? != LATIN_UCS_TABLE_LEN {
+            return Err(FormatError::ParseError);
+        }
+        let latin_ucs_cat_code = undump_latin_ucs_levels(lines)?;
         let kcat_code = undump_kcat_code_levels(lines)?;
         let lc_code = Dumpable::undump(lines)?;
         let uc_code = Dumpable::undump(lines)?;
         let sf_code = Dumpable::undump(lines)?;
         let math_code = Dumpable::undump(lines)?;
         let del_code = Dumpable::undump(lines)?;
+        let latin_ucs_lc_code = undump_latin_ucs_levels(lines)?;
+        let latin_ucs_uc_code = undump_latin_ucs_levels(lines)?;
+        let latin_ucs_sf_code = undump_latin_ucs_levels(lines)?;
 
         // Control sequences
         let active = Dumpable::undump(lines)?;
@@ -1065,12 +1120,16 @@ impl Dumpable for VariableLevels {
         Ok(Self {
             boxes,
             cat_code,
+            latin_ucs_cat_code,
             kcat_code,
             lc_code,
             uc_code,
             sf_code,
             math_code,
             del_code,
+            latin_ucs_lc_code,
+            latin_ucs_uc_code,
+            latin_ucs_sf_code,
             active,
             single,
             null_cs,
@@ -1215,6 +1274,16 @@ impl Dumpable for VariableLevels {
             toks,
         })
     }
+}
+
+fn undump_latin_ucs_levels<'a>(
+    lines: &mut impl Iterator<Item = &'a str>,
+) -> Result<Box<[Level]>, FormatError> {
+    let mut levels = vec![0; LATIN_UCS_TABLE_LEN];
+    for level in &mut levels {
+        *level = Level::undump(lines)?;
+    }
+    Ok(levels.into_boxed_slice())
 }
 
 fn dump_kcat_code_levels(

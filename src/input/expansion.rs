@@ -226,6 +226,7 @@ fn scan_namespace(scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Logger) {
                 | Token::Spacer(c)
                 | Token::Letter(c)
                 | Token::OtherChar(c) => name.push(c),
+                Token::LatinUcsChar(c) => c.push_utf8(&mut name),
                 Token::CjkChar(c) => c.push_utf8(&mut name),
                 _ => {
                     complain_about_missing_csname(token, scanner, eqtb, logger);
@@ -287,6 +288,7 @@ fn manufacture_control_sequence_name(
                 cs_name.push_byte(c);
             }
             Token::CjkChar(c) => cs_name.push_unicode(c.code_point()),
+            Token::LatinUcsChar(c) => cs_name.push_unicode(c.code_point()),
             token @ Token::CSToken { .. } => break (command, token),
             Token::Null => {
                 panic!("Should not appear here")

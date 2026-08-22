@@ -3,8 +3,8 @@ use crate::command::MarkQuery;
 use crate::dimension::{Dimension, MAX_DIMEN};
 use crate::eqtb::save_stack::GroupType;
 use crate::eqtb::{
-    BoxVariable, DimensionVariable, Eqtb, InsertionIndex, IntegerVariable, LastNodeInfo,
-    MarkClassIndex, SkipVariable, TokenListVariable,
+    BoxVariable, DimensionVariable, Eqtb, InsertionIndex, IntegerVariable, MarkClassIndex,
+    SkipVariable, TokenListVariable,
 };
 use crate::hyphenation::Hyphenator;
 use crate::input::token_source::TokenSourceType;
@@ -177,7 +177,7 @@ impl PageBuilder {
     fn start_new_current_page(&mut self, eqtb: &mut Eqtb) {
         eqtb.page_contents = PageContents::Empty;
         self.page.clear();
-        eqtb.last_node_on_page = LastNodeInfo::Other;
+        eqtb.update_last_node_on_page(None);
         eqtb.page_dims.depth = 0;
         self.max_depth = 0;
     }
@@ -262,12 +262,7 @@ impl PageBuilder {
 impl PageBuilder {
     /// See 996.
     fn update_values_of_last_glue_penalty_and_kern(&mut self, node: &Node, eqtb: &mut Eqtb) {
-        eqtb.last_node_on_page = match node {
-            Node::Glue(glue_node) => LastNodeInfo::Glue(glue_node.glue_spec.clone()),
-            Node::Penalty(penalty_node) => LastNodeInfo::Penalty(penalty_node.penalty),
-            Node::Kern(kern_node) => LastNodeInfo::Kern(kern_node.width),
-            _ => LastNodeInfo::Other,
-        }
+        eqtb.update_last_node_on_page(Some(node));
     }
 
     /// Returns false for return, else true.

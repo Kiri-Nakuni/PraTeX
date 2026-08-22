@@ -103,6 +103,8 @@ struct ControlSequenceHash {
     /// `Unicode`単位を一つ以上含む名前。byte名とはidentityを共有しない。
     /// byte engineと通常の名前空間はmap本体を持たない。
     wide: Option<Box<HashMap<Vec<ControlSequenceNameUnit>, ControlSequenceId>>>,
+    /// Unicode活性文字。通常の一文字制御記号とは同じ符号位置でも別identity。
+    wide_active: Option<Box<HashMap<Vec<ControlSequenceNameUnit>, ControlSequenceId>>>,
     active: HashMap<Vec<u8>, ControlSequenceId>,
 }
 
@@ -121,16 +123,31 @@ impl ControlSequenceHash {
         hash.insert(key, id);
     }
 
-    fn get_wide(&self, key: &[ControlSequenceNameUnit]) -> Option<ControlSequenceId> {
-        self.wide.as_deref()?.get(key).copied()
+    fn get_wide(
+        &self,
+        active: bool,
+        key: &[ControlSequenceNameUnit],
+    ) -> Option<ControlSequenceId> {
+        let hash = if active {
+            self.wide_active.as_deref()?
+        } else {
+            self.wide.as_deref()?
+        };
+        hash.get(key).copied()
     }
 
     fn insert_wide(
         &mut self,
+        active: bool,
         key: Vec<ControlSequenceNameUnit>,
         id: ControlSequenceId,
     ) -> Option<ControlSequenceId> {
-        self.wide
+        let hash = if active {
+            &mut self.wide_active
+        } else {
+            &mut self.wide
+        };
+        hash
             .get_or_insert_with(|| Box::new(HashMap::new()))
             .insert(key, id)
     }
@@ -141,6 +158,7 @@ impl ControlSequenceHash {
 
     fn wide_len(&self) -> usize {
         self.wide.as_deref().map_or(0, HashMap::len)
+            + self.wide_active.as_deref().map_or(0, HashMap::len)
     }
 }
 
@@ -173,7 +191,7 @@ fn print_namespace_prefix(
     cs: ControlSequence,
     eqtb: &Eqtb,
     printer: &mut impl Printer,
-) -> Option<u8> {
+) -> Option<ControlSequenceNameUnit> {
     if let Some(ns) = eqtb.control_sequences.namespace_of(cs) {
         let nc = eqtb.integer(crate::eqtb::IntegerVariable::NamespaceChar);
         if (0..=255).contains(&nc) {
@@ -185,9 +203,26 @@ fn print_namespace_prefix(
             }
         }
     }
+    if !matches!(cs, ControlSequence::Escaped(_)) {
+        return None;
+    }
     eqtb.control_sequences
         .active_char(cs)
-        .filter(|_| matches!(cs, ControlSequence::Escaped(_)))
+        .map(ControlSequenceNameUnit::Byte)
+        .or_else(|| {
+            eqtb.control_sequences
+                .wide_active_char(cs)
+                .map(ControlSequenceNameUnit::Unicode)
+        })
+}
+
+fn print_active_unit(unit: ControlSequenceNameUnit, printer: &mut impl Printer) {
+    match unit {
+        ControlSequenceNameUnit::Byte(byte) => printer.print(byte),
+        ControlSequenceNameUnit::Unicode(code_point) => {
+            print_uptex_code_point(code_point, printer)
+        }
+    }
 }
 
 fn print_escaped_name(cs: ControlSequence, eqtb: &Eqtb, printer: &mut impl Printer) {
@@ -243,7 +278,7 @@ impl ControlSequence {
                 let active = print_namespace_prefix(self, eqtb, printer);
                 match active {
                     // 名前空間つきの活性文字。**`escapechar` を挟まない**
-                    Some(c) => printer.print(c),
+                    Some(unit) => print_active_unit(unit, printer),
                     None => print_escaped_name(self, eqtb, printer),
                 }
                 if active.is_some()
@@ -274,8 +309,8 @@ impl ControlSequence {
             }
             _ => {
                 let active = print_namespace_prefix(self, eqtb, printer);
-                if let Some(c) = active {
-                    printer.print(c);
+                if let Some(unit) = active {
+                    print_active_unit(unit, printer);
                     return;
                 }
                 print_escaped_name(self, eqtb, printer);
@@ -313,6 +348,8 @@ pub struct ControlSequenceStore {
     /// 名前空間つきの active char も同じ番号空間に載せる——
     /// そうすると save stack も群も `\global` も**そのまま付いてくる**
     escaped_active: Vec<Option<u8>>,
+    /// `escaped` と並ぶ。Unicode活性文字なら、その符号位置。
+    escaped_wide_active: Vec<Option<u32>>,
     /// 名前空間の名前。番号が添字
     namespaces: Vec<Vec<u8>>,
     ns_index: HashMap<Vec<u8>, NamespaceId>,
@@ -361,6 +398,7 @@ impl ControlSequenceStore {
             single,
             escaped_ns: Vec::new(),
             escaped_active: Vec::new(),
+            escaped_wide_active: Vec::new(),
             namespaces: Vec::new(),
             ns_index: HashMap::new(),
             null_cs: (
@@ -445,21 +483,33 @@ impl ControlSequenceStore {
 
     /// Unicode単位を含む制御綴をglobalから引く。
     pub fn id_lookup_wide(&self, key: &[ControlSequenceNameUnit]) -> Option<ControlSequenceId> {
-        self.id_lookup_ns_wide(None, key)
+        self.id_lookup_ns_wide(None, false, key)
+    }
+
+    /// Unicode活性文字をglobalから引く。
+    pub fn id_lookup_wide_active(
+        &self,
+        key: &[ControlSequenceNameUnit],
+    ) -> Option<ControlSequenceId> {
+        self.id_lookup_ns_wide(None, true, key)
     }
 
     /// Unicode単位を含む制御綴を名前空間つきで引く。`None` はglobal。
     pub fn id_lookup_ns_wide(
         &self,
         ns: Option<NamespaceId>,
+        active: bool,
         key: &[ControlSequenceNameUnit],
     ) -> Option<ControlSequenceId> {
         if !is_valid_wide_name(key) {
             return None;
         }
         match ns {
-            None => self.global_hash.get_wide(key),
-            Some(ns) => self.namespace_hashes.get(ns as usize)?.get_wide(key),
+            None => self.global_hash.get_wide(active, key),
+            Some(ns) => self
+                .namespace_hashes
+                .get(ns as usize)?
+                .get_wide(active, key),
         }
     }
 
@@ -501,6 +551,17 @@ impl ControlSequenceStore {
             ControlSequence::Escaped(n) => self.escaped_active.get(n as usize).copied().flatten(),
             _ => None,
         }
+    }
+
+    /// Unicode活性文字なら、その符号位置を返す。
+    pub fn wide_active_char(&self, cs: ControlSequence) -> Option<u32> {
+        let ControlSequence::Escaped(n) = cs else {
+            return None;
+        };
+        self.escaped_wide_active
+            .get(n as usize)
+            .copied()
+            .flatten()
     }
 
     /// Unicode単位を含む元の制御綴名を返す。
@@ -555,6 +616,7 @@ impl ControlSequenceStore {
         self.escaped.push((cmd, key.to_vec()));
         self.escaped_ns.push(ns);
         self.escaped_active.push(active);
+        self.escaped_wide_active.push(None);
         // NOTE: We need to extend the memory slots for levels as well.
         variable_levels.add_new_escaped_command();
         Ok(n)
@@ -566,7 +628,17 @@ impl ControlSequenceStore {
         key: &[ControlSequenceNameUnit],
         variable_levels: &mut VariableLevels,
     ) -> Result<ControlSequenceId, ()> {
-        self.add_wide_command_ns(None, key, variable_levels)
+        self.add_wide_command_ns(None, key, None, variable_levels)
+    }
+
+    /// Unicode活性文字をglobalに作る。
+    pub fn add_wide_active_command(
+        &mut self,
+        code_point: u32,
+        variable_levels: &mut VariableLevels,
+    ) -> Result<ControlSequenceId, ()> {
+        let key = [ControlSequenceNameUnit::Unicode(code_point)];
+        self.add_wide_command_ns(None, &key, Some(code_point), variable_levels)
     }
 
     /// Unicode単位を含む制御綴を名前空間つきで作る。
@@ -574,10 +646,14 @@ impl ControlSequenceStore {
         &mut self,
         ns: Option<NamespaceId>,
         key: &[ControlSequenceNameUnit],
+        active: Option<u32>,
         variable_levels: &mut VariableLevels,
     ) -> Result<ControlSequenceId, ()> {
         if !is_valid_wide_name(key)
             || ns.is_some_and(|ns| ns as usize >= self.namespace_hashes.len())
+            || active.is_some_and(|code_point| {
+                key != [ControlSequenceNameUnit::Unicode(code_point)]
+            })
         {
             return Err(());
         }
@@ -585,7 +661,7 @@ impl ControlSequenceStore {
             None => &self.global_hash,
             Some(ns) => &self.namespace_hashes[ns as usize],
         };
-        if hash.get_wide(key).is_some() {
+        if hash.get_wide(active.is_some(), key).is_some() {
             return Err(());
         }
         let Ok(n) = ControlSequenceId::try_from(self.cs_count) else {
@@ -596,7 +672,7 @@ impl ControlSequenceStore {
             None => &mut self.global_hash,
             Some(ns) => &mut self.namespace_hashes[ns as usize],
         };
-        let previous = hash.insert_wide(key.to_vec(), n);
+        let previous = hash.insert_wide(active.is_some(), key.to_vec(), n);
         debug_assert!(previous.is_none());
         let previous = self
             .wide_names
@@ -607,6 +683,7 @@ impl ControlSequenceStore {
         self.escaped.push((cmd, wide_name_to_display_bytes(key)));
         self.escaped_ns.push(ns);
         self.escaped_active.push(None);
+        self.escaped_wide_active.push(active);
         variable_levels.add_new_escaped_command();
         Ok(n)
     }
@@ -731,11 +808,17 @@ impl ControlSequenceStore {
                 .sum::<usize>();
         writeln!(target, "{hash_len}")?;
         if let Some(hash) = self.global_hash.wide.as_deref() {
-            Self::dump_wide_hash_entries(None, hash, target)?;
+            Self::dump_wide_hash_entries(None, false, hash, target)?;
+        }
+        if let Some(hash) = self.global_hash.wide_active.as_deref() {
+            Self::dump_wide_hash_entries(None, true, hash, target)?;
         }
         for (ns, hash) in self.namespace_hashes.iter().enumerate() {
             if let Some(hash) = hash.wide.as_deref() {
-                Self::dump_wide_hash_entries(Some(ns as NamespaceId), hash, target)?;
+                Self::dump_wide_hash_entries(Some(ns as NamespaceId), false, hash, target)?;
+            }
+            if let Some(hash) = hash.wide_active.as_deref() {
+                Self::dump_wide_hash_entries(Some(ns as NamespaceId), true, hash, target)?;
             }
         }
         Ok(())
@@ -743,11 +826,13 @@ impl ControlSequenceStore {
 
     fn dump_wide_hash_entries(
         ns: Option<NamespaceId>,
+        active: bool,
         hash: &HashMap<Vec<ControlSequenceNameUnit>, ControlSequenceId>,
         target: &mut impl Write,
     ) -> Result<(), std::io::Error> {
         for (key, id) in hash {
             ns.dump(target)?;
+            active.dump(target)?;
             key.dump(target)?;
             id.dump(target)?;
         }
@@ -757,7 +842,7 @@ impl ControlSequenceStore {
     fn undump_wide_hash<'a>(
         lines: &mut impl Iterator<Item = &'a str>,
     ) -> Result<
-        HashMap<(Option<NamespaceId>, Vec<ControlSequenceNameUnit>), ControlSequenceId>,
+        HashMap<(Option<NamespaceId>, bool, Vec<ControlSequenceNameUnit>), ControlSequenceId>,
         FormatError,
     > {
         let count = usize::undump(lines)?;
@@ -765,9 +850,14 @@ impl ControlSequenceStore {
         let mut hash = HashMap::new();
         for _ in 0..count {
             let ns = Option::<NamespaceId>::undump(lines)?;
+            let active = bool::undump(lines)?;
             let key = Vec::<ControlSequenceNameUnit>::undump(lines)?;
             let id = ControlSequenceId::undump(lines)?;
-            if !is_valid_wide_name(&key) || hash.insert((ns, key), id).is_some() {
+            if !is_valid_wide_name(&key)
+                || active
+                    && !matches!(key.as_slice(), [ControlSequenceNameUnit::Unicode(_)])
+                || hash.insert((ns, active, key), id).is_some()
+            {
                 return Err(FormatError::ParseError);
             }
         }
@@ -800,6 +890,7 @@ impl Dumpable for ControlSequenceStore {
         self.escaped.dump(target)?;
         self.escaped_ns.dump(target)?;
         self.escaped_active.dump(target)?;
+        self.escaped_wide_active.dump(target)?;
         self.namespaces.dump(target)?;
         self.cs_count.dump(target)?;
         self.frozen_protection.dump(target)?;
@@ -819,12 +910,16 @@ impl Dumpable for ControlSequenceStore {
     fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
         let active = Vec::undump(lines)?;
         let single = Vec::undump(lines)?;
+        if active.len() != 256 || single.len() != 256 {
+            return Err(FormatError::ParseError);
+        }
         let null_cs = CommandStoreEntry::undump(lines)?;
         let hash = Self::undump_hash(lines)?;
         let wide_hash = Self::undump_wide_hash(lines)?;
         let escaped: Vec<CommandStoreEntry> = Vec::undump(lines)?;
         let escaped_ns: Vec<Option<NamespaceId>> = Vec::undump(lines)?;
         let escaped_active: Vec<Option<u8>> = Vec::undump(lines)?;
+        let escaped_wide_active: Vec<Option<u32>> = Vec::undump(lines)?;
         let namespaces: Vec<Vec<u8>> = Vec::undump(lines)?;
         // **番号から名前を引く表は書き出す。逆は組み直す**——写す意味が無い。
         // 同名slotを許すと番号からは見えるのに名前から到達できない制御綴が残る。
@@ -833,7 +928,10 @@ impl Dumpable for ControlSequenceStore {
         let mut namespace_hashes = (0..namespaces.len())
             .map(|_| ControlSequenceHash::default())
             .collect::<Vec<_>>();
-        if escaped_ns.len() != escaped.len() || escaped_active.len() != escaped.len() {
+        if escaped_ns.len() != escaped.len()
+            || escaped_active.len() != escaped.len()
+            || escaped_wide_active.len() != escaped.len()
+        {
             return Err(FormatError::ParseError);
         }
         let mut seen_hash_ids = vec![false; escaped.len()];
@@ -845,6 +943,7 @@ impl Dumpable for ControlSequenceStore {
                 || seen_hash_ids[id]
                 || escaped_ns[id] != ns
                 || escaped_active[id].is_some() != active
+                || escaped_wide_active[id].is_some()
                 || escaped[id].1 != key
             {
                 return Err(FormatError::ParseError);
@@ -860,12 +959,17 @@ impl Dumpable for ControlSequenceStore {
             }
             seen_hash_ids[id] = true;
         }
-        for ((ns, key), id) in wide_hash {
+        for ((ns, active, key), id) in wide_hash {
             let id = id as usize;
+            let active_code_point = match key.as_slice() {
+                [ControlSequenceNameUnit::Unicode(code_point)] if active => Some(*code_point),
+                _ => None,
+            };
             if id >= escaped.len()
                 || seen_hash_ids[id]
                 || escaped_ns[id] != ns
                 || escaped_active[id].is_some()
+                || escaped_wide_active[id] != active_code_point
                 || escaped[id].1 != wide_name_to_display_bytes(&key)
             {
                 return Err(FormatError::ParseError);
@@ -880,7 +984,7 @@ impl Dumpable for ControlSequenceStore {
             let previous_name = wide_names
                 .get_or_insert_with(|| Box::new(HashMap::new()))
                 .insert(id, key.clone());
-            if previous_name.is_some() || target.insert_wide(key, id).is_some() {
+            if previous_name.is_some() || target.insert_wide(active, key, id).is_some() {
                 return Err(FormatError::ParseError);
             }
             seen_hash_ids[id as usize] = true;
@@ -902,6 +1006,9 @@ impl Dumpable for ControlSequenceStore {
         let frozen_relax = CommandStoreEntry::undump(lines)?;
         let end_write = CommandStoreEntry::undump(lines)?;
         let font_id = Vec::undump(lines)?;
+        if font_id.len() != FontIndex::MAX as usize + 1 {
+            return Err(FormatError::ParseError);
+        }
         let undefined = CommandStoreEntry::undump(lines)?;
         Ok(Self {
             active,
@@ -913,6 +1020,7 @@ impl Dumpable for ControlSequenceStore {
             wide_names,
             escaped_ns,
             escaped_active,
+            escaped_wide_active,
             namespaces,
             ns_index,
             cs_count,
@@ -1094,6 +1202,27 @@ mod tests {
         assert_eq!(end_write, end_write_undumped);
         assert_eq!(font_id, font_id_undumped);
         assert_eq!(undefined, undefined_undumped);
+    }
+
+    #[test]
+    fn 固定幅制御綴表の短いformatを拒否する() {
+        for store in {
+            let mut active = ControlSequenceStore::new();
+            active.active.pop();
+            let mut single = ControlSequenceStore::new();
+            single.single.pop();
+            let mut font_id = ControlSequenceStore::new();
+            font_id.font_id.pop();
+            [active, single, font_id]
+        } {
+            let mut bytes = Vec::new();
+            store.dump(&mut bytes).unwrap();
+            let input = String::from_utf8(bytes).unwrap();
+            assert!(matches!(
+                ControlSequenceStore::undump(&mut input.lines()),
+                Err(FormatError::ParseError)
+            ));
+        }
     }
 }
 
@@ -1281,6 +1410,40 @@ mod namespace_tests {
     }
 
     #[test]
+    fn unicode活性文字と一文字制御記号はfmt往復後も別identityを保つ() {
+        use crate::print::string::StringPrinter;
+
+        let mut e = e();
+        let name = [ControlSequenceNameUnit::Unicode(0x00DF)];
+        let symbol = e.lookup_or_create_wide(&name).unwrap();
+        let active = e.lookup_or_create_wide_active(0x00DF).unwrap();
+
+        assert_ne!(symbol, active);
+        assert_eq!(e.lookup_wide(&name), Some(symbol));
+        assert_eq!(e.lookup_wide_active(0x00DF), Some(active));
+        assert_eq!(e.control_sequences.wide_active_char(symbol), None);
+        assert_eq!(e.control_sequences.wide_active_char(active), Some(0x00DF));
+
+        let mut symbol_printer = StringPrinter::new(Some(b'\\'));
+        symbol.sprint_cs(&e, &mut symbol_printer);
+        assert_eq!(symbol_printer.into_string(), "\\ß".as_bytes());
+        let mut active_printer = StringPrinter::new(Some(b'\\'));
+        active.sprint_cs(&e, &mut active_printer);
+        assert_eq!(active_printer.into_string(), "ß".as_bytes());
+
+        let mut dumped = Vec::new();
+        e.control_sequences.dump(&mut dumped).unwrap();
+        let dumped = String::from_utf8(dumped).unwrap();
+        let loaded = ControlSequenceStore::undump(&mut dumped.lines()).unwrap();
+        assert_eq!(loaded.id_lookup_wide(&name), Some(escaped_id(symbol)));
+        assert_eq!(
+            loaded.id_lookup_wide_active(&name),
+            Some(escaped_id(active))
+        );
+        assert_eq!(loaded.wide_active_char(active), Some(0x00DF));
+    }
+
+    #[test]
     fn unicode名はfmt往復でsurrogateを含むidentityを保つ() {
         let mut e = e();
         let foo = e.control_sequences.intern_namespace(b"foo");
@@ -1309,7 +1472,7 @@ mod namespace_tests {
             Some(escaped_id(global))
         );
         assert_eq!(
-            loaded.id_lookup_ns_wide(Some(foo), &namespace_name),
+            loaded.id_lookup_ns_wide(Some(foo), false, &namespace_name),
             Some(escaped_id(namespaced))
         );
         assert_eq!(

@@ -692,6 +692,12 @@ impl Dumpable for LanguageNode {
         let language = usize::undump(lines)?;
         let left_hyphen_min = usize::undump(lines)?;
         let right_hyphen_min = usize::undump(lines)?;
+        if language > 255
+            || !(1..=63).contains(&left_hyphen_min)
+            || !(1..=63).contains(&right_hyphen_min)
+        {
+            return Err(FormatError::ParseError);
+        }
         Ok(Self {
             language,
             left_hyphen_min,
@@ -1455,6 +1461,19 @@ mod tests {
         let mut lines = input.lines();
         let language_node_undumped = LanguageNode::undump(&mut lines).unwrap();
         assert_eq!(language_node, language_node_undumped);
+    }
+
+    #[test]
+    fn language_nodeの壊れたformat値を拒否する() {
+        for input in ["256\n2\n3\n", "1\n0\n3\n", "1\n64\n3\n", "1\n2\n0\n", "1\n2\n64\n"] {
+            assert!(matches!(
+                LanguageNode::undump(&mut input.lines()),
+                Err(FormatError::ParseError)
+            ));
+        }
+        for input in ["0\n1\n63\n", "255\n63\n1\n"] {
+            assert!(LanguageNode::undump(&mut input.lines()).is_ok());
+        }
     }
 
     #[test]

@@ -139,7 +139,7 @@ impl Scanner {
                         continue;
                     }
                 }
-                Token::CjkChar(_) => {}
+                Token::LatinUcsChar(_) | Token::CjkChar(_) => {}
                 Token::CSToken { .. } => {}
                 Token::Null => {
                     panic!("Should not appear here")
@@ -167,7 +167,9 @@ impl Scanner {
     pub fn scan_left_brace(&mut self, eqtb: &mut Eqtb, logger: &mut Logger) {
         let (unexpandable_command, token) =
             self.get_next_non_blank_non_relax_non_call_token(eqtb, logger);
-        if let UnexpandableCommand::LeftBrace(_) = unexpandable_command {
+        if let UnexpandableCommand::LeftBrace(_)
+        | UnexpandableCommand::LatinUcsLeftBrace(_) = unexpandable_command
+        {
             // We consume the expected left brace.
         } else {
             logger.print_err("Missing { inserted");
@@ -207,6 +209,14 @@ impl Scanner {
                 match unexpandable_command {
                     UnexpandableCommand::Spacer => file_name.push(b' '),
                     UnexpandableCommand::CjkChar(c) => c.push_utf8(&mut file_name),
+                    UnexpandableCommand::LatinUcsChar(c)
+                    | UnexpandableCommand::LatinUcsLeftBrace(c)
+                    | UnexpandableCommand::LatinUcsRightBrace(c)
+                    | UnexpandableCommand::LatinUcsMathShift(c)
+                    | UnexpandableCommand::LatinUcsTabMark(c)
+                    | UnexpandableCommand::LatinUcsMacParam(c)
+                    | UnexpandableCommand::LatinUcsSupMark(c)
+                    | UnexpandableCommand::LatinUcsSubMark(c) => c.push_utf8(&mut file_name),
                     UnexpandableCommand::LeftBrace(c)
                     | UnexpandableCommand::RightBrace(c)
                     | UnexpandableCommand::MathShift(c)
@@ -226,6 +236,14 @@ impl Scanner {
             }
             match unexpandable_command {
                 UnexpandableCommand::CjkChar(c) => c.push_utf8(&mut file_name),
+                UnexpandableCommand::LatinUcsChar(c)
+                | UnexpandableCommand::LatinUcsLeftBrace(c)
+                | UnexpandableCommand::LatinUcsRightBrace(c)
+                | UnexpandableCommand::LatinUcsMathShift(c)
+                | UnexpandableCommand::LatinUcsTabMark(c)
+                | UnexpandableCommand::LatinUcsMacParam(c)
+                | UnexpandableCommand::LatinUcsSupMark(c)
+                | UnexpandableCommand::LatinUcsSubMark(c) => c.push_utf8(&mut file_name),
                 UnexpandableCommand::LeftBrace(c)
                 | UnexpandableCommand::RightBrace(c)
                 | UnexpandableCommand::MathShift(c)

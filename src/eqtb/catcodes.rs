@@ -1,12 +1,14 @@
 use crate::format::{Dumpable, FormatError};
 
+use super::codes::{LATIN_UCS_TABLE_LEN, MAX_LATIN_UCS_CODE, MAX_ONE_BYTE_CODE};
+
 use std::io::Write;
 
 const NULL_CODE: u8 = 0;
 pub const CARRIAGE_RETURN: u8 = 13;
 const INVALID_CODE: u8 = 127;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum CatCode {
     Escape = 0,
@@ -112,6 +114,11 @@ impl Dumpable for CatCode {
 /// See 247.
 pub struct CatCodes {
     cat_codes: [CatCode; 256],
+    /// upTeX `latin_ucs` が付与する 16 bit 欧文 catcode。
+    ///
+    /// 0..=255 は TeX82 の表そのものを共有する。ここには 256..=U+2E7F
+    /// だけを置き、ASCII/8 bit 入力の表引きを増やさない。
+    latin_ucs_cat_codes: Box<[CatCode]>,
 }
 
 impl CatCodes {
@@ -119,6 +126,7 @@ impl CatCodes {
     pub fn new() -> Self {
         let mut params = Self {
             cat_codes: [CatCode::OtherChar; 256],
+            latin_ucs_cat_codes: vec![CatCode::OtherChar; LATIN_UCS_TABLE_LEN].into_boxed_slice(),
         };
         params.cat_codes[CARRIAGE_RETURN as usize] = CatCode::CarRet;
         params.cat_codes[b' ' as usize] = CatCode::Spacer;
@@ -152,12 +160,44 @@ impl CatCodes {
         *self.index_mut(chr) = new_cat_code;
         prev_value
     }
+
+    pub(crate) fn get_latin_ucs(&self, code_point: u32) -> CatCode {
+        assert!(code_point <= MAX_LATIN_UCS_CODE, "catcode index is out of range");
+        if code_point <= MAX_ONE_BYTE_CODE {
+            self.cat_codes[code_point as usize]
+        } else {
+            self.latin_ucs_cat_codes[code_point as usize - 256]
+        }
+    }
+
+    pub(crate) fn set_latin_ucs(
+        &mut self,
+        code_point: u16,
+        new_cat_code: CatCode,
+    ) -> CatCode {
+        assert!(
+            u32::from(code_point) <= MAX_LATIN_UCS_CODE,
+            "catcode index is out of range"
+        );
+        if code_point <= u8::MAX.into() {
+            self.set(code_point as u8, new_cat_code)
+        } else {
+            std::mem::replace(
+                &mut self.latin_ucs_cat_codes[usize::from(code_point) - 256],
+                new_cat_code,
+            )
+        }
+    }
 }
 
 impl Dumpable for CatCodes {
     fn dump(&self, target: &mut impl Write) -> Result<(), std::io::Error> {
         for char_code in self.cat_codes {
             char_code.dump(target)?;
+        }
+        LATIN_UCS_TABLE_LEN.dump(target)?;
+        for &cat_code in &self.latin_ucs_cat_codes {
+            cat_code.dump(target)?;
         }
         Ok(())
     }
@@ -167,6 +207,39 @@ impl Dumpable for CatCodes {
         for i in 0..256 {
             cat_codes[i] = CatCode::undump(lines)?;
         }
-        Ok(Self { cat_codes })
+        if usize::undump(lines)? != LATIN_UCS_TABLE_LEN {
+            return Err(FormatError::ParseError);
+        }
+        let mut latin_ucs_cat_codes = vec![CatCode::OtherChar; LATIN_UCS_TABLE_LEN];
+        for cat_code in &mut latin_ucs_cat_codes {
+            *cat_code = CatCode::undump(lines)?;
+        }
+        Ok(Self {
+            cat_codes,
+            latin_ucs_cat_codes: latin_ucs_cat_codes.into_boxed_slice(),
+        })
+    }
+}
+
+#[cfg(test)]
+mod latin_ucs_tests {
+    use super::*;
+
+    #[test]
+    fn 一byte表とunicode欧文表は境界で同じ意味を持つ() {
+        let mut codes = CatCodes::new();
+        assert_eq!(codes.get_latin_ucs(0xFF), CatCode::OtherChar);
+        assert_eq!(codes.get_latin_ucs(0x100), CatCode::OtherChar);
+
+        codes.set_latin_ucs(0x00DF, CatCode::Letter);
+        codes.set_latin_ucs(0x0100, CatCode::Letter);
+        codes.set_latin_ucs(MAX_LATIN_UCS_CODE as u16, CatCode::ActiveChar);
+
+        assert_eq!(*codes.get(0xDF), CatCode::Letter);
+        assert_eq!(codes.get_latin_ucs(0x100), CatCode::Letter);
+        assert_eq!(
+            codes.get_latin_ucs(MAX_LATIN_UCS_CODE),
+            CatCode::ActiveChar
+        );
     }
 }
