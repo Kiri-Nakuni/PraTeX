@@ -515,6 +515,10 @@ impl Eqtb {
             UnexpandableCommand::Prefixable(PrefixableCommand::Integer(IntegerVariable::Language)),
         );
         self.primitive_unexpandable(
+            b"pratexregion",
+            UnexpandableCommand::Prefixable(PrefixableCommand::LanguageRegion),
+        );
+        self.primitive_unexpandable(
             b"lefthyphenmin",
             UnexpandableCommand::Prefixable(PrefixableCommand::Integer(
                 IntegerVariable::LeftHyphenMin,

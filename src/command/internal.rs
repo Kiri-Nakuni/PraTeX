@@ -39,6 +39,7 @@ pub enum InternalCommand {
     GlueComponent(GlueComponent),
     InputLineNumber,
     Integer(IntegerVariable),
+    LanguageRegion,
     Dimension(DimensionVariable),
     Glue(SkipVariable),
     MuGlue(SkipVariable),

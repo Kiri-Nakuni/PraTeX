@@ -19,8 +19,9 @@ TDS archive を一時領域へ展開し、配布物そのものはこのリポ�
 1. **互換プリミティブ**：文字列、ファイル照会、MD5 など。DVI出力のままでも使える。
 2. **PDF直接出力**：object、stream、xref、フォント埋め込み、ページ出力。
 
-いま入っているのは前者だけである。直接出力は、既存のDVI出力を回帰試験で固定して
-から backend の境界を抜き出す。
+前者に加えて、後者はPDF 1.4のpage tree、rule、暫定Courier表示、明示mapによるType 1
+全埋込みまで進んでいる。font subset、ToUnicode、TrueType/OpenType、主要PDF primitiveは
+未実装である。現在の境界は [PDF backend移植ノート](pdf-backend-notes.md) に記録する。
 
 ## `\pdfstrcmp`
 

@@ -13,8 +13,8 @@ use crate::box_building::BoxContext;
 use crate::dimension::scan_normal_dimen;
 use crate::eqtb::{
     CatCode, CodeType, CodeVariable, ControlSequence, DimensionVariable, Eqtb, FontIndex,
-    FontVariable, IntegerVariable, KCatCode, MathFontSize, ParagraphShape, SkipVariable,
-    TokenListVariable, NULL_FONT,
+    FontVariable, IntegerVariable, KCatCode, LanguageRegion, MathFontSize, ParagraphShape,
+    SkipVariable, TokenListVariable, NULL_FONT,
 };
 use crate::file_search::FileKind;
 use crate::fonts::FontInfo;
@@ -53,6 +53,7 @@ pub enum PrefixableCommand {
     TokenListRegister,
     TokenList(TokenListVariable),
     Integer(IntegerVariable),
+    LanguageRegion,
     Dimension(DimensionVariable),
     Glue(SkipVariable),
     MuGlue(SkipVariable),
@@ -102,6 +103,7 @@ impl PrefixableCommand {
                 Some(InternalCommand::Toks(ToksCommand::TokenList(toks_var)))
             }
             &Self::Integer(int_var) => Some(InternalCommand::Integer(int_var)),
+            Self::LanguageRegion => Some(InternalCommand::LanguageRegion),
             &Self::Dimension(dim_var) => Some(InternalCommand::Dimension(dim_var)),
             &Self::Glue(glue_var) => Some(InternalCommand::Glue(glue_var)),
             &Self::MuGlue(mu_glue_var) => Some(InternalCommand::MuGlue(mu_glue_var)),
@@ -151,6 +153,7 @@ impl PrefixableCommand {
             Self::TokenListRegister => printer.print_esc_str(b"toks"),
             Self::TokenList(toks_var) => printer.print_esc_str(&toks_var.to_string()),
             Self::Integer(int_var) => printer.print_esc_str(&int_var.to_string()),
+            Self::LanguageRegion => printer.print_esc_str(b"pratexregion"),
             Self::Dimension(dim_var) => printer.print_esc_str(&dim_var.to_string()),
             Self::Glue(glue_var) => printer.print_esc_str(&glue_var.to_string()),
             Self::MuGlue(mu_glue_var) => printer.print_esc_str(&mu_glue_var.to_string()),
@@ -221,6 +224,7 @@ impl Dumpable for PrefixableCommand {
                 writeln!(target, "Integer")?;
                 int_var.dump(target)?;
             }
+            Self::LanguageRegion => writeln!(target, "LanguageRegion")?,
             Self::Dimension(dim_var) => {
                 writeln!(target, "Dimension")?;
                 dim_var.dump(target)?;
@@ -335,6 +339,7 @@ impl Dumpable for PrefixableCommand {
                 let int_var = IntegerVariable::undump(lines)?;
                 Ok(Self::Integer(int_var))
             }
+            "LanguageRegion" => Ok(Self::LanguageRegion),
             "Dimension" => {
                 let dim_var = DimensionVariable::undump(lines)?;
                 Ok(Self::Dimension(dim_var))
@@ -481,6 +486,23 @@ pub fn prefixed_command(
             scanner.scan_optional_equals(eqtb, logger);
             let value = Integer::scan_int(scanner, eqtb, logger);
             eqtb.int_define(int_var, value, global, logger);
+        }
+        PrefixableCommand::LanguageRegion => {
+            scanner.scan_optional_equals(eqtb, logger);
+            let value = Integer::scan_int(scanner, eqtb, logger);
+            match LanguageRegion::try_from(value) {
+                Ok(language_region) => eqtb.language_region_define(language_region, global),
+                Err(()) => {
+                    logger.print_err("Invalid PraTeX region (");
+                    logger.print_int(value);
+                    logger.print_str("), should be in the range ");
+                    logger.print_int(LanguageRegion::MIN_CODE);
+                    logger.print_str("..");
+                    logger.print_int(LanguageRegion::MAX_CODE);
+                    let help = &["I'm going to keep the previous region value."];
+                    logger.error(help, scanner, eqtb);
+                }
+            }
         }
         PrefixableCommand::Dimension(dim_var) => {
             scanner.scan_optional_equals(eqtb, logger);

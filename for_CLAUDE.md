@@ -331,3 +331,73 @@ releaseで通っている。これにより報告されたexpl3の資材存在�
 PTY、`stdbuf`、timeout、bufferを埋めるsentinelは非portableなので採用しない。次枝では公開書式から
 `ls-R`をrun中に一度だけ索引化し、未対応のpath expressionやmktex生成だけ現行one-shot
 kpsewhichへfallbackする。直接path最優先とrun-local positive/negative cacheは維持する。
+
+## 中断checkpoint: 機能inventory
+
+`codex/feature-inventory`で、現行PraTeXのTeX82外機能をsource/testから監査し、
+`docs/feature-inventory.md`へ一覧化した。実装・部分・表面だけ・未実装・設計だけを分け、
+PraTeX独自機能と、e-TeX/pdfTeX/(u)pTeX/web2c仕様のclean-room独立実装も別の表にした。
+特にCJK tokenは組版未対応、e-TeXの10整数parameterは動作未接続、raw string・callback・
+WASM ABI・`^^^^`/`^^^^^^`・OTFは未実装であることを明記した。READMEからリンクし、古く
+なっていたpdfTeX port noteの「直接PDFはまだ」という記述も現在の部分実装へ直した。
+
+## `ls-R`索引とWindows--WSL TeX Live bridge
+
+`codex/kpse-lsr-index`をremoteへpushした。主要commitは次である。
+
+- `634bb8b`: bounded `ls-R` readerとbasename索引を作り、曖昧ならCLIへ戻す。
+- `c6958fa`: `--show-path`の保守的な部分集合と照合し、先行treeを飛ばさない。
+- `6bf22aa`: native `kpsewhich`の起動fileがないWindowsだけ既定WSLへ移す。
+
+nativeの不在回答・診断・異常を別TeX Liveで覆わず、選んだbackendはresolver instance内で
+固定した。ScannerとPDF loaderを跨ぐrun-global固定はまだない。WSLの
+Linux絶対pathと探索pathは検証してUNCへ写し、不正UTF-8、dotdot、Windows予約名などを
+推測変換しない。`ls-R`、探索path、成功・不在cacheは`clear_external_cache`で一緒に消える。
+
+実機のUbuntu-24.04 / TeX Live 2026では三つのdatabaseを発見し、一回の手測定でWindows側から
+`cmr10.tfm`を索引解決して開いた。環境依存のignored回帰試験は索引とone-shotの両方を許す。
+warmなone-shot WSL `kpsewhich`は
+321--349 ms、一方でUNC越しに三databaseを初回索引化するE2Eは8.87 sだった。初回one-shot
+3.89 sを含む列なら合計16件前後、warm値だけとの比較なら26--28件が損益境界の概算である。
+次の性能課題はlazy/adaptive化またはWSL側でのbounded読込み。全release試験は455件通過、
+失敗0、環境依存等4件skip。unsafe RustとVaak API変更はない。
+
+仕様・fallback境界・測定は`docs/kpathsea-port-notes.md`へまとめた。長寿命daemonでは現行cacheを
+そのまま再利用せず、resolver planとpositive/negative cacheを同じgenerationへ結ぶ予定である。
+
+## CJKV組版region R0と長期拡張境界
+
+現在枝は`codex/cjkv-region-layout`。次の二commitを積んだ。
+
+- `ac6ad90`: 組版localeをTeX `\language`やUnicode scriptから推定せず、typed
+  `LanguageRegion`として独立保存するR0。
+- `bb91e92`: script境界、文字identity、寸法単位、incremental/LSP、LaPraTeXのroadmapと
+  現況inventoryを更新する文書commit。
+
+R0のprimitiveは`\pratexregion=0..5`で、`und`、`ja`、`zh-Hans`、`zh-Hant`、`ko`、`vi`を
+選ぶ。local/global/globaldefs、save stack、fmt、`\the`、`\showthe`、`\meaning`、`\let`、
+範囲外回復、`\language`との独立を試験した。まだJFM、spacing、font、DVI/PDFを変えない。
+fmtへ新しいtyped fieldを加えたので、このcommit以前のfmtは再生成が必要である。
+
+専用試験8件、全release試験466件が通過し、失敗0、4 ignored。TRIP二段はexit 0、16 pages、
+`tripos.tex`一致。TeX Live 2026の`dvitype`によるDVI意味比較は差0で、正規化SHA-256は
+`1a79b83dab2c27523ffaa20af51bed913edc1d873cb530ff94bf1d7ee1d9ae6c`。safe Rustだけで、
+Vaak API変更はない。
+
+利用者が言っていたTeX82由来の入力変換はTCXだった。TCXは文字identityや異体字機構ではなく、
+Web2Cの明示的な8-bit入力profileとして扱う。互換状態は`xord[256]`、`xchr[256]`、
+`xprn[256]`の三表で、多対一を許し、raw byte変換の後にscannerの`^^`処理を行う。
+既定UTF-8へbyte単位TCXを重ねない。目標のstrict `PraTeXUtf8`、現在productionの
+`EuptexCompat` decoder、明示`Web2cTcx8Bit`の三profileを分離した。TCX自体はまだ設計のみ。
+
+異体字・外字・造字は、通常Unicode scalarをinlineし、IVS・外部文字・局所外字だけを
+bounded arenaで参照する案にした。font slot、GID、IDS recipe、未解決import参照をsemantic
+identityにしない。嘘字/TRONはimport adapterとしてのみ検討し、対応表・font・glyphを
+無断vendorしない。Tフォント等はlocal利用権とPDF full/subset embedding権を分離し、
+明示した権利が無ければPDFへ埋め込まない。
+
+新規roadmap群のうちproductionに入ったのはregion R0だけで、R1以降、WASM、Vaak table、
+TCX、glyph identity、任意寸法単位、watcher/downloader/LSP、LaPraTeXはすべて設計のみである。
+現時点でClaude側へ必要なVaak API追加はない。将来table upload capabilityを始める時に、
+一文字・一境界ごとのcallbackではなく、run-localな明示要求とhost-owned compiled tableの
+契約を先に相談する。
