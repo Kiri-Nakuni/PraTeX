@@ -154,6 +154,19 @@ U+2E7F 以下でも `15..20` と表示される。この回復も回帰試験へ
 | 8 | **禁則**（`\prebreakpenalty` / `\postbreakpenalty` / `\inhibitxspcode`） | 未 |
 | 9 | **縦組**（dir ノード） | 未。**ここが一番遠い** |
 
+2026-08-22にWSL TeX Live 2026をresolver経由で通常探索し直したところ、`expl3-code.tex`は
+未定義primitiveなしで通過した。最初のhard errorはGerman hyphenation pattern
+`dehypht-x-2024-02-28.pat`の`.buß3`に対する`Nonletter`である。一時的な空`hyphen.cfg`で
+pattern読込みだけを隔離すると、無改変`latex.ltx`はerror 0で`latex.fmt`をdumpした。
+したがってLaTeX初期化の現在のblockerはe-TeX/pdfTeX primitiveではなく段4cである。
+ASCIIの`ushyph1.tex`だけでformatを作れた過去の測定と、通常TeX Live探索でUnicode patternを
+読めない現状を混同しない。
+
+`.buß3`を通す最小条件は`LatinUcs`をUTF-8 byte列へ戻さない一文字token、Unicode cat/lccode表、
+Unicode文字を扱うpattern alphabet/trie、byte数でなく文字数を数える上限である。実段落の
+hyphenationまで完成させるにはUnicode文字nodeとOFM接続も後続する。pattern本文は互換性を測る
+opaque外部入力としてだけ使い、実装資料へ転記しない。
+
 **1〜3を全て終えれば e-TeX 相当になる。** 現在は一部が未完であり、LaTeX2eが動くことを
 e-TeX完全対応の代用にはしない。欠落とTeX--XeTの実処理は
 [e-TeXとTeX--XeTの対応状況](etex-texxet-status.md)で追跡する。

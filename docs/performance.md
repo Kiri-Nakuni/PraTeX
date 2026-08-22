@@ -23,6 +23,78 @@ P0のperformance gateは、engine本体のcorpus幾何平均をe-upTeXの5%以�
 確認してから採用する。測定用入力、実行ファイルの複製、logはリポジトリ外の
 `%TEMP%` にだけ置き、版方へ入れない。
 
+## WSL e-upTeXとの同一OS基線
+
+Windows版TeX Liveの遅さを比較基準にはしない。最初の中間gateは、同じPC、同じWSL、
+同じCPU scheduler上でPraTeXとTeX Live 2026 e-upTeXを交互に走らせ、探索とfmtを外した
+engine workloadで **1.2倍未満**へ入れることである。最終の5%/10% gateは、その後に
+pTeX相当corpusで判定する。
+
+`4745f3c`をWSL上でもrelease LTO buildし、INITEX、fmtなし、探索なしで測った。入力は
+macro展開と `\advance\count0 by 1` を1000万回行い、終了時に値を検査する。2回warm-up後、
+順序を反転しながら各11回測ったwall中央値は次である。
+
+| | PraTeX | e-upTeX | 比 |
+|---|---:|---:|---:|
+| 空に近いINITEX | 14.361 ms | 151.657 ms | 0.095 |
+| 1000万回展開・整数加算 | 1975.460 ms | 1140.525 ms | **1.732** |
+
+起動を概算で控除するとengine部分は約1.98倍であり、1.2倍gateを明確に越えた。このため
+`codex/perf-wsl-euptex-safe`を切り、safe Rustのprofile/refactorを先に行う。Windows nativeの
+PraTeX/e-upTeX値は環境差の参考にだけ残し、合否へ使わない。
+
+LLVMのinstrumentation profileでは、1000万回入力におよそ次の回数があった。
+
+- `InputStack::get_next` / `Scanner::get_next`: 1.11億 / 1.01億回
+- `get_x_token`: 9000万回
+- integer参照: 4110万回
+- `scan_keyword`: 2000万回
+- `RawVec::grow_amortized`: 約1000万回
+
+10M入力だけで学習したLLVM PGOも診断として試した。CPU 0固定の追加測定ではgeneric PGOが
+2151.80 msから1479.86 msへ短縮したが、同じ列のe-upTeX 1097.07 msに対してなお1.349倍だった。
+狭い入力へのPGOを製品上の解決とはせず、profileが示した確保とdispatchを一件ずつ直す。
+
+## キーワード成功経路の無確保化
+
+TeXの§407に相当する `scan_keyword` は、成功時にも一致済み字句を `Vec`へpushしていた。
+1000万回入力では `by` のためだけに約1000万回のgrow/freeが発生する。現行engineの最長語は
+6字なので、6字までは局所配列へ置き、失敗して字句を戻す時だけ `Vec`を作る。7字以上も
+従来どおり動くheap fallbackを残し、入力上限にはしない。
+
+親 `4745f3c` と `955318e` をWSL rustc 1.97.1、release LTO、CPU 0固定で比較した。100万回版を
+4回warm-up後、順序を交互にして各31回測った。
+
+| | 親 | 無確保化 | 短縮 |
+|---|---:|---:|---:|
+| wall中央値 | 252.708 ms | 240.270 ms | 4.92% |
+| child CPU中央値 | 257.403 ms | 243.710 ms | 5.32% |
+
+先頭空白と大文字、部分一致失敗の復元順、7字超の成功と失敗を直接試験した。release全体は
+507 passed、0 failed、6 ignored。TRIPは両段exit 0、999 records同士で、preamble comment、
+pointer、末尾paddingを除く意味差0だった。PraTeX DVI SHA-256は
+`b20af20a1463c6846f0c4c1ce687cd6354ce1a5f65ee401507627570787ae9fe`のままである。
+unsafe Rustは使っていない。
+
+## 最上位整数代入の直接化
+
+整数演算の代入は、group外でも毎回 `Definition` と `Variable` へ包み直し、保存levelを調べていた。
+最上位では局所・大域代入の意味が同じで、保存すべき外側の値もない。`9bb6023`ではloggerへ同期する
+`escapechar` / `newlinechar` を先に処理した後、`cur_level == 0`だけ整数表へ直接書く。group内、
+`globaldefs`、高位registerの既存経路は変えない。
+
+独立targetを用い、CPU時間で比較した結果は次である。
+
+| workload | 親 | 直接化 | 短縮 |
+|---|---:|---:|---:|
+| 100万回、31標本の中央値 | 272.864 ms | 256.476 ms | 6.00% |
+| 1000万回、11標本の中央値 | 2447.354 ms | 2257.860 ms | 7.74% |
+
+1000万回の平均でも5.69%短縮した。release全体は507 passed、0 failed、6 ignored。
+TRIPは両段exit 0、`tripos.tex`一致、DVI hashと既知の999 records意味差0を維持した。
+この時点でも同一WSL e-upTeX比1.2未満には届かない。依頼者判断によりunsafe最適化は一通りの
+機能完成後まで保留し、性能専用作業を止めてe-TeX/pdfTeXと日本語組版の統合へ戻った。
+
 ## 一字の差し戻し
 
 数値や条件の走査は、先読みした一字を `back_input` で頻繁に戻す。従来は一回ごとに

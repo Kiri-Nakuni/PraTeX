@@ -484,17 +484,90 @@ safe Rustを先に詰め、unsafeを試す場合は明示専用枝へ分離す�
 `b20af20a1463c6846f0c4c1ce687cd6354ce1a5f65ee401507627570787ae9fe`。
 Vaak側で追従する変更はない。
 
-## Windows PraTeX対WSL e-upTeXの基線と性能枝への切替
+## WSL同士のPraTeX対e-upTeX基線と性能枝への切替
 
 依頼者が比較基準をさらに明確化した。Windows版TeX Liveの遅さへ勝つだけでは足りず、
 **同じPCのWSL上で動くe-upTeX**にタメを張る。PraTeX/e-upTeXをINITEX、fmtなし、探索なし、
-同じ1000万回のmacro展開＋整数加算で2回warm-up後に各11回測った中央値は次だった。
+同じ1000万回のmacro展開＋整数加算で2回warm-up後に各11回測った。Windows native値と
+WSL e-upTeXを直接割るのはOS/runtimeが違うため、合否には使わない。PraTeXも同じWSLで
+release LTO buildして交互に走らせた公平な中央値は次だった。
 
-- Windows native PraTeX release LTO: 2,751.868 ms
-- TeX Live 2026 Windows e-upTeX: 1,454.809 ms
-- WSL TeX Live 2026 e-upTeX: 1,213.808 ms
+- WSL PraTeX `4745f3c`: 1,975.460 ms
+- WSL TeX Live 2026 e-upTeX: 1,140.525 ms
+- wall中央値比: 1.732倍
+- 起動控除の概算比: 約1.98倍
 
-PraTeXはWSL e-upTeXの約2.27倍で、依頼者が再設計の目安にした1.2倍を明確に越える。
+PraTeXは依頼者が再設計の目安にした1.2倍を明確に越える。
 JFM readerをcommit/pushした後、safe Rust専用の性能枝へ切り替え、展開器、token入力stack、
 整数走査をprofileする。勝敗はWSL e-upTeX比1.2倍未満、TRIPと全試験の意味一致で判定する。
 Windows e-upTeX値は参考に留め、性能gateには使わない。
+
+## 性能枝の第一commitとVaak内部API設計
+
+`codex/perf-wsl-euptex-safe`の`955318e`をpushした。1000万回入力のprofileでは
+`scan_keyword`成功時の`Vec` grow/freeが約1000万回あったため、現行最長6字を局所表へ置き、
+失敗時と将来の7字超だけheapへ移すようにした。WSL CPU 0固定、100万回、31回交互測定で
+wall中央値252.708→240.270 ms（4.92%短縮）、child CPU中央値257.403→243.710 ms
+（5.32%短縮）。releaseは507 passed、0 failed、6 ignored。TRIPは両段exit 0、999 records、
+許容差除外後の意味差0、DVI hash不変。safe Rustだけである。
+
+LLVM PGOも診断として試した。10M専用profileのgeneric PGOは2151.80→1479.86 msまで短縮したが、
+同じ列のe-upTeX 1097.07 msに対して1.349倍で、1.2倍には届かない。狭い入力へ過適合したPGOを
+解決扱いせず、input/expansion/integer dispatchをprofile順に直す。
+
+依頼者から、内蔵Vaakと外向きWASMを二車線にする研究案を受け取った。PraTeX側では
+`docs/vaak-embedding-api-design.md`を作成中で、標準日本語経路callback 0、明示登録だけでphaseを
+有効化、Leaf/MaySuspend、opaque handle、validated Patch/BreakPlan、WASM 0/1 bulk、fmt/daemon
+generationを設計している。現行Vaakが既に持つcompile-time `u16` HostFn index、Program2 cache、
+Runner再利用を新規課題と誤認しない。
+
+Claude/Vaak側に将来必要と見込むのは、prepared/layoutの正式API、typed host completion、
+allocation-free Leaf、MaySuspend start/resume、host-owned nominal tokenである。現行Vaakは裸の
+NameだけをHostCallへするため、初版名は`node_kind`等にし、`node.kind`型namespaceは別機能として
+相談する。まだPraTeX codeへのphase/node hook実装は始めず、文書レビューを先に完了する。
+
+## Vaak embedding probe確認と統合作業への復帰
+
+Vaakをfetchし、`origin/codex/embedding-probe`の`67489a8`を確認した。core変更ではなく、
+`Program2`/再利用`Runner`を使う例・試験・測定である。paired extraは一引数native HostCallが
+約75--90 ns、二引数が約105--130 ns。9,999 nodes、210,524 NodeOpsは負荷の振れを含め
+約162--319 msだった。native NodeOpsがnamed functionより軽く、内蔵Vaakでは細粒度callを許し、
+外向きWASMだけをbulkにする二車線の判断を支持する。
+
+同枝の監査後、S-22 `188c119`で`run_writeback`、host read/write set、定数添字の
+`HostBinding::read_at/write_at/len`、同値write抑止がcoreへ入ったことも確認した。PraTeXは
+`Runner::run_writeback`へ接続し、実行時誤りより前のregister変更をC-2どおり残す試験を追加した。
+Vaak coreには引き続きprepared/layout公開API、typed host function completion、
+allocation-free Leaf、MaySuspend、opaque host tokenがない。PraTeX設計ではさらに、Vaak所有の
+`HostLayout`へPraTeX固有`CapabilityKind`を入れずlayout-local opaque IDだけを渡すこと、live-node
+entryは明示引数つきnamed entry一本にすること、ephemeral tokenをaggregateの入れ子まで推移的に
+escape検査することを固定した。敵対的再レビュー後、実装開始を妨げるP0は残っていない。
+
+S-22周辺には二点返したい。第一に、partial経路は`read_at`成功で選べる一方、`write_at`を対で
+実装したか宣言できず、`false`も無視するため、readだけoverrideしたbindingの書込みが黙って落ち得る。
+第二に、最新`host_touched`は`Ref` / `Freeze` / `MutMethod`だけの利用を`Some([])`にし得る。
+PraTeXは当面、usedかつ空集合を`Touch::All`へ倒してalias関数の同期漏れを防ぐ。長さ参照だけなら
+余計に256要素を同期するが、性能作業を保留した現在は正しさを優先する。Vaak側で空集合と
+「全部必要」を区別できればこのfallbackを狭められる。
+
+監査中にVaak local `codex/main`は`3fd38d9`まで進み、`da2afdf`のresolved PlaceとSTEEL追随を
+確認した。入れ子pathの根複製を避け、host解析をtop chunkへ限定したため、別chunkの同番号slotを
+hostと誤認する懸念は解消している。公開`Op`は増えたがPraTeXは網羅matchしないため追随不要。
+named entry、typed HostFn result、opaque token、embedding suspendはまだ未実装である。Vaak作業木の
+既存dirty `.gitignore`、`examples/hello.vaak`、`for_CLAUDE.md`、VSIXには触れていない。
+
+性能枝では`9bb6023`までsafe Rustで進め、最上位整数代入を1000万回中央値で7.74%短縮した。
+release 507/507、TRIP両段exit 0、DVI hash不変。依頼者判断によりunsafe tuningは一通り動いた後へ
+保留し、`codex/euptex-integration-resume`を切ってe-TeX/pdfTeX、日本語組版へ戻った。
+
+## LaTeX通常探索で露出したLatinUcs blocker
+
+WSL TeX Live 2026をresolver経由で通常探索して`latex.ltx`を再実測した。`expl3-code.tex`を
+抜け、未定義primitiveは0。最初のhard errorは`dehypht-x-2024-02-28.pat`の`.buß3`に対する
+`Nonletter`だった。一時的な空`hyphen.cfg`でpatternだけを隔離するとerror 0で`latex.fmt`を
+dumpした。以前のASCII `ushyph1.tex`測定と矛盾せず、通常配布treeまで広げたため段4c
+`latin_ucs`/Unicode欧文表が露出した形である。
+
+次のprimitiveを一個足す段階ではなく、Unicode欧文token、cat/lccode save stack/fmt、Unicode
+pattern alphabet/trie、文字数上限が一単位になる。PraTeX側でStage 4cの第一sliceを設計中。
+標準LaTeX/日本語経路なのでVaak/WASMへ逃がさずengine coreへ置く。
