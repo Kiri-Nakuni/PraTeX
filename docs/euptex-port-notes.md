@@ -142,7 +142,7 @@ U+2E7F 以下でも `15..20` と表示される。この回復も回帰試験へ
 | 1a | e-TeX の**式**（`\numexpr` `\dimexpr` `\glueexpr` `\muexpr`） | **済**（枝 `etex-expr`、試験 12 本） |
 | 1b | 疎レジスタ（0–32767） | **済**（低位密＋高位疎、6種、挿入番号は別型） |
 | 1c | e-TeX のmark class（0–32767） | **済**（class 0は従来状態、非0は疎表、pageと`\vsplit`） |
-| 1d | e-TeX の糊成分問い合わせ | **済**（伸縮の係数と次数、通常糊・数式糊・式・fmt） |
+| 1d | e-TeX の糊成分問い合わせと型変換 | **済**（伸縮の係数と次数、`\mutoglue` / `\gluetomu`、通常糊・数式糊・式・fmt） |
 | 2 | e-TeX の**字句系** | **一部済**（`\detokenize` `\unexpanded` `\readline` `\protected` `\everyeof`。`\scantokens` は未） |
 | 3 | e-TeX の**内省** | **一部済**（`\currentgroup*` `\currentif*` `\lastnodetype` `\iffontchar`。`\fontchar*` `\showgroups` `\showtokens` 等は未） |
 | 4a | **Unicode block 分類表と `\kcatcode`**（代入・group・fmtまで） | **済**（U+10FFFFまで） |
@@ -236,3 +236,9 @@ p4.1.2-u2.02も黒箱で照合した。
 4命令は一つの `GlueComponent` で表し、primitive名、`\meaning` の表示、fmt表現を
 同じ場所から決める。引数は既存の糊走査へ渡すので、通常値、skipレジスタ、`\glueexpr`、
 符号、単位不一致の決定を二重に持たない。
+
+同じ節の`\mutoglue` / `\gluetomu`もTeX Live 2026 e-upTeXへ黒箱照合した。前者は数式糊を
+通常糊へ、後者は通常糊を数式糊へ変え、幅・伸縮係数・次数の数値を変えない。逆の型を
+渡した場合は`Incompatible glue units`を報せた後、1muと1ptを同じscaled値として回復する。
+二命令は一つの`GlueConversion`からprimitive名、内部量の入出力型、`\meaning`、fmtを決め、
+値の走査とerror回復は既存`scan_glue`だけに持たせる。

@@ -22,7 +22,7 @@ TeX--XeTは二つの整数parameterを保存できるだけで、**組版機能�
 | 拡張register 0--32767 | 実装 | count/dimen/skip/muskip/toks/boxの局所・大域・別名・fmtを試験済み |
 | class別mark 0--32767 | 実装 | page遷移、`\vsplit`、class 0互換、fmtを試験済み |
 | `\readline`、`\everyeof` | 部分 | 実fileでは動く。`\scantokens`疑似fileがないため、そのEOF契約は未達 |
-| 糊成分の照会 | 部分 | `\gluestretch`等4種は実装。`\mutoglue`、`\gluetomu`は未実装 |
+| 糊成分の照会と型変換 | 実装 | `\gluestretch`等4種と`\mutoglue`、`\gluetomu`を内部量へ接続。係数・次数・単位不一致回復・式・fmtを試験済み |
 | `\eTeXversion`、対話状態 | 部分 | `\eTeXversion=2`、`\interactionmode`、`\errorcontextlines`は動く。`\eTeXrevision`はない |
 | `\lastnodetype` | 部分 | node追跡はあるが専用試験がなく、base pageへ移す経路で型を同期しない可能性がある |
 | font照会 | 部分 | `\iffontchar`は8-bit TFMへ接続済み。process試験と`\fontcharwd/ht/dp/ic`がない |
@@ -63,7 +63,7 @@ left-to-right/right-to-left区間は公開意味論が異なるため、一つ�
    typed query境界から参照する。
 4. parshape照会とpenalty配列を局所代入、fmt、line breakingまで実装する。JLReqの段落処理も
    同じ保存・照会基盤を利用できるようにする。
-5. `\eTeXrevision`、糊変換、`\middle`を補う。
+5. `\eTeXrevision`と`\middle`を補う。
 6. discard保存、`\lastlinefit`、`\savinghyphcodes`、show/tracingを実処理へ接続する。
 7. TeX--XeTは方向node、LR stack、line packing、DVI/PDF shipoutまでを一つの独立機能枝で
    実装する。parameterだけ先に「対応済み」へ格上げしない。
