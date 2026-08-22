@@ -1,8 +1,8 @@
 use super::{Dumpable, FormatError};
 use crate::command::{
-    Command, ConvertCommand, ExpandableCommand, FiOrElse, GlueComponent, Hskip, IfTest, MacroCall,
-    MakeBox, MarkClassOperand, MarkCommand, MarkQuery, MathCommand, PrefixableCommand, RemoveItem,
-    ShowCommand, UnexpandableCommand, Vskip,
+    Command, ConvertCommand, ExpandableCommand, FiOrElse, GlueComponent, GlueConversion, Hskip,
+    IfTest, MacroCall, MakeBox, MarkClassOperand, MarkCommand, MarkQuery, MathCommand,
+    PrefixableCommand, RemoveItem, ShowCommand, UnexpandableCommand, Vskip,
 };
 use crate::nodes::LeaderKind;
 use crate::token::CjkToken;
@@ -203,6 +203,10 @@ impl Dumpable for UnexpandableCommand {
                 writeln!(target, "GlueComponent")?;
                 component.dump(target)?;
             }
+            Self::GlueConversion(conversion) => {
+                writeln!(target, "GlueConversion")?;
+                conversion.dump(target)?;
+            }
             Self::InputLineNumber => writeln!(target, "InputLineNumber")?,
             Self::End { dumping } => {
                 writeln!(target, "End")?;
@@ -365,6 +369,7 @@ impl Dumpable for UnexpandableCommand {
             "LastNodeType" => Ok(Self::LastNodeType),
             "Expr" => Ok(Self::Expr(crate::scan_internal::ValueType::undump(lines)?)),
             "GlueComponent" => Ok(Self::GlueComponent(GlueComponent::undump(lines)?)),
+            "GlueConversion" => Ok(Self::GlueConversion(GlueConversion::undump(lines)?)),
             "InputLineNumber" => Ok(Self::InputLineNumber),
             "End" => {
                 let dumping = bool::undump(lines)?;

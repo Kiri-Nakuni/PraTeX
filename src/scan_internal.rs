@@ -1,4 +1,6 @@
-use crate::command::{BoxDimension, GlueComponent, InternalCommand, PageDimension, ToksCommand};
+use crate::command::{
+    BoxDimension, GlueComponent, GlueConversion, InternalCommand, PageDimension, ToksCommand,
+};
 use crate::dimension::{Dimension, MAX_DIMEN};
 use crate::eqtb::Eqtb;
 use crate::eqtb::{
@@ -154,6 +156,9 @@ fn scan_something_internal(
         InternalCommand::GlueComponent(component) => {
             fetch_glue_component(component, scanner, eqtb, logger)
         }
+        InternalCommand::GlueConversion(conversion) => {
+            fetch_converted_glue(conversion, scanner, eqtb, logger)
+        }
         InternalCommand::InputLineNumber => InternalValue::Int(eqtb.line_number() as i32),
         InternalCommand::Toks(toks_command) => fetch_token_list_or_font_identifier(
             toks_command,
@@ -221,6 +226,23 @@ fn fetch_glue_component(
         GlueComponent::ShrinkOrder => {
             InternalValue::Int(order_rank(glue_spec.shrink.order))
         }
+    }
+}
+
+/// 公式 e-TeX manual 3.5 の糊型変換。
+///
+/// See 413. 値の走査と単位不一致の回復は既存の糊走査に集約し、ここでは
+/// `GlueSpec` の数値を変えずに内部量の型だけを付け替える。
+fn fetch_converted_glue(
+    conversion: GlueConversion,
+    scanner: &mut Scanner,
+    eqtb: &mut Eqtb,
+    logger: &mut Logger,
+) -> InternalValue {
+    let glue_spec = crate::glue::scan_glue(conversion.source_is_mu(), scanner, eqtb, logger);
+    match conversion {
+        GlueConversion::MuToGlue => InternalValue::Glue(glue_spec),
+        GlueConversion::GlueToMu => InternalValue::MuGlue(glue_spec),
     }
 }
 

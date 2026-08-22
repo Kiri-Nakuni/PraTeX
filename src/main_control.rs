@@ -353,6 +353,7 @@ pub fn main_control(
                 | UnexpandableCommand::LastNodeType
                 | UnexpandableCommand::Expr(_)
                 | UnexpandableCommand::GlueComponent(_)
+                | UnexpandableCommand::GlueConversion(_)
                 | UnexpandableCommand::InputLineNumber
                 | UnexpandableCommand::EqNo { .. }
                 | UnexpandableCommand::MoveLeft
@@ -622,6 +623,7 @@ pub fn main_control(
                 | UnexpandableCommand::LastNodeType
                 | UnexpandableCommand::Expr(_)
                 | UnexpandableCommand::GlueComponent(_)
+                | UnexpandableCommand::GlueConversion(_)
                 | UnexpandableCommand::InputLineNumber
                 | UnexpandableCommand::EqNo { .. }
                 | UnexpandableCommand::ItalCorr
@@ -1036,6 +1038,7 @@ pub fn main_control(
                 | UnexpandableCommand::LastNodeType
                 | UnexpandableCommand::Expr(_)
                 | UnexpandableCommand::GlueComponent(_)
+                | UnexpandableCommand::GlueConversion(_)
                 | UnexpandableCommand::InputLineNumber
                 | UnexpandableCommand::MoveLeft
                 | UnexpandableCommand::MoveRight
