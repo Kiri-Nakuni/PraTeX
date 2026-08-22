@@ -22,13 +22,14 @@
 ## 枝と共有状態
 
 - 枝: `codex/euptex-integration-resume`
-- 現在の共有HEAD: `df6e71e`
-- `origin/codex/euptex-integration-resume`へ`df6e71e`までpush済み
+- 現在の未commit実装を始めた共有基点: `df6e71e`
+- 引継ぎ・性能記録の更新`961920e`は`origin/codex/euptex-integration-resume`へpush済み
 - 直近の共有commit:
   - `9587e25`: `\mutoglue` / `\gluetomu`
   - `43cd6c9`: e-TeX機能一覧の同期
   - `eda7dd1`: `\scantokens` clean-room設計
   - `df6e71e`: 本引継ぎ文書とREADMEからの導線
+  - `961920e`: `ls-R` safe Rust実験の結果と再現限界
 - 性能枝 `codex/perf-wsl-euptex-safe` は `9bb6023`までpush済みで、現在は停止中
 - Claudeの連絡枝 `origin/claude/for-codex` は `82fa3a2`まで確認済み
 - Vaak `origin/codex/main` は `64ccf4e`まで確認済み
@@ -73,6 +74,50 @@ hard blockerは未定義primitiveではなくStage 4cである。
 
 - e-upTeX固有の`\string`表示（U+0100が`^^@`、activeが`.6`等）は既知差分として
   後段に残してよいが、互換済みとは記載しない。
+- namespaced Unicode activeはstore/fmt/searchの土台だけで、lexerと生成APIが未接続。
+  Stage 4cの完了範囲に含めず、対応済みとは記載しない。
+
+### 完了済み監査: LatinUcs command意味論
+
+状態: **2026-08-22に読取専用監査を完了。source編集なし**。
+
+公式e-upTeX 2026へ自作最小入力だけを与え、次を確認した。上流engine source/testは見ていない。
+
+- raw構造braceはASCIIだけ、mainのgroup commandと必須`scan_left_brace`はLatin cat1/2を含み、
+  alignmentのdeltaもLatinを含む。この四経路を一つのpredicateへ統合しない。
+- Latin cat1/2はundelimited argument、balanced general text、`\def` replacementの構造braceに
+  ならない。Latin cat1は`\def` replacement開始braceにもならない。
+- non-INITEX `\patterns`のerror recoveryはLatin cat2で停止する。
+- `\string`は現在のcatcodeにかかわらずcat12、Latin cat6の`\meaning`は文字を一度だけ表示する。
+
+監査終了時の`cargo test --release --test latin_ucs`は16 passed、0 failed。監査担当がrepo rootへ
+作った`codex-latin-*` log/DVIは正確な対象だけ削除し、再列挙0を確認した。
+
+監査終了時点の重要残件は、破損fmtが`LatinUcsToken(U+0000..U+007F)`を作れることだった。
+runtimeでは同範囲はbyte token専用なので、undumpをU+0080..=U+2E7Fへ制限し、U+007F拒否と
+U+0080受理を試験する。実装担当へ連絡済み。cat7/8の実数式、cat0..16 lexer行列、activeの
+条件・表示・fmt、Unicode pattern照合・例外・fmtは後続のprocess-level回帰として残る。
+
+### `latex.ltx` hyphen分岐の真因
+
+Stage 4cの通常resolver実測では、LatinUcsを手で有効化すれば`.buß3`を越えたが、これは
+production profileではない。公式e-upTeXのINITEX/preloaded既定値は次で、PraTeX側の既定を
+LatinUcsへ変える理由にはならない。
+
+| code point | `kcatcode` | `catcode` | `lccode` | `uccode` | `sfcode` |
+|---:|---:|---:|---:|---:|---:|
+| 223 | 15 | 12 | 0 | 0 | 1000 |
+| 256 | 15 | 12 | 0 | 0 | 1000 |
+| 8217 | 18 | 12 | 0 | 0 | 1000 |
+
+公開hyphen wrapperは、`\kanjiskip`が無い非pTeX engineについてGreek chiが一tokenかでnative
+UTF-8を判定する。PraTeXはCJK/wide tokenによりこの試験を真にする一方、Latinのkcatcode 15は
+正しくraw UTF-8 byte経路なので、wrapperがnative patternを選んだ後`.buß3`で食い違う。
+公式e-upTeXは`\kanjiskip`を持つためpTeX branchへ入り、EC patternを完走した。
+
+従って真の次段は初期kcat/lccodeの改変や検出用stubではなく、group/fmt/組版意味を持つ一級の
+`\kanjiskip` / `\xkanjiskip`実装である。将来のscript-pair抽象化をcore側に置き、通常の
+日本語経路をVaak/WASM callbackへ逃がさない。
 
 主な未commit fileは`src/token.rs`、`src/input*`、`src/eqtb*`、
 `src/hyphenation*`、`src/command*`、`src/alignment.rs`、`src/math.rs`、
