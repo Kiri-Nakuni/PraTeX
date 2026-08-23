@@ -29,6 +29,7 @@ use crate::macros::show_macro_def;
 use crate::nodes::{show_list_node, GlueSpec, GlueType, ListNode, Node};
 use crate::page_breaking::{Marks, PageContents, PageDimensions};
 use crate::print::Printer;
+use crate::runtime_clock::RunDateTime;
 use crate::semantic_nest::Mode;
 use crate::token::Token;
 use crate::token_lists::{show_token_list, RcTokenList};
@@ -179,6 +180,9 @@ pub struct Eqtb {
     // See 286.
     mag_set: i32,
 
+    /// fmtには保存しない、一回のrunだけが所有する時刻。
+    run_date_time: Option<RunDateTime>,
+
     // See 549.
     pub fonts: Vec<FontInfo>,
     pub(crate) japanese_fonts: Vec<JapaneseFontInfo>,
@@ -246,6 +250,7 @@ impl Eqtb {
                 cs: ControlSequence::Undefined,
             },
             mag_set: 0,
+            run_date_time: None,
             fonts: vec![FontInfo::null_font()],
             japanese_fonts: Vec::new(),
             last_badness: 0,
@@ -276,17 +281,25 @@ impl Eqtb {
         self.par_token = Token::CSToken { cs: self.par_cs };
     }
 
-    /// Sets the current time and date. This is used to fix the time point that a
-    /// format file was created. That time is used when starting up and printing the
-    /// banner. It is then updated so that the actual time of the run can be used in
-    /// the DVI file comment.
-    /// NOTE Does not currently use the right date and time.
+    /// run開始時に一度だけ得た時刻をTeXの整数parameterへ写す。
+    ///
+    /// parameterは文書から代入できるため、出力metadata用の不変snapshotも別に保つ。
     /// See 241.
-    pub fn fix_date_and_time(&mut self) {
-        self.integers.set(IntegerVariable::Time, 12 * 60);
-        self.integers.set(IntegerVariable::Day, 4);
-        self.integers.set(IntegerVariable::Month, 7);
-        self.integers.set(IntegerVariable::Year, 1776);
+    pub(crate) fn fix_date_and_time(&mut self, run_date_time: RunDateTime) {
+        self.integers
+            .set(IntegerVariable::Time, run_date_time.tex_time());
+        self.integers
+            .set(IntegerVariable::Day, run_date_time.day());
+        self.integers
+            .set(IntegerVariable::Month, run_date_time.month());
+        self.integers
+            .set(IntegerVariable::Year, run_date_time.year());
+        self.run_date_time = Some(run_date_time);
+    }
+
+    pub(crate) fn run_date_time(&self) -> RunDateTime {
+        self.run_date_time
+            .expect("run date and time must be fixed before TeX input starts")
     }
 
     /// See 236.
@@ -1849,6 +1862,7 @@ impl Dumpable for Eqtb {
             write_cs,
             par_token,
             mag_set: 0,
+            run_date_time: None,
             fonts,
             japanese_fonts,
             last_badness: 0,

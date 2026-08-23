@@ -42,6 +42,7 @@ mod pdf_document;
 mod pdf_font;
 mod print;
 mod run_options;
+mod runtime_clock;
 mod scaled;
 mod scan_boxes;
 mod scan_internal;
@@ -145,6 +146,9 @@ pub fn tex_main() -> Result<(), ()> {
     let arguments = parse_arguments(std::env::args_os().skip(1)).map_err(|error| {
         eprintln!("pratex: {error}");
     })?;
+    let run_date_time = runtime_clock::RunDateTime::capture().map_err(|error| {
+        eprintln!("pratex: {error}");
+    })?;
 
     if !arguments.quiet {
         if INIT {
@@ -165,6 +169,7 @@ pub fn tex_main() -> Result<(), ()> {
         arguments.quiet,
         first_line,
         first_non_space_pos,
+        run_date_time,
         engine,
     )
 }
@@ -177,6 +182,7 @@ fn run_loaded_engine(
     quiet: bool,
     mut first_line: Vec<u8>,
     first_non_space_pos: usize,
+    run_date_time: runtime_clock::RunDateTime,
     engine: Box<InitialEngineState>,
 ) -> ! {
     let (mut logger, mut hyphenator, mut eqtb) = *engine;
@@ -202,7 +208,7 @@ fn run_loaded_engine(
         first_line.push(eqtb.end_line_char() as u8);
     }
 
-    eqtb.fix_date_and_time();
+    eqtb.fix_date_and_time(run_date_time);
     logger.initialize_print_selector_based_on_interaction();
 
     // From 331.

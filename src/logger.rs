@@ -1,4 +1,4 @@
-use crate::eqtb::{Eqtb, FontIndex, IntegerVariable, TokenListVariable};
+use crate::eqtb::{Eqtb, FontIndex, TokenListVariable};
 use crate::error::{fatal_error, jump_out};
 use crate::format::{Dumpable, FORMAT_EXTENSION, FormatError};
 use crate::input::{InputStack, Scanner};
@@ -826,20 +826,16 @@ impl Logger {
 
     /// See 536.
     fn print_banner_line_including_date_and_time(&self, log_file: &mut impl Write, eqtb: &Eqtb) {
-        // NOTE These should really use system time.
-        let months = [
-            "JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC",
-        ];
-        let mon = eqtb.integer(IntegerVariable::Month) as usize;
+        let run_date_time = eqtb.run_date_time();
         write!(
             log_file,
             "{BANNER}{format}  {day} {month} {year} {hour:02}:{minute:02}",
             format = self.format_ident,
-            day = eqtb.integer(IntegerVariable::Day),
-            month = months[mon - 1],
-            year = eqtb.integer(IntegerVariable::Year),
-            hour = eqtb.integer(IntegerVariable::Time) / 60 % 60,
-            minute = eqtb.integer(IntegerVariable::Time) % 60,
+            day = run_date_time.day(),
+            month = run_date_time.transcript_month(),
+            year = run_date_time.year(),
+            hour = run_date_time.hour(),
+            minute = run_date_time.minute(),
         )
         .expect("Error writing to log file");
     }

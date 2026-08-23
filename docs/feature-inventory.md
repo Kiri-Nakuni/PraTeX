@@ -77,7 +77,7 @@
 | 部分 | `\pdfmdfivesum` | general textのMD5を大文字hexで返す。`file`形式は未実装。暗号用途ではない |
 | 実装 | `\pdfstrcmp` | 展開後の二つのgeneral textをbyte辞書順で比較し、`-1`、`0`、`1`を返す |
 | 部分 | PDF文字列変換 | `\pdfescapehex`、`\pdfunescapehex`、`\pdfescapestring`、`\pdfescapename`のbyte変換は実装。focusedなprocess試験は`\pdfescapehex`中心で、残りの互換性検証は薄い |
-| 部分 | `\pdfcreationdate` | 形式は返すが、rtexから継承した固定日時`1776-07-04 12:00 UTC`であり実時計ではない |
+| 対応 | `\year` / `\month` / `\day` / `\time`、transcript、`\pdfcreationdate` | run開始時のlocal clockを一度だけ共有する。`SOURCE_DATE_EPOCH`はUTC固定。不正値はfallbackせず、非Windows/Unix targetはhost clockがなければ固定epochを要求する |
 | 実装 | `\pdfshellescape` | 読み取り専用内部整数。PraTeXはshell escapeを提供しないため常に`0`で、processを起動しない |
 | 部分 | PDF 1.4直接出力 | `-output-format=pdf` / `--output-format=pdf`。page tree、rule、printable ASCIIの暫定Courier表示、明示mapによるType 1全埋込みまで。外部DVI driverなしでfileを閉じられる |
 | 部分 | `--pdf-font-map` | 明示したmapだけでType 1埋込みを有効化する。実配布mapの複数resourceと分離markerを未使用entryごと拒まず、選択TFMだけを検査する。`<<font.pfb`の全埋込みだけを受け、`<font.pfb`のsubset要求を勝手に全埋込みへ変えない |
