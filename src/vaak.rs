@@ -60,14 +60,14 @@ use crate::print::Printer;
 use crate::token::Token;
 use crate::token_lists::{scan_general_text_as_string, str_toks, token_show};
 
-use std::rc::Rc;
-use std::sync::OnceLock;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
+use std::sync::OnceLock;
 
 use vaak::ast::{HostItem, ValueType};
+use vaak::embedding::{prepare, EmbeddingRunner, HostLayout, PreparedProgram};
 use vaak::value::Value;
-use vaak::vm::Program2;
 
 /// Vaak のホスト ABI が公開する低位 count/dimen レジスタの個数。
 const N_REGS: usize = 256;
@@ -79,9 +79,8 @@ const N_REGS: usize = 256;
 /// 覚えておくもの。**組んだ結果と、どの名前を使うか。**
 ///
 /// `host_used()` は命令列を全部見るので、**呼び出しのたびにやってはいけない。**
-#[derive(Clone)]
 struct Built {
-    program: Program2,
+    program: PreparedProgram,
     /// **どの添字を見ているか。**
     ///
     /// 「別名として見えている」ことと「実際に見ている」ことは別である——
@@ -102,7 +101,7 @@ enum Touch {
 }
 
 impl Touch {
-    fn of(p: &Program2, i: usize, used: bool) -> Self {
+    fn of(p: &PreparedProgram, i: usize, used: bool) -> Self {
         if !used {
             return Touch::None;
         }
@@ -113,7 +112,10 @@ impl Touch {
             // 「触らない」と推測せず全体を同期する。See Vaak S-15 and S-22.
             Some(v) if v.is_empty() => Touch::All,
             Some(v) => Touch::Some(
-                v.into_iter().filter(|n| *n >= 0 && (*n as usize) < N_REGS).map(|n| n as usize).collect(),
+                v.into_iter()
+                    .filter(|n| *n >= 0 && (*n as usize) < N_REGS)
+                    .map(|n| n as usize)
+                    .collect(),
             ),
         }
     }
@@ -149,7 +151,7 @@ thread_local! {
     /// **残っている古い値は誰にも観測されない。**
     static BEFORE: RefCell<[[i32; N_REGS]; 2]> = const { RefCell::new([[0; N_REGS]; 2]) };
     /// 実行の入れ物。**場・積み・枠を呼び出しをまたいで使い回す。**
-    static RUNNER: RefCell<vaak::vm::Runner> = RefCell::new(vaak::vm::Runner::new());
+    static RUNNER: RefCell<EmbeddingRunner> = RefCell::new(EmbeddingRunner::new());
 }
 
 /// 本体を名前表に入れ、番号を返す。**同じ本体は同じ番号。**
@@ -170,7 +172,13 @@ pub fn intern(source: &[u8]) -> u32 {
 
 /// 番号から本体を引く。`\show` と書き出しに使う。
 pub fn source_of(id: u32) -> Vec<u8> {
-    NAMED.with(|n| n.borrow().0.get(id as usize).map(|e| e.0.clone()).unwrap_or_default())
+    NAMED.with(|n| {
+        n.borrow()
+            .0
+            .get(id as usize)
+            .map(|e| e.0.clone())
+            .unwrap_or_default()
+    })
 }
 
 /// `\vaakdef\名前{本体}` — **定義の時点で組み立てる。**
@@ -193,7 +201,12 @@ pub fn vaak_def(global: bool, scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &m
         Ok(_) => 0,
     });
     if errs > 0 {
-        report_error(&format!("{errs} static error(s) at definition"), scanner, eqtb, logger);
+        report_error(
+            &format!("{errs} static error(s) at definition"),
+            scanner,
+            eqtb,
+            logger,
+        );
     }
     let command = Command::Expandable(ExpandableCommand::VaakCall(id));
     eqtb.cs_define(cs, command, global);
@@ -240,12 +253,16 @@ fn itoa(mut n: i32, buf: &mut [u8; 12]) -> &[u8] {
 }
 
 /// ホストが見せる名前と型。**常に同じ**なので鍵に含めない。
-fn exposed() -> Vec<(String, HostItem)> {
-    let arr = ValueType::Array(Box::new(ValueType::I32));
-    vec![
-        ("count".to_string(), HostItem::Value(arr.clone())),
-        ("dimen".to_string(), HostItem::Value(arr)),
-    ]
+fn exposed() -> &'static HostLayout {
+    static LAYOUT: OnceLock<HostLayout> = OnceLock::new();
+    LAYOUT.get_or_init(|| {
+        let arr = ValueType::Array(Box::new(ValueType::I32));
+        HostLayout::new(vec![
+            ("count".to_string(), HostItem::Value(arr.clone())),
+            ("dimen".to_string(), HostItem::Value(arr)),
+        ])
+        .expect("PraTeXの固定Vaak host layoutに重複名はない")
+    })
 }
 
 /// 解析・検査・組み立て。**一度だけ行い、覚えておく。**
@@ -268,18 +285,14 @@ fn compile_cached(source: &[u8]) -> Cached {
 
 fn build(source: &[u8]) -> Result<Built, Vec<String>> {
     let src = String::from_utf8_lossy(source);
-    let prog = match vaak::parser::parse(&src) {
-        Ok(p) => p,
-        Err(e) => return Err(vec![e.msg]),
-    };
     let ex = exposed();
-    let mut errs: Vec<String> =
-        vaak::check::check_with_host(&prog, &ex).into_iter().map(|e| e.msg).collect();
-    errs.extend(vaak::types::check_types_with_host(&prog, &ex).into_iter().map(|e| e.msg));
-    if !errs.is_empty() {
-        return Err(errs);
-    }
-    let program = vaak::vm::compile_with_host(&prog, &ex).map_err(|e| vec![e.msg])?;
+    let program = prepare(&src, ex).map_err(|error| {
+        error
+            .diagnostics()
+            .iter()
+            .map(|diagnostic| diagnostic.message.clone())
+            .collect::<Vec<_>>()
+    })?;
     // **一度だけ調べる。** 命令列を全部見るので、呼び出しのたびにはできない
     let used = program.host_used();
     Ok(Built {
@@ -420,15 +433,18 @@ fn run_built(
                     eprintln!("vaak: {e}");
                 }
             }
-            return (0, Some(format!("{} static error(s) before running", errs.len())));
+            return (
+                0,
+                Some(format!("{} static error(s) before running", errs.len())),
+            );
         }
     };
 
     // **見ている添字だけ用意する。**
     // `count[5] * 2` なら 5 番だけ——256 個を見る必要が無い
-    let mut host = HOST_BUF.with(|b| b.borrow_mut().take()).unwrap_or_else(|| {
-        vec![regs_to_value(&[0; N_REGS]), regs_to_value(&[0; N_REGS])]
-    });
+    let mut host = HOST_BUF
+        .with(|b| b.borrow_mut().take())
+        .unwrap_or_else(|| vec![regs_to_value(&[0; N_REGS]), regs_to_value(&[0; N_REGS])]);
 
     BEFORE.with(|b| {
         let mut b = b.borrow_mut();
@@ -441,8 +457,22 @@ fn run_built(
 
     // C-2: 実行時誤りより前の host 書換えは巻き戻さない。旧 run API は
     // Err のとき after を捨てるため、S-22 の writeback API を使う。
-    let (result, after) =
-        RUNNER.with(|r| r.borrow_mut().run_writeback(&built.program, host));
+    let mut host_values = match built.program.host_values(host) {
+        Ok(values) => values,
+        Err(error) => {
+            return (0, Some(format!("invalid Vaak host values: {error}")));
+        }
+    };
+    let result = match RUNNER.with(|r| {
+        r.borrow_mut()
+            .run_values_without_functions(&built.program, &mut host_values)
+    }) {
+        Ok(result) => result,
+        Err(error) => {
+            return (0, Some(format!("invalid Vaak host layout: {error}")));
+        }
+    };
+    let after = host_values.into_values();
 
     // 変わった分だけ書き戻す。**`int_define` を通す**——保存スタックと `\global` のため
     BEFORE.with(|b| {
@@ -515,11 +545,15 @@ fn each(t: &Touch, mut f: impl FnMut(usize)) {
 
 /// 見ている添字だけ控える。**返さない**——渡された場所に書く。
 fn snapshot_counts(t: &Touch, eqtb: &Eqtb, out: &mut [i32; N_REGS]) {
-    each(t, |n| out[n] = eqtb.integer(IntegerVariable::Count(n as RegisterIndex)));
+    each(t, |n| {
+        out[n] = eqtb.integer(IntegerVariable::Count(n as RegisterIndex))
+    });
 }
 
 fn snapshot_dimens(t: &Touch, eqtb: &Eqtb, out: &mut [i32; N_REGS]) {
-    each(t, |n| out[n] = eqtb.dimen(DimensionVariable::Dimen(n as RegisterIndex)));
+    each(t, |n| {
+        out[n] = eqtb.dimen(DimensionVariable::Dimen(n as RegisterIndex))
+    });
 }
 
 fn elem(v: &Value, n: usize) -> Option<i32> {
@@ -536,44 +570,12 @@ fn sync(v: &mut Value, t: &Touch, now: &[i32; N_REGS]) {
     each(t, |n| a.items[n] = Value::I32(now[n]));
 }
 
-/// 入れ物の中身を、いまのレジスタに合わせる。**作り直さない。**
-///
-/// レジスタはたいてい変わっていないので、**512 回の比較**で済む——
-/// 512 個の `Value` を作るより桁違いに安い。
-fn sync_regs(v: &mut Value, now: &[i32; N_REGS]) {
-    let Value::Array(a) = v else {
-        *v = regs_to_value(now);
-        return;
-    };
-    // スクリプトが伸ばしたり縮めたりした場合に備える
-    if a.items.len() != N_REGS {
-        a.items.resize(N_REGS, Value::I32(0));
-    }
-    for (slot, n) in a.items.iter_mut().zip(now.iter()) {
-        match slot {
-            Value::I32(x) if *x == *n => {}
-            _ => *slot = Value::I32(*n),
-        }
-    }
-}
-
 /// レジスタの束を `i32 array` として作る。
 fn regs_to_value(before: &[i32; N_REGS]) -> Value {
-    Value::array(ValueType::I32, before.iter().map(|v| Value::I32(*v)).collect())
-}
-
-/// 走った後の値を取り出す。足りない分は元のままとする。
-fn value_to_regs(v: &Value, before: &[i32; N_REGS]) -> [i32; N_REGS] {
-    let mut out = *before;
-    let Value::Array(a) = v else {
-        return out;
-    };
-    for (n, slot) in out.iter_mut().enumerate() {
-        if let Some(x) = a.items.get(n).and_then(|x| x.as_int()) {
-            *slot = x as i32;
-        }
-    }
-    out
+    Value::array(
+        ValueType::I32,
+        before.iter().map(|v| Value::I32(*v)).collect(),
+    )
 }
 
 /// エラーを報告する。**`\directlua` と見た目を揃える。**

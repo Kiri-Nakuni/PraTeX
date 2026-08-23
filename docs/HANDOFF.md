@@ -246,13 +246,16 @@ Claude `82fa3a2`のLinux perf分解:
 
 ## Vaakの現在地
 
-- `Runner::run_writeback`をPraTeXへ接続済み（`7a47ec8`）。実行時errorより前のhost register変更を
-  TeX save stack経由で残す。
-- Vaak S-22はhost read/write setと`HostBinding::read_at/write_at/len`を持つ。
-- PraTeXは`host_touched=Some([])`を安全側の全同期へ倒す。Ref/Freeze/MutMethodの解析漏れに備える。
-- Vaak `64ccf4e`ではresolved Placeにより入れ子代入の根cloneを除去した。PraTeXが使う
-  `Program2` / `Runner` APIに破壊的変更はない。
-- prepared/layoutの正式API、named entry＋引数、typed HostFn完了値、opaque token、
+- Vaakの`codex2/pratex-embedding-api`（`4e40e4b`）で、top-level用の`HostLayout`、`PreparedProgram`、
+  `EmbeddingRunner`を追加し、PraTeX bridgeを公開prepared APIへ移した。parse/check/type-check/compileと
+  layout/schema照合はcache miss時だけで、runnerとhost値bufferを再利用する。
+- S-22のhost read/write/touched解析を`Ref`、`Freeze`、`MutMethod`まで直し、
+  `HostBinding::supports_partial_writeback`でreadだけのbindingへ部分writeしない契約を固定した。
+- host値は配列、map/hash、struct/wrapの中まで検証し、host関数返値の型/schema違反は
+  呼出し直後に停止する。それ以前のhost register変更はC-2/S-22どおりTeX save stackへ書き戻す。
+- host slot/index、VM operand、型descriptorの上限はcompile/prepare前に検査し、`u16` wrapや
+  深すぎる公開型によるstack overflowを拒否する。
+- named entry＋引数、typed HostFn完了値の公開enum、Leaf allocation 0、opaque token、
   suspend/resumeはまだない。これらが固まる前にPraTeX phase hookを先走らせない。
 - 標準日本語経路のcallback数は0のままにする。
 

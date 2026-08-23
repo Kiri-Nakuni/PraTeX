@@ -141,7 +141,7 @@ mktex生成は未実装である。一意性を証明できないcache missで�
 
 | 状態 | 独自機能 | 現在の契約 |
 |---|---|---|
-| 部分 | Vaak bridge | `\directvaak{...}`、`\vaakdef\cs{...}`、`\vaakinput file`。終了値を10進整数として展開し、低位`count[0..255]`と`dimen[0..255]`をi32として読み書きする。書戻しはTeXの保存stackを通りgroupで戻る。同一sourceのcompile結果とVM runnerを再利用する |
+| 部分 | Vaak bridge | `\directvaak{...}`、`\vaakdef\cs{...}`、`\vaakinput file`。終了値を10進整数として展開し、低位`count[0..255]`と`dimen[0..255]`をi32として読み書きする。書戻しはTeXの保存stackを通りgroupで戻る。同一sourceの`PreparedProgram`と`EmbeddingRunner`を再利用し、固定`HostLayout`の順序・型・名付き型schemaを実行前に照合する |
 | 部分 | 名前空間つき制御綴 | catcode 16、`\namespace`、`\usingnamespace`、`\namespacechar`。一文字・複数文字・active・Unicode制御綴、group/global、参照時探索、表示、fmtまで実装。interface名の確定、`\halign` preamble再利用などPhase 8の検証は残る |
 | 実装 | typedな組版region状態 | `\pratexregion=0..5`で`und`、`ja`、`zh-Hans`、`zh-Hant`、`ko`、`vi`を選ぶ。local/global/globaldefs、save stack、fmt、`\the`、`\showthe`、`\meaning`、`\let`を通し、TeX `\language`から独立する。R0の状態だけで、まだ組版結果に影響しない |
 | 実装 | PraTeXの実行名 | primary/default binaryとbannerは`pratex`。移行用の`rtex`互換binaryは残す。crate/library名も現在は`rtex`のまま |
@@ -149,8 +149,8 @@ mktex生成は未実装である。一意性を証明できないcache missで�
 | 実装 | Type 1埋込みの明示opt-in | `--pdf-font-map`を指定した時だけ限定map parserと埋込み経路を有効にし、暗黙のresource選択を避ける |
 
 Vaak言語runtimeそのものは別repositoryのMIT依存であり、PraTeX独自なのはTeXとのbridge層で
-ある。現bridgeが公開するのは低位count/dimenだけで、`tex.print`、host callback、run-local
-capabilityはまだない。根拠は
+ある。Vaak側のprepared/layout APIは接続済みだが、現bridgeが公開する値は低位count/dimenだけで、
+`tex.print`、PraTeX host function、run-local capabilityはまだない。根拠は
 [Vaak実装](../src/vaak.rs)、
 [統合設計と測定](vaak-integration.md)、
 [名前空間roadmap](NAMESPACE_ROADMAP.md)、
