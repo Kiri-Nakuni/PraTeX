@@ -3,7 +3,7 @@
 ## plain format と Vaak
 
 [`plain-vaak.tex`](plain-vaak.tex) は、PraTeX の plain format だけを読み、
-`\directvaak`、`\vaakdef`、`let` / `var`、TeX host レジスタへの明示的な
+`\directvaak`、`\vaakdef`、両方の本体内での`let` / `var`、TeX host レジスタへの明示的な
 alias を一つの文書で使う。
 
 ```console
