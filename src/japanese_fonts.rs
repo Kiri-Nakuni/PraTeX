@@ -4,9 +4,14 @@ use crate::file_search::FileKind;
 use crate::fonts::{scale_fix_word, SizeIndicator};
 use crate::format::{Dumpable, FormatError};
 use crate::input::Scanner;
-use crate::jfm::{Jfm, JfmClassId, JfmDirection, JfmFixWord};
+use crate::jfm::{Jfm, JfmAdjustment, JfmClassId, JfmDirection, JfmFixWord};
+use crate::nodes::{DimensionOrder, HigherOrderDimension};
 use crate::os_str_to_bytes;
 use crate::scaled::{xn_over_d, Scaled};
+use crate::script_spacing::planner::{
+    CompiledJfmPairSpacingTable, JfmMetricId, JfmPairSpacing, JfmPairSpacingRule, PlannerJfmClassId,
+};
+use crate::script_spacing::FixedGlue;
 
 use std::fmt;
 use std::fs::File;
@@ -96,6 +101,8 @@ pub(crate) struct JapaneseFontInfo {
     heights: Vec<Scaled>,
     depths: Vec<Scaled>,
     italics: Vec<Scaled>,
+    metric_id: JfmMetricId,
+    pair_spacing: CompiledJfmPairSpacingTable,
     zw: Scaled,
     zh: Scaled,
 }
@@ -158,6 +165,7 @@ impl JapaneseFontInfo {
         let heights = scale_table(&jfm.heights)?;
         let depths = scale_table(&jfm.depths)?;
         let italics = scale_table(&jfm.italics)?;
+        let pair_spacing = compile_pair_spacing(&jfm, size)?;
         let class_zero = jfm.class_of_raw_code(0);
         let zero_info = jfm.char_info(class_zero);
         let zw = widths[zero_info.width_index];
@@ -177,6 +185,8 @@ impl JapaneseFontInfo {
             heights,
             depths,
             italics,
+            metric_id: JfmMetricId::new(0),
+            pair_spacing,
             zw,
             zh,
         })
@@ -203,11 +213,67 @@ impl JapaneseFontInfo {
         self.zh
     }
 
+    pub(crate) fn bind_index(&mut self, index: JapaneseFontIndex) {
+        let metric_id = JfmMetricId::new(index.position() as u32);
+        self.metric_id = metric_id;
+        self.pair_spacing.rebind_metric(metric_id);
+    }
+
+    pub(crate) const fn metric_id(&self) -> JfmMetricId {
+        self.metric_id
+    }
+
+    pub(crate) const fn pair_spacing(&self) -> &CompiledJfmPairSpacingTable {
+        &self.pair_spacing
+    }
+
     pub(crate) fn same_identity(&self, logical_path: &Path, requested_size: Scaled) -> bool {
         let mut existing = PathBuf::from(crate::os_string_from_bytes(self.area.clone()));
         existing.push(crate::os_string_from_bytes(self.name.clone()));
         existing == logical_path && self.size == requested_size
     }
+}
+
+fn compile_pair_spacing(
+    jfm: &Jfm,
+    size: Scaled,
+) -> Result<CompiledJfmPairSpacingTable, JapaneseFontError> {
+    let class_count = jfm.class_count();
+    let mut rules = Vec::new();
+    for left in 0..class_count {
+        for right in 0..class_count {
+            let left_class = JfmClassId::from_number(left as u8);
+            let right_class = JfmClassId::from_number(right as u8);
+            let Some(adjustment) = jfm.adjustment_by_class(left_class, right_class) else {
+                continue;
+            };
+            let spacing = match adjustment {
+                JfmAdjustment::Glue(glue) => JfmPairSpacing::Glue(FixedGlue::from_parts(
+                    scale_fix_word(glue.width.raw(), size).ok_or(JapaneseFontError::BadFormat)?,
+                    HigherOrderDimension {
+                        order: DimensionOrder::Normal,
+                        value: scale_fix_word(glue.stretch.raw(), size)
+                            .ok_or(JapaneseFontError::BadFormat)?,
+                    },
+                    HigherOrderDimension {
+                        order: DimensionOrder::Normal,
+                        value: scale_fix_word(glue.shrink.raw(), size)
+                            .ok_or(JapaneseFontError::BadFormat)?,
+                    },
+                )),
+                JfmAdjustment::Kern(kern) => JfmPairSpacing::Kern(
+                    scale_fix_word(kern.raw(), size).ok_or(JapaneseFontError::BadFormat)?,
+                ),
+            };
+            rules.push(JfmPairSpacingRule::new(
+                PlannerJfmClassId::new(left as u8),
+                PlannerJfmClassId::new(right as u8),
+                spacing,
+            ));
+        }
+    }
+    CompiledJfmPairSpacingTable::compile(JfmMetricId::new(0), class_count, &rules)
+        .map_err(|_| JapaneseFontError::BadFormat)
 }
 
 impl Dumpable for JapaneseFontInfo {

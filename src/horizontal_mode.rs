@@ -2,12 +2,15 @@ use crate::eqtb::Eqtb;
 use crate::logger::Logger;
 use crate::nodes::Node;
 use crate::print::Printer;
+use crate::script_spacing::finalizer::finalize_horizontal_list_if_needed;
+use crate::script_spacing::planner::ScriptSpacingListState;
 
 #[derive(Debug)]
 pub struct HorizontalMode {
     pub list: Vec<Node>,
     pub subtype: HorizontalModeType,
     pub space_factor: u16,
+    pub(crate) script_spacing: ScriptSpacingListState,
 }
 
 impl HorizontalMode {
@@ -16,12 +19,27 @@ impl HorizontalMode {
             list: Vec::new(),
             subtype: HorizontalModeType::Restricted,
             space_factor: 1000,
+            script_spacing: ScriptSpacingListState::default(),
         }
     }
 
     /// See 214.
     pub fn append_node(&mut self, node: Node, eqtb: &mut Eqtb) {
+        if matches!(node, Node::WideChar(_)) {
+            self.script_spacing.observe_japanese();
+        }
         self.list.push(node);
+        self.update_last_node_info(eqtb);
+    }
+
+    pub(crate) fn observe_appended_nodes(&mut self, nodes: &[Node]) {
+        if nodes.iter().any(|node| matches!(node, Node::WideChar(_))) {
+            self.script_spacing.observe_japanese();
+        }
+    }
+
+    pub(crate) fn finalize_script_spacing(&mut self, eqtb: &mut Eqtb) {
+        finalize_horizontal_list_if_needed(&mut self.list, self.script_spacing, eqtb);
         self.update_last_node_info(eqtb);
     }
 

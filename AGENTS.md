@@ -15,6 +15,7 @@ PraTeX側が必要とするAPIは `src/vaak.rs`、`docs/vaak-embedding-api-desig
 通常作業の枝は **`codex2/<目的>`** とする。現在の統合枝は
 `codex2/jlreq-script-spacing`であり、2026-08-23のpush済みroot checkpointは`c9bd240`。
 横組JFM glyphのfocused枝は`codex2/japanese-glyph-dvi`で、そのcheckpointを取り込み済みである。
+横組JFM/K/X/最小禁則のproduction finalizerは`codex2/japanese-spacing-finalizer`で検証する。
 `main`は歴史的基点として触らない。`full`へ直接実装はせず、focused test、全release、必要な
 TRIP/DVI・PDF意味比較を通して十分に固まった機能checkpointを`codex2/*`から順次mergeする。
 設計文書だけ、production未接続、既知の意味退行があるsliceは`full`へ送らない。
@@ -207,7 +208,9 @@ provider registry、resolver、OTF等の主要sliceごとに、探索、fmt読�
 - 通常のLaTeX資材では、従来`\kanjiskip`がないためnative UTF-8分岐へ入り、kcatcode 18の
   U+2019を含むhyphenation patternで停止した。K/X追加後の公式CTAN資材での再測定は未実施。
 - `\kanjiskip` / `\xkanjiskip`の通常glue parameter面と、検証済みscript class対tableは実装済み。
-  自動挿入、xsp/inhibit、JFM class対調整のspacing接続は未実装。
+  横組BuiltIn最小finalizerはJFM pair、K/X、`、。）（`の4文字禁則を由来付き実nodeとして
+  hbox、段落、alignment、line break、DVIへ接続する。JFM/禁則もlist-close、Kも可視glueの
+  correctness checkpointであり、xsp/inhibit/auto switch、仮想K、box/disc境界は未実装。
 - `\readline`、`\interactionmode`、mark class、糊成分・型変換は実装済み。`\everyeof`は
   `\endinput`との区別が未修正で部分実装。
 - `\TeXXeTstate`はfmt読込時0へ戻るが、LR組版自体は未実装。
@@ -215,8 +218,8 @@ provider registry、resolver、OTF等の主要sliceごとに、探索、fmt読�
   `\rawstringdef`、`\therawstring`、専用`\showthe`、storage、fmt、production testは未実装。
   font mapが生byteを保存する既存処理は、このregister機能の実装ではない。
 - 横組JFMはbounded loader、TeX互換scale、current和文font、`\pratexjfont`と意味が一致する
-  範囲の`\jfont` alias、`zw`/`zh`、wide node、DVI `set2`/`set3`まで接続済み。`\tfont`、
-  縦組、JFM pair adjustment、自動空白、禁則、PDF和文glyphは未接続。
+  範囲の`\jfont` alias、`zw`/`zh`、wide node、class pair、DVI `set2`/`set3`まで接続済み。
+  `\tfont`、縦組、main-loop JFM/完全禁則、PDF和文glyphは未接続。
 - plain formatで`\directvaak`、`\vaakdef`、`let` / `var`、host aliasを使う実行例は
   `examples/plain-vaak.tex`。静的失敗はprepare段階・行・桁・診断本文を表示して0へ展開する。
 - PDF直接出力、Type 1全埋込み、`ls-R`/`kpsewhich` resolverは部分実装済み。
@@ -226,9 +229,9 @@ provider registry、resolver、OTF等の主要sliceごとに、探索、fmt読�
 
 ## 直近の実装順
 
-1. auto switch、`xspcode`、`inhibitxspcode`をtyped state化し、実spacingの入力を揃える。
-2. compile済みscript class対tableをlist単位dispatcherと中央finalizerへ接続する。
-3. 横組wide glyphが保持するJFM classをpair adjustmentと中央spacing finalizerへ接続する。
+1. auto switch、`xspcode`、`inhibitxspcode`をtyped state化し、BuiltIn最小spacingへ接続する。
+2. JFM/禁則をmain-loop早期挿入へ移し、仮想K、box edge、discの意味を完成する。
+3. compile済み汎用script class対tableをlist単位dispatcherと中央finalizerへ接続する。
 4. `\tfont`と縦組metric/node/outputを追加し、JFM/K/X/禁則を横組から縦組へ広げる。
 5. kpathsea互換resolverをrun-global化し、native path解決を広げて通常の子process呼出しをなくす。
 6. LaTeXが実際に要求した境界で`\scantokens`等のe-TeX残件を設計どおり実装する。

@@ -410,6 +410,33 @@ impl PtexSpacingState {
         }
     }
 
+    /// PraTeX native横組みの最小BuiltIn snapshot。
+    ///
+    /// 禁則文字はW3C JLReq 3.1.7/3.1.8の全class実装ではなく、現在の合成JFMと
+    /// production経路を固定する代表subsetだけである。公開primitiveを生やす前に、
+    /// code point表をconsumerへ散らさないためplanner所有の一箇所で構築する。
+    pub(crate) fn built_in_minimal(kanji_skip: FixedGlue, xkanji_skip: FixedGlue) -> Self {
+        const LINE_START_PROHIBITED: [char; 3] = ['、', '。', '）'];
+        const LINE_END_PROHIBITED: [char; 1] = ['（'];
+
+        let mut state = Self::initex();
+        state.set_kanji_skip(kanji_skip);
+        state.set_xkanji_skip(xkanji_skip);
+        for character in LINE_START_PROHIBITED {
+            state
+                .penalties_mut()
+                .set_pre(LayoutCharacterCode::from_scalar(character), 10_000)
+                .expect("the fixed BuiltIn subset is below the bounded kinsoku table limit");
+        }
+        for character in LINE_END_PROHIBITED {
+            state
+                .penalties_mut()
+                .set_post(LayoutCharacterCode::from_scalar(character), 10_000)
+                .expect("the fixed BuiltIn subset is below the bounded kinsoku table limit");
+        }
+        state
+    }
+
     pub(crate) const fn auto(&self) -> AutoSpacingState {
         self.auto
     }
@@ -832,16 +859,37 @@ impl CompiledJfmPairSpacingTable {
         }
         self.pairs[left.index() * usize::from(self.class_count) + right.index()]
     }
+
+    /// Font instanceの最終indexが決まった時だけmetric identityを結び直す。
+    /// class対表そのものはJFM load時に一度だけcompile済みである。
+    pub(crate) fn rebind_metric(&mut self, metric: JfmMetricId) {
+        self.metric = metric;
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct LatinBoundary {
-    character: LayoutCharacterCode,
+    leading_character: LayoutCharacterCode,
+    trailing_character: LayoutCharacterCode,
 }
 
 impl LatinBoundary {
     pub(crate) const fn new(character: LayoutCharacterCode) -> Self {
-        Self { character }
+        Self {
+            leading_character: character,
+            trailing_character: character,
+        }
+    }
+
+    /// Ligatureの左右でxspcodeへ渡す元文字を失わない。
+    pub(crate) const fn ligature(
+        leading_character: LayoutCharacterCode,
+        trailing_character: LayoutCharacterCode,
+    ) -> Self {
+        Self {
+            leading_character,
+            trailing_character,
+        }
     }
 }
 
@@ -876,9 +924,16 @@ pub(crate) enum BoundaryAtom {
 }
 
 impl BoundaryAtom {
-    const fn character(self) -> LayoutCharacterCode {
+    const fn leading_character(self) -> LayoutCharacterCode {
         match self {
-            Self::Latin(atom) => atom.character,
+            Self::Latin(atom) => atom.leading_character,
+            Self::Japanese(atom) => atom.character,
+        }
+    }
+
+    const fn trailing_character(self) -> LayoutCharacterCode {
+        match self {
+            Self::Latin(atom) => atom.trailing_character,
             Self::Japanese(atom) => atom.character,
         }
     }
@@ -1005,6 +1060,12 @@ impl ScriptSpacingListState {
         self.needs_script_spacing |= atom.is_japanese();
     }
 
+    /// Node追加時のASCII fast gate用。分類tableやprovider registryを引かない。
+    #[inline]
+    pub(crate) fn observe_japanese(&mut self) {
+        self.needs_script_spacing = true;
+    }
+
     pub(crate) const fn needs_script_spacing(self) -> bool {
         self.needs_script_spacing
     }
@@ -1061,8 +1122,8 @@ impl JapaneseSpacingPlanner {
         let mut plan = BoundaryActionPlan::EMPTY;
         let penalty = state
             .penalties
-            .post(left.character())
-            .saturating_add(state.penalties.pre(right.character()));
+            .post(left.trailing_character())
+            .saturating_add(state.penalties.pre(right.leading_character()));
         if penalty != 0 {
             plan.push(PlannedSpacingAction::KinsokuPenalty { value: penalty });
         }
@@ -1128,7 +1189,11 @@ impl JapaneseSpacingPlanner {
         direction: InterScriptDirection,
         state: &PtexSpacingState,
     ) {
-        let latin_permission = state.xsp_codes.get(latin.character);
+        let latin_character = match direction {
+            InterScriptDirection::JapaneseToLatin => latin.leading_character,
+            InterScriptDirection::LatinToJapanese => latin.trailing_character,
+        };
+        let latin_permission = state.xsp_codes.get(latin_character);
         let japanese_permission = state.inhibit_xsp_codes.get(japanese.character);
         if !latin_permission.allows(direction) || !japanese_permission.allows(direction) {
             return;
@@ -1183,6 +1248,70 @@ mod tests {
         state.set_kanji_skip(glue(10));
         state.set_xkanji_skip(glue(20));
         state
+    }
+
+    #[test]
+    fn built_in最小禁則は句読点の行頭と始め括弧の行末だけを固定する() {
+        let planner = JapaneseSpacingPlanner::built_in_ptex();
+        let state = PtexSpacingState::built_in_minimal(glue(10), glue(20));
+        assert_eq!(
+            actions(planner.plan_boundary(
+                japanese('あ', 1, 1, 0),
+                japanese('。', 1, 1, 0),
+                BoundaryContext::DEFAULT,
+                &state,
+                None,
+            )),
+            vec![
+                PlannedSpacingAction::KinsokuPenalty { value: 10_000 },
+                PlannedSpacingAction::ImplicitKanjiSkip {
+                    glue: glue(10),
+                    active: true,
+                },
+            ]
+        );
+        assert_eq!(
+            actions(planner.plan_boundary(
+                japanese('（', 1, 1, 0),
+                japanese('あ', 1, 1, 0),
+                BoundaryContext::DEFAULT,
+                &state,
+                None,
+            ))[0],
+            PlannedSpacingAction::KinsokuPenalty { value: 10_000 }
+        );
+    }
+
+    #[test]
+    fn ligatureは和欧の向きごとに先頭文字と末尾文字を使う() {
+        let planner = JapaneseSpacingPlanner::built_in_ptex();
+        let state = state();
+        let ligature = BoundaryAtom::Latin(LatinBoundary::ligature(
+            LayoutCharacterCode::from_scalar('A'),
+            LayoutCharacterCode::from_scalar('/'),
+        ));
+        assert_eq!(
+            actions(planner.plan_boundary(
+                japanese('あ', 1, 1, 0),
+                ligature,
+                BoundaryContext::DEFAULT,
+                &state,
+                None,
+            )),
+            vec![PlannedSpacingAction::MaterialXKanjiSkip {
+                glue: glue(20),
+                active: true,
+            }]
+        );
+        assert!(planner
+            .plan_boundary(
+                ligature,
+                japanese('あ', 1, 1, 0),
+                BoundaryContext::DEFAULT,
+                &state,
+                None,
+            )
+            .is_empty());
     }
 
     fn actions(plan: BoundaryActionPlan) -> Vec<PlannedSpacingAction> {

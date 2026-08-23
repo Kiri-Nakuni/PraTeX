@@ -2444,6 +2444,9 @@ fn go_into_display_math_mode(
         pre_display_size = -MAX_DIMEN;
     } else {
         let display_widow_penalty = *eqtb.integers.get(IntegerVariable::DisplayWidowPenalty);
+        if let RichMode::Horizontal(hmode) = nest.mode_mut() {
+            hmode.finalize_script_spacing(eqtb);
+        }
         let old_level = nest.pop_nest(eqtb);
         let RichMode::Horizontal(hmode) = old_level.mode else {
             panic!("We expect the mode to be horizontal when entering display math");
@@ -2879,6 +2882,7 @@ pub fn resume_after_display(
                 lang_data,
             },
             space_factor: 1000,
+            script_spacing: Default::default(),
         }),
         &scanner.input_stack,
         eqtb,

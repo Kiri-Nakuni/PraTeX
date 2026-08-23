@@ -10,8 +10,8 @@ use crate::logger::Logger;
 use crate::print::{Printer, MAX_PRINT_LINE};
 use crate::round;
 use crate::scaled::{nx_plus_y, ArithError, Scaled, UNITY};
-use crate::token_lists::{show_token_list, RcTokenList};
 use crate::token::print_uptex_code_point;
+use crate::token_lists::{show_token_list, RcTokenList};
 use noads::{ChoiceNode, Noad, StyleNode};
 
 use std::ops::{AddAssign, Neg};
@@ -116,7 +116,7 @@ impl Node {
             | Self::Disc(_)
             | Self::Whatsit(_)
             // NOTE: As implicit kern nodes are treated as non-discardable, we make the distinction here.
-            | Self::Kern(KernNode { subtype: KernSubtype::Normal | KernSubtype::AccKern | KernSubtype::MuGlue, .. })
+            | Self::Kern(KernNode { subtype: KernSubtype::Normal | KernSubtype::AccKern | KernSubtype::MuGlue | KernSubtype::AutomaticJapaneseJfm, .. })
             => true,
             _ => false,
         }
@@ -155,7 +155,7 @@ impl Node {
             | Self::Disc(_)
             | Self::Whatsit(_)
             // NOTE: As implicit kern nodes are treated as non-discardable, we make the distinction here.
-            | Self::Kern(KernNode { subtype: KernSubtype::Normal | KernSubtype::AccKern | KernSubtype::MuGlue, .. })
+            | Self::Kern(KernNode { subtype: KernSubtype::Normal | KernSubtype::AccKern | KernSubtype::MuGlue | KernSubtype::AutomaticJapaneseJfm, .. })
             => false,
             Self::Glue(_)
             | Self::Kern(KernNode { subtype: KernSubtype::Explicit, .. })
@@ -698,12 +698,21 @@ pub struct GlueNode {
 pub enum GlueType {
     Normal,
     Skip(SkipVariable),
+    AutomaticJapanese(AutomaticJapaneseGlue),
     NonScript,
     MuGlue,
     Leaders {
         leader_kind: LeaderKind,
         leader_node: Box<Node>,
     },
+}
+
+/// list finalizerが生成したglueだけを再評価時に除去するprovenance。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AutomaticJapaneseGlue {
+    Jfm,
+    KanjiSkip,
+    XKanjiSkip,
 }
 
 /// See 149.
@@ -729,6 +738,16 @@ impl GlueNode {
     pub fn new(glue_spec: std::rc::Rc<GlueSpec>) -> Self {
         Self {
             subtype: GlueType::Normal,
+            glue_spec,
+        }
+    }
+
+    pub(crate) fn new_automatic_japanese(
+        kind: AutomaticJapaneseGlue,
+        glue_spec: std::rc::Rc<GlueSpec>,
+    ) -> Self {
+        Self {
+            subtype: GlueType::AutomaticJapanese(kind),
             glue_spec,
         }
     }
@@ -802,6 +821,18 @@ impl GlueNode {
                 logger.print_esc_str(b"glue");
                 logger.print_char(b'(');
                 logger.print_esc_str(&skip_var.to_string());
+                logger.print_char(b')');
+                logger.print_char(b' ');
+                self.glue_spec.print_spec(None, logger);
+            }
+            GlueType::AutomaticJapanese(kind) => {
+                logger.print_esc_str(b"glue");
+                logger.print_char(b'(');
+                logger.print_esc_str(match kind {
+                    AutomaticJapaneseGlue::Jfm => b"pratexjfm",
+                    AutomaticJapaneseGlue::KanjiSkip => b"kanjiskip",
+                    AutomaticJapaneseGlue::XKanjiSkip => b"xkanjiskip",
+                });
                 logger.print_char(b')');
                 logger.print_char(b' ');
                 self.glue_spec.print_spec(None, logger);
@@ -1099,6 +1130,11 @@ impl KernNode {
                 logger.print_scaled(self.width);
                 logger.print_str("mu");
             }
+            KernSubtype::AutomaticJapaneseJfm => {
+                logger.print_esc_str(b"kern");
+                logger.print_scaled(self.width);
+                logger.print_str(" (PraTeX JFM)");
+            }
         }
     }
 }
@@ -1110,18 +1146,36 @@ pub enum KernSubtype {
     Explicit,
     AccKern,
     MuGlue,
+    AutomaticJapaneseJfm,
 }
 
 /// See 157.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PenaltyNode {
     pub penalty: i32,
+    pub(crate) subtype: PenaltySubtype,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PenaltySubtype {
+    Normal,
+    AutomaticJapaneseKinsoku,
 }
 
 impl PenaltyNode {
     /// See 158.
     pub fn new(penalty: i32) -> Self {
-        Self { penalty }
+        Self {
+            penalty,
+            subtype: PenaltySubtype::Normal,
+        }
+    }
+
+    pub(crate) fn new_automatic_japanese(penalty: i32) -> Self {
+        Self {
+            penalty,
+            subtype: PenaltySubtype::AutomaticJapaneseKinsoku,
+        }
     }
 
     /// See 194.

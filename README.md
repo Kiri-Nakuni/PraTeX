@@ -19,9 +19,10 @@ PraTeXは、tyti氏によるTeX82のRust再実装`rtex`を基礎に、現代的�
   `pdftex.map`の複数resource構文、flags既定値、PFB Private `StdVW` fallbackまで読める
 - UTF-8入力からのCJK一文字token。`catcode`側をカノンとし、`kcatcode`の公開番号を
   互換viewとして意味へ写す文字分類基盤
-- `\kanjiskip` / `\xkanjiskip`の通常glue parameter面。自動挿入は未接続
+- `\kanjiskip` / `\xkanjiskip`の通常glue parameter面と、横組の和和・和欧・欧和境界へ
+  一度だけ挿入するBuiltIn最小finalizer
 - boundedな横組JFMを読む`\pratexjfont`（横組定義・選択だけ`\jfont` alias）、current和文font、
-  `zw`/`zh`、Unicode/JFM class付きwide node、DVI `set2`/`set3`の最小基線
+  `zw`/`zh`、Unicode/JFM class付きwide node、class対glue/kern、DVI `set2`/`set3`の最小基線
 - `\pratexregion=0..5`によるCJKV組版locale状態。group/global/fmt/表示は対応済みだが、
   まだ文字間隔やfont選択には影響しない
 - `ls-R`索引と`kpsewhich`の公開CLIを組み合わせたTeX入力、font、mapなどの部分的な探索
@@ -129,7 +130,8 @@ packageは実装の資料として写さず、互換性を測る外部入力と�
 ## 未完成の領域
 
 - e-TeXおよびpdfTeX原始命令の残りと、広範なclass/packageを処理するLaTeX2e互換性
-- `\tfont`と縦組JFM、JFM pair adjustment、K/X自動空白、和文glue・禁則、PDF和文glyph
+- `\tfont`と縦組JFM、JFM/禁則のmain-loop早期挿入、仮想K、xsp/inhibit/auto switch、
+  4文字subsetを越えるJLReq禁則、box/disc境界、PDF和文glyph
 - OTF／TrueType、CID font、ToUnicode、font subsetを含むPDF font処理
 - `texmf.cnf`、全path expression、alias、`mktex*`を含むkpathseaの完全な互換性
 - `jsarticle`、`jlreq`、`ltjsarticle`、`hyperref`を実用的に動かすための互換層

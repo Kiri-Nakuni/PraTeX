@@ -65,8 +65,8 @@ preloaded `euptex.fmt`の次の値はformat所有であり、engineへ焼き込�
 - `src/scan_internal.rs`
 
 primitiveを持つだけで公開LaTeX資材はPraTeXをpTeX系と判定する。
-従ってこのsliceは検出stubではないが、レイアウト未接続の部分実装であることを明記し、
-pTeX profile枝で実挿入sliceへ続ける。
+2026-08-23のproduction checkpointでは横組hlistへK/Xを接続したが、後述する
+BuiltIn最小subsetに限る。pTeX全互換やJLReq完成を示す検出stubにはしない。
 
 ## 2. K/X挿入の黒箱契約
 
@@ -83,11 +83,16 @@ hboxまたは段落を閉じた時点の最終状態でlist全体を再評価す
 
 ### 暗黙Kと実nodeのX
 
-通常の和文–和文Kは暗黙である。
+通常の和文–和文Kの最終契約は暗黙である。
 
 - 箱の寸法、stretch/shrink、改行候補には効く。
 - `\showbox`、`\showlists`、`\lastskip`へ現れない。
 - `\noautospacing`でも幅0の仮想境界は改行候補として残る。
+
+現production checkpointではcorrectnessを先に固定するため、Kにも
+`GlueType::AutomaticJapanese(KanjiSkip)`を持つ実nodeを使う。このため現段階のKは
+`\showbox`で観測でき、`\lastskip` / `\unskip`も最終契約と一致しない。由来を型で保持して
+再finalize時だけ除去できるようにし、意味試験を固定した後で仮想Kへ置き換える。
 
 Xは実glue nodeである。
 
@@ -138,6 +143,10 @@ K/Xだけならlist-closeでの再評価が中心だが、JFM glue/kernと禁則
 JFM nodeはlistを閉じる前に`\lastnodesubtype`、`\unskip`、
 pLaTeX側の除去macroから観測・除去され得る。
 close時に全JFM nodeを消して作り直すと利用者操作を破壊する。
+
+2026-08-23の最小production接続は、まずJFM/K/X/禁則がline break・box寸法・DVI座標へ
+一度だけ届くことを固定するため、JFM/禁則もlist-closeでmaterializeする。これはhybrid最終形では
+なく、実行中の`\unskip`や`\lastnodesubtype`に対するpTeX意味は未完成である。
 
 推奨構成:
 
@@ -281,17 +290,34 @@ ASCII-only listは`ScriptSpacingListState::needs_script_spacing=false`のまま�
 出力event生成のすべてより前に置く。したがって従来のplain欧文経路にはcallback、table lookup、
 追加allocationを入れず、統合時にはorigin/mainとDVI意味列・座標を比較する。
 
-### 未接続のintegration hook
+### 2026-08-23のproduction接続 checkpoint
 
-1. eqtbにauto switch、`[XspCode; 256]`、sparse inhibit/禁則表を所有させ、各代入を
+`src/script_spacing/finalizer.rs`は、横組listに和文が一つでもある時だけ
+`JapaneseSpacingPlanner`を一度選び、元の`WideCharNode` / `CharNode` / `LigatureNode`境界を
+走査する。font load時にJFM class対をscale済みdense表へcompileし、hot loopはwide nodeが持つ
+Unicode、font、metric、classだけを読む。標準経路はVaak/WASM registryへ入らない。
+
+現在の`BuiltIn`禁則は、W3C JLReq 3.1.7 / 3.1.8を代表する最小subsetだけである。
+行頭禁止は`、` U+3001、`。` U+3002、`）` U+FF09、行末禁止は`（` U+FF08に
+penalty 10000を置く。code point表はplanner一箇所にあり、consumerへswitchを複製しない。
+これは[JLReq 3.1.7](https://www.w3.org/TR/jlreq/#characters-not-starting-a-line)と
+[JLReq 3.1.8](https://www.w3.org/TR/jlreq/#characters-not-ending-a-line)の全class実装ではない。
+
+明示penaltyだけは文字境界に透明で、明示glue、kern、math、whatsit、list、rule、disc等は
+barrierである。自動JFM/K/X/禁則nodeはtyped provenanceを持ち、unbox後を含む再finalizeでは
+それだけを除いて元境界から再生成する。hbox、段落、alignment cell、display math移行の
+`unsave` / pop前にsnapshotし、局所K/Xを失わない。
+
+### 残るintegration hook
+
+1. eqtbにauto switch、`[XspCode; 256]`、sparse inhibit/完全禁則表を所有させ、各代入を
    save stackの一単位として局所復元する。group外の値だけをfmtへdumpする。
-2. font load時に既存`Jfm`の12.20値を選択sizeへscaleし、`CompiledJfmPairSpacingTable`を
-   font instanceごとに一度作る。文字nodeには再検索済みclassとfont/metric IDを持たせる。
-3. main loopはmain-loop phaseだけをmaterializeし、JFM由来nodeの観測・`unskip`を保つ。
+2. main loopはmain-loop phaseだけをmaterializeし、JFM由来nodeの観測・`unskip`を保つ。
    list closeは自動K/X provenanceだけを除去し、`unsave`前の最終snapshotでfinalizer phaseを
    再適用する。利用者の明示glue/penaltyは除去しない。
-4. line breaker、packer、DVI/PDF backendは`ImplicitKanjiSkip`を同じ仮想glue eventとして読む。
+3. line breaker、packer、DVI/PDF backendは`ImplicitKanjiSkip`を同じ仮想glue eventとして読む。
    plain欧文DVI differentialを先に固定し、その後に和文event oracleを追加する。
+4. unshifted hboxのedge summary、disc三分岐、`\inhibitglue`、全JLReq文字class、縦組へ広げる。
 
 ## 9. commit順
 

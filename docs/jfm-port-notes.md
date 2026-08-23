@@ -62,8 +62,26 @@ scaleせず、各成分をTeX互換にscaleしてからspで加える。slant pa
   になる。外部vertical modeのliteral CJKも、validなcurrent横組JFMがあればparagraphを開始する。
 - DVI font numberは欧文8-bit fontの増加に依存しない256始まりの別namespaceとし、BMP scalarを
   unsigned big-endian `set2`、補助面scalarを`set3`で出す。byte glyphの命令経路は変えない。
-- PDF backendは和文glyph対応を偽らず型付きerrorにする。OTF shaping、縦組、JFM pair
-  adjustment、K/X自動空白、禁則はこのsliceに含めない。
+- PDF backendは和文glyph対応を偽らず型付きerrorにする。OTF shaping、縦組、PDF和文glyphは
+  このsliceに含めない。
+
+## 横組spacingへの接続
+
+font load時に、検証済みJFM programの全class対を選択sizeへscaleし、
+`CompiledJfmPairSpacingTable`へ一度だけcompileする。fmtにはrun-localなIDやcompile済みcacheを
+保存せずraw JFMを保存し、undump後に`JapaneseFontIndex`からmetric IDを再束縛する。
+横組finalizerは`WideCharNode`が保持するUnicode・font・JFM classを使うため、文字ごとに
+raw code表やJFM programを再解釈しない。異なるfont instance間ではclass対表を横断せずKへ戻る。
+
+2026-08-23のproduction checkpointでは、JFM glue/kern、`\kanjiskip`、`\xkanjiskip`、
+4文字だけのBuiltIn禁則をhbox、段落、alignment cell、line breaking、DVI座標へ接続した。
+自動nodeはJFM/K/X/禁則ごとのprovenanceを持ち、unbox後の再finalizeで利用者の明示nodeを
+消さずに再生成する。
+
+ただしJFM/禁則も現段階ではlist-closeでmaterializeするcorrectness sliceであり、
+main loop中の`\unskip` / `\lastnodesubtype`のpTeX意味は未完成である。Kも最終形の仮想eventでなく
+由来付き実glueなので`\showbox`へ現れる。`xspcode`、`inhibitxspcode`、auto switch、
+`\inhibitglue`の公開面、box edge、disc、JLReqの全禁則classはまだ接続していない。
 
 ## TeX Live 2026黒箱オラクル
 
@@ -97,11 +115,11 @@ cargo test --release 'jfm::tests::配布jfm九十六件をすべて読む' --lib
 ## 残る接続
 
 - `\tfont`、縦組JFMのmetric解釈、方向つきwide nodeとDVI/PDF出力
-- class対へcompile済みのJFM glue/kern programをspacing finalizerへ接続する処理
-- K/X自動空白、xsp/inhibit、禁則、行分割のJLReq規則
+- JFM/禁則のmain-loop早期挿入、仮想K、xsp/inhibit/auto switch、box/disc境界
+- 4文字subsetを越える禁則、ぶら下げ、行長調整を含むJLReq規則
 - PDFの日本語font resource、OTF/TrueType、default-off RustyBuzz
 
-横組glyphが一頁出ることも日本語組版対応を意味しない。上記を横・縦とも接続し、black-boxの
+横組glyphと最小spacingが一頁出ることも日本語組版対応を意味しない。上記を横・縦とも接続し、black-boxの
 node・sp座標・DVI意味をe-upTeXと比較して初めてpTeX相当P0の一部になる。
 
 ## この段階の検証

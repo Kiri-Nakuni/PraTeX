@@ -232,9 +232,7 @@ impl LineBreaker {
 
         // Append an infinite penalty followed by a ParFillSkip such that the second is never a
         // breakpoint.
-        let inf_penalty = Node::Penalty(PenaltyNode {
-            penalty: INF_PENALTY,
-        });
+        let inf_penalty = Node::Penalty(PenaltyNode::new(INF_PENALTY));
         let par_fill_skip = Node::Glue(GlueNode::new_param(SkipVariable::ParFillSkip, eqtb));
         hlist.extend([inf_penalty, par_fill_skip]);
 

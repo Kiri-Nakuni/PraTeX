@@ -150,15 +150,16 @@ Stage 4c単体の完了条件は満たした:
 短い前者を後でindexしてpanicし得る。両型へcrate内の長さgetterを足し、undump直後に一致検査する。
 `ControlSequence::Escaped(n)`と実CS数の包括的照合も後段である。
 
-## 完了済み設計: `\kanjiskip` / `\xkanjiskip`
+## 横組production接続中: `\kanjiskip` / `\xkanjiskip`
 
-状態: **2026-08-23に通常glue parameter面を実装、汎用script class対tableを作業中**。
+状態: **2026-08-23に通常glue parameter面とBuiltIn最小横組finalizerを実装**。
 
 - 文書: `docs/kanjiskip-core-design.md`
 - INITEX既定0pt、通常glue parameterとしての代入・group、`\globaldefs`、算術、fmt、表示を
   既存のglue経路へ接続した。release focused testは3 passed、0 failed。
-- K/Xとxsp/inhibitはlist終端値で全境界を再評価する。暗黙Kはshow/lastskipへ見せず、
-  Xは幅0でも実glue nodeとして残る。
+- K/Xはlist終端値で元のWideChar/Char/Ligature境界を再評価する。現checkpointのKは
+  correctness用の由来付き実glueで、show/lastskipへ見せない仮想Kは未実装。xsp/inhibit/auto
+  switchの公開面も未接続である。
 - JFMは途中で観測・除去できるためmain-loopで早期挿入し、K/Xだけclose-timeで再評価する
   hybridにする。
 - 最終形のKはwide glyphのbit＋hlist単位specをline breaker/packer/outputが仮想glueとして扱い、
@@ -166,8 +167,8 @@ Stage 4c単体の完了条件は満たした:
 - standard Japaneseは`BuiltInPtex`のmonomorphic core経路で、Vaak/WASM callは0。
   Hangul–Latin等は同じscript-pair機構へ後から載せる。
 
-この段階はLaTeXのpTeX検出を変えるが、「日本語組版完成」や検出stubとは呼ばない。実挿入、
-JFM、禁則、line breaking、DVI/PDFまで連続して進める。内部tableはprovider-local IDと
+この段階はLaTeXのpTeX検出を変えるが、「日本語組版完成」や検出stubとは呼ばない。JFM/禁則の
+main-loop意味、完全JLReq、縦組、PDFまで連続して進める。内部tableはprovider-local IDと
 engine内部IDを分け、標準日本語ではVaak/WASM call 0、組版中のallocation 0を保つ。
 
 ## 横組JFM glyphからDVIまでの最小基線
@@ -185,6 +186,25 @@ engine内部IDを分け、標準日本語ではVaak/WASM call 0、組版中のal
 - 範囲は横組DVIだけ。`\tfont`、縦組、JFM pair adjustment、K/X自動空白、禁則、PDF和文glyph、
   OTF shapingは未実装で、横組smokeを日本語組版完成とは呼ばない。
 - 同じ欧文plain fixtureを`origin/main`と比較し、BOP--EOPの183 bytesは差分0だった。
+
+## 横組JFM/K/X/禁則finalizerの最小production slice
+
+状態: **`codex2/japanese-spacing-finalizer`でfocused試験まで成功**。
+
+- font load時にJFM class対glue/kernを選択sizeへscaleしたdense表へcompileし、wide nodeが持つ
+  Unicode、font/metric ID、JFM classだけで中央plannerを引く。同一fontのpair調整をKより優先し、
+  異なるfont間は保守的にKへ戻る。
+- JFM/K/X/禁則を由来付きGlue/Kern/Penalty nodeにし、再finalizeでは自動nodeだけを除去する。
+  明示penaltyは境界に透明、明示glue/kern/math/whatsit/list/rule/disc等はbarrierである。
+- hbox、段落、alignment cell、display math移行を`unsave` / pop前にfinalizeし、局所K/Xを
+  snapshotする。unbox後の再評価、fmt後のJFM表再束縛、line break、DVI glyph/rule座標を
+  合成JFM/TFMのproduction process試験で固定した。
+- 禁則はBuiltIn最小subsetだけで、行頭禁止`、` U+3001、`。` U+3002、`）` U+FF09と
+  行末禁止`（` U+FF08へpenalty 10000を置く。全JLReq classではない。
+- ASCII-only listは一bit gateでplanner callback、JFM/provider表引き、追加allocation 0。
+  標準日本語でもVaak/WASM registryを引かない。
+- 既知限界は、JFM/禁則もlist-close materializeで`\unskip` / `\lastnodesubtype`のpTeX意味が
+  未完成、Kが仮想eventでなく可視実glue、xsp/inhibit/auto switch・box edge・disc・縦組未接続。
 
 ## 完了済み: `\lastnodetype` page状態
 
@@ -280,10 +300,10 @@ Claude `82fa3a2`のLinux perf分解:
 
 ## LaTeXと日本語組版の次順
 
-1. K/Xの下のscript class対table、auto switch、xsp/inhibit stateを固定し、公式CTAN資材で
+1. auto switch、xsp/inhibit stateをtyped eqtbへ接続し、公式CTAN資材で
    LaTeXのpTeX分岐を再測定する。
-2. 横組wide nodeのJFM classをcompile済みpair adjustmentと中央spacing finalizerへ接続する。
-3. `\tfont`と縦組metric/node/outputを追加し、K/X spacingと禁則を横組から縦組へ広げる。
+2. JFM/禁則をmain-loop早期挿入へ移し、仮想Kとbox/disc境界を完成する。
+3. `\tfont`と縦組metric/node/outputを追加し、spacingと禁則を横組から縦組へ広げる。
 4. LaTeXが次に要求した時点で`\scantokens`を設計どおり実装する。
 
 日本語の最低線は横組smokeではなくpTeX相当とJLReq native対応であり、縦組を含む。縦中横と
