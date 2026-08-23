@@ -205,6 +205,7 @@ runtimeは別MIT projectを依存として使う。PraTeX側からMITのVaakへG
 | 設計のみ | 生文字列register、`\therawstring`、raw専用`\showthe` | [設計文書](raw-string-registers.md)だけ。production primitive、storage、testはない |
 | 設計のみ | run-local Vaak疑似callback | 特定のVaak実行が明示要求した時だけ有効にする方針だけ。常設callback表はない |
 | 設計のみ | version付きWASM ABI | 実験[ABI 0.0](wasm-provider-abi-v0.md)で四operation、固定mailbox、capability、fuel、atomic fallbackまで定義。ABI export、runtime、providerはない |
+| 部分 | PraTeX自身のWASI target | `wasm32-wasip1`へcheck・binary linkし、`pratex.wasm` / `rtex.wasm`を生成できる。現状はargs、stream、preopen filesystem、process exitを使うcommand moduleであり、runtime適合試験、子processなしresolver、host API/VFS、native DVI比較は未達。詳細は[WASM target監査](wasm-target-status.md) |
 | 設計中心 | script境界組版とregion R1〜R7 | 横組JFM wide glyph基線だけはproduction接続済み。`ScriptClassId`、RegionNode、spacing finalizer、Vaak table、WASM batchとR1〜R7はroadmap段階で、R0の`\pratexregion`以外は利用できない |
 | 設計のみ | IVS・外字・造字のidentity | inline Unicode scalarと`AtomRef`、namespaceつき外部文字、嘘字/TRON importer、variant graphの[設計](glyph-identity-roadmap.md)だけ。現在はIVS shapingも造字もない |
 | 設計のみ | 拡張可能な寸法単位 | registry、Vaak table、WASM providerの[設計](extensible-dimension-units-roadmap.md)だけ。組込み`Q/H/zw/zh`の現行経路とは分ける |
