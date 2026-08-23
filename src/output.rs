@@ -4,7 +4,8 @@ use crate::eqtb::{
 };
 use crate::error::fatal_error;
 use crate::file_search::{KpsewhichResolver, LogicalFileName};
-use crate::font_resources::loader::FontResourceLoader;
+use crate::font_resources::loader::{FontResourceLoader, Type1ResourceLoader};
+use crate::font_resources::named_cid::{FileNamedCidProfileLoader, NamedCidFontProfileLoader};
 use crate::input::token_source::TokenSourceType;
 use crate::input::Scanner;
 use crate::japanese_fonts::JapaneseFontIndex;
@@ -79,6 +80,8 @@ pub struct Output {
     output_format: OutputFormat,
     /// `None` のときは従来どおりCourierだけを使い、font資材を探索しない。
     pdf_font_map: Option<OsString>,
+    /// `None`なら和文PDF glyphを暗黙のtofuやviewer fontへfallbackさせない。
+    pdf_japanese_cid_profile: Option<OsString>,
     document: Option<OutputDocument>,
 
     /// 1342.
@@ -86,10 +89,15 @@ pub struct Output {
 }
 
 impl Output {
-    pub fn new(output_format: OutputFormat, pdf_font_map: Option<OsString>) -> Self {
+    pub fn new(
+        output_format: OutputFormat,
+        pdf_font_map: Option<OsString>,
+        pdf_japanese_cid_profile: Option<OsString>,
+    ) -> Self {
         Self {
             output_format,
             pdf_font_map,
+            pdf_japanese_cid_profile,
             document: None,
             write_files: [
                 None, None, None, None, None, None, None, None, None, None, None, None, None, None,
@@ -129,6 +137,7 @@ impl Output {
                 self.document.take(),
                 self.output_format,
                 self.pdf_font_map.as_deref(),
+                self.pdf_japanese_cid_profile.as_deref(),
                 scanner,
                 eqtb,
                 logger,
@@ -265,6 +274,7 @@ fn ensure_output_open(
     document: Option<OutputDocument>,
     output_format: OutputFormat,
     pdf_font_map: Option<&OsStr>,
+    pdf_japanese_cid_profile: Option<&OsStr>,
     scanner: &mut Scanner,
     eqtb: &mut Eqtb,
     logger: &mut Logger,
@@ -285,7 +295,13 @@ fn ensure_output_open(
                     OutputDocument::Dvi(Document::create_dvi(output_file_name, output_file, eqtb))
                 }
                 OutputFormat::Pdf => {
-                    match Document::create_pdf(output_file_name, output_file, pdf_font_map, eqtb) {
+                    match Document::create_pdf(
+                        output_file_name,
+                        output_file,
+                        pdf_font_map,
+                        pdf_japanese_cid_profile,
+                        eqtb,
+                    ) {
                         Ok(document) => OutputDocument::Pdf(document),
                         Err(error) => fatal_error(&error, &scanner.input_stack, eqtb, logger),
                     }
@@ -383,21 +399,35 @@ impl Document<PdfFileBackend> {
         output_file_name: OsString,
         pdf_file: BufWriter<File>,
         pdf_font_map: Option<&OsStr>,
+        pdf_japanese_cid_profile: Option<&OsStr>,
         eqtb: &Eqtb,
     ) -> Result<Self, String> {
-        let backend = match pdf_font_map {
-            Some(map_name) => {
-                let loader = FontResourceLoader::with_map(
+        let type1_loader: Option<Box<dyn Type1ResourceLoader>> = match pdf_font_map {
+            Some(map_name) => Some(Box::new(
+                FontResourceLoader::with_map(
                     KpsewhichResolver::default(),
                     LogicalFileName::from(map_name),
                 )
-                .map_err(|error| format!("PDF font map initialization failed: {error}"))?;
-                PdfBackend::with_type1_loader(pdf_file, eqtb.integer(IntegerVariable::Mag), loader)
-                    .map_err(|error| format!("PDF output initialization failed: {error}"))?
-            }
-            None => PdfBackend::new(pdf_file, eqtb.integer(IntegerVariable::Mag))
-                .map_err(|error| format!("PDF output initialization failed: {error}"))?,
+                .map_err(|error| format!("PDF font map initialization failed: {error}"))?,
+            )),
+            None => None,
         };
+        let named_cid_loader: Option<Box<dyn NamedCidFontProfileLoader>> =
+            match pdf_japanese_cid_profile {
+                Some(path) => Some(Box::new(
+                    FileNamedCidProfileLoader::from_path(PathBuf::from(path)).map_err(|error| {
+                        format!("PDF Japanese CID profile initialization failed: {error}")
+                    })?,
+                )),
+                None => None,
+            };
+        let backend = PdfBackend::with_loaders(
+            pdf_file,
+            eqtb.integer(IntegerVariable::Mag),
+            type1_loader,
+            named_cid_loader,
+        )
+        .map_err(|error| format!("PDF output initialization failed: {error}"))?;
         Ok(Self::new(backend, output_file_name))
     }
 }

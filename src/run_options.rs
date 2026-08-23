@@ -24,6 +24,8 @@ pub(crate) struct ParsedArguments {
     pub(crate) output_format: OutputFormat,
     /// Type 1 埋込みを明示的に有効にする map の論理名または物理 path。
     pub(crate) pdf_font_map: Option<OsString>,
+    /// 非埋込み和文CID fontを一つのJFMへ結ぶ、明示物理profile path。
+    pub(crate) pdf_japanese_cid_profile: Option<OsString>,
     /// TeX文書が明示した出力を残し、自動進捗だけを端末から隠す。
     pub(crate) quiet: bool,
     pub(crate) tex_arguments: Vec<OsString>,
@@ -70,6 +72,7 @@ pub(crate) fn parse_arguments(
 ) -> Result<ParsedArguments, RunOptionError> {
     let mut output_format = OutputFormat::Dvi;
     let mut pdf_font_map = None;
+    let mut pdf_japanese_cid_profile = None;
     let mut quiet = false;
     let mut tex_arguments = Vec::new();
     let mut arguments = arguments.into_iter();
@@ -120,6 +123,21 @@ pub(crate) fn parse_arguments(
                 pdf_font_map = Some(value);
                 continue;
             }
+            if let Some(value) = strip_os_prefix(&argument, "--pdf-japanese-cid-profile=") {
+                if value.is_empty() {
+                    return Err(RunOptionError::MissingPdfJapaneseCidProfile);
+                }
+                pdf_japanese_cid_profile = Some(value);
+                continue;
+            }
+            if argument == "--pdf-japanese-cid-profile" {
+                let value = arguments
+                    .next()
+                    .filter(|value| !value.is_empty())
+                    .ok_or(RunOptionError::MissingPdfJapaneseCidProfile)?;
+                pdf_japanese_cid_profile = Some(value);
+                continue;
+            }
         }
         tex_arguments.push(argument);
     }
@@ -127,10 +145,14 @@ pub(crate) fn parse_arguments(
     if pdf_font_map.is_some() && output_format != OutputFormat::Pdf {
         return Err(RunOptionError::PdfFontMapRequiresPdf);
     }
+    if pdf_japanese_cid_profile.is_some() && output_format != OutputFormat::Pdf {
+        return Err(RunOptionError::PdfJapaneseCidProfileRequiresPdf);
+    }
 
     Ok(ParsedArguments {
         output_format,
         pdf_font_map,
+        pdf_japanese_cid_profile,
         quiet,
         tex_arguments,
     })
@@ -142,6 +164,8 @@ pub(crate) enum RunOptionError {
     UnknownOutputFormat(String),
     MissingPdfFontMap,
     PdfFontMapRequiresPdf,
+    MissingPdfJapaneseCidProfile,
+    PdfJapaneseCidProfileRequiresPdf,
 }
 
 impl fmt::Display for RunOptionError {
@@ -157,6 +181,12 @@ impl fmt::Display for RunOptionError {
             Self::MissingPdfFontMap => formatter.write_str("missing value for --pdf-font-map"),
             Self::PdfFontMapRequiresPdf => {
                 formatter.write_str("--pdf-font-map requires --output-format=pdf")
+            }
+            Self::MissingPdfJapaneseCidProfile => {
+                formatter.write_str("missing value for --pdf-japanese-cid-profile")
+            }
+            Self::PdfJapaneseCidProfileRequiresPdf => {
+                formatter.write_str("--pdf-japanese-cid-profile requires --output-format=pdf")
             }
         }
     }
@@ -176,6 +206,7 @@ mod tests {
         let parsed = parse_arguments(strings(&["&plain", "hello.tex"])).unwrap();
         assert_eq!(parsed.output_format, OutputFormat::Dvi);
         assert_eq!(parsed.pdf_font_map, None);
+        assert_eq!(parsed.pdf_japanese_cid_profile, None);
         assert!(!parsed.quiet);
         assert_eq!(parsed.tex_arguments, strings(&["&plain", "hello.tex"]));
     }
@@ -191,6 +222,7 @@ mod tests {
             let parsed = parse_arguments(arguments).unwrap();
             assert_eq!(parsed.output_format, OutputFormat::Pdf);
             assert_eq!(parsed.pdf_font_map, None);
+            assert_eq!(parsed.pdf_japanese_cid_profile, None);
             assert!(!parsed.quiet);
             assert_eq!(parsed.tex_arguments, strings(&["hello.tex"]));
         }
@@ -282,6 +314,50 @@ mod tests {
         assert_eq!(
             parse_arguments(strings(&["--output-format=pdf", "--pdf-font-map"])),
             Err(RunOptionError::MissingPdfFontMap)
+        );
+    }
+
+    #[test]
+    fn 和文cid_profileは物理pathをos文字列のままpdfへだけ渡す() {
+        for arguments in [
+            strings(&[
+                "--output-format=pdf",
+                "--pdf-japanese-cid-profile=資材/min10.cidprofile",
+                "hello.tex",
+            ]),
+            strings(&[
+                "--pdf-japanese-cid-profile",
+                "資材/min10.cidprofile",
+                "--output-format",
+                "pdf",
+                "hello.tex",
+            ]),
+        ] {
+            let parsed = parse_arguments(arguments).unwrap();
+            assert_eq!(
+                parsed.pdf_japanese_cid_profile,
+                Some(OsString::from("資材/min10.cidprofile"))
+            );
+            assert_eq!(parsed.tex_arguments, strings(&["hello.tex"]));
+        }
+
+        assert_eq!(
+            parse_arguments(strings(&["--pdf-japanese-cid-profile=min10.cidprofile"])),
+            Err(RunOptionError::PdfJapaneseCidProfileRequiresPdf)
+        );
+        assert_eq!(
+            parse_arguments(strings(&[
+                "--output-format=pdf",
+                "--pdf-japanese-cid-profile="
+            ])),
+            Err(RunOptionError::MissingPdfJapaneseCidProfile)
+        );
+        assert_eq!(
+            parse_arguments(strings(&[
+                "--output-format=pdf",
+                "--pdf-japanese-cid-profile"
+            ])),
+            Err(RunOptionError::MissingPdfJapaneseCidProfile)
         );
     }
 

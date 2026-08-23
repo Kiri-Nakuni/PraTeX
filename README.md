@@ -17,6 +17,8 @@ PraTeXは、tyti氏によるTeX82のRust再実装`rtex`を基礎に、現代的�
 - `-output-format=pdf`による外部DVI driverを必要としないPDF直接出力
 - PDFへの暫定的なStandard 14 font出力と、明示したmapによるType 1 font全埋込み。実配布
   `pdftex.map`の複数resource構文、flags既定値、PFB Private `StdVW` fallbackまで読める
+- 明示した一つのprofileで、横組JFMのBMP wide glyphを非埋込みType 0/CIDFontType0と
+  `UniJIS-UCS2-H`へ出す最小PDF基線。字形は埋め込まず、表示はviewer側fontに依存する
 - UTF-8入力からのCJK一文字token。`catcode`側をカノンとし、`kcatcode`の公開番号を
   互換viewとして意味へ写す文字分類基盤
 - `\kanjiskip` / `\xkanjiskip`の通常glue parameter面。自動挿入は未接続
@@ -97,6 +99,7 @@ format、TFM、LaTeX一式、fontは同梱していません。例えば`plain.f
 | `-output-format=dvi` / `--output-format=dvi` | DVIを出力する（既定） |
 | `-output-format=pdf` / `--output-format=pdf` | PDFを直接出力する |
 | `--pdf-font-map=<map>` | PDF出力でmapを指定し、対応するType 1 fontを埋め込む |
+| `--pdf-japanese-cid-profile=<path>` | PDF出力で一つのJFMを明示named CID fontへ結ぶ物理profileを読む |
 | `--quiet` | banner、page番号、通常の出力要約など、自動的な端末出力を抑える |
 | `--` | 以降をPraTeXのoptionとして解釈せず、TeXの入力行へ渡す |
 
@@ -105,6 +108,10 @@ format、TFM、LaTeX一式、fontは同梱していません。例えば`plain.f
 
 PDF backendの現在の範囲と制約は
 [docs/pdf-backend-notes.md](docs/pdf-backend-notes.md) を参照してください。
+JFM/TFMには文字幅やclassはあっても、outline、bitmap、CID対応表はありません。このため
+`--pdf-japanese-cid-profile`の経路は字形を埋め込まず、指定したBaseFontと
+`UniJIS-UCS2-H`を実装するviewer環境でだけ意図した和文表示になります。portableな字形表示や
+抽出を保証する機能ではなく、profileなしでtofuへ黙ってfallbackすることもありません。
 TeX Live探索の対応範囲、WSL境界、性能値は
 [docs/kpathsea-port-notes.md](docs/kpathsea-port-notes.md) に記録しています。
 
@@ -129,8 +136,8 @@ packageは実装の資料として写さず、互換性を測る外部入力と�
 ## 未完成の領域
 
 - e-TeXおよびpdfTeX原始命令の残りと、広範なclass/packageを処理するLaTeX2e互換性
-- `\tfont`と縦組JFM、JFM pair adjustment、K/X自動空白、和文glue・禁則、PDF和文glyph
-- OTF／TrueType、CID font、ToUnicode、font subsetを含むPDF font処理
+- `\tfont`と縦組JFM、JFM pair adjustment、K/X自動空白、和文glue・禁則、縦組PDF和文glyph
+- 埋込み和文font、OTF／TrueType、CID mapping、ToUnicode、font subsetを含むportableなPDF font処理
 - `texmf.cnf`、全path expression、alias、`mktex*`を含むkpathseaの完全な互換性
 - `jsarticle`、`jlreq`、`ltjsarticle`、`hyperref`を実用的に動かすための互換層
 - 実行ごとに明示して有効化するVaak callbackと、低頻度で複雑な拡張向けWASM ABI

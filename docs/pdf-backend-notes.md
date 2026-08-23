@@ -10,6 +10,8 @@
   - §3.6.1 document catalog
   - §3.6.2 page tree
   - §3.7.1 content streams
+  - §5.5.4 font descriptors
+  - §5.6.1--5.6.5 composite fonts、CIDFonts、CMaps
 - Hàn Thế Thànhほか, *The pdfTeX user manual*
   <https://mirrors.ctan.org/systems/doc/pdftex/manual/pdftex-a.pdf>
 - Adobe, *The Type 1 Font Format*
@@ -26,6 +28,8 @@ PDF ReferenceはPDFを生成するsoftwareへ、必要なdata structureとoperat
 2. `pdf_document.rs`: Catalog、Pages、Page、Contentsの一段page treeとMediaBoxを作る。
 3. `output_backend.rs`: 組版木を一度だけ走査して表示eventを渡す境界。
 4. `pdf_backend.rs`: 同じeventをPDF座標・content operatorへ写すbackend。
+5. `font_resources/named_cid.rs`: 明示物理pathの一profileをboundedに読むhost境界。
+6. `pdf_cid_font.rs`: Type 0、CIDFontType0、FontDescriptorを組み立てる層。
 
 最小文書はCatalog、page-tree root、Page、Contentsの4 objectである。PageはParent、
 MediaBox、空でも明示するResources、Contentsを持つ。複数ページは出現順にKidsへ積み、
@@ -64,6 +68,42 @@ fontの定義済み状態はbackend文書ごとの `Vec<bool>` に持ち、fmt�
 Courier smokeを保つ。DVIとの併用、空値、壊れたmap、欠けた資材は黙って無視せず診断して
 終了する。mapのsubset指定をfullへ昇格しない。
 
+`--pdf-japanese-cid-profile=<path>` または値を次の引数へ分けた形では、pathを論理名探索へ
+渡さず、明示された物理fileを一回だけ最大64 KiBまで読む。一fileは一JFMだけに対応し、
+productionのfont定義時にJFM論理名を照合する。profile loader、path、provider handleはfmtへ
+保存せず、glyph loopは書き込み済みfont handleだけを使う。Type 1 mapと同時指定してもよく、
+Courierを`/F1`に固定した同じfirst-use resource列へType 1とnamed CIDを衝突なく並べる。
+
+Profile 1はASCIIの次の形式で、各fieldをちょうど一回要求する。未知field、重複、欠損、
+`EndProfile`後のdataを拒み、コメントやincludeは実行しない。
+
+```text
+PraTeX-Named-CID-Profile 1
+JfmName min10
+BaseFont HeiseiMin-W3
+Flags 6
+FontBBox -123 -257 1001 910
+ItalicAngle 0
+Ascent 880
+Descent -120
+CapHeight 700
+StemV 80
+DefaultWidth 1000
+EndProfile
+```
+
+この版ではPDF 1.4の`/Encoding /UniJIS-UCS2-H`と
+`/CIDSystemInfo << /Registry (Adobe) /Ordering (Japan1) /Supplement 4 >>`だけを型で固定し、
+BMP Unicode scalarだけを2-byte big-endian hex stringへする。非BMPとsurrogateは文字を
+書いたり位置を進めたりする前にtyped errorにする。JFM幅は次の`Tm`位置を決めるhost側の
+advanceにだけ使い、profileの`DefaultWidth`やPDF `/W`をJFMから推測しない。
+
+JFM/TFMはmetricとclassを与えるだけで、outline、bitmap、Unicode--CID mappingを持たない。
+このsliceはFontFileを埋め込まないため、`BaseFont`を実装し`UniJIS-UCS2-H`を解決できるviewerで
+だけ意図した字形になる。Standard 14以外のnamed fontが常に利用できる保証はなく、portableな
+表示、text extraction、PDF/A適合を主張しない。profileなしやJFM名不一致をCourier/tofuへ
+fallbackせず停止する。Repositoryへ第三者font資材は追加していない。
+
 実配布mapのresourceは順序と`<` / `<<` / `<[`を保つ配列として構文解析する。同じ行に
 encoding、generic header、font programが複数並んでも、未使用entryだけを理由にmap全体を
 拒まない。`< file.pfb`のようにmarkerと名前が分離したdvips互換形も読む。実際に選んだ
@@ -92,6 +132,9 @@ black-box fixtureを追加して広げる。
   括弧とbackslashはPDF literal stringとしてescapeする。その他の8-bit文字は配置幅だけ
   進め、まだ描かない。明示map経路では、TFMに実在するcodeだけをType 1 fontの連続
   `/Widths` と許可maskへ写し、文字をhex stringで出力する。
+- 横組JFMのwide glyphは明示profileがある時だけnamed CID resourceへ`<XXXX> Tj`で置く。
+  同一pageで同じresourceを一回だけ登録し、各文字の絶対`Tm`差は渡されたJFM幅をspから
+  固定小数bpへ変換した値に一致する。
 - raw `\special` はcontent streamへ注入せず捨てる。
 
 最小LaTeX文書のCourier実測は1 page / 2169 bytes。Popplerとstrict pypdfが構造を読め、renderで
@@ -112,13 +155,25 @@ pdfTeXの省略時契約を優先して`/Flags 4`を出した。strict pypdfで�
 `/BaseFont /CMTT10`、PFB由来`/StemV 69`、`Length1/2/3 = 4364/26170/545`を確認し、Popplerで
 1 page / 32,834 bytesのPDF 1.4を描画した。
 
+合成横組JFMの「ああ」を10 pt font・各5 pt advanceで流すnamed CID process試験は、
+1 page / 1,254 bytesのPDF 1.4を生成した。strict `pypdf`で`/F1`と`/F2`、Type 0、
+CIDFontType0、`UniJIS-UCS2-H`、Adobe-Japan1 supplement 4、`/DW 1000`を再読込みし、
+Poppler `pdfinfo`もpage treeを受理した。試験環境のPopplerにはprofileのnamed fontそのものが
+なく`MS-Mincho`へ代替して描画したため、render成功は指定fontの可搬性を示さない。合成JFMが
+意図的に全角字形へ半角advanceを与えるので、render上の二字は重なる。PDF contentの二つの
+絶対`Tm`の差`4.98132 bp`が`5 * 65536 sp`の変換値と一致することをbyte oracleにしている。
+
+このprofileは**非埋込みCID**のhost設定であり、OTF loader、RustyBuzz shaping、pdfTeX相当の
+PDF primitive/font処理が完成したという意味ではない。
+
 ## 6. 次の段階
 
 1. 通常mapのType 1 subset埋込みと、同じ物理fontを異なるsizeで使う時のobject共有へ進む。
 2. `\pdfpagewidth` / `\pdfpageheight` 相当または認識済みpapersize specialで物理媒体を
    指定できるようにする。
 3. Type 1が揃ってから `\pdfoutput` を登録し、LaTeXのpdfTeX backend判定を有効にする。
-4. ToUnicode、run batching、TrueType、和文Type 0/CIDFontは独立した後続段階とする。
+4. ToUnicode、run batching、TrueType、和文字形の埋込み、複数profile tableは独立した
+   後続段階とする。今回のnamed CID profileを埋込みfontやOTFであるかのように扱わない。
 
 生の `\special` をPDF content streamへ注入してはならない。認識したspecialだけを専用の
 parser境界から扱う。

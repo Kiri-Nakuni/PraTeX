@@ -1,6 +1,6 @@
 # PraTeX 作業引継ぎ
 
-更新: 2026-08-23（`codex2/japanese-glyph-dvi`）
+更新: 2026-08-23（`codex2/pdf-japanese-cid`）
 
 この文書は、現在の Codex セッションから別のエージェントへ作業が移っても、
 検証済みの境界と未commitの作業を失わないための生きた引継ぎである。
@@ -9,8 +9,8 @@
 ## 最初に守ること
 
 1. リポジトリ直下の `AGENTS.md` を最初から最後まで読む。
-2. 現在の枝は `codex2/japanese-glyph-dvi`。`main`と歴史的`full`を汚さない。
-3. 基点は統合checkpoint `6ce8315`。作業中のK/X、spacing、文書更新を無関係な差分として
+2. 現在の枝は `codex2/pdf-japanese-cid`。`main`と歴史的`full`を汚さない。
+3. 基点は`origin/codex2/jlreq-script-spacing`の`4f832b1`。作業中のK/X、spacing、文書更新を無関係な差分として
    差し戻さない。
 4. 通常実装と性能調整はsafe Rustだけで行う。
 5. pTeX/upTeX/e-TeX/pdfTeXの実装sourceや上流testを移植しない。公開manual、公開file format、
@@ -20,8 +20,8 @@
 
 ## 枝と共有状態
 
-- 枝: `codex2/japanese-glyph-dvi`
-- 統合済み基点: `codex2/jlreq-script-spacing`の`c9bd240`（歴史的基点は`6ce8315`）
+- 枝: `codex2/pdf-japanese-cid`
+- 統合済み基点: `origin/codex2/jlreq-script-spacing`の`4f832b1`（歴史的基点は`6ce8315`）
 - 基点のrelease全suite: **564 passed、0 failed、6 ignored**（Vaak `89804b4`）
 - 現在の作業枝release全suite: **594 passed、0 failed、6 ignored**
 - 直近の共有commit:
@@ -182,9 +182,30 @@ engine内部IDを分け、標準日本語ではVaak/WASM call 0、組版中のal
   paragraphを開始する。
 - DVIは欧文fontと衝突しない256始まりのfont番号を使い、BMPを`set2`、補助面を`set3`で出す。
   合成fixtureでglyph間と後続ruleのsp座標まで解釈している。
-- 範囲は横組DVIだけ。`\tfont`、縦組、JFM pair adjustment、K/X自動空白、禁則、PDF和文glyph、
-  OTF shapingは未実装で、横組smokeを日本語組版完成とは呼ばない。
+- DVIに加え、明示named CID profileがある時だけBMP wide glyphをPDF Type 0へ出す最小基線を
+  `codex2/pdf-japanese-cid`で追加した。`\tfont`、縦組、JFM pair adjustment、K/X自動空白、
+  禁則、埋込みPDF和文字形、OTF shapingは未実装で、横組smokeを日本語組版完成とは呼ばない。
 - 同じ欧文plain fixtureを`origin/main`と比較し、BOP--EOPの183 bytesは差分0だった。
+
+## 横組JFM wide glyphのnamed CID PDF基線
+
+状態: **`codex2/pdf-japanese-cid`でproduction接続済み。全releaseは631 passed、0 failed、
+7 ignored**。
+
+- `--pdf-japanese-cid-profile=<path>`は明示物理pathを最大64 KiBで一回だけ読み、一file・一JFMの
+  strict ASCII profileをfont定義時にJFM論理名へ結ぶ。`kpsewhich`や暗黙font探索はしない。
+- PDF 1.4の非埋込みType 0/CIDFontType0、`UniJIS-UCS2-H`、Adobe-Japan1-4だけをこの型で
+  固定した。BMP Unicode scalarだけを出し、非BMP、surrogate、profile欠損、JFM名不一致、
+  byte/wide font種別不一致はtyped errorにする。tofuや他engine偽装へfallbackしない。
+- JFM幅はhostの現在位置だけを進める。CID fontの`/DW`はprofile明示値で、JFMから`/W`を
+  捏造しない。2 glyphの絶対`Tm`差をspからの固定小数変換で試験する。
+- Courierは`/F1`を保ち、Type 1とnamed CIDを同じfirst-use resource列へ置くため番号衝突しない。
+  同一pageのCID resourceは一回だけ登録する。
+- JFM/TFMにはoutline、bitmap、CID mappingがない。FontFileを埋め込まないこのsliceの表示は
+  profileのBaseFontとpredefined CMapを解決できるviewerに依存し、portableな表示・抽出を
+  保証しない。OTF/RustyBuzz、embedded font、WASM module意味はこのsliceへ入れていない。
+- focused oracleは`src/font_resources/named_cid.rs`、`src/pdf_cid_font.rs`、
+  `src/pdf_backend.rs`、`src/pdf_document.rs`と`tests/pdf_japanese_output.rs`にある。
 
 ## 完了済み: `\lastnodetype` page状態
 
@@ -330,8 +351,8 @@ Unicode table追加後の最小fmt増分は上記のとおり実測済み。full
   三consumerを分ける。font map内の生byte保持とは別機能である。
 - TCXはWeb2C input translation profileとして未実装。xord/xchrや`^^`記法と混同しない。
 - `^^^^hhhh` / `^^^^^^hhhhhh`は未実装。
-- OTF対応はPDF直接出力と同順位だが、先にJFM/TFMだけのDVI/PDF基線を完成する。
-  RustyBuzzを接続する場合はdefault-offとする。
+- PDF直接出力をOTF対応より先に進め、JFM/TFMだけのDVI/PDF基線を完成する。
+  後続でRustyBuzzを接続する場合はdefault-offとする。
 - 現在のcatcodeは`repr(u8)`。入力分類はcatcode側をカノンとし、`\catcode`と
   `\kcatcode`の公開番号は別codecで同じ意味へ写す。layout/JFM/provider IDは別domainに保つ。
 - `for_CLAUDE.md`へClaude/Vaak向けの変更とAPI要求を追記し、commit時に

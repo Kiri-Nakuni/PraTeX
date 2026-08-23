@@ -79,16 +79,19 @@
 | 部分 | PDF文字列変換 | `\pdfescapehex`、`\pdfunescapehex`、`\pdfescapestring`、`\pdfescapename`のbyte変換は実装。focusedなprocess試験は`\pdfescapehex`中心で、残りの互換性検証は薄い |
 | 部分 | `\pdfcreationdate` | 形式は返すが、rtexから継承した固定日時`1776-07-04 12:00 UTC`であり実時計ではない |
 | 実装 | `\pdfshellescape` | 読み取り専用内部整数。PraTeXはshell escapeを提供しないため常に`0`で、processを起動しない |
-| 部分 | PDF 1.4直接出力 | `-output-format=pdf` / `--output-format=pdf`。page tree、rule、printable ASCIIの暫定Courier表示、明示mapによるType 1全埋込みまで。外部DVI driverなしでfileを閉じられる |
+| 部分 | PDF 1.4直接出力 | `-output-format=pdf` / `--output-format=pdf`。page tree、rule、printable ASCIIの暫定Courier表示、明示mapによるType 1全埋込み、明示profileによる横組JFM/BMPの非埋込みType 0/CIDFontType0まで。外部DVI driverなしでfileを閉じられる |
 | 部分 | `--pdf-font-map` | 明示したmapだけでType 1埋込みを有効化する。実配布mapの複数resourceと分離markerを未使用entryごと拒まず、選択TFMだけを検査する。`<<font.pfb`の全埋込みだけを受け、`<font.pfb`のsubset要求を勝手に全埋込みへ変えない |
+| 部分 | `--pdf-japanese-cid-profile` | 明示物理pathから一JFM用profileを64 KiB上限で一回だけ読み、JFM名一致時だけ`UniJIS-UCS2-H` / Adobe-Japan1-4へ結ぶ。BMP限定、FontFile/ToUnicodeなしでviewer依存。profileなし・名不一致・非BMPをtofuへfallbackしない |
 | 実装 | Type 1 FontDescriptor fallback | mapのflags省略は公開pdfTeX契約の既定値4。AFMの`StdVW`省略時はPFB eexecを実行せずstream復号し、Private辞書の値だけを`StemV`へ使う。固定値推測はしない |
 
 PDF直接出力はpdfTeX互換を名乗れる段階ではない。`\pdfoutput`、page-size primitive、PDF
-object/link/destination/image primitive、font subset、ToUnicode、TrueType/OpenType、Type 0/CIDFont、
-OTF shapingは未実装である。詳しい境界は
+object/link/destination/image primitive、font subset、ToUnicode、TrueType/OpenType、埋込みCID font、
+OTF shapingは未実装である。現在のnamed CIDはJFM幅で位置を進めるだけで字形を埋め込まず、
+表示はviewer側BaseFontに依存する。詳しい境界は
 [pdfTeX互換層](pdftex-port-notes.md)、
 [PDF backend](pdf-backend-notes.md)、
-[process試験](../tests/pdf_output.rs) を参照する。
+[欧文process試験](../tests/pdf_output.rs)、
+[和文process試験](../tests/pdf_japanese_output.rs) を参照する。
 
 ### pTeX/upTeX互換の入力層
 
@@ -100,13 +103,14 @@ OTF shapingは未実装である。詳しい境界は
 | 部分 | JFM reader/modelと横組font | 公開JFM仕様から独立実装。横組11／縦組9、24-bit raw文字code、u8 class、skip・再配置・256超glue/kern indexをboundedに検査する。横組11はbounded loader、TeX互換scale、current font、`\pratexjfont`と意味一致範囲の`\jfont`、group/fmtへ接続済み。`\tfont`と縦組は未接続 |
 | 実装 | `\kcatcode`表・照会・代入 | 公開値14〜20。U+0000〜U+10FFFFをUnicode 17.0.0のblock、upTeX擬似境界、7例外集合で保存する。block単位の局所/global/globaldefs復元とfmt往復を含む |
 | 実装 | `latin_ucs`（kcatcode 14） | U+0080〜U+2E7FをUnicode欧文一文字tokenとして保持し、cat/lc/uc/sf、group/fmt、active/control identity、特殊catcode、case変換、表示へ通す。pattern/exception/trieもu16 alphabetで一文字として扱う。runtime namespaced Unicode active生成とwide font nodeは後段 |
-| 部分 | UTF-8 CJK一文字tokenと横組glyph | kcatcode 16〜20を符号位置と入力時categoryを持つ一tokenにし、macro、`\edef`、`\let`、条件、`\string`、`\detokenize`、`\write`、fmtまで保持する。current横組JFMがあればUnicode・JFM class・scale済みmetricを持つwide nodeにし、BMPはDVI `set2`、補助面は`set3`で出す。未選択、縦組、mathは明示診断する |
+| 部分 | UTF-8 CJK一文字tokenと横組glyph | kcatcode 16〜20を符号位置と入力時categoryを持つ一tokenにし、macro、`\edef`、`\let`、条件、`\string`、`\detokenize`、`\write`、fmtまで保持する。current横組JFMがあればUnicode・JFM class・scale済みmetricを持つwide nodeにし、DVIはBMPを`set2`、補助面を`set3`、PDFは明示named CID profileがあるBMPだけをType 0へ出す。未選択、縦組、math、PDF非BMPは明示診断する |
 | 実装 | Unicodeを含むtyped制御綴 | `Byte(u8)`と`Unicode(u32)`を別identityにし、同じ見た目のraw UTF-8 byte名とwide名を混同しない。CJK categoryはtokenには固定するが制御綴identityには含めない |
 | 部分 | upTeX互換UTF-8 decoder | 公式black-box観測に合わせ、overlong・surrogateを含む入力規則と不正列の一byte再同期を実装。入力上限はU+10FFFE、表とtokenはU+10FFFFまでで、upTeX独自の0x110000以上は扱わない |
 
 CJK token、K/X parameter、横組JFM glyph基線だけで「日本語組版対応」とはしない。
-横組のmetric付きglyphとDVI `set2`/`set3`は生成できるが、`\tfont`、K/Xの自動挿入、
-JFM pair adjustment、禁則、縦組、PDF和文glyphは未実装である。
+横組のmetric付きglyphとDVI `set2`/`set3`、viewer依存のnamed CID PDFは生成できるが、
+`\tfont`、K/Xの自動挿入、JFM pair adjustment、禁則、縦組、portableな埋込みPDF和文字形は
+未実装である。
 `\kchar`、`\kchardef`、`\ucs`、`\forcecjktoken`もまだない。`\uppercase`/`\lowercase`は
 CJK tokenを現在変更しない。
 
