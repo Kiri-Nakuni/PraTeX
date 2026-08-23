@@ -1,0 +1,56 @@
+{
+  "schema": 1,
+  "locked_at": "2026-08-23",
+  "assets": [
+    {
+      "id": "latex-base",
+      "version": "2026-06-01",
+      "archive": "latex-base.tds.zip",
+      "url": "https://mirrors.ctan.org/install/macros/latex/base/latex-base.tds.zip",
+      "bytes": 49711384,
+      "sha256": "424bcbab851723495397f0542db8722a68917f31d9f28055ebc65baa7ed35336",
+      "license": "LPPL-1.3c-or-later",
+      "runtime": "tex"
+    },
+    {
+      "id": "l3kernel",
+      "version": "2026-08-10",
+      "archive": "l3kernel.tds.zip",
+      "url": "https://mirrors.ctan.org/install/macros/latex/required/l3kernel.tds.zip",
+      "bytes": 14556634,
+      "sha256": "342e0ac756b418d095a23eb37aa771a4df3d27db396d43c9e911e0ab9e138aca",
+      "license": "LPPL-1.3c",
+      "runtime": "tex"
+    },
+    {
+      "id": "unicode-data",
+      "version": "1.19 (2025-09-26)",
+      "archive": "unicode-data.tds.zip",
+      "url": "https://mirrors.ctan.org/install/macros/latex/required/unicode-data.tds.zip",
+      "bytes": 635350,
+      "sha256": "ef541913356b94a2ed0795e41609b8108db4edf0227080151b865c3a4963c895",
+      "license": "LPPL-1.3c-or-later AND Unicode-DFS-2016",
+      "runtime": "tex"
+    },
+    {
+      "id": "cm-tfm",
+      "version": "CTAN snapshot 2026-08-23",
+      "archive": "cm-tfm.zip",
+      "url": "https://mirrors.ctan.org/fonts/cm/tfm.zip",
+      "bytes": 69512,
+      "sha256": "9c0f99fa34c7d801c40f6b5ff60bc28f200e8ef6ffb2fe75e54ca835c67fc04c",
+      "license": "Knuth License",
+      "runtime": "tfm"
+    },
+    {
+      "id": "latex-fonts",
+      "version": "CTAN snapshot 2026-08-23",
+      "archive": "latex-fonts.zip",
+      "url": "https://mirrors.ctan.org/fonts/latex.zip",
+      "bytes": 46802,
+      "sha256": "4e73240c4037643a7ef7c353bedd4a10cf0e180d851c54f1e68fda4397f33936",
+      "license": "LPPL-1.2",
+      "runtime": "tfm"
+    }
+  ]
+}

@@ -46,6 +46,54 @@ PraTeX自身のknown semantic oracleとして使う。試験はDVIを公開仕�
 sp座標、中央揃え、body開始位置、page数を固定する。plain欧文のorigin/main rTeX完全回帰とは
 別gateである。
 
+oracleではtitle、author、date、bodyへそれぞれ`17sp x 23sp`、`19sp x 29sp`、
+`21sp x 31sp`、`31sp x 37sp`の固有ruleを置く。10pt・40emの本文を基準に、先頭側へ
+奇数の余り1spを与えた次の相対座標をexactに検査し、`±1sp`の許容は置かない。
+
+| marker | `h - body.h` | `body.v - v` |
+|---|---:|---:|
+| title | 13,107,192sp | 8,110,068sp |
+| author | 13,107,191sp | 5,160,945sp |
+| date | 13,107,190sp | 3,194,864sp |
+
+DVIだけでは`set_char`が進めるTFM幅を復元できない。そのためfixtureは四つのmarkerより前に
+glyphを置かず、decoderはglyphが先行した場合に推測をせず失敗する。
+
+## asset-fetching runner
+
+`tools/test-prjsarticle.ps1`は公式LaTeX互換track専用である。TeX Live、`kpsewhich`、
+jsclassesを子processとして呼ばず、`tests-support/prjsarticle/assets.json`で固定したarchiveから
+runtimeの`.tex`/`.tfm`だけをrepository外へ展開する。`latex.ltx`はopaqueな試験入力として
+実行し、class実装の生成材料にはしない。
+
+```powershell
+pwsh -File tools/test-prjsarticle.ps1 `
+  -Fetch `
+  -AssetCache C:\temp\prjsarticle-assets `
+  -RtexPath target\release\pratex.exe
+```
+
+初回だけ`-Fetch`を明示する。offlineではcache欠落、hash不一致、異なるruntime fileの
+basename衝突をすべてfailにする。生成した`latex.fmt`、DVI、stdout/stderr、取得記録は
+一意な`WorkRoot`だけへ置く。2026-08-23の基点engineでは公式format生成まで通り、
+`\pratexversion`が未実装だったためclass入口で意図どおり停止した。identity枝をmergeした後に
+ignored testを次で有効化する。
+
+```powershell
+$env:PRATEX_PRJSARTICLE_ASSET_CACHE = 'C:\temp\prjsarticle-assets'
+cargo test --release --locked --test prjsarticle -- --ignored --nocapture
+```
+
+固定資材は次のとおり。archiveそのものはrepositoryへ入れない。
+
+| package | version/snapshot | archive SHA-256 | license |
+|---|---|---|---|
+| latex-base | 2026-06-01 | `424bcbab851723495397f0542db8722a68917f31d9f28055ebc65baa7ed35336` | LPPL-1.3c-or-later |
+| l3kernel | 2026-08-10 | `342e0ac756b418d095a23eb37aa771a4df3d27db396d43c9e911e0ab9e138aca` | LPPL-1.3c |
+| unicode-data | 1.19 (2025-09-26) | `ef541913356b94a2ed0795e41609b8108db4edf0227080151b865c3a4963c895` | LPPL-1.3c-or-later / Unicode data terms |
+| cm-tfm | 2026-08-23 CTAN snapshot | `9c0f99fa34c7d801c40f6b5ff60bc28f200e8ef6ffb2fe75e54ca835c67fc04c` | Knuth License |
+| latex-fonts | 2026-08-23 CTAN snapshot | `4e73240c4037643a7ef7c353bedd4a10cf0e180d851c54f1e68fda4397f33936` | LPPL-1.2 |
+
 ## jsclasses調査と権利
 
 公開挙動の比較対象として、CTAN `jsclasses` 2025-05-10を2026-08-23に取得した。
