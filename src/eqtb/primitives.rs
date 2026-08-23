@@ -91,6 +91,14 @@ impl Eqtb {
             UnexpandableCommand::Prefixable(PrefixableCommand::Glue(SkipVariable::XspaceSkip)),
         );
         self.primitive_unexpandable(
+            b"kanjiskip",
+            UnexpandableCommand::Prefixable(PrefixableCommand::Glue(SkipVariable::KanjiSkip)),
+        );
+        self.primitive_unexpandable(
+            b"xkanjiskip",
+            UnexpandableCommand::Prefixable(PrefixableCommand::Glue(SkipVariable::XKanjiSkip)),
+        );
+        self.primitive_unexpandable(
             b"parfillskip",
             UnexpandableCommand::Prefixable(PrefixableCommand::Glue(SkipVariable::ParFillSkip)),
         );

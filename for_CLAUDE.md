@@ -1,6 +1,50 @@
 # Claude への連絡
 
-更新: 2026-08-22 / 枝 `codex/euptex-utf8-cjk-token`
+更新: 2026-08-23 / PraTeX枝 `codex2/jlreq-script-spacing`
+
+## 2026-08-23: 次に必要なVaak embedding slice
+
+Vaak `89804b4`をPraTeX側から読取専用監査し、`host` / `hostfn`のrelease試験34件が通ることを
+確認した。現行Vaakには`HostItem::{Value, Fn}`、compile時の`u16` host function index、
+`Program2`、再利用可能な`Runner`、失敗時もhost値を返すwriteback、host read/write/touched解析が
+既にある。これらを新規課題として作り直さないでほしい。
+
+PraTeXのspacing/unit table登録へ進む前に必要なのは、additiveなtop-level/Leaf-only embedding
+APIである。Vaak側にPraTeX固有のspacing/node型は入れず、次の一般契約をお願いしたい。
+
+- source、型、compile結果をcanonical `HostLayout`へ束縛する`prepare_top` / `PreparedProgram`
+- hashだけでなくexact descriptorまで照合するruntime layout check
+- `Paradox`、host error、layout mismatch、返値型違反を区別するtyped completion
+- compile済みindexと`&[Value]`を受ける同期`LeafHost`。warm scalar callのheap allocation 0
+- `Runner`内のargument scratch再利用と、旧`HostFns::call` / `Runner`の互換adapter
+- 初版では`MaySuspend`を明示拒否してよい。named entry、opaque node token、`tex.print`は後段
+
+PraTeX側の最初のhost function候補は、通常の`\directvaak` layoutへ常設せず、明示承認された
+non-expandable登録実行だけに見せる次の二つである。
+
+```text
+pratex_upload_spacing_table_v1(class_count, ranges, pairs)
+pratex_upload_unit_table_v1(names, specs)
+```
+
+成功返値は不要で、文として一度だけ呼ぶ。PraTeXがtable全体を検証・compileし、Vaak実行が正常に
+空で完了した時だけrun/list境界で原子的にcommitする。標準JLReq/pTeXはVaakを呼ばず、登録後も
+組版境界・寸法出現ごとのcallbackは0である。provider-local class/unit IDをPraTeX内部IDへ写し、
+PraTeXのRust enumやJFM classをVaak APIへ入れない。
+
+併せて次のcorrectness境界をVaak側で検討してほしい。
+
+- `host_touched`の`None / LengthOnly / FixedIndices / Whole`を区別し、read/write summaryを別に持つ
+- `read_at`だけ実装され`write_at=false`になるbindingを黙って成功させないpaired capability
+- layout順、署名、effect、call classのいずれが変わってもmismatchにする試験
+- host返値型違反、invalid index、failure時writeback、scalar Leaf allocation 0の試験
+
+PraTeX GPL側の実装行・試験本文はVaakへ写さず、この要求と公開API契約からMIT側で独立実装する。
+詳しいPraTeX側設計は`docs/vaak-embedding-api-design.md`にある。
+
+以下の過去ログにあるunsafe専用枝や「性能作業を保留」という記述は当時の判断記録である。
+現在の利用者指定は、機能sliceごとに性能を測りつつ、PraTeX側の調整をsafe Rustの範囲だけで
+行うことへ更新されている。
 
 ## 現在地
 
@@ -265,9 +309,11 @@ rtex側では `\directvaak` の入れ子general-text走査を修正済み。次�
 
 `codex/euptex-utf8-cjk-token` の `9af3f19` はremoteへpush済み。次の
 `codex/extensible-char-classifier` では、catcode/kcatcodeの保存表と公開番号を混ぜず、
-字句解析器の問い合わせだけを `CharacterClassifier` trait に統一している。catcode 14/16 と
-kcatcode 14/16 は意味が衝突するため内部 `CharClassId` の別領域に置く。ASCIIは従来の
-256要素表を直接引き、provider無効時にUnicode表引きやcallback分岐を足さない。
+字句解析器の問い合わせを `CharacterClassifier` trait に統一した。その後の決定で、入力分類は
+catcode側の `InputCategory::{CatCode, Wide, RawBytes}` をカノンとし、kcatcode 14..20は
+別codecから意味へ写す互換viewへ訂正した。catcode 14/16とkcatcode 14/16の生整数は衝突するが、
+内部へ数値domainを二つ持ち込まない。ASCIIは従来の256要素表を直接引き、provider無効時に
+Unicode表引きやcallback分岐を足さない。
 設計は `docs/character-classifier-extension.md`。
 
 生文字列レジスタは `Rc<Vec<u8>>` とし、`\the`の現在分類によるsnapshot字句化、

@@ -1,24 +1,27 @@
 # pTeX相当からJLReq一級対応へ進む日本語組版roadmap
 
-更新: 2026-08-22
+更新: 2026-08-23
 
 ## 方針
 
-PraTeXでいう「最低限の日本語組版」は、横書きの一例を出すことではなく、**pTeX相当**である。
-JFM、和文font/node、自動和文間隔、禁則、横組・縦組、DVI/PDF出力までをengine coreで完成させる。
-割注はpTeX primitiveではないため、この完了条件には含めない。
+PraTeXでいう「最低限の日本語組版」は、横書きの一例を出すことではない。pTeX相当は最初の
+互換milestoneであり、終点は**upTeX以上のJLReq native対応**である。JFM、和文font/node、
+自動和文間隔、禁則、横組・縦組、縦中横、割注、DVI/PDF出力までをengine coreで支える。
+縦中横・割注のauthor向け名はformat macroに置けるが、方向、分割候補、外側行分割との協調を
+macroだけへ押し込まない。
 
 JLReqの標準的な日本語組版も一級機能としてengine内に置く。Vaak/WASMは標準規則を成立させる
 依存先にせず、利用者・出版社固有のprofileまたは実験的な低頻度処理を**明示要求した時だけ**
 差し替える境界に限る。既定日本語paragraphのcallback回数は0を条件とする。
 
-現在あるのはUTF-8 CJK token、`\kcatcode`、typed `LanguageRegion`と、独立したbounded JFM
+現在あるのはUTF-8 CJK token、`\kcatcode`、typed `LanguageRegion`、`\kanjiskip` / `\xkanjiskip`
+の通常glue parameter面と、独立したbounded JFM
 reader/modelまでである。JFMは横11／縦9、24-bit raw文字code、u8 class、skip、再配置、
 256超glue/kern indexを検査し、class対programをload時に直接表へcompileする。まだ和文fontへ
 接続していないため、和文glyph node、間隔、禁則、方向、和文出力は未実装であり、CJK tokenは
 組版時に捨てられる。
 
-`\kanjiskip` / `\xkanjiskip`のprimitive、JFMとのhybrid、暗黙K、
+`\kanjiskip` / `\xkanjiskip`の実spacing、JFMとのhybrid、暗黙K、
 script-pair拡張のclean-room設計は
 [和文間隔core設計](kanjiskip-core-design.md)に分離した。
 
@@ -28,7 +31,7 @@ catcodeへ組版情報を押し込まない。少なくとも次を別の型と�
 
 | domain | 役割 |
 |---|---|
-| `InputCategory(u8)` | tokenizerのcatcode。`kcatcode`互換viewも入力分類だけを扱う |
+| `InputCategory` | tokenizerのカノン分類（`CatCode`、wide、raw-byte route）。`kcatcode`は別公開番号の互換view |
 | `TextIdentity` | 元のUnicode scalar列・IVS・将来の外字参照。正規化やglyph IDで同一性を潰さない |
 | `ScriptClassId` | Han、Kana、Hangul、Latin、Common等の組版script |
 | `LanguageRegion` | ja、zh-Hans、zh-Hant、ko、vi等のlayout locale |
@@ -134,8 +137,9 @@ base文字範囲とannotationの対応を知るsemantic nodeが必要である�
 
 ### 5. 縦中横とglyph orientation
 
-`\tatechuyoko`の表面はmacroでよい。横方向sub-box、周囲のJLReq class、縦用advance、
-OpenType `vert`/`vrt2`、元文字と回転glyphの対応はcoreで扱う。
+`\tatechuyoko`の表面はmacroでよい。横方向の固定長`InlineObject`、周囲のJLReq class、
+縦用advance、layout extentとink extent、元文字と回転glyphの対応はcoreで扱う。pTeXの
+`WritingMode`、TeX--XeTの`InlineDirection`、optional shapingの`ShapingMode`は別型にする。
 
 ### 6. 基本版面gridと段末均等化
 
@@ -145,14 +149,34 @@ OpenType `vert`/`vrt2`、元文字と回転glyphの対応はcoreで扱う。
 
 ### 7. 割注
 
-P0には含めない。まずLaPraTeX/jlreq互換macroとして実装する。内側二行と外側行分割を同時に
-最適化する必要が現れた場合だけ、後段で`InlineSubflowNode`を検討する。
+engine-levelで扱う。用途名primitive `\warichu`を直接追加せず、内側二laneの行分割、均等化、
+本文複数行へのfragment、禁則、外側行分割との協調を表せる用途非依存の抽象にする。内部nodeは
+次節の案Bに固定し、author向け表面はLaPraTeX macroとして後から接続する。
+
+## 縦中横・割注の抽象化（案Bを採択）
+
+2026-08-23に利用者が案Bを選択した。案A/Cは再検討時にtrade-offを失わないため記録として残す。
+
+| 案 | 内部表現 | 縦中横 | 複数の本文行に跨る割注 | 難度・主なtrade-off |
+|---|---|---|---|---|
+| A（不採択） | 属性付き原子的`InlineObject`だけ | 最短で実装可能 | 不可 | 低～中。固定boxとして既存line breakerへ載るが、割注は一外行内に閉じる |
+| **B（採択）** | 固定`InlineObject`＋分割可能`InlineSubflow` | Aを第1段にする | 可能 | 高いが段階導入可能。割注候補を外側line breakerへ渡し、一般automatonのABIを早期固定しない |
+| C（不採択） | 統一fragment automaton | 一遷移で表現 | 可能 | 最大。ruby等も一般化できる一方、state上限・枝刈り・fmt・ABIを初手から固定する |
+
+案BではTeX入力を後で再実行しない。入力は一度だけ実行して副作用を確定し、immutableな
+`OwnedParagraphIR`から`SubflowCandidate`を列挙する。標準候補生成はnativeでcallback 0、Vaakは
+検証済みlayout/cost tableを一度だけ登録し、WASMは必要な場合もbounded candidate batchだけを
+扱う。raw node pointerやRust enumをABIへ出さない。
+
+案Bの段階は、B0 `WritingMode`/frame＋縦中横、B1 一外行内の二lane、B2 continuationを持つ
+複数外行fragment、B3 明示opt-in providerの順とする。begin/end marker構文は便利なfrontendに
+できるが、coreでは最終的に同じtyped nodeへcompileする。
 
 ## engine、macro、拡張の境界
 
 | 場所 | 対象 |
 |---|---|
-| engine core | JFM、和文glyph/font、spacing、禁則、優先行調整、方向・縦組、font実在、glyph-text対応、annotation意味、grid基盤 |
+| engine core | JFM、和文glyph/font、spacing、禁則、優先行調整、方向・縦組、inline object/subflow、font実在、glyph-text対応、annotation意味、grid基盤 |
 | LaPraTeX macro | class option、版面宣言、見出し、ruby・圏点・縦中横・割注のauthor surface |
 | Vaak table | 利用者・出版社固有のclass/pair差替え。明示capabilityで一度uploadしhost側でcompile |
 | WASM batch | 実験的な形態素break、独自辞書、特殊annotation policyなど複雑で低頻度の処理 |
@@ -168,8 +192,9 @@ P0には含めない。まずLaPraTeX/jlreq互換macroとして実装する。�
 - spacing finalizerはlist終端で一回だけ。line breaker内にtrait objectやABI callを置かない。
 - priority調整は固定bucket、annotation/grid用allocationは使用時だけにする。
 - 10万字段落、混植、縦組をreleaseで測り、TeX82経路のTRIPとDVI/PDF意味比較を固定する。
-- P0完了時は同一意味のDVI corpusでupTeX/e-upTeXと正面比較し、engine本体の幾何平均を5%以内、
-  主要caseを10%以内にする。探索、fmt復元、PDF pipelineは内訳を分離する。
+- DVI modeの同一入力、同一TeX tree、同等DVIについて、upLaTeXに対するend-to-end wall timeを
+  corpus幾何平均・各主要caseとも**1.2倍未満**にする。探索、fmt復元等は内訳も記録するが、
+  合否値から隠さない。
 - 性能抽象化が有意な退行を生み、意味上必要でもない場合は分離枝で差し戻す。
 
 ## 後続段階
@@ -177,7 +202,7 @@ P0には含めない。まずLaPraTeX/jlreq互換macroとして実装する。�
 1. P0の横・縦pTeX相当を完了する。
 2. `jsarticle`基本横組を通し、次に`jlreq`横組、最後にその縦組を通す。
 3. P1の優先行調整・class pair禁則・実font/IVSを先行実装する。
-4. LaPraTeXがruby、圏点、縦中横、版面gridをtyped core APIへ接続する。
+4. 採択済みの案BをB0からB3まで段階実装し、LaPraTeXがruby、圏点、縦中横、割注、版面gridをtyped core APIへ接続する。
 5. ja/zh-Hans/zh-Hant/ko/viの標準profileをcoreに追加し、同じ境界機構をCJKVへ一般化する。
 6. source provenanceと副作用journalを使い、incremental replayと実行結果ベースLSPへ接続する。
 

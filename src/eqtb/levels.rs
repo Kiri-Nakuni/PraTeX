@@ -170,6 +170,8 @@ pub struct VariableLevels {
     tab_skip: Level,
     space_skip: Level,
     xspace_skip: Level,
+    kanji_skip: Level,
+    xkanji_skip: Level,
     par_fill_skip: Level,
     thin_mu_skip: Level,
     med_mu_skip: Level,
@@ -348,6 +350,8 @@ impl VariableLevels {
             tab_skip: 0,
             space_skip: 0,
             xspace_skip: 0,
+            kanji_skip: 0,
+            xkanji_skip: 0,
             par_fill_skip: 0,
             thin_mu_skip: 0,
             med_mu_skip: 0,
@@ -538,6 +542,8 @@ impl VariableLevels {
                 SkipVariable::TabSkip => self.tab_skip,
                 SkipVariable::SpaceSkip => self.space_skip,
                 SkipVariable::XspaceSkip => self.xspace_skip,
+                SkipVariable::KanjiSkip => self.kanji_skip,
+                SkipVariable::XKanjiSkip => self.xkanji_skip,
                 SkipVariable::ParFillSkip => self.par_fill_skip,
                 SkipVariable::ThinMuSkip => self.thin_mu_skip,
                 SkipVariable::MedMuSkip => self.med_mu_skip,
@@ -724,6 +730,8 @@ impl VariableLevels {
                 SkipVariable::TabSkip => &mut self.tab_skip,
                 SkipVariable::SpaceSkip => &mut self.space_skip,
                 SkipVariable::XspaceSkip => &mut self.xspace_skip,
+                SkipVariable::KanjiSkip => &mut self.kanji_skip,
+                SkipVariable::XKanjiSkip => &mut self.xkanji_skip,
                 SkipVariable::ParFillSkip => &mut self.par_fill_skip,
                 SkipVariable::ThinMuSkip => &mut self.thin_mu_skip,
                 SkipVariable::MedMuSkip => &mut self.med_mu_skip,
@@ -916,6 +924,8 @@ impl Dumpable for VariableLevels {
         self.tab_skip.dump(target)?;
         self.space_skip.dump(target)?;
         self.xspace_skip.dump(target)?;
+        self.kanji_skip.dump(target)?;
+        self.xkanji_skip.dump(target)?;
         self.par_fill_skip.dump(target)?;
         self.thin_mu_skip.dump(target)?;
         self.med_mu_skip.dump(target)?;
@@ -1097,6 +1107,8 @@ impl Dumpable for VariableLevels {
         let tab_skip = Dumpable::undump(lines)?;
         let space_skip = Dumpable::undump(lines)?;
         let xspace_skip = Dumpable::undump(lines)?;
+        let kanji_skip = Dumpable::undump(lines)?;
+        let xkanji_skip = Dumpable::undump(lines)?;
         let par_fill_skip = Dumpable::undump(lines)?;
         let thin_mu_skip = Dumpable::undump(lines)?;
         let med_mu_skip = Dumpable::undump(lines)?;
@@ -1255,6 +1267,8 @@ impl Dumpable for VariableLevels {
             tab_skip,
             space_skip,
             xspace_skip,
+            kanji_skip,
+            xkanji_skip,
             par_fill_skip,
             thin_mu_skip,
             med_mu_skip,

@@ -1,6 +1,6 @@
 # PraTeX 作業引継ぎ
 
-更新: 2026-08-22 夜（`565c0d3`時点）
+更新: 2026-08-23（`codex2/jlreq-script-spacing`）
 
 この文書は、現在の Codex セッションから別のエージェントへ作業が移っても、
 検証済みの境界と未commitの作業を失わないための生きた引継ぎである。
@@ -9,11 +9,10 @@
 ## 最初に守ること
 
 1. リポジトリ直下の `AGENTS.md` を最初から最後まで読む。
-2. 現在の枝は `codex/euptex-integration-resume`。`main`を汚さない。
-3. Unicode欧文と`\lastnodetype`は`565c0d3`へcommit済み。既存の未追跡`texput.log`を
-   引継ぎ対象と誤認せず、`reset --hard`や無関係な差戻しをしない。
-4. 通常実装はsafe Rustだけ。unsafe Rustを試す場合は、利用者の明示方針どおり専用枝を切る。
-   ただしunsafe tuningは「一通り動いた後」まで保留中である。
+2. 現在の枝は `codex2/jlreq-script-spacing`。`main`と歴史的`full`を汚さない。
+3. 基点は統合checkpoint `6ce8315`。作業中のK/X、spacing、文書更新を無関係な差分として
+   差し戻さない。
+4. 通常実装と性能調整はsafe Rustだけで行う。
 5. pTeX/upTeX/e-TeX/pdfTeXの実装sourceや上流testを移植しない。公開manual、公開file format、
    自作最小入力による公式binaryの黒箱観測から独立実装する。
 6. 標準日本語組版はengine coreの一級機能であり、通常経路をVaak/WASM callbackへ逃がさない。
@@ -21,9 +20,10 @@
 
 ## 枝と共有状態
 
-- 枝: `codex/euptex-integration-resume`
-- 現在の実装checkpoint: `565c0d3`
-- `565c0d3`以前は`origin/codex/euptex-integration-resume`へpush済み（本更新も直後にpushする）
+- 枝: `codex2/jlreq-script-spacing`
+- 基点: `6ce8315`
+- 基点のrelease全suite: **564 passed、0 failed、6 ignored**（Vaak `89804b4`）
+- 現在の作業枝release全suite: **581 passed、0 failed、6 ignored**
 - 直近の共有commit:
   - `9587e25`: `\mutoglue` / `\gluetomu`
   - `43cd6c9`: e-TeX機能一覧の同期
@@ -149,10 +149,11 @@ Stage 4c単体の完了条件は満たした:
 
 ## 完了済み設計: `\kanjiskip` / `\xkanjiskip`
 
-状態: **2026-08-22にclean-room設計を完了、code未着手**。
+状態: **2026-08-23に通常glue parameter面を実装、汎用script class対tableを作業中**。
 
 - 文書: `docs/kanjiskip-core-design.md`
-- INITEX既定0pt、通常glue parameterとしての代入・group・算術・fmt・表示を黒箱固定した。
+- INITEX既定0pt、通常glue parameterとしての代入・group、`\globaldefs`、算術、fmt、表示を
+  既存のglue経路へ接続した。release focused testは3 passed、0 failed。
 - K/Xとxsp/inhibitはlist終端値で全境界を再評価する。暗黙Kはshow/lastskipへ見せず、
   Xは幅0でも実glue nodeとして残る。
 - JFMは途中で観測・除去できるためmain-loopで早期挿入し、K/Xだけclose-timeで再評価する
@@ -162,9 +163,9 @@ Stage 4c単体の完了条件は満たした:
 - standard Japaneseは`BuiltInPtex`のmonomorphic core経路で、Vaak/WASM callは0。
   Hangul–Latin等は同じscript-pair機構へ後から載せる。
 
-最初のcommitはnamed `SkipVariable`二個とgeneric glue parameter試験でよいが、
-LaTeXのpTeX検出を変えるので「日本語組版完成」や検出stubとは呼ばない。実挿入、JFM、禁則、
-line breaking、DVI/PDFまで連続して進める。
+この段階はLaTeXのpTeX検出を変えるが、「日本語組版完成」や検出stubとは呼ばない。実挿入、
+JFM、禁則、line breaking、DVI/PDFまで連続して進める。内部tableはprovider-local IDと
+engine内部IDを分け、標準日本語ではVaak/WASM call 0、組版中のallocation 0を保つ。
 
 ## 完了済み: `\lastnodetype` page状態
 
@@ -228,7 +229,8 @@ unkeyed FNVによるhash-flooding DoSもあるため非推奨。Windowsのstrict
 prototype sourceは一時WSL `/tmp`の消去で残っておらず、hashだけからbit-for-bit再現はできない。
 従ってこの値を性能gateにせず、採否時は永続的なprobeとrunnerを先にcommitして測り直す。
 
-性能統合は利用者の方針により、一通りの機能が動いた後まで保留する。unsafe Rustは試さない。
+この「完成後まで保留」は当時の判断で、現在は主要機能sliceごとに性能gateを再測定する。
+unsafe Rustは試さない。
 
 Claude `82fa3a2`のLinux perf分解:
 
@@ -244,51 +246,56 @@ Claude `82fa3a2`のLinux perf分解:
 
 ## Vaakの現在地
 
-- `Runner::run_writeback`をPraTeXへ接続済み（`7a47ec8`）。実行時errorより前のhost register変更を
-  TeX save stack経由で残す。
-- Vaak S-22はhost read/write setと`HostBinding::read_at/write_at/len`を持つ。
-- PraTeXは`host_touched=Some([])`を安全側の全同期へ倒す。Ref/Freeze/MutMethodの解析漏れに備える。
-- Vaak `64ccf4e`ではresolved Placeにより入れ子代入の根cloneを除去した。PraTeXが使う
-  `Program2` / `Runner` APIに破壊的変更はない。
-- prepared/layoutの正式API、named entry＋引数、typed HostFn完了値、opaque token、
+- Vaakの`codex2/pratex-embedding-api`（`4e40e4b`）で、top-level用の`HostLayout`、`PreparedProgram`、
+  `EmbeddingRunner`を追加し、PraTeX bridgeを公開prepared APIへ移した。parse/check/type-check/compileと
+  layout/schema照合はcache miss時だけで、runnerとhost値bufferを再利用する。
+- S-22のhost read/write/touched解析を`Ref`、`Freeze`、`MutMethod`まで直し、
+  `HostBinding::supports_partial_writeback`でreadだけのbindingへ部分writeしない契約を固定した。
+- host値は配列、map/hash、struct/wrapの中まで検証し、host関数返値の型/schema違反は
+  呼出し直後に停止する。それ以前のhost register変更はC-2/S-22どおりTeX save stackへ書き戻す。
+- host slot/index、VM operand、型descriptorの上限はcompile/prepare前に検査し、`u16` wrapや
+  深すぎる公開型によるstack overflowを拒否する。
+- named entry＋引数、typed HostFn完了値の公開enum、Leaf allocation 0、opaque token、
   suspend/resumeはまだない。これらが固まる前にPraTeX phase hookを先走らせない。
 - 標準日本語経路のcallback数は0のままにする。
 
 ## LaTeXと日本語組版の次順
 
-1. 本物の`\kanjiskip` / `\xkanjiskip`を通常glue parameterとして実装し、LaTeXのpTeX分岐を再測定する。
-2. JFM reader枝`codex/ptex-jfm-core`の検証済みcoreを統合し、`\jfont`/`\tfont`、wide node、
+1. K/Xの下のscript class対table、auto switch、xsp/inhibit stateを固定し、公式CTAN資材で
+   LaTeXのpTeX分岐を再測定する。
+2. 統合済みJFM readerを`\jfont`/`\tfont`、wide node、
    DVI `set2/set3`へ進む。
 3. K/X spacing、禁則、横組、縦組をengine coreへ連続して入れる。
 4. LaTeXが次に要求した時点で`\scantokens`を設計どおり実装する。
 
-日本語の最低線は横組smokeではなくpTeX相当であり、縦組を含む。割注はP0には含めない。
+日本語の最低線は横組smokeではなくpTeX相当とJLReq native対応であり、縦組を含む。縦中横と
+割注は2026-08-23に案Bへ決定した。coreでは縦中横を固定`InlineObject`、割注を分割可能な
+`InlineSubflow`として扱い、用途名primitiveを直足ししない。
 
 ## 検証
 
 Unicode/lastnodetypeのcheckpoint後、次はまず現状確認から始める。
 
 ```powershell
-cargo test --release --locked --test latin_ucs
-cargo test --release --locked --test etex lastnodetype
-cargo test --release --locked --no-fail-fast # checkpoint後の全release再走は未実施
+cargo test --release --locked --test kanjiskip
+cargo test --release --locked --no-fail-fast
 ```
 
-その後、既存のTRIP作業rootを再利用する。
+その後、公式CTAN資材を新しい隔離rootへ取得してTRIPを走らせる。
 
 ```powershell
-pwsh -NoProfile -File tools/run-trip.ps1 `
-  -WorkRoot "C:\Users\868ha\AppData\Local\Temp\rtex-trip-20260822-163044-db7f94d9" `
-  -Step Build,Stage1,Stage2,Compare
+pwsh -NoProfile -File tools/run-trip.ps1
 ```
 
-直前の既知正常値（TRIPは`565c0d3`後に未再走）:
+2026-08-23の現作業枝での既知正常値:
 
-- release: 507 passed、0 failed、6 ignored
+- 現在release: 581 passed、0 failed、6 ignored
 - TRIP Stage1/Stage2 exit 0
 - `tripos.tex`正規化後一致
 - DVI SHA-256: `b20af20a1463c6846f0c4c1ce687cd6354ce1a5f65ee401507627570787ae9fe`
-- 既知の999 records差分は許容項目除外後の意味差0
+- 上のDVI hashは、独立decoderで999 records・意味差0を確認した直前checkpointと一致
+- このmachineにはPLtoTF/TFtoPL/DVItypeが無いため、hash検証済み公式`trip.tfm`を使い、
+  今回のDVItype比較だけは未実行
 
 Unicode table追加後の最小fmt増分は上記のとおり実測済み。full LaTeX fmtは本物のpTeX検出面を
 入れた後に測る。
@@ -297,10 +304,18 @@ Unicode table追加後の最小fmt増分は上記のとおり実測済み。full
 
 - binary/banner名はPraTeX。quiet modeとREADME更新は既に別commitで入っている。
 - LaTeX名はLaPraTeX。
+- 十分に固まった機能checkpointは`codex2/*`で検証後、`full`へ順次merge・pushしてよい。
+  `main`へは入れず、設計だけ・production未接続・既知退行ありのsliceを完成機能扱いしない。
+- 生文字列registerは[設計](raw-string-registers.md)のみ。`\rawstring` / `\rawstringdef` /
+  `\therawstring`、raw専用`\showthe`、任意byte storage、fmt、production testは未実装である。
+  `InternalValue::RawString`まで取得を共通化し、再字句化する`\the`、全Other化、非実行表示の
+  三consumerを分ける。font map内の生byte保持とは別機能である。
 - TCXはWeb2C input translation profileとして未実装。xord/xchrや`^^`記法と混同しない。
 - `^^^^hhhh` / `^^^^^^hhhhhh`は未実装。
-- OTF/RustyBuzzは低優先かつdefault-off方針。現在は触らない。
-- catcodeは`repr(u8)`。catcode、kcatcode、将来の外部分類IDを同じdomainへ潰さない。
+- OTF対応はPDF直接出力と同順位だが、先にJFM/TFMだけのDVI/PDF基線を完成する。
+  RustyBuzzを接続する場合はdefault-offとする。
+- 現在のcatcodeは`repr(u8)`。入力分類はcatcode側をカノンとし、`\catcode`と
+  `\kcatcode`の公開番号は別codecで同じ意味へ写す。layout/JFM/provider IDは別domainに保つ。
 - `for_CLAUDE.md`へClaude/Vaak向けの変更とAPI要求を追記し、commit時に
   `origin/claude/for-codex`をfetchする。
 
@@ -312,5 +327,6 @@ git log --oneline --decorate -8
 git diff --stat
 ```
 
-`565c0d3`直後の追跡対象はcleanで、未追跡`texput.log`だけが残っていた。まずこの文書と`for_CLAUDE.md`、
-`docs/euptex-port-notes.md`、`docs/etex-texxet-status.md`を読み、誰の変更かを確認してから触る。
+`codex2/jlreq-script-spacing`ではK/X、汎用spacing、性能条件、各国単位の文書を同時に更新している。
+まず`AGENTS.md`、本書、`docs/kanjiskip-core-design.md`、`docs/etex-texxet-status.md`を読み、
+誰の変更かを確認してから触る。

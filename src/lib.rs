@@ -44,6 +44,8 @@ mod run_options;
 mod scaled;
 mod scan_boxes;
 mod scan_internal;
+#[allow(dead_code)]
+mod script_spacing;
 mod semantic_nest;
 mod token;
 mod token_lists;

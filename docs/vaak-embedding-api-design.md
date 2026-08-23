@@ -1,7 +1,10 @@
 # PraTeX における Vaak 埋め込み内部 API 設計
 
-更新: 2026-08-22
-状態: **設計案。phase registry、node API、WASM bridge は未実装**
+更新: 2026-08-23
+状態: **E2のtop-level prepared/layout第一段は実装済み。phase registry、node API、WASM bridgeは未実装**
+
+外向きWASM境界の固定mailbox、wire schema、capability、fuel、atomic fallbackは
+[WASM provider ABI 0.0](wasm-provider-abi-v0.md)で別version domainとして定義する。
 
 ## 1. 結論と適用範囲
 
@@ -38,17 +41,18 @@ Vaak/WASM は利用者・出版社固有の規則か、明示的に選んだ実�
 | 項目 | 現状 |
 |---|---|
 | 明示実行 | `\directvaak`、`\vaakdef`、`\vaakinput`を明示した時だけ Vaak を走らせる。暗黙 callback はない |
-| compile cache | source byte 列を鍵に parse/check/type-check/compile 済み `Program2` を再利用する |
+| compile cache | source byte 列を鍵に parse/check/type-check/compile 済み `PreparedProgram` を再利用する |
 | named body | `\vaakdef` は定義時に compile し、呼出し時は `u32` ID から引く |
-| Runner | thread-local な `vaak::vm::Runner` を繰り返し利用し、arena/stack/frame の capacity を再利用する |
+| Runner | thread-local な `vaak::embedding::EmbeddingRunner` を繰り返し利用し、arena/stack/frame とhost値bufferの capacity を再利用する |
 | host value | `count[0..255]` と `dimen[0..255]` を `i32 array` として見せる |
-| touch analysis | `Program2::host_used` / `host_touched` により、実際に参照する register を同期する。空集合の曖昧な場合は全体へ安全側 fallbackする |
-| TeX 書戻し | S-22 `Runner::run_writeback` で実行時誤りまでの値も回収し、変更された register だけを TeX の `int_define` / `dimen_define` 経由で書き戻す |
+| touch analysis | `PreparedProgram::host_used` / `host_touched` により、実際に参照する register を同期する。Ref/Freeze/MutMethodを含むwhole accessは`None`へ倒す |
+| TeX 書戻し | `EmbeddingRunner::run_values_without_functions`で実行時誤りまでの値も回収し、変更された register だけを TeX の `int_define` / `dimen_define` 経由で書き戻す |
 | fmt | Vaak call の実体ではなく source を dump し、undump 時に再 intern する |
 
 したがって、「毎回 `Host::run` で parse/check/compile している」「Runner をまだ再利用していない」
 という評価は **Vaak の高水準 `Host::run` には当たるが、現行 PraTeX bridge には当たらない。**
-phase API は、この既存の低水準利用を正式な prepared API に持ち上げる必要がある。
+従来privateに組み合わせていた低水準利用は、Vaak側の正式なtop-level prepared APIへ移行済みである。
+phase用entry ABI、effect、suspension、opaque tokenはこの第一段とは別に残る。
 
 ### 2.2 Vaak 側ですでに動くもの
 
@@ -64,9 +68,13 @@ phase API は、この既存の低水準利用を正式な prepared API に持�
 - S-22で`Runner::{run_writeback, run_with_writeback}`、`Program2::{host_reads, host_writes}`、
   `HostBinding::{read_at, write_at, len, is_empty}`が追加された。定数添字だけのhost arrayは要素単位で
   読み書きでき、同値の高水準`HostBinding::write`は抑止される。
+- `vaak::embedding`に`HostLayout`、`PreparedProgram`、`EmbeddingRunner`があり、layout列と
+  到達可能なstruct/wrap schemaをexactに照合する。host値とhost関数返値は集合体の中まで検査する。
+- `HostBinding::supports_partial_writeback`はreadだけの部分bindingと対になったread/write bindingを
+  区別する。`u16` operand、layout型の深さ・総node数、非有限浮動小数も入口で拒否する。
 
 したがって、**host function の compile-time index 化は新規課題ではない。** phase API では、
-この実装を壊さず、index を決めた `HostLayout` と実行時 dispatcher の一致を検証する層が必要である。
+この実装を壊さず、index を決めた `HostLayout` と実行時 dispatcher の一致を検証する第一層は入った。
 PraTeX の現行 `exposed()` が登録するのは `count` / `dimen` の `HostItem::Value` だけであり、
 `tex_print`、NodeOps、phase registration function はまだ PraTeX へ接続されていない。
 
@@ -80,16 +88,16 @@ Claude/Vaak 側課題であり、この設計が実装済みと仮定しない�
 
 | 項目 | 現行 | 必要な契約 |
 |---|---|---|
-| prepared API | PraTeX が parser/checker/compiler を個別に呼ぶ | source、host layout、entry、ABI version を一体で検証した immutable prepared object |
+| prepared API | top-level sourceとhost layoutを`PreparedProgram`へ固定済み | named entry、entry ABI、compiler ABI versionまで一体で検証するphase prepared object |
 | entry point | `Runner` は `Program2.top` だけを走らせる | prepare 時に選んだ named entry へ、型検査済みの明示引数を渡す |
-| host layout | `Program2` と実行時 `HostFns` の対応は呼出し側の規律 | canonical layout ID の完全一致。並替えや署名変更を誤 dispatch しない |
+| host layout | 順序・名前・型・署名・到達可能な名付き型schemaをexact照合済み | entry/effect/call class/capabilityを加えたphase layout ID |
 | call class | 全 host function が同期 `HostFns::call` | `Leaf` と `MaySuspend` の静的な区別 |
 | host result | `Option<Value>` | 正常値、意図した paradox、host runtime error、suspend を区別 |
 | 再入 | PraTeX の `RefCell<Runner>` を借りたまま再入すると panic し得る | Leaf は構造的に再入不能、MaySuspend は借用を切ってから再入可能 |
 | call allocation | VM は `HostCall` ごとに `Vec<Value>` を作る | scalar Leaf fast path は allocation 0。一般呼出しも Runner scratch を再利用 |
 | runtime error | 互換用`run_with`はerror時のafterを落とすが、S-22の`run_with_writeback`なら回収できる | C-2の値とhost effect、failure、suspendを一つのtyped completionで返す |
 | `HostBinding::write` | S-22で同値の全体writeを抑止済み | phase APIはdirty setと実行済みeffectを明示する |
-| partial host access | S-15の定数添字`read_at` / `write_at` / `len`を実装済み。ただしread/writeの対を型で保証せず、`write_at == false`を呼出側が扱わない | partial capabilityを対で宣言・検査し、失敗を黙って成功にしない。node APIとは別課題 |
+| partial host access | S-15の定数添字`read_at` / `write_at` / `len`と`supports_partial_writeback`を実装済み | node API向けのtyped access planとは別課題 |
 | opaque value | `ValueType` に host-owned opaque token がない | `NodeHandle` 等を算術可能な裸の整数にしない nominal host token |
 | resource limits | 一般 VM fuel、guest memory、host-call budget がない | capability と結び付いた deterministic budget |
 | phase registry | ない | explicit registration、順序、失効、failure policy |
@@ -97,10 +105,9 @@ Claude/Vaak 側課題であり、この設計が実装済みと仮定しない�
 | daemon generation | PraTeX の cache/runner/buffer/name table は thread-local process lifetime | engine/run/phase generation ごとの所有と失効 |
 
 `Host::run` が毎回 compile すること自体を phase hot path の問題として直す必要はない。PraTeX は
-すでに低水準 API を使っている。必要なのは、同じ最適化を private な呼び方に依存せず維持できる
-Vaak の prepared/runner API である。なお現行`host_touched`は`Ref` / `Freeze` / `MutMethod`だけの
-利用を`Some([])`にし得るため、PraTeXは空集合を「未使用」とせず全体同期へ倒す。Vaak側で
-`None`（全部必要）へ分類できた後に、長さ参照だけの空集合fast pathを再開する。
+正式なprepared/runner APIを使う。`host_touched`の`Ref` / `Freeze` / `MutMethod`解析漏れも修正され、
+whole accessは`None`、真の未使用はread/write summaryと組み合わせて区別する。次の不足はtop-level
+実行のcacheではなく、named entry、typed completion、call class、effectとphase所有期間である。
 
 ## 3. 所有期間と用語
 
@@ -1242,9 +1249,10 @@ embedding変更前後を同じ基線で比較する。少なくとも「すで�
 provider 無効の engine corpus は変更前後 paired 測定で幾何平均 0.5% 超の退行を認めない。有意差を
 分離できない短い fixture では反復数を増やし、stdout/log/DVI/PDF hash を固定する。
 
-PraTeX 全体の production gate は、同じ PC の WSL e-upTeX に対して同一意味の engine workload が
-**1.2 倍未満**であるという既存目標を維持する。拡張 API を無効にしただけでこの headroom を
-消費してはならない。
+PraTeX 全体の production gate は、DVI modeの同一入力、同一TeX tree、同等DVIについて
+end-to-end wall timeがupLaTeXの **1.2倍未満**であることとする。上記e-upTeX micro benchmarkは
+hot pathの診断値であって合否標本ではない。拡張APIを無効にしただけでこのheadroomを消費しては
+ならず、spacing/JFM、provider registry、resolver等の主要sliceごとに再測定する。
 
 ### 17.3 enabled path の段階 gate
 
@@ -1256,15 +1264,15 @@ PraTeX 全体の production gate は、同じ PC の WSL e-upTeX に対して同
 4. WASM: cold instantiate、warm invoke、marshal、validate、commit を分離し、engine benchmark に
    module download/compile cache miss を混ぜない。
 
-最適化のために PraTeX source へ `unsafe` を足さない。どうしても試す場合は、利用者指定どおり
-明示した別 branch で行い、safe-Rust baseline、同一意味、TRIP、全 regression と比較する。
+最適化のために PraTeX source へ `unsafe` を足さない。このembedding計画の性能改善はsafe Rustの
+範囲だけで行う。
 
 ### 17.4 safe-Rust CI contract
 
 実装を始める時は embedding module とその全 in-tree target を compiler の `unsafe_code` forbid で
 buildする。文字列検索だけを安全性検査にしない。CI は少なくとも release の library、binary、test、
 example を同じ forbid 条件で compile/testし、通常の全回帰と TRIP を通す。`unsafe` を含む変更は
-safe branch の CI を通らない契約にし、試すなら明示した専用 branch だけに置く。
+CI を通らない契約にする。
 
 この lint は依存 crate 内部の `unsafe` までは禁止しない。WASM runtime 等の新依存は lockfile、license、
 公開 safe API、memory/fuel 境界を別に reviewし、「PraTeX source が safe Rust」であることと

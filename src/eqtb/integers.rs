@@ -521,7 +521,9 @@ impl Dumpable for IntegerParameters {
         self.lastlinefit.dump(target)?;
         self.savingvdiscards.dump(target)?;
         self.savinghyphcodes.dump(target)?;
-        self.texxetstate.dump(target)?;
+        // e-TeX requires TeX--XeT to be enabled explicitly for every run.
+        // Write the disabled value without changing the live parameter while dumping.
+        0_i32.dump(target)?;
         self.default_hyphen_char.dump(target)?;
         self.default_skew_char.dump(target)?;
         self.end_line_char.dump(target)?;

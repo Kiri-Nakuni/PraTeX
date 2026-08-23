@@ -25,6 +25,8 @@ pub struct SkipParameters {
     tab_skip: Skip,
     space_skip: Skip,
     xspace_skip: Skip,
+    kanji_skip: Skip,
+    xkanji_skip: Skip,
     par_fill_skip: Skip,
     thin_mu_skip: Skip,
     med_mu_skip: Skip,
@@ -52,6 +54,8 @@ impl SkipParameters {
             tab_skip: GlueSpec::zero_glue(),
             space_skip: GlueSpec::zero_glue(),
             xspace_skip: GlueSpec::zero_glue(),
+            kanji_skip: GlueSpec::zero_glue(),
+            xkanji_skip: GlueSpec::zero_glue(),
             par_fill_skip: GlueSpec::zero_glue(),
             thin_mu_skip: GlueSpec::zero_glue(),
             med_mu_skip: GlueSpec::zero_glue(),
@@ -77,6 +81,8 @@ impl SkipParameters {
             SkipVariable::TabSkip => &self.tab_skip,
             SkipVariable::SpaceSkip => &self.space_skip,
             SkipVariable::XspaceSkip => &self.xspace_skip,
+            SkipVariable::KanjiSkip => &self.kanji_skip,
+            SkipVariable::XKanjiSkip => &self.xkanji_skip,
             SkipVariable::ParFillSkip => &self.par_fill_skip,
             SkipVariable::ThinMuSkip => &self.thin_mu_skip,
             SkipVariable::MedMuSkip => &self.med_mu_skip,
@@ -102,6 +108,8 @@ impl SkipParameters {
             SkipVariable::TabSkip => &mut self.tab_skip,
             SkipVariable::SpaceSkip => &mut self.space_skip,
             SkipVariable::XspaceSkip => &mut self.xspace_skip,
+            SkipVariable::KanjiSkip => &mut self.kanji_skip,
+            SkipVariable::XKanjiSkip => &mut self.xkanji_skip,
             SkipVariable::ParFillSkip => &mut self.par_fill_skip,
             SkipVariable::ThinMuSkip => &mut self.thin_mu_skip,
             SkipVariable::MedMuSkip => &mut self.med_mu_skip,
@@ -138,6 +146,8 @@ pub enum SkipVariable {
     TabSkip,
     SpaceSkip,
     XspaceSkip,
+    KanjiSkip,
+    XKanjiSkip,
     ParFillSkip,
     ThinMuSkip,
     MedMuSkip,
@@ -165,6 +175,8 @@ impl SkipVariable {
             Self::TabSkip => b"tabskip".to_vec(),
             Self::SpaceSkip => b"spaceskip".to_vec(),
             Self::XspaceSkip => b"xspaceskip".to_vec(),
+            Self::KanjiSkip => b"kanjiskip".to_vec(),
+            Self::XKanjiSkip => b"xkanjiskip".to_vec(),
             Self::ParFillSkip => b"parfillskip".to_vec(),
             Self::ThinMuSkip => b"thinmuskip".to_vec(),
             Self::MedMuSkip => b"medmuskip".to_vec(),
@@ -191,6 +203,8 @@ impl Dumpable for SkipParameters {
         self.tab_skip.dump(target)?;
         self.space_skip.dump(target)?;
         self.xspace_skip.dump(target)?;
+        self.kanji_skip.dump(target)?;
+        self.xkanji_skip.dump(target)?;
         self.par_fill_skip.dump(target)?;
         self.thin_mu_skip.dump(target)?;
         self.med_mu_skip.dump(target)?;
@@ -215,6 +229,8 @@ impl Dumpable for SkipParameters {
         let tab_skip = <Skip>::undump(lines)?;
         let space_skip = <Skip>::undump(lines)?;
         let xspace_skip = <Skip>::undump(lines)?;
+        let kanji_skip = <Skip>::undump(lines)?;
+        let xkanji_skip = <Skip>::undump(lines)?;
         let par_fill_skip = <Skip>::undump(lines)?;
         let thin_mu_skip = <Skip>::undump(lines)?;
         let med_mu_skip = <Skip>::undump(lines)?;
@@ -237,6 +253,8 @@ impl Dumpable for SkipParameters {
             tab_skip,
             space_skip,
             xspace_skip,
+            kanji_skip,
+            xkanji_skip,
             par_fill_skip,
             thin_mu_skip,
             med_mu_skip,
@@ -264,6 +282,8 @@ impl Dumpable for SkipVariable {
             Self::TabSkip => writeln!(target, "TabSkip")?,
             Self::SpaceSkip => writeln!(target, "SpaceSkip")?,
             Self::XspaceSkip => writeln!(target, "XspaceSkip")?,
+            Self::KanjiSkip => writeln!(target, "KanjiSkip")?,
+            Self::XKanjiSkip => writeln!(target, "XKanjiSkip")?,
             Self::ParFillSkip => writeln!(target, "ParFillSkip")?,
             Self::ThinMuSkip => writeln!(target, "ThinMuSkip")?,
             Self::MedMuSkip => writeln!(target, "MedMuSkip")?,
@@ -297,6 +317,8 @@ impl Dumpable for SkipVariable {
             "TabSkip" => Self::TabSkip,
             "SpaceSkip" => Self::SpaceSkip,
             "XspaceSkip" => Self::XspaceSkip,
+            "KanjiSkip" => Self::KanjiSkip,
+            "XKanjiSkip" => Self::XKanjiSkip,
             "ParFillSkip" => Self::ParFillSkip,
             "ThinMuSkip" => Self::ThinMuSkip,
             "MedMuSkip" => Self::MedMuSkip,

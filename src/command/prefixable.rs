@@ -570,7 +570,7 @@ pub fn prefixed_command(
             let chr = scanner.scan_latin_ucs_char_num(eqtb, logger);
             scanner.scan_optional_equals(eqtb, logger);
             let value = Integer::scan_int(scanner, eqtb, logger);
-            let cat_code = match CatCode::try_from(value) {
+            let cat_code = match CatCode::from_public_number(value) {
                 Ok(cat_code) => cat_code,
                 Err(_) => {
                     logger.print_err("Invalid code (");
@@ -588,7 +588,7 @@ pub fn prefixed_command(
             let code_point = scanner.scan_unicode_code_point(eqtb, logger);
             scanner.scan_optional_equals(eqtb, logger);
             let value = Integer::scan_int(scanner, eqtb, logger);
-            let kcat_code = match KCatCode::try_from(value) {
+            let kcat_code = match KCatCode::from_public_number(value) {
                 Ok(kcat_code) if kcat_code.is_valid_for(code_point) => kcat_code,
                 _ => {
                     logger.print_err("Invalid code (");

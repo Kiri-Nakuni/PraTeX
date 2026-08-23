@@ -24,15 +24,22 @@ impl Default for KCatCode {
 }
 
 impl KCatCode {
-    pub(crate) fn is_valid_for(self, code_point: u32) -> bool {
-        self != Self::LatinUcs || code_point <= 0x2E7F
+    /// upTeX互換 `\kcatcode` が読み書きする公開番号。
+    ///
+    /// 入力分類へ渡す前に意味へ写し、`CatCode` の公開番号として cast しない。
+    pub const fn public_number(self) -> i32 {
+        match self {
+            Self::LatinUcs => 14,
+            Self::NotCjk => 15,
+            Self::Kanji => 16,
+            Self::Kana => 17,
+            Self::OtherKChar => 18,
+            Self::Hangul => 19,
+            Self::Modifier => 20,
+        }
     }
-}
 
-impl TryFrom<i32> for KCatCode {
-    type Error = ();
-
-    fn try_from(value: i32) -> Result<Self, Self::Error> {
+    pub fn from_public_number(value: i32) -> Result<Self, ()> {
         match value {
             14 => Ok(Self::LatinUcs),
             15 => Ok(Self::NotCjk),
@@ -44,11 +51,23 @@ impl TryFrom<i32> for KCatCode {
             _ => Err(()),
         }
     }
+
+    pub(crate) fn is_valid_for(self, code_point: u32) -> bool {
+        self != Self::LatinUcs || code_point <= 0x2E7F
+    }
+}
+
+impl TryFrom<i32> for KCatCode {
+    type Error = ();
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        Self::from_public_number(value)
+    }
 }
 
 impl Dumpable for KCatCode {
     fn dump(&self, target: &mut impl Write) -> Result<(), std::io::Error> {
-        (*self as i32).dump(target)
+        self.public_number().dump(target)
     }
 
     fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {

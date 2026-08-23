@@ -43,7 +43,7 @@ use catcodes::CARRIAGE_RETURN;
 #[cfg(test)]
 pub(crate) use character_classifier::CallbackClassifier;
 pub(crate) use character_classifier::{
-    CharacterClassifier, ClassificationContext, UnicodeDisposition,
+    CharacterClassifier, ClassificationContext, InputCategory,
 };
 use codes::CodeParameters;
 pub use codes::{
@@ -799,7 +799,7 @@ impl Eqtb {
                 logger.print_str(" block ");
                 logger.print_int(block.index() as i32);
                 logger.print_char(b'=');
-                logger.print_int(self.kcat_codes.get_block(block) as i32);
+                logger.print_int(self.kcat_codes.get_block(block).public_number());
             }
             Variable::Code(code_var) => self.show_equivalent_of_code_variable(code_var, logger),
             Variable::Integer(int_var) => self.show_equivalent_of_integer_variable(int_var, logger),
@@ -922,7 +922,7 @@ impl Eqtb {
         logger.print_esc_str(&name);
         logger.print_char(b'=');
         let cat_code = self.cat_codes.get_latin_ucs(chr as u32);
-        logger.print_int(cat_code as i32);
+        logger.print_int(cat_code.public_number());
     }
 
     /// See 233., 235. and 242.
