@@ -63,3 +63,18 @@ PraTeXの`src/`には`unsafe`を追加しない。`chrono` 0.4.45自身はWindow
 `src/offset/local/windows.rs`と生成bindingに監査可能な`unsafe`を持つ。このFFIは
 target-specific dependencyの内部に閉じ、PraTeXの通常sourceへ移さない。
 
+## 公式LaTeX live gate
+
+`tools/test-prjsarticle.ps1`は既定で`SOURCE_DATE_EPOCH=1709210096`、すなわち
+2024-02-29 12:34:56 UTCをformat生成と二つの文書runへ渡す。公式CTAN `latex.ltx`から作った
+fmtを使い、`tests/fixtures/prjsarticle/runtime-date-maketitle.tex`が`\date`を指定せずに
+`\maketitle`まで完走することを確認する。log oracleは次を同時に要求する。
+
+- TeX parameter: `2024-2-29/754`
+- `\pdfcreationdate`: `D:20240229123456+00'00'`
+- LaTeX既定date: `February 29, 2024`
+
+2026-08-23のrelease実測はexit 0で、生成したruntime-date DVIのSHA-256は
+`64ad9cd7580a1b62af44204d0c760f47effb34fe68907619259bbc934b9f6f00`だった。CTAN archiveの
+版・URL・hash・licenseは`tests-support/prjsarticle/assets.json`を使い、生成物はrepository外へ
+置いた。

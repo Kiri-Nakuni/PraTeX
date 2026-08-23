@@ -266,6 +266,9 @@ mod tests {
             captured.timestamp() >= before.timestamp() && captured.timestamp() <= after.timestamp(),
             "{before}..={after}"
         );
-        assert_eq!(captured.offset(), before.offset());
+        assert!(
+            captured.offset() == before.offset() || captured.offset() == after.offset(),
+            "DST境界のどちらのoffsetでもない: {captured}"
+        );
     }
 }

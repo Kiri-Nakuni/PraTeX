@@ -1,0 +1,14 @@
+% SOURCE_DATE_EPOCH is supplied by tools/test-prjsarticle.ps1.
+% Deliberately omit \date: the official LaTeX default must expand this run's \today.
+\documentclass[a4paper,10pt]{prjsarticle}
+\title{Runtime date title}
+\author{PraTeX}
+
+\begin{document}
+\typeout{PRATEX-CLOCK:\number\year-\number\month-\number\day/\number\time}
+\typeout{PRATEX-PDFDATE:\pdfcreationdate}
+\makeatletter
+\typeout{PRATEX-LATEX-DATE:\@date}
+\makeatother
+\maketitle
+\end{document}

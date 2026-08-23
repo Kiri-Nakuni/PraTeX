@@ -32,6 +32,9 @@ adapterをclassや公式LaTeX sourceへ混ぜず、和欧混植sampleだけへ�
 title oracleに加え、代表的な日本語/Latin混植sampleもcompileします。日本語glyph/JFM枝と
 JapaneseAdapterPathが用意できた段階で明示します。
 
+.PARAMETER SourceDateEpoch
+format、title oracle、LaTeX既定dateを同じUTC epochへ固定します。
+
 .EXAMPLE
 pwsh -File tools/test-prjsarticle.ps1 -Fetch -RtexPath target/release/pratex.exe
 #>
@@ -42,7 +45,8 @@ param(
     [string] $WorkRoot,
     [string] $RtexPath,
     [string] $JapaneseAdapterPath,
-    [switch] $CompileSample
+    [switch] $CompileSample,
+    [string] $SourceDateEpoch = "1709210096"
 )
 
 Set-StrictMode -Version Latest
@@ -84,6 +88,17 @@ if ([string]::IsNullOrWhiteSpace($WorkRoot)) {
 }
 $AssetCache = [IO.Path]::GetFullPath($AssetCache)
 $WorkRoot = [IO.Path]::GetFullPath($WorkRoot)
+try {
+    $epochSeconds = [long]::Parse(
+        $SourceDateEpoch,
+        [Globalization.NumberStyles]::AllowLeadingSign,
+        [Globalization.CultureInfo]::InvariantCulture
+    )
+    $epochDate = [DateTimeOffset]::FromUnixTimeSeconds($epochSeconds).UtcDateTime
+}
+catch {
+    throw "SourceDateEpochはUTCの整数Unix秒で指定してください: $SourceDateEpoch"
+}
 
 foreach ($externalRoot in @($AssetCache, $WorkRoot)) {
     if (Test-IsWithinPath -Child $externalRoot -Parent $repoRoot) {
@@ -247,6 +262,7 @@ foreach ($required in @(
     $classPath,
     (Join-Path $fixtureRoot "hyphen.cfg"),
     (Join-Path $fixtureRoot "maketitle-oracle.tex"),
+    (Join-Path $fixtureRoot "runtime-date-maketitle.tex"),
     (Join-Path $repoRoot "docs/examples/prjsarticle-sample.tex")
 )) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
@@ -291,6 +307,7 @@ function Invoke-CapturedProcess {
     $startInfo.CreateNoWindow = $true
     $startInfo.RedirectStandardOutput = $true
     $startInfo.RedirectStandardError = $true
+    $startInfo.Environment["SOURCE_DATE_EPOCH"] = $SourceDateEpoch
     foreach ($argument in $Arguments) {
         $startInfo.ArgumentList.Add($argument)
     }
@@ -334,6 +351,30 @@ if ($compileExit -ne 0 -or -not (Test-Path -LiteralPath $dviPath -PathType Leaf)
     throw "prjsarticle title oracleのcompileに失敗しました（exit $compileExit）。PraTeX identity/glyph枝を確認してください: $resultDir"
 }
 
+$runtimeDateExit = Invoke-CapturedProcess -FilePath $RtexPath -Arguments @("--quiet", "--", "&latex", "runtime-date-maketitle.tex") `
+    -WorkingDirectory $runDir `
+    -StandardOutputPath (Join-Path $resultDir "runtime-date.stdout") `
+    -StandardErrorPath (Join-Path $resultDir "runtime-date.stderr")
+$runtimeDateDviPath = Join-Path $runDir "runtime-date-maketitle.dvi"
+$runtimeDateLogPath = Join-Path $runDir "runtime-date-maketitle.log"
+if ($runtimeDateExit -ne 0 -or
+    -not (Test-Path -LiteralPath $runtimeDateDviPath -PathType Leaf) -or
+    -not (Test-Path -LiteralPath $runtimeDateLogPath -PathType Leaf)) {
+    throw "LaTeX既定dateのmaketitle compileに失敗しました（exit $runtimeDateExit）: $resultDir"
+}
+$runtimeDateLog = Get-Content -Raw -LiteralPath $runtimeDateLogPath
+$expectedClock = "PRATEX-CLOCK:{0}-{1}-{2}/{3}" -f `
+    $epochDate.Year, $epochDate.Month, $epochDate.Day, ($epochDate.Hour * 60 + $epochDate.Minute)
+$expectedPdfDate = "PRATEX-PDFDATE:D:{0:0000}{1:00}{2:00}{3:00}{4:00}{5:00}+00'00'" -f `
+    $epochDate.Year, $epochDate.Month, $epochDate.Day, $epochDate.Hour, $epochDate.Minute, $epochDate.Second
+$expectedLatexDate = "PRATEX-LATEX-DATE:" +
+    $epochDate.ToString("MMMM d, yyyy", [Globalization.CultureInfo]::InvariantCulture)
+foreach ($expected in @($expectedClock, $expectedPdfDate, $expectedLatexDate)) {
+    if (-not $runtimeDateLog.Contains($expected)) {
+        throw "LaTeX date oracleが一致しません。期待値: $expected / log: $runtimeDateLogPath"
+    }
+}
+
 $sampleDviPath = $null
 if ($CompileSample) {
     $sampleExit = Invoke-CapturedProcess -FilePath $RtexPath -Arguments @("--quiet", "--", "&latex", "prjsarticle-sample.tex") `
@@ -358,10 +399,12 @@ $record = [ordered]@{
     fetched_at_utc = [DateTime]::UtcNow.ToString("o")
     engine_path = $RtexPath
     engine_sha256 = (Get-FileHash -LiteralPath $RtexPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    source_date_epoch = $SourceDateEpoch
     assets = $verifiedAssets
     format_sha256 = (Get-FileHash -LiteralPath (Join-Path $runDir "latex.fmt") -Algorithm SHA256).Hash.ToLowerInvariant()
     dvi_path = $dviPath
     dvi_sha256 = (Get-FileHash -LiteralPath $dviPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    runtime_date_dvi_sha256 = (Get-FileHash -LiteralPath $runtimeDateDviPath -Algorithm SHA256).Hash.ToLowerInvariant()
     sample_dvi_path = $sampleDviPath
     sample_dvi_sha256 = $sampleDviHash
 }
