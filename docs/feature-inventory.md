@@ -43,24 +43,30 @@
 | 実装 | 条件 `\ifdefined`、`\ifcsname`、`\unless` | 未定義制御綴を副作用で作らない。`\unless`は対応する条件を反転する |
 | 部分 | 条件 `\iffontchar` | TFMの文字存在判定へ接続済み。専用のprocess-level回帰試験はまだない |
 | 実装 | 内省 `\currentgrouplevel`、`\currentgrouptype`、`\currentiflevel`、`\currentiftype`、`\currentifbranch` | e-TeX番号で現在のgroupと条件状態を内部整数として返す |
-| 部分 | `\lastnodetype` | node種類の追跡と内部整数化は接続済み。専用のfocused testはまだない |
+| 実装 | `\lastnodetype` | node種類の追跡と内部整数化に加え、page→nested list→pageの復帰を保持する。空list、基本node型、page状態のfocused testを持つ |
 | 実装 | `\eTeXversion` | 内部整数として`2`を返す |
 | 部分 | `\everyeof` | 一つの実file入力源につき、閉じる前に一度だけtoken listを挿入する。`\scantokens`疑似fileに対する契約は、`\scantokens`自体が未実装のため未達 |
 | 実装 | `\readline` | `\read`と同じstreamから一行を読み、空白だけcatcode 10、その他をcatcode 12としてmacroへ定義する |
 | 実装 | `\interactionmode` | 0〜3を読み書きし、batch/nonstop/scroll/errorstopを実際のlogger状態へ反映する |
 | 実装 | register 0〜32767 | `count`、`dimen`、`skip`、`muskip`、`toks`、`box`の6種。0〜255は密、上位は使用分だけの疎storage。`\insert`は0〜254、box 255は別用途のまま |
 | 実装 | mark class 0〜32767 | `\marks`、`\topmarks`、`\firstmarks`、`\botmarks`、`\splitfirstmarks`、`\splitbotmarks`。page遷移、`\vsplit`、fmtを含む |
-| 実装 | 糊成分の照会 | `\gluestretch`、`\glueshrink`、`\gluestretchorder`、`\glueshrinkorder`。normal/fil/fill/filll、負値、零係数、数式糊の回復を扱う |
+| 実装 | 糊成分の照会と型変換 | `\gluestretch`、`\glueshrink`、`\gluestretchorder`、`\glueshrinkorder`、`\mutoglue`、`\gluetomu`。normal/fil/fill/filll、負値、零係数、数式糊の回復、fmtを扱う |
 | 表面のみ | tracing register | `\tracingassigns`、`\tracinggroups`、`\tracingifs`、`\tracingscantokens`、`\tracingnesting`は値の代入・group・fmtだけ。対応するtrace出力は未接続 |
 | 表面のみ | 組版制御register | `\predisplaydirection`、`\lastlinefit`、`\savingvdiscards`、`\savinghyphcodes`、`\TeXXeTstate`は値を保持するだけで、組版・discard保存・TeX--XeT動作は未接続 |
+| 未実装 | 疑似入力と表示 | `\scantokens`（[clean-room設計済み](scantokens-design.md)）、`\showtokens`、`\showgroups`、`\showifs`、`\eTeXrevision` |
+| 未実装 | font・段落・math照会 | `\fontcharwd/ht/dp/ic`、`\parshapelength/indent/dimen`、`\middle` |
+| 未実装 | penalty配列とdiscard | `\interlinepenalties`、`\clubpenalties`、`\widowpenalties`、`\displaywidowpenalties`、`\pagediscards`、`\splitdiscards` |
+| 未実装 | TeX--XeT組版 | `\beginL`/`\endL`/`\beginR`/`\endR`、LR node/stack、区間反転、line packing、DVI/PDF shipout |
 
 実装と試験の主な場所は
 [primitive登録](../src/eqtb/primitives.rs)、
 [e-TeX基本試験](../tests/etex.rs)、
 [式試験](../tests/etexexpr.rs)、
 [mark試験](../tests/etex_marks.rs)、
-[糊成分試験](../tests/etex_glue.rs) である。仕様からの書き直し方は
-[e-TeX移植記録](etex-port-notes.md) に記録している。
+[糊成分試験](../tests/etex_glue.rs)、
+[糊変換試験](../tests/etex_glue_conversion.rs) である。仕様からの書き直し方は
+[e-TeX移植記録](etex-port-notes.md)、完全性とTeX--XeTの監査は
+[e-TeXとTeX--XeTの対応状況](etex-texxet-status.md) に記録している。
 
 ### pdfTeXおよび後発engine互換
 
@@ -74,7 +80,8 @@
 | 部分 | `\pdfcreationdate` | 形式は返すが、rtexから継承した固定日時`1776-07-04 12:00 UTC`であり実時計ではない |
 | 実装 | `\pdfshellescape` | 読み取り専用内部整数。PraTeXはshell escapeを提供しないため常に`0`で、processを起動しない |
 | 部分 | PDF 1.4直接出力 | `-output-format=pdf` / `--output-format=pdf`。page tree、rule、printable ASCIIの暫定Courier表示、明示mapによるType 1全埋込みまで。外部DVI driverなしでfileを閉じられる |
-| 部分 | `--pdf-font-map` | 明示したmapだけでType 1埋込みを有効化する。`<<font.pfb`の全埋込みだけを受け、`<font.pfb`のsubset要求を勝手に全埋込みへ変えない |
+| 部分 | `--pdf-font-map` | 明示したmapだけでType 1埋込みを有効化する。実配布mapの複数resourceと分離markerを未使用entryごと拒まず、選択TFMだけを検査する。`<<font.pfb`の全埋込みだけを受け、`<font.pfb`のsubset要求を勝手に全埋込みへ変えない |
+| 実装 | Type 1 FontDescriptor fallback | mapのflags省略は公開pdfTeX契約の既定値4。AFMの`StdVW`省略時はPFB eexecを実行せずstream復号し、Private辞書の値だけを`StemV`へ使う。固定値推測はしない |
 
 PDF直接出力はpdfTeX互換を名乗れる段階ではない。`\pdfoutput`、page-size primitive、PDF
 object/link/destination/image primitive、font subset、ToUnicode、TrueType/OpenType、Type 0/CIDFont、
@@ -88,14 +95,15 @@ OTF shapingは未実装である。詳しい境界は
 | 状態 | 機能 | 現在の範囲と境界 |
 |---|---|---|
 | 実装 | 和文寸法単位 `Q`、`H` | どちらも厳密に0.25 mm。通常寸法、糊、式の既存寸法走査を通る |
-| 部分 | 和文寸法単位 `zw`、`zh` | 綴りは使えるが、JFMがないため両方とも現在の欧文fontの`em`幅で代用する |
+| 部分 | 和文寸法単位 `zw`、`zh` | 綴りは使えるが、JFMがcurrent和文fontへ未接続のため両方とも現在の欧文fontの`em`幅で代用する |
+| 部分 | JFM reader/model | 公開JFM仕様から独立実装。横組11／縦組9、24-bit raw文字code、u8 class、skip・再配置・256超glue/kern indexをboundedに検査し、class対をload時に直接表へcompileする。`\jfont`/`\tfont`、scale、wide nodeには未接続 |
 | 実装 | `\kcatcode`表・照会・代入 | 公開値14〜20。U+0000〜U+10FFFFをUnicode 17.0.0のblock、upTeX擬似境界、7例外集合で保存する。block単位の局所/global/globaldefs復元とfmt往復を含む |
-| 部分 | `latin_ucs`（kcatcode 14） | 表へ代入・照会はできるが、16-bit欧文catcode表とUnicode欧文tokenは未実装。入力は現在kcatcode 15と同じ元UTF-8 byte列へ戻す |
+| 実装 | `latin_ucs`（kcatcode 14） | U+0080〜U+2E7FをUnicode欧文一文字tokenとして保持し、cat/lc/uc/sf、group/fmt、active/control identity、特殊catcode、case変換、表示へ通す。pattern/exception/trieもu16 alphabetで一文字として扱う。runtime namespaced Unicode active生成とwide font nodeは後段 |
 | 部分 | UTF-8 CJK一文字token | kcatcode 16〜20を符号位置と入力時categoryを持つ一tokenにし、macro、`\edef`、`\let`、条件、`\string`、`\detokenize`、`\write`、fmtまで保持する。ただし組版時はJFM不足を診断して文字を捨てる |
 | 実装 | Unicodeを含むtyped制御綴 | `Byte(u8)`と`Unicode(u32)`を別identityにし、同じ見た目のraw UTF-8 byte名とwide名を混同しない。CJK categoryはtokenには固定するが制御綴identityには含めない |
 | 部分 | upTeX互換UTF-8 decoder | 公式black-box観測に合わせ、overlong・surrogateを含む入力規則と不正列の一byte再同期を実装。入力上限はU+10FFFE、表とtokenはU+10FFFFまでで、upTeX独自の0x110000以上は扱わない |
 
-CJK tokenは「日本語をPDF/DVIへ組める」という意味ではない。JFM、和文font/node、DVI
+CJK tokenとJFM readerは「日本語をPDF/DVIへ組める」という意味ではない。和文font/node、DVI
 `set2`/`set3`、`\jfont`/`\tfont`、`\kanjiskip`/`\xkanjiskip`、禁則、縦組は未実装である。
 `\kchar`、`\kchardef`、`\ucs`、`\forcecjktoken`もまだない。`\uppercase`/`\lowercase`は
 CJK tokenを現在変更しない。
@@ -160,7 +168,7 @@ capabilityはまだない。根拠は
 | e-TeX互換層 | e-TeX公開manual | 式scanner、protected展開、token操作、条件・内省、EOF/line入力、extended register、mark class、glue照会とfmt表現 |
 | pdfTeX互換primitive | pdfTeX公開manual | general-text走査との接続、文字列変換、file照会、比較、shell無効状態、RFC 1321に基づく専用MD5 |
 | PDF直接出力 | PDF 1.4、pdfTeX manual、Adobe font仕様 | object/stream/xref/trailer serializer、page tree、固定小数座標変換、content backend、型付きfont object |
-| Type 1 resource処理 | Adobe PFB/AFM/PDF仕様、pdfTeX map契約 | bounded PFB、AFM、map、encoding vector parserとloader。PostScriptやfont programを実行しない |
+| Type 1 resource処理 | Adobe PFB/AFM/Type 1/PDF仕様、pdfTeX・dvips map契約 | bounded PFB、AFM、順序付き複数resource map、encoding vector parserとloader。eexec Private `StdVW`をstream復号するが、PostScriptやfont programを実行しない |
 | upTeX互換入力層 | upTeX 2.02公開文書、Unicode 17.0.0、公式binaryのblack-box観測 | block型kcatcode表、専用decoder、packed CJK token、typed制御綴key、表示・fmt伝播 |
 | kpathsea相当resolver | Kpathsea公開manualと`kpsewhich` CLI契約 | logical/physical name型、用途別query、bounded `ls-R` reader、保守的な探索path照合、process境界、positive/negative cache、異常応答の分類、nativeとWSLを混ぜないUNC bridge |
 | Vaak bridge | Vaak公開Rust API | TeX general text/file/定義をVaak VMへ渡すadapter、触れたregisterだけのsnapshotと保存stack経由の書戻し |
@@ -200,7 +208,7 @@ runtimeは別MIT projectを依存として使う。PraTeX側からMITのVaakへG
 | 未実装 | `^^^^hhhh`、`^^^^^^hhhhhh` | TeX82の`^^`だけ。XeTeX/LuaTeX型の4/6 caret Unicode入力はない |
 | 未実装 | Web2C TCX input translation | `--translate-file`、`%& -translate-file`、`-8bit`、TCXの`xord/xchr/xprn`三表はまだない。既定UTF-8と分けたlegacy input profileは[文字identity roadmap](glyph-identity-roadmap.md)で設計のみ |
 | 未実装 | OTF/TrueTypeとRustyBuzz | dependencyもbackendもない。RustyBuzzを入れる場合はunsafe専用branchかつdefault-offにする |
-| 未実装 | 完全なe-TeX | `\eTeXrevision`、`\scantokens`、`\showtokens`、`\showgroups`、`\showifs`、`\middle`、`\mutoglue`、`\gluetomu`、`\fontcharwd/ht/dp/ic`、`\parshapelength/indent/dimen`、各種penalty配列、`\pagediscards`、`\splitdiscards`、`\beginL/\endL/\beginR/\endR`などが残る |
+| 未実装 | 完全なe-TeX | `\eTeXrevision`、`\scantokens`、`\showtokens`、`\showgroups`、`\showifs`、`\middle`、`\fontcharwd/ht/dp/ic`、`\parshapelength/indent/dimen`、各種penalty配列、`\pagediscards`、`\splitdiscards`、`\beginL/\endL/\beginR/\endR`などが残る |
 | 未実装 | 横組・縦組の日本語組版 | JFM、和文node/font、和文glue、禁則、方向node、縦組が残る |
 | 未実装 | class/package互換の完成 | `jsarticle`、`jlreq`、`ltjsarticle`、`hyperref`を実用的に処理する保証はない |
 

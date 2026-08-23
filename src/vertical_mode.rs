@@ -125,7 +125,7 @@ impl VerticalMode {
     pub fn update_last_node_info(&mut self, eqtb: &mut Eqtb) {
         // If this is the base vertical mode and the contribution list is empty.
         if !self.internal && self.list.is_empty() {
-            eqtb.last_node_info = eqtb.last_node_on_page.clone();
+            eqtb.restore_last_node_from_page();
         } else {
             eqtb.update_last_node_info(self.list.last());
         }

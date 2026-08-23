@@ -17,7 +17,7 @@ use crate::command::{
     Command, ExpandableCommand, IfTest, MacroCall, MathCommand, UnexpandableCommand,
 };
 use crate::eqtb::{
-    ControlSequence, Eqtb, InsertionIndex, MarkClassIndex, RegisterIndex, MAX_INSERTION_INDEX,
+    CatCode, ControlSequence, Eqtb, InsertionIndex, MarkClassIndex, RegisterIndex, MAX_INSERTION_INDEX,
     MAX_REGISTER_INDEX,
 };
 use crate::error::fatal_error;
@@ -274,15 +274,10 @@ impl Scanner {
     }
 
     fn create_command_with_checks(&mut self, token: Token, eqtb: &Eqtb) -> Command {
+        self.align_state += token.alignment_delta();
         match token {
-            Token::LeftBrace(c) => {
-                self.align_state += 1;
-                Command::Unexpandable(UnexpandableCommand::LeftBrace(c))
-            }
-            Token::RightBrace(c) => {
-                self.align_state -= 1;
-                Command::Unexpandable(UnexpandableCommand::RightBrace(c))
-            }
+            Token::LeftBrace(c) => Command::Unexpandable(UnexpandableCommand::LeftBrace(c)),
+            Token::RightBrace(c) => Command::Unexpandable(UnexpandableCommand::RightBrace(c)),
             Token::MathShift(c) => Command::Unexpandable(UnexpandableCommand::MathShift(c)),
             Token::TabMark(c) => Command::Unexpandable(UnexpandableCommand::TabMark(c)),
             Token::MacParam(c) => Command::Unexpandable(UnexpandableCommand::MacParam(c)),
@@ -295,6 +290,36 @@ impl Scanner {
             Token::Spacer(_) => Command::Unexpandable(UnexpandableCommand::Spacer),
             Token::Letter(c) => Command::Unexpandable(UnexpandableCommand::Letter(c)),
             Token::OtherChar(c) => Command::Unexpandable(UnexpandableCommand::Other(c)),
+            Token::LatinUcsChar(token) => {
+                match token.cat_code() {
+                    CatCode::LeftBrace => {
+                        Command::Unexpandable(UnexpandableCommand::LatinUcsLeftBrace(token))
+                    }
+                    CatCode::RightBrace => {
+                        Command::Unexpandable(UnexpandableCommand::LatinUcsRightBrace(token))
+                    }
+                    CatCode::MathShift => {
+                        Command::Unexpandable(UnexpandableCommand::LatinUcsMathShift(token))
+                    }
+                    CatCode::TabMark => {
+                        Command::Unexpandable(UnexpandableCommand::LatinUcsTabMark(token))
+                    }
+                    CatCode::MacParam => {
+                        Command::Unexpandable(UnexpandableCommand::LatinUcsMacParam(token))
+                    }
+                    CatCode::SupMark => {
+                        Command::Unexpandable(UnexpandableCommand::LatinUcsSupMark(token))
+                    }
+                    CatCode::SubMark => {
+                        Command::Unexpandable(UnexpandableCommand::LatinUcsSubMark(token))
+                    }
+                    CatCode::Letter | CatCode::OtherChar => {
+                        Command::Unexpandable(UnexpandableCommand::LatinUcsChar(token))
+                    }
+                    CatCode::Spacer => Command::Unexpandable(UnexpandableCommand::Spacer),
+                    _ => unreachable!("lexer-only LatinUcs catcode became a character token"),
+                }
+            }
             Token::CjkChar(token) => {
                 Command::Unexpandable(UnexpandableCommand::CjkChar(token))
             }
@@ -333,11 +358,14 @@ impl Scanner {
         logger.deletions_allowed = true;
     }
 
+
     /// If the command ended the current alignment entry, gives back the command.
     /// See 342.
     fn alignment_entry_just_ended(&mut self, command: &Command) -> Option<AlignCommand> {
         match command {
-            Command::Unexpandable(UnexpandableCommand::TabMark(_)) if self.align_state == 0 => {
+            Command::Unexpandable(
+                UnexpandableCommand::TabMark(_) | UnexpandableCommand::LatinUcsTabMark(_),
+            ) if self.align_state == 0 => {
                 Some(AlignCommand::Tab)
             }
             Command::Unexpandable(UnexpandableCommand::Span) if self.align_state == 0 => {
@@ -586,11 +614,7 @@ impl Scanner {
         self.input_token(TokenSourceType::BackedUp, token, eqtb, logger);
 
         // Potentially update the align state.
-        if token.is_left_brace() {
-            self.align_state -= 1;
-        } else if token.is_right_brace() {
-            self.align_state += 1;
-        }
+        self.align_state -= token.alignment_delta();
     }
 
     /// Puts a single token on the stack.
@@ -722,6 +746,27 @@ impl Scanner {
                 logger.print_err("Bad character code");
                 let help = &[
                     "A character number must be between 0 and 255.",
+                    "I changed this one to zero.",
+                ];
+                logger.int_error(value, help, self, eqtb);
+                0
+            }
+        }
+    }
+
+    /// upTeX の欧文文字番号を読む。
+    ///
+    /// `latin_ucs` の公開上限 U+2E7F は通常の `scan_char_num` より広い。
+    /// 呼出し側がこの型を得てから表を引くことで、拡張表の添字境界を一箇所で
+    /// 保証する。
+    pub fn scan_latin_ucs_char_num(&mut self, eqtb: &mut Eqtb, logger: &mut Logger) -> u16 {
+        let value = Integer::scan_int(self, eqtb, logger);
+        match u16::try_from(value) {
+            Ok(char_num) if u32::from(char_num) <= crate::eqtb::MAX_LATIN_UCS_CODE => char_num,
+            _ => {
+                logger.print_err("Bad character code");
+                let help = &[
+                    "A Unicode European character number must be between 0 and 0x2E7F.",
                     "I changed this one to zero.",
                 ];
                 logger.int_error(value, help, self, eqtb);

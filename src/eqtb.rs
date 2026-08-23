@@ -46,7 +46,9 @@ pub(crate) use character_classifier::{
     CharacterClassifier, ClassificationContext, UnicodeDisposition,
 };
 use codes::CodeParameters;
-pub use codes::{CodeType, CodeVariable, VAR_CODE};
+pub use codes::{
+    CodeType, CodeVariable, MAX_LATIN_UCS_CASE_CODE, MAX_LATIN_UCS_CODE, VAR_CODE,
+};
 use control_sequences::ControlSequenceStore;
 pub use control_sequences::{
     ControlSequence, ControlSequenceId, ControlSequenceNameUnit, NamespaceId,
@@ -192,6 +194,8 @@ pub struct Eqtb {
     pub page_dims: PageDimensions,
     pub page_contents: PageContents,
     pub last_node_on_page: LastNodeInfo,
+    /// `\lastnodetype` 用に、page builder が最後に調べた node の型も控える。
+    pub last_node_type_on_page: i32,
     pub marks: Marks,
 
     // The following members are copies of internal variables that need to be accessible when
@@ -246,6 +250,7 @@ impl Eqtb {
             page_dims: PageDimensions::new(),
             page_contents: PageContents::Empty,
             last_node_on_page: LastNodeInfo::Other,
+            last_node_type_on_page: -1,
             marks: Marks::new(),
             line_number: 0,
             mode_type: Mode::Vertical,
@@ -341,6 +346,14 @@ impl Eqtb {
 
     pub fn cat_code(&self, chr: u8) -> CatCode {
         *self.cat_codes.get(chr)
+    }
+
+    /// upTeX `latin_ucs` の欧文 catcode 表を引く。
+    ///
+    /// ASCII/8 bit の呼出し口は上の `u8` 専用関数のまま保ち、Unicode
+    /// decoderを通った場合だけこの道へ入る。
+    pub(crate) fn latin_ucs_cat_code(&self, code_point: u32) -> CatCode {
+        self.cat_codes.get_latin_ucs(code_point)
     }
 
     pub(crate) fn kcat_code(&self, code_point: u32) -> KCatCode {
@@ -473,7 +486,16 @@ impl Eqtb {
     /// A category code version of `define`.
     /// See 1214., 277., and 279.
     pub fn cat_code_define(&mut self, chr: u8, cat_code: CatCode, global: bool) {
-        self.define(Definition::CatCode(chr, cat_code), global);
+        self.define(Definition::CatCode(chr as usize, cat_code), global);
+    }
+
+    pub(crate) fn latin_ucs_cat_code_define(
+        &mut self,
+        code_point: u16,
+        cat_code: CatCode,
+        global: bool,
+    ) {
+        self.define(Definition::CatCode(code_point as usize, cat_code), global);
     }
 
     /// upTeX の和文カテゴリーを Unicode block 単位で定義する。
@@ -509,6 +531,21 @@ impl Eqtb {
                 Err(_) => None,
             };
         }
+
+        // At the bottom level, local and global definitions have identical
+        // semantics: there is no enclosing value to save and every variable
+        // level is already zero.  Integer arithmetic is frequent enough that
+        // avoiding the Definition/Variable dispatch here matters.  See 278.
+        if self.cur_level == 0 {
+            debug_assert_eq!(
+                self.variable_levels.get(Variable::Integer(int_var)),
+                0,
+                "an integer at the bottom level must have level zero"
+            );
+            self.integers.set(int_var, value);
+            return;
+        }
+
         self.define(Definition::Integer(int_var, value), global);
     }
 
@@ -571,7 +608,7 @@ impl Eqtb {
                 Definition::Font(font_variable, prev_font_index)
             }
             Definition::CatCode(chr, cat_code) => {
-                let prev_cat_code = self.cat_codes.set(chr, cat_code);
+                let prev_cat_code = self.cat_codes.set_latin_ucs(chr as u16, cat_code);
                 Definition::CatCode(chr, prev_cat_code)
             }
             Definition::KCatCode(block, kcat_code) => {
@@ -880,11 +917,11 @@ impl Eqtb {
     }
 
     /// See 233., 235. and 242.
-    fn show_equivalent_of_cat_code_variable(&self, chr: u8, logger: &mut Logger) {
+    fn show_equivalent_of_cat_code_variable(&self, chr: usize, logger: &mut Logger) {
         let name = format!("catcode{}", chr).as_bytes().to_vec();
         logger.print_esc_str(&name);
         logger.print_char(b'=');
-        let cat_code = *self.cat_codes.get(chr);
+        let cat_code = self.cat_codes.get_latin_ucs(chr as u32);
         logger.print_int(cat_code as i32);
     }
 
@@ -1057,11 +1094,22 @@ impl Eqtb {
     ///
     /// byte名とは別のhashを使うため、表示bytesが同じでも別identityになる。
     pub fn lookup_wide(&self, name: &[ControlSequenceNameUnit]) -> Option<ControlSequence> {
-        if let Some(cs) = self.search_using_wide(name) {
+        if let Some(cs) = self.search_using_wide(false, name) {
             return Some(cs);
         }
         self.control_sequences
             .id_lookup_wide(name)
+            .map(ControlSequence::Escaped)
+    }
+
+    /// Unicode活性文字を引く。通常の一文字制御記号とは別identity。
+    pub fn lookup_wide_active(&self, code_point: u32) -> Option<ControlSequence> {
+        let name = [ControlSequenceNameUnit::Unicode(code_point)];
+        if let Some(cs) = self.search_using_wide(true, &name) {
+            return Some(cs);
+        }
+        self.control_sequences
+            .id_lookup_wide_active(&name)
             .map(ControlSequence::Escaped)
     }
 
@@ -1093,18 +1141,30 @@ impl Eqtb {
         self.search_using_kind(false, name)
     }
 
-    fn search_using_wide(&self, name: &[ControlSequenceNameUnit]) -> Option<ControlSequence> {
+    fn search_using_wide(
+        &self,
+        active: bool,
+        name: &[ControlSequenceNameUnit],
+    ) -> Option<ControlSequence> {
         if self.using_namespaces.is_empty() {
             return None;
         }
-        if let Some(n) = self.control_sequences.id_lookup_wide(name) {
+        let global = if active {
+            self.control_sequences.id_lookup_wide_active(name)
+        } else {
+            self.control_sequences.id_lookup_wide(name)
+        };
+        if let Some(n) = global {
             let cs = ControlSequence::Escaped(n);
             if self.is_defined(cs) {
                 return Some(cs);
             }
         }
         for ns in &self.using_namespaces {
-            if let Some(n) = self.control_sequences.id_lookup_ns_wide(Some(*ns), name) {
+            if let Some(n) = self
+                .control_sequences
+                .id_lookup_ns_wide(Some(*ns), active, name)
+            {
                 let cs = ControlSequence::Escaped(n);
                 if self.is_defined(cs) {
                     return Some(cs);
@@ -1175,7 +1235,7 @@ impl Eqtb {
             return self.lookup_wide(name);
         };
         self.control_sequences
-            .id_lookup_ns_wide(Some(ns), name)
+            .id_lookup_ns_wide(Some(ns), false, name)
             .map(ControlSequence::Escaped)
     }
 
@@ -1234,12 +1294,16 @@ impl Eqtb {
         let Some(ns) = ns else {
             return self.lookup_or_create_wide(name);
         };
-        if let Some(n) = self.control_sequences.id_lookup_ns_wide(Some(ns), name) {
+        if let Some(n) = self
+            .control_sequences
+            .id_lookup_ns_wide(Some(ns), false, name)
+        {
             return Ok(ControlSequence::Escaped(n));
         }
         let n = self.control_sequences.add_wide_command_ns(
             Some(ns),
             name,
+            None,
             &mut self.variable_levels,
         )?;
         Ok(ControlSequence::Escaped(n))
@@ -1274,7 +1338,7 @@ impl Eqtb {
         &mut self,
         name: &[ControlSequenceNameUnit],
     ) -> Result<ControlSequence, ()> {
-        if let Some(cs) = self.search_using_wide(name) {
+        if let Some(cs) = self.search_using_wide(false, name) {
             return Ok(cs);
         }
         let n = match self.control_sequences.id_lookup_wide(name) {
@@ -1283,6 +1347,20 @@ impl Eqtb {
                 .control_sequences
                 .add_wide_command(name, &mut self.variable_levels)?,
         };
+        Ok(ControlSequence::Escaped(n))
+    }
+
+    /// Unicode活性文字を引くか、無ければglobalに作る。
+    pub fn lookup_or_create_wide_active(
+        &mut self,
+        code_point: u32,
+    ) -> Result<ControlSequence, ()> {
+        if let Some(cs) = self.lookup_wide_active(code_point) {
+            return Ok(cs);
+        }
+        let n = self
+            .control_sequences
+            .add_wide_active_command(code_point, &mut self.variable_levels)?;
         Ok(ControlSequence::Escaped(n))
     }
 
@@ -1376,12 +1454,8 @@ impl Eqtb {
         }
     }
 
-    /// Updates the condensed info about the last node of the current list.
-    /// NOTE: We need to ensure that this is called whenever the last node of the current list has
-    /// been changed.
-    pub fn update_last_node_info(&mut self, last_node: Option<&Node>) {
-        // **e-TeX の種類も控える。** `\lastnodetype` が要る（LaTeX が 11/12/13/1 を見る）
-        self.last_node_type = match last_node {
+    fn last_node_state(last_node: Option<&Node>) -> (i32, LastNodeInfo) {
+        let node_type = match last_node {
             None => -1,
             Some(Node::Char(_)) => 0,
             Some(Node::List(l)) => {
@@ -1406,7 +1480,7 @@ impl Eqtb {
             // 数式の内側の節。**e-TeX も 15 以降を持たない**ので数式扱いにする
             Some(_) => 10,
         };
-        self.last_node_info = if let Some(last_node) = last_node {
+        let info = if let Some(last_node) = last_node {
             match last_node {
                 Node::Penalty(penalty_node) => LastNodeInfo::Penalty(penalty_node.penalty),
                 Node::Kern(kern_node) => LastNodeInfo::Kern(kern_node.width),
@@ -1429,6 +1503,27 @@ impl Eqtb {
         } else {
             LastNodeInfo::Other
         };
+        (node_type, info)
+    }
+
+    /// Updates the condensed info about the last node of the current list.
+    /// NOTE: We need to ensure that this is called whenever the last node of the current list has
+    /// been changed.
+    pub fn update_last_node_info(&mut self, last_node: Option<&Node>) {
+        // **e-TeX の種類も控える。** `\lastnodetype` が要る（LaTeX が 11/12/13/1 を見る）
+        (self.last_node_type, self.last_node_info) = Self::last_node_state(last_node);
+    }
+
+    /// Page builder が最後に調べた node を、base vertical list が空のときの値として控える。
+    /// See 996.
+    pub fn update_last_node_on_page(&mut self, last_node: Option<&Node>) {
+        (self.last_node_type_on_page, self.last_node_on_page) = Self::last_node_state(last_node);
+    }
+
+    /// 空の base vertical list では、current page 側の控えを公開する。
+    pub fn restore_last_node_from_page(&mut self) {
+        self.last_node_type = self.last_node_type_on_page;
+        self.last_node_info = self.last_node_on_page.clone();
     }
 }
 
@@ -1442,7 +1537,7 @@ pub enum Variable {
     TokenList(TokenListVariable),
     BoxRegister(BoxVariable),
     Font(FontVariable),
-    CatCode(u8),
+    CatCode(usize),
     KCatCode(KCatCodeBlock),
     Code(CodeVariable),
     Integer(IntegerVariable),
@@ -1460,7 +1555,7 @@ pub enum Definition {
     TokenList(TokenListVariable, Option<RcTokenList>),
     BoxRegister(BoxVariable, Option<ListNode>),
     Font(FontVariable, FontIndex),
-    CatCode(u8, CatCode),
+    CatCode(usize, CatCode),
     KCatCode(KCatCodeBlock, KCatCode),
     Code(CodeVariable, i32),
     Integer(IntegerVariable, Integer),
@@ -1531,6 +1626,12 @@ impl Dumpable for Variable {
                 font_variable.dump(target)?;
             }
             Self::CatCode(chr) => {
+                if *chr > MAX_LATIN_UCS_CODE as usize {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "catcode index is out of range",
+                    ));
+                }
                 writeln!(target, "CatCode")?;
                 chr.dump(target)?;
             }
@@ -1582,8 +1683,12 @@ impl Dumpable for Variable {
                 Ok(Self::Font(font_variable))
             }
             "CatCode" => {
-                let chr = u8::undump(lines)?;
-                Ok(Self::CatCode(chr))
+                let chr = usize::undump(lines)?;
+                if chr <= MAX_LATIN_UCS_CODE as usize {
+                    Ok(Self::CatCode(chr))
+                } else {
+                    Err(FormatError::ParseError)
+                }
             }
             "KCatCode" => {
                 let block = KCatCodeBlock::undump(lines)?;
@@ -1693,6 +1798,7 @@ impl Dumpable for Eqtb {
             page_dims: PageDimensions::new(),
             page_contents: PageContents::Empty,
             last_node_on_page: LastNodeInfo::Other,
+            last_node_type_on_page: -1,
             marks: Marks::new(),
             line_number: 0,
             mode_type: Mode::Vertical,

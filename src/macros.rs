@@ -1,8 +1,8 @@
-use crate::eqtb::Eqtb;
+use crate::eqtb::{Eqtb, MAX_LATIN_UCS_CODE};
 use crate::format::{Dumpable, FormatError};
 use crate::print::pseudo::PseudoPrinter;
 use crate::print::Printer;
-use crate::token::Token;
+use crate::token::{print_uptex_code_point, Token};
 
 use std::io::Write;
 
@@ -15,7 +15,7 @@ pub struct Macro {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ParamToken {
     Normal(Token),
-    Match(u8),
+    Match(u32),
     End,
 }
 
@@ -23,6 +23,36 @@ pub enum ParamToken {
 pub enum MacroToken {
     Normal(Token),
     OutParam(u8),
+}
+
+impl Macro {
+    fn format_state_is_valid(&self) -> bool {
+        // Older in-memory/default command entries use an empty parameter
+        // vector for an empty macro. Keep that representation round-trippable;
+        // expansion treats it exactly like a sole End marker.
+        let parameter_prefix = match self.parameter_text.split_last() {
+            None => &[][..],
+            Some((ParamToken::End, parameter_prefix)) => parameter_prefix,
+            Some(_) => return false,
+        };
+        if parameter_prefix
+            .iter()
+            .any(|token| *token == ParamToken::End)
+        {
+            return false;
+        }
+        let parameter_count = parameter_prefix
+            .iter()
+            .filter(|token| matches!(token, ParamToken::Match(_)))
+            .count();
+        parameter_count <= 9
+            && self.replacement_text.iter().all(|token| match token {
+                MacroToken::Normal(_) => true,
+                MacroToken::OutParam(number) => {
+                    (1..=parameter_count).contains(&usize::from(*number))
+                }
+            })
+    }
 }
 
 /// See 295.
@@ -64,8 +94,8 @@ fn print_macro_parameters(
     limit: usize,
     printer: &mut impl Printer,
     eqtb: &Eqtb,
-) -> u8 {
-    let mut match_chr = b'#';
+) -> u32 {
+    let mut match_chr = u32::from(b'#');
     let mut n = b'0';
     for &param_token in &macro_def.parameter_text {
         if printer.get_tally() >= limit {
@@ -76,7 +106,7 @@ fn print_macro_parameters(
             ParamToken::Normal(token) => token.display(printer, eqtb),
             ParamToken::Match(c) => {
                 match_chr = c;
-                printer.print(c);
+                print_uptex_code_point(c, printer);
                 n += 1;
                 printer.print_char(n);
                 if n > b'9' {
@@ -93,7 +123,7 @@ fn print_macro_parameters(
 /// See 292.
 fn print_replacement_text(
     replacement_text: &[MacroToken],
-    match_chr: u8,
+    match_chr: u32,
     limit: usize,
     printer: &mut impl Printer,
     eqtb: &Eqtb,
@@ -106,7 +136,7 @@ fn print_replacement_text(
         match macro_token {
             MacroToken::Normal(token) => token.display(printer, eqtb),
             MacroToken::OutParam(number) => {
-                printer.print(match_chr);
+                print_uptex_code_point(match_chr, printer);
                 if number <= 9 {
                     printer.print_char(number + b'0');
                 } else {
@@ -128,10 +158,14 @@ impl Dumpable for Macro {
     fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
         let parameter_text = Vec::undump(lines)?;
         let replacement_text = Vec::undump(lines)?;
-        Ok(Self {
+        let macro_def = Self {
             parameter_text,
             replacement_text,
-        })
+        };
+        macro_def
+            .format_state_is_valid()
+            .then_some(macro_def)
+            .ok_or(FormatError::ParseError)
     }
 }
 
@@ -159,11 +193,68 @@ impl Dumpable for ParamToken {
                 Ok(Self::Normal(token))
             }
             "Match" => {
-                let c = u8::undump(lines)?;
+                let c = u32::undump(lines)?;
+                if c > MAX_LATIN_UCS_CODE {
+                    return Err(FormatError::ParseError);
+                }
                 Ok(Self::Match(c))
             }
             "End" => Ok(Self::End),
             _ => Err(FormatError::ParseError),
+        }
+    }
+}
+
+#[cfg(test)]
+mod latin_ucs_tests {
+    use super::*;
+
+    #[test]
+    fn macro_match文字のformatをunicode欧文上限に限る() {
+        assert!(matches!(
+            ParamToken::undump(&mut "Match\n11903\n".lines()),
+            Ok(ParamToken::Match(c)) if c == MAX_LATIN_UCS_CODE
+        ));
+        assert!(matches!(
+            ParamToken::undump(&mut "Match\n11904\n".lines()),
+            Err(FormatError::ParseError)
+        ));
+    }
+
+    #[test]
+    fn macroの壊れた引数構造をformatから読まない() {
+        for macro_def in [
+            Macro {
+                parameter_text: vec![ParamToken::End, ParamToken::Normal(Token::OtherChar(b'x'))],
+                replacement_text: Vec::new(),
+            },
+            Macro {
+                parameter_text: vec![ParamToken::Match(u32::from(b'#')); 10]
+                    .into_iter()
+                    .chain([ParamToken::End])
+                    .collect(),
+                replacement_text: Vec::new(),
+            },
+            Macro {
+                parameter_text: vec![ParamToken::Match(u32::from(b'#')), ParamToken::End],
+                replacement_text: vec![MacroToken::OutParam(0)],
+            },
+            Macro {
+                parameter_text: vec![ParamToken::Match(u32::from(b'#')), ParamToken::End],
+                replacement_text: vec![MacroToken::OutParam(2)],
+            },
+            Macro {
+                parameter_text: Vec::new(),
+                replacement_text: vec![MacroToken::OutParam(1)],
+            },
+        ] {
+            let mut bytes = Vec::new();
+            macro_def.dump(&mut bytes).unwrap();
+            let input = String::from_utf8(bytes).unwrap();
+            assert!(matches!(
+                Macro::undump(&mut input.lines()),
+                Err(FormatError::ParseError)
+            ));
         }
     }
 }

@@ -13,8 +13,12 @@ main (f174f44)                         素のTeX82
          └─ full                     上記を集めた歴史的baseline
              └─ etex-latex           e-TeX/pdfTeX/LaTeX統合の主系列
                  └─ ...              機能単位のcodex/*枝
-                     └─ codex/kpse-lsr-index
-                         └─ codex/cjkv-region-layout  現在の作業枝
+                    └─ codex/kpse-lsr-index
+                        └─ codex/cjkv-region-layout
+                            └─ codex/pdf-texlive-type1
+                                └─ codex/ptex-jfm-core
+                                    └─ codex/perf-wsl-euptex-safe
+                                        └─ codex/euptex-integration-resume  現在の作業枝
 ```
 
 `full`を現在の「全部入り」とは呼ばない。以後のe-TeX、PDF、resolver、PraTeX CLI、
@@ -26,6 +30,10 @@ main (f174f44)                         素のTeX82
 |---|---|---|
 | `codex/kpse-lsr-index` | push済みbaseline `dc1c554` | release test 455通過、失敗0、4 ignored。bounded `ls-R`索引とWindows--WSL探索境界 |
 | `codex/cjkv-region-layout` | 現在の統合枝、R0 `ac6ad90` | typed `LanguageRegion`と`\pratexregion`。release test 466通過、失敗0、4 ignored。TRIPのDVI意味比較差0 |
+| `codex/pdf-texlive-type1` | push済み `bb7235f` | TeX Live mapの複数resource、flags既定値、PFB Private `StdVW`。全release失敗0、4 ignored、TRIP 999 recordsで意味差0 |
+| `codex/ptex-jfm-core` | push済み `4745f3c` | 公開仕様だけによるbounded JFM reader/model。release 503通過、失敗0、6 ignored。配布JFM 96件とTRIPを通過 |
+| `codex/perf-wsl-euptex-safe` | 検証済み `9bb6023` | WSL同士の1.2倍gateを固定。keyword成功経路と最上位整数代入をsafe Rustで短縮。release 507通過、TRIP意味差0 |
+| `codex/euptex-integration-resume` | 現在 `7a47ec8` | unsafe最適化は機能完成後へ保留。Vaak S-22のC-2書戻しへ追随し、e-TeX/pdfTeX、LaTeX、日本語組版へ戻る |
 
 R0は組版localeの状態、group/global/fmt、表示だけであり、まだJFM、文字間隔、禁則、
 font選択、DVI/PDF出力を変えない。R1以降は
@@ -42,6 +50,9 @@ font選択、DVI/PDF出力を変えない。R1以降は
 | TeX Live / kpathsea相当resolver | [kpathsea-port-notes.md](kpathsea-port-notes.md) |
 | TeX82外機能と独立実装 | [feature-inventory.md](feature-inventory.md) |
 | CJKV regionとscript境界 | [extensible-layout-roadmap.md](extensible-layout-roadmap.md) |
+| pTeX相当とJLReq一級日本語組版 | [japanese-typesetting-roadmap.md](japanese-typesetting-roadmap.md) |
+| JFM clean-room reader/model | [jfm-port-notes.md](jfm-port-notes.md) |
+| e-TeX / TeX--XeT完全性監査 | [etex-texxet-status.md](etex-texxet-status.md) |
 | 文字・異体字・造字identity | [glyph-identity-roadmap.md](glyph-identity-roadmap.md) |
 
 ## 枝とcommitの規律

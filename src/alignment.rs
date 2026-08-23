@@ -103,7 +103,8 @@ impl AlignState {
                     normal_paragraph(eqtb, logger);
                 }
             }
-            UnexpandableCommand::RightBrace(_) => {
+            UnexpandableCommand::RightBrace(_)
+            | UnexpandableCommand::LatinUcsRightBrace(_) => {
                 let mut alignment = self.alignments.pop().unwrap();
                 scanner.align_state = alignment.prev_align_state;
                 alignment.fin_align(
@@ -238,7 +239,10 @@ impl Preamble {
         scanner.template = Vec::new();
         loop {
             let (command, token) = get_preamble_token(scanner, eqtb, logger);
-            if let Command::Unexpandable(UnexpandableCommand::MacParam(_)) = command {
+            if let Command::Unexpandable(
+                UnexpandableCommand::MacParam(_) | UnexpandableCommand::LatinUcsMacParam(_),
+            ) = command
+            {
                 return Rc::new(scanner.template.clone());
             }
             // Ignore leading whitespace
@@ -248,7 +252,10 @@ impl Preamble {
                 }
             }
             match command {
-                Command::Unexpandable(UnexpandableCommand::TabMark(_))
+                Command::Unexpandable(
+                    UnexpandableCommand::TabMark(_)
+                    | UnexpandableCommand::LatinUcsTabMark(_),
+                )
                     if scanner.align_state == -1_000_000 =>
                 {
                     // The first u-template to start with an & is taken as the beginning
@@ -302,12 +309,18 @@ impl Preamble {
                 {
                     break true
                 }
-                Command::Unexpandable(UnexpandableCommand::TabMark(_))
+                Command::Unexpandable(
+                    UnexpandableCommand::TabMark(_)
+                    | UnexpandableCommand::LatinUcsTabMark(_),
+                )
                     if scanner.align_state == -1_000_000 =>
                 {
                     break false
                 }
-                Command::Unexpandable(UnexpandableCommand::MacParam(_)) => {
+                Command::Unexpandable(
+                    UnexpandableCommand::MacParam(_)
+                    | UnexpandableCommand::LatinUcsMacParam(_),
+                ) => {
                     logger.print_err("Only one # is allowed per tab");
                     let help = &[
                         "There should be exactly one # between &'s, when an",
@@ -1272,7 +1285,9 @@ fn insert_current_list_into_its_environment(
             eqtb,
             logger,
         );
-        if let UnexpandableCommand::MathShift(_) = unexpandable_command {
+        if let UnexpandableCommand::MathShift(_)
+        | UnexpandableCommand::LatinUcsMathShift(_) = unexpandable_command
+        {
             check_that_another_mathshift_symbol_follows(scanner, eqtb, logger);
         } else {
             pontificate_about_improper_alignment(token, scanner, eqtb, logger);

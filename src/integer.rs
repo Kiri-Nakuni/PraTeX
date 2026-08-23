@@ -117,15 +117,10 @@ fn scan_alphabetic_character_code(
     logger: &mut Logger,
 ) -> i32 {
     let token = scanner.get_token(eqtb, logger);
+    scanner.align_state -= token.alignment_delta();
     let character_code = match token {
-        Token::LeftBrace(c) => {
-            scanner.align_state -= 1;
-            Some(c as i32)
-        }
-        Token::RightBrace(c) => {
-            scanner.align_state += 1;
-            Some(c as i32)
-        }
+        Token::LeftBrace(c) => Some(c as i32),
+        Token::RightBrace(c) => Some(c as i32),
         Token::MathShift(c)
         | Token::TabMark(c)
         | Token::MacParam(c)
@@ -135,6 +130,7 @@ fn scan_alphabetic_character_code(
         | Token::Letter(c)
         | Token::OtherChar(c) => Some(c as i32),
         Token::CjkChar(token) => Some(token.code_point() as i32),
+        Token::LatinUcsChar(token) => Some(token.code_point() as i32),
 
         Token::CSToken { cs } => match cs {
             ControlSequence::Active(c) => Some(c as i32),

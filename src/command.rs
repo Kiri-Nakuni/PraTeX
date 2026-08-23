@@ -5,6 +5,7 @@ mod convert;
 mod def;
 mod fraction;
 mod glue_component;
+mod glue_conversion;
 mod internal;
 mod limits;
 mod macro_call;
@@ -26,6 +27,7 @@ pub use convert::ConvertCommand;
 pub use def::DefCommand;
 pub use fraction::{FractionCommand, FractionType};
 pub use glue_component::GlueComponent;
+pub use glue_conversion::GlueConversion;
 pub use internal::{InternalCommand, ToksCommand};
 pub use limits::LimitType;
 pub use macro_call::MacroCall;
@@ -43,7 +45,7 @@ pub use skip::{Hskip, Vskip};
 use crate::fonts::FontInfo;
 use crate::nodes::LeaderKind;
 use crate::print::Printer;
-use crate::token::CjkToken;
+use crate::token::{CjkToken, LatinUcsToken};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
@@ -76,6 +78,14 @@ pub enum UnexpandableCommand {
     Spacer,
     Letter(u8),
     Other(u8),
+    LatinUcsChar(LatinUcsToken),
+    LatinUcsLeftBrace(LatinUcsToken),
+    LatinUcsRightBrace(LatinUcsToken),
+    LatinUcsMathShift(LatinUcsToken),
+    LatinUcsTabMark(LatinUcsToken),
+    LatinUcsMacParam(LatinUcsToken),
+    LatinUcsSupMark(LatinUcsToken),
+    LatinUcsSubMark(LatinUcsToken),
     CjkChar(CjkToken),
     ParEnd,
     Endv,
@@ -85,6 +95,8 @@ pub enum UnexpandableCommand {
     Expr(crate::scan_internal::ValueType),
     /// e-TeX の糊成分問い合わせ。**内部量として振る舞う**
     GlueComponent(GlueComponent),
+    /// e-TeX の通常糊・数式糊変換。**内部量として振る舞う**
+    GlueConversion(GlueConversion),
     Kern,
     ShipOut,
     Leaders(LeaderKind),
@@ -154,6 +166,22 @@ pub enum UnexpandableCommand {
 }
 
 impl UnexpandableCommand {
+    pub fn is_begin_group(self) -> bool {
+        matches!(self, Self::LeftBrace(_) | Self::LatinUcsLeftBrace(_))
+    }
+
+    pub fn is_end_group(self) -> bool {
+        matches!(self, Self::RightBrace(_) | Self::LatinUcsRightBrace(_))
+    }
+
+    pub fn macro_parameter_code(self) -> Option<u32> {
+        match self {
+            Self::MacParam(c) => Some(u32::from(c)),
+            Self::LatinUcsMacParam(token) => Some(token.code_point()),
+            _ => None,
+        }
+    }
+
     /// If the command is "internal", return the corresponding InternalCommand.
     pub fn try_to_internal(&self) -> Option<InternalCommand> {
         match self {
@@ -168,6 +196,14 @@ impl UnexpandableCommand {
             | Self::Spacer
             | Self::Letter(_)
             | Self::Other(_)
+            | Self::LatinUcsChar(_)
+            | Self::LatinUcsLeftBrace(_)
+            | Self::LatinUcsRightBrace(_)
+            | Self::LatinUcsMathShift(_)
+            | Self::LatinUcsTabMark(_)
+            | Self::LatinUcsMacParam(_)
+            | Self::LatinUcsSupMark(_)
+            | Self::LatinUcsSubMark(_)
             | Self::CjkChar(_)
             | Self::ParEnd
             | Self::Endv
@@ -237,6 +273,9 @@ impl UnexpandableCommand {
             Self::CurrentIfBranch => Some(InternalCommand::CurrentIfBranch),
             Self::LastNodeType => Some(InternalCommand::LastNodeType),
             Self::GlueComponent(component) => Some(InternalCommand::GlueComponent(*component)),
+            Self::GlueConversion(conversion) => {
+                Some(InternalCommand::GlueConversion(*conversion))
+            }
             Self::InputLineNumber => Some(InternalCommand::InputLineNumber),
             Self::Prefixable(prefixable_command) => prefixable_command.try_to_internal(),
             &Self::Expr(kind) => Some(InternalCommand::Expr(kind)),
@@ -266,6 +305,35 @@ impl UnexpandableCommand {
             Self::Spacer => chr_cmd("blank space ", b' ', printer),
             Self::Letter(c) => chr_cmd("the letter ", *c, printer),
             Self::Other(c) => chr_cmd("the character ", *c, printer),
+            Self::LatinUcsChar(token) => {
+                printer.print_str(if token.cat_code() == crate::eqtb::CatCode::Letter {
+                    "the letter "
+                } else {
+                    "the character "
+                });
+                token.print_utf8(printer);
+            }
+            Self::LatinUcsLeftBrace(token) => {
+                latin_ucs_chr_cmd("begin-group character ", *token, printer)
+            }
+            Self::LatinUcsRightBrace(token) => {
+                latin_ucs_chr_cmd("end-group character ", *token, printer)
+            }
+            Self::LatinUcsMathShift(token) => {
+                latin_ucs_chr_cmd("math shift character ", *token, printer)
+            }
+            Self::LatinUcsTabMark(token) => {
+                latin_ucs_chr_cmd("alignment tab character ", *token, printer)
+            }
+            Self::LatinUcsMacParam(token) => {
+                latin_ucs_chr_cmd("macro parameter character ", *token, printer)
+            }
+            Self::LatinUcsSupMark(token) => {
+                latin_ucs_chr_cmd("superscript character ", *token, printer)
+            }
+            Self::LatinUcsSubMark(token) => {
+                latin_ucs_chr_cmd("subscript character ", *token, printer)
+            }
             Self::CjkChar(token) => {
                 printer.print_str("kanji character ");
                 token.print_utf8(printer);
@@ -378,6 +446,7 @@ impl UnexpandableCommand {
                 crate::scan_internal::ValueType::Mu => b"muexpr".as_slice(),
             }),
             Self::GlueComponent(component) => component.display(printer),
+            Self::GlueConversion(conversion) => conversion.display(printer),
             Self::InputLineNumber => printer.print_esc_str(b"inputlineno"),
             Self::End { dumping } => {
                 if *dumping {
@@ -501,6 +570,15 @@ impl ExpandableCommand {
 fn chr_cmd(command_description: &str, character: u8, printer: &mut impl Printer) {
     printer.print_str(command_description);
     printer.print(character);
+}
+
+fn latin_ucs_chr_cmd(
+    command_description: &str,
+    token: LatinUcsToken,
+    printer: &mut impl Printer,
+) {
+    printer.print_str(command_description);
+    token.print_utf8(printer);
 }
 
 #[cfg(test)]

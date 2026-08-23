@@ -108,7 +108,10 @@ impl Touch {
         }
         match p.host_touched(i) {
             None => Touch::All,
-            Some(v) if v.is_empty() => Touch::None,
+            // S-22 の host_touched は長さ参照だけでなく、Ref/Freeze/MutMethod を
+            // まだ空集合として返し得る。値が要ると分かっている以上、空集合を
+            // 「触らない」と推測せず全体を同期する。See Vaak S-15 and S-22.
+            Some(v) if v.is_empty() => Touch::All,
             Some(v) => Touch::Some(
                 v.into_iter().filter(|n| *n >= 0 && (*n as usize) < N_REGS).map(|n| n as usize).collect(),
             ),
@@ -436,13 +439,10 @@ fn run_built(
         sync(&mut host[1], &built.dimen, &d[0]);
     });
 
-    let (ev, after) = match RUNNER.with(|r| r.borrow_mut().run(&built.program, host)) {
-        Ok(x) => x,
-        Err(e) => {
-            let (line, col) = src.line_col(e.span.start);
-            return (0, Some(format!("{line}:{col}: the run did not finish")));
-        }
-    };
+    // C-2: 実行時誤りより前の host 書換えは巻き戻さない。旧 run API は
+    // Err のとき after を捨てるため、S-22 の writeback API を使う。
+    let (result, after) =
+        RUNNER.with(|r| r.borrow_mut().run_writeback(&built.program, host));
 
     // 変わった分だけ書き戻す。**`int_define` を通す**——保存スタックと `\global` のため
     BEFORE.with(|b| {
@@ -465,6 +465,14 @@ fn run_built(
 
     // 入れ物を取っておく。次の呼び出しで使い回す
     HOST_BUF.with(|b| *b.borrow_mut() = Some(after));
+
+    let ev = match result {
+        Ok(ev) => ev,
+        Err(e) => {
+            let (line, col) = src.line_col(e.span.start);
+            return (0, Some(format!("{line}:{col}: the run did not finish")));
+        }
+    };
 
     // **最上位の外界面は言語の意味論ではない**（C-31）。ここで決める
     match ev {

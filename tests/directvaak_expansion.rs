@@ -52,3 +52,32 @@ fn edefの前後と後続の字句を失わない() {
     );
     assert!(log.contains("[L42R][tail]"), "{log}");
 }
+
+#[test]
+fn 実行時誤りより前の書き換えを残す() {
+    let log = run_tex(
+        "途中作用",
+        "\\count5=1
+         {\\count0=\\directvaak{ count[5] := 42; count[6] := count[5] / 0; 0 }
+          \\message{[inside=\\the\\count0/count=\\the\\count5]}}
+         \\message{[after=\\the\\count5]}",
+    );
+    assert!(log.contains("Vaak interpreter error"), "{log}");
+    assert!(log.contains("[inside=0/count=42]"), "{log}");
+    assert!(log.contains("[after=1]"), "{log}");
+}
+
+#[test]
+fn 別名引数から触るレジスタを空集合と見なさない() {
+    let log = run_tex(
+        "別名引数",
+        "\\count5=10
+         \\directvaak{
+           fn set_five (var regs : i32 array alias) { regs[5] := 77; };
+           set_five(count);
+           0
+         }
+         \\message{[count=\\the\\count5]}",
+    );
+    assert!(log.contains("[count=77]"), "{log}");
+}

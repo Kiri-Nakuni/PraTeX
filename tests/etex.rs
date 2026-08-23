@@ -134,6 +134,67 @@ fn 条件の深さと種類を答える() {
 }
 
 #[test]
+fn lastnodetypeは空のlistと基本nodeの型を答える() {
+    let log = run_tex(
+        "lastnodetype基本",
+        "\\catcode36=3\n\
+         \\message{[empty=\\the\\lastnodetype]}\n\
+         \\setbox0=\\hbox{\\message{[h-empty=\\the\\lastnodetype]}\
+           \\hbox{}\\message{[hlist=\\the\\lastnodetype]}\
+           \\vbox{}\\message{[vlist=\\the\\lastnodetype]}\
+           \\vrule width1pt\\message{[rule=\\the\\lastnodetype]}\
+           \\vadjust{}\\message{[adjust=\\the\\lastnodetype]}\
+           \\discretionary{}{}{}\\message{[disc=\\the\\lastnodetype]}\
+           \\write0{}\\message{[whatsit=\\the\\lastnodetype]}\
+           $\\relax$\\message{[math=\\the\\lastnodetype]}\
+           \\hskip1pt\\message{[glue=\\the\\lastnodetype]}\
+           \\kern1pt\\message{[kern=\\the\\lastnodetype]}\
+           \\penalty0\\message{[penalty=\\the\\lastnodetype]}}\n\
+         \\setbox1=\\vbox{\\insert0{}\\message{[insert=\\the\\lastnodetype]}\
+           \\mark{}\\message{[mark=\\the\\lastnodetype]}}",
+    );
+    for expected in [
+        "[empty=-1]",
+        "[h-empty=-1]",
+        "[hlist=1]",
+        "[vlist=2]",
+        "[rule=3]",
+        "[insert=4]",
+        "[mark=5]",
+        "[adjust=6]",
+        "[disc=8]",
+        "[whatsit=9]",
+        "[math=10]",
+        "[glue=11]",
+        "[kern=12]",
+        "[penalty=13]",
+    ] {
+        assert!(log.contains(expected), "{expected}: {log}");
+    }
+}
+
+#[test]
+fn lastnodetypeはnested_boxからpage側の型へ戻る() {
+    let log = run_tex(
+        "lastnodetype page復元",
+        "\\hrule height1pt \\message{[rule=\\the\\lastnodetype]}\n\
+         \\vskip1pt \\message{[glue=\\the\\lastnodetype]}\n\
+         \\kern2pt \\message{[kern=\\the\\lastnodetype]}\n\
+         \\penalty0 \\message{[penalty=\\the\\lastnodetype]}\n\
+         \\setbox0=\\hbox{} \\message{[restored=\\the\\lastnodetype]}",
+    );
+    for expected in [
+        "[rule=3]",
+        "[glue=11]",
+        "[kern=12]",
+        "[penalty=13]",
+        "[restored=13]",
+    ] {
+        assert!(log.contains(expected), "{expected}: {log}");
+    }
+}
+
+#[test]
 fn 追跡の整数を持つ() {
     let log = run_tex(
         "追跡",
@@ -141,6 +202,17 @@ fn 追跡の整数を持つ() {
          \\message{[\\the\\tracingassigns\\the\\tracinggroups\\the\\tracingifs]}",
     );
     assert!(log.contains("[123]"), "{log}");
+}
+
+#[test]
+fn 最上位の表示用整数は記録器へ同期する() {
+    let log = run_tex(
+        "表示用整数の同期",
+        "\\escapechar=33 \\show\\count
+         \\newlinechar=124 \\message{[newline=A|B]}",
+    );
+    assert!(log.contains("> !count=!count."), "{log}");
+    assert!(log.contains("[newline=AB]"), "{log}");
 }
 
 #[test]
@@ -481,6 +553,25 @@ fn 別名定義から高位レジスタを使える() {
          \\message{[alias=\\the\\count32767/\\the\\dimen32767/\\the\\skip32767/\\the\\muskip32767/\\the\\toks32767]}",
     );
     assert!(log.contains("[alias=11/2.0pt/3.0pt/4.0mu/TOK]"), "{log}");
+}
+
+#[test]
+fn 最上位整数代入は拡張境界と群の規則を保つ() {
+    let log = run_tex(
+        "最上位整数代入",
+        "\\count255=15 \\count256=16 \\count32767=17
+         {\\count255=25 \\global\\count256=26
+          \\globaldefs=1 \\count32767=27
+          \\message{[inside=\\the\\count255/\\the\\count256/\\the\\count32767]}}
+         \\message{[after=\\the\\count255/\\the\\count256/\\the\\count32767]}
+         {\\globaldefs=-1 \\global\\count255=35
+          \\message{[forced-local=\\the\\count255]}}
+         \\message{[forced-restored=\\the\\count255]}",
+    );
+    assert!(log.contains("[inside=25/26/27]"), "{log}");
+    assert!(log.contains("[after=15/26/27]"), "{log}");
+    assert!(log.contains("[forced-local=35]"), "{log}");
+    assert!(log.contains("[forced-restored=15]"), "{log}");
 }
 
 #[test]

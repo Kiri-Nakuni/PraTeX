@@ -13,7 +13,8 @@ PraTeXは、tyti氏によるTeX82のRust再実装`rtex`を基礎に、現代的�
 - TeX82の中核、formatの生成・読込み、DVI出力
 - e-TeXおよびpdfTeXの原始命令の一部
 - `-output-format=pdf`による外部DVI driverを必要としないPDF直接出力
-- PDFへの暫定的なStandard 14 font出力と、明示したmapによるType 1 font全埋込み
+- PDFへの暫定的なStandard 14 font出力と、明示したmapによるType 1 font全埋込み。実配布
+  `pdftex.map`の複数resource構文、flags既定値、PFB Private `StdVW` fallbackまで読める
 - UTF-8入力からのCJK一文字token、`catcode`と`kcatcode`を分離した文字分類基盤
 - `\pratexregion=0..5`によるCJKV組版locale状態。group/global/fmt/表示は対応済みだが、
   まだ文字間隔やfont選択には影響しない
@@ -23,12 +24,25 @@ PraTeXは、tyti氏によるTeX82のRust再実装`rtex`を基礎に、現代的�
 
 TeX82から増えた機能、部分実装、PraTeX独自機能、既存仕様を独立して書き直した範囲は
 [docs/feature-inventory.md](docs/feature-inventory.md) に一覧化しています。
+e-TeX／TeX--XeTの完全性監査は
+[docs/etex-texxet-status.md](docs/etex-texxet-status.md)、pTeX相当とJLReqの実装順は
+[docs/japanese-typesetting-roadmap.md](docs/japanese-typesetting-roadmap.md) にあります。
+Vaak/WASMを明示登録時だけ有効にする内部境界は
+[docs/vaak-embedding-api-design.md](docs/vaak-embedding-api-design.md)、WSL e-upTeXとの比較条件は
+[docs/performance.md](docs/performance.md) にあります。どちらも未実装部分を含む設計・測定記録です。
+担当やセッションを交代する場合の現在枝、未commit差分、検証手順は
+[docs/HANDOFF.md](docs/HANDOFF.md) にまとめています。
 
 外部のCTAN/TeX Live 2026資材を一時環境に揃えた実測では、無改変の公式
 `latex.ltx`から`latex.fmt`を生成し、最小`article`をDVI/PDFまで処理できました。
 DVIは1 page / 392 bytesで、TeX LiveのpdfTeX結果と正規化した`dvitype`命令列の差は0、
 直接PDFは1 page / 2169 bytesで構造読込みと描画まで確認しています。これは
 一般のclass/package互換性やPDFの字形・抽出互換性を保証するものではありません。
+TeX Live 2026の実物`cmr10.pfb`を検証用full-mapで埋め込む試験も1 page / 37,491 bytesで
+strict parseとPoppler描画まで通しています。正規mapの`<cmr10.pfb`はsubset指定なので、
+subset未実装中は意図的に拒否します。
+固定幅の実物`cmtt10.pfb`でも、map flags省略時の`/Flags 4`とPFB由来`/StemV 69`を確認して
+おり、AFMからflagsを暗黙に作り直しません。
 
 TRIPではDVIの全999 recordを復号した意味比較が公式結果と一致しています。ただし、
 banner、診断、容量、拡張された範囲などのlog差まで解消したという意味ではありません。
@@ -114,6 +128,7 @@ packageは実装の資料として写さず、互換性を測る外部入力と�
 - [script境界組版とCJKV region](docs/extensible-layout-roadmap.md)
 - [UTF-8を保つ文字・異体字・造字の内部表現](docs/glyph-identity-roadmap.md)
 - [拡張可能な寸法単位](docs/extensible-dimension-units-roadmap.md)
+- [明示登録Vaak phaseと低頻度WASM bulk](docs/vaak-embedding-api-design.md)
 - [監視/incremental実行/package取得/LSP](docs/incremental-tooling-roadmap.md)
 - [LaPraTeX](docs/lapratex-roadmap.md)
 
@@ -132,7 +147,8 @@ PraTeXはGPL-3.0で配布します。基礎となるrtexの権利はtyti氏に�
 Vaakへコードを移すことはしません。
 
 実装は原則としてsafe Rustだけを使います。頻出経路の性能を測り、出力とTRIPの結果を
-固定したうえで最適化します。
+固定したうえで最適化します。完成時の性能目標はupTeX/e-upTeXとの同一DVI workloadでの
+正面比較であり、探索・fmt復元・組版・出力を分けて追跡します。
 
 e-TeX、pTeX、upTeX、pdfTeX由来の拡張は、上流の実装コードを移植せず、公開仕様と
 許可された黒箱観測から書き直します。特にpTeX／upTeX系は由来ごとにライセンスが異なる

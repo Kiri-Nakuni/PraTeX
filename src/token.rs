@@ -1,4 +1,4 @@
-use crate::eqtb::{ControlSequence, Eqtb};
+use crate::eqtb::{CatCode, ControlSequence, Eqtb, MAX_LATIN_UCS_CODE};
 use crate::format::{Dumpable, FormatError};
 use crate::print::Printer;
 
@@ -7,6 +7,8 @@ use std::io::Write;
 const MAX_CJK_CODE_POINT: u32 = 0x10_FFFF;
 const CJK_CODE_POINT_MASK: u32 = 0x00FF_FFFF;
 const CJK_CATEGORY_SHIFT: u32 = 24;
+const LATIN_UCS_CODE_MASK: u32 = 0xFFFF;
+const LATIN_UCS_CAT_CODE_SHIFT: u32 = 16;
 
 fn encode_uptex_utf8(code_point: u32) -> Option<([u8; 4], usize)> {
     if code_point > MAX_CJK_CODE_POINT {
@@ -197,6 +199,74 @@ impl Dumpable for CjkToken {
     }
 }
 
+/// upTeX `latin_ucs` の Unicode 欧文一文字 token。
+///
+/// 低い16 bitに符号位置、次のbyteに入力時のcatcodeを保持する。現在の
+/// `\catcode` 表を後から変更しても、既に読んだtokenのcatcodeは変わらない。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct LatinUcsToken(u32);
+
+impl LatinUcsToken {
+    pub(crate) const fn new(code_point: u32, cat_code: CatCode) -> Option<Self> {
+        // ASCII has dedicated compact token variants. Keeping the ranges
+        // disjoint prevents a corrupt format from creating two identities
+        // for the same character code.
+        if code_point >= 0x80 && code_point <= MAX_LATIN_UCS_CODE {
+            Some(Self(
+                code_point | ((cat_code as u32) << LATIN_UCS_CAT_CODE_SHIFT),
+            ))
+        } else {
+            None
+        }
+    }
+
+    pub(crate) const fn code_point(self) -> u32 {
+        self.0 & LATIN_UCS_CODE_MASK
+    }
+
+    pub(crate) fn cat_code(self) -> CatCode {
+        CatCode::try_from((self.0 >> LATIN_UCS_CAT_CODE_SHIFT) as i32)
+            .expect("private latin_ucs token invariant")
+    }
+
+    pub(crate) fn print_utf8(self, printer: &mut impl Printer) {
+        print_uptex_code_point(self.code_point(), printer);
+    }
+
+    pub(crate) fn push_utf8(self, target: &mut Vec<u8>) {
+        push_uptex_utf8(self.code_point(), target);
+    }
+
+    fn has_raw_token_cat_code(self) -> bool {
+        matches!(
+            self.cat_code(),
+            CatCode::LeftBrace
+                | CatCode::RightBrace
+                | CatCode::MathShift
+                | CatCode::TabMark
+                | CatCode::MacParam
+                | CatCode::SupMark
+                | CatCode::SubMark
+                | CatCode::Spacer
+                | CatCode::Letter
+                | CatCode::OtherChar
+        )
+    }
+}
+
+impl Dumpable for LatinUcsToken {
+    fn dump(&self, target: &mut impl Write) -> Result<(), std::io::Error> {
+        self.code_point().dump(target)?;
+        self.cat_code().dump(target)
+    }
+
+    fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
+        let code_point = u32::undump(lines)?;
+        let cat_code = CatCode::undump(lines)?;
+        Self::new(code_point, cat_code).ok_or(FormatError::ParseError)
+    }
+}
+
 /// A token.
 ///
 /// A token is either a character token or a control sequence.
@@ -213,6 +283,7 @@ pub enum Token {
     Spacer(u8),
     Letter(u8),
     OtherChar(u8),
+    LatinUcsChar(LatinUcsToken),
     CjkChar(CjkToken),
 
     /// Used to indicate end of stream.
@@ -225,6 +296,50 @@ pub enum Token {
 }
 
 impl Token {
+    pub(crate) fn from_character_code_and_cat_code(
+        code_point: u32,
+        cat_code: CatCode,
+    ) -> Option<Self> {
+        // In upTeX case tables the right-hand side is a Unicode code point.
+        // Only ASCII has a dedicated byte-token representation here: values
+        // U+0080..U+00FF must remain UTF-8 latin_ucs tokens (not raw bytes).
+        if code_point > 0x7F {
+            return LatinUcsToken::new(code_point, cat_code).map(Self::LatinUcsChar);
+        }
+        let c = code_point as u8;
+        Some(match cat_code {
+            CatCode::LeftBrace => Self::LeftBrace(c),
+            CatCode::RightBrace => Self::RightBrace(c),
+            CatCode::MathShift => Self::MathShift(c),
+            CatCode::TabMark => Self::TabMark(c),
+            CatCode::MacParam => Self::MacParam(c),
+            CatCode::SupMark => Self::SuperMark(c),
+            CatCode::SubMark => Self::SubMark(c),
+            CatCode::Spacer => Self::Spacer(c),
+            CatCode::Letter => Self::Letter(c),
+            CatCode::OtherChar => Self::OtherChar(c),
+            _ => return None,
+        })
+    }
+
+    pub(crate) fn character_code_and_cat_code(self) -> Option<(u32, CatCode)> {
+        let pair = match self {
+            Self::LeftBrace(c) => (u32::from(c), CatCode::LeftBrace),
+            Self::RightBrace(c) => (u32::from(c), CatCode::RightBrace),
+            Self::MathShift(c) => (u32::from(c), CatCode::MathShift),
+            Self::TabMark(c) => (u32::from(c), CatCode::TabMark),
+            Self::MacParam(c) => (u32::from(c), CatCode::MacParam),
+            Self::SuperMark(c) => (u32::from(c), CatCode::SupMark),
+            Self::SubMark(c) => (u32::from(c), CatCode::SubMark),
+            Self::Spacer(c) => (u32::from(c), CatCode::Spacer),
+            Self::Letter(c) => (u32::from(c), CatCode::Letter),
+            Self::OtherChar(c) => (u32::from(c), CatCode::OtherChar),
+            Self::LatinUcsChar(token) => (token.code_point(), token.cat_code()),
+            Self::CjkChar(_) | Self::Null | Self::CSToken { .. } => return None,
+        };
+        Some(pair)
+    }
+
     /// A space token with character code 32.
     /// See 289.
     pub const SPACE_TOKEN: Token = Token::Spacer(b' ');
@@ -263,6 +378,26 @@ impl Token {
         matches!(self, Self::RightBrace(_))
     }
 
+    pub fn is_command_left_brace(&self) -> bool {
+        self.is_left_brace()
+            || matches!(self, Self::LatinUcsChar(token) if token.cat_code() == CatCode::LeftBrace)
+    }
+
+    pub fn is_command_right_brace(&self) -> bool {
+        self.is_right_brace()
+            || matches!(self, Self::LatinUcsChar(token) if token.cat_code() == CatCode::RightBrace)
+    }
+
+    pub fn alignment_delta(self) -> i32 {
+        if self.is_command_left_brace() {
+            1
+        } else if self.is_command_right_brace() {
+            -1
+        } else {
+            0
+        }
+    }
+
     /// See 293. and 294.
     pub fn display(&self, printer: &mut impl Printer, eqtb: &Eqtb) {
         match *self {
@@ -275,6 +410,12 @@ impl Token {
             | Token::Spacer(c)
             | Token::Letter(c)
             | Token::OtherChar(c) => printer.print(c),
+            Token::LatinUcsChar(token) => {
+                token.print_utf8(printer);
+                if token.cat_code() == CatCode::MacParam {
+                    token.print_utf8(printer);
+                }
+            }
             Token::CjkChar(token) => token.print_utf8(printer),
             Token::MacParam(c) => {
                 printer.print(c);
@@ -328,6 +469,10 @@ impl Dumpable for Token {
             Self::OtherChar(c) => {
                 writeln!(target, "OtherChar")?;
                 c.dump(target)?;
+            }
+            Self::LatinUcsChar(token) => {
+                writeln!(target, "LatinUcsChar")?;
+                token.dump(target)?;
             }
             Self::CjkChar(token) => {
                 writeln!(target, "CjkChar")?;
@@ -384,6 +529,14 @@ impl Dumpable for Token {
             "OtherChar" => {
                 let c = u8::undump(lines)?;
                 Ok(Self::OtherChar(c))
+            }
+            "LatinUcsChar" => {
+                let token = LatinUcsToken::undump(lines)?;
+                if token.has_raw_token_cat_code() {
+                    Ok(Self::LatinUcsChar(token))
+                } else {
+                    Err(FormatError::ParseError)
+                }
             }
             "CjkChar" => Ok(Self::CjkChar(CjkToken::undump(lines)?)),
             "Null" => Ok(Self::Null),
@@ -452,6 +605,9 @@ mod tests {
     #[test]
     fn dump_token() {
         let char_token = Token::LeftBrace(12);
+        let latin_token = Token::LatinUcsChar(
+            LatinUcsToken::new(0x00DF, CatCode::Letter).unwrap(),
+        );
         let cjk_token = Token::CjkChar(cjk_token(0xD800, CjkCategory::Kana));
         let cs_token = Token::CSToken {
             cs: ControlSequence::Escaped(12),
@@ -459,15 +615,18 @@ mod tests {
 
         let mut file = Vec::new();
         char_token.dump(&mut file).unwrap();
+        latin_token.dump(&mut file).unwrap();
         cjk_token.dump(&mut file).unwrap();
         cs_token.dump(&mut file).unwrap();
 
         let input = String::from_utf8(file).unwrap();
         let mut lines = input.lines();
         let char_token_undumped = Token::undump(&mut lines).unwrap();
+        let latin_token_undumped = Token::undump(&mut lines).unwrap();
         let cjk_token_undumped = Token::undump(&mut lines).unwrap();
         let cs_token_undumped = Token::undump(&mut lines).unwrap();
         assert_eq!(char_token, char_token_undumped);
+        assert_eq!(latin_token, latin_token_undumped);
         assert_eq!(cjk_token, cjk_token_undumped);
         assert_eq!(cs_token, cs_token_undumped);
     }
@@ -490,6 +649,27 @@ mod tests {
                 Token::undump(&mut input.lines()),
                 Err(FormatError::IncompleteFile)
             ));
+        }
+    }
+
+    #[test]
+    fn unicode欧文tokenは符号位置とcatcodeを固定する() {
+        assert!(LatinUcsToken::new(0x7F, CatCode::Letter).is_none());
+        assert!(LatinUcsToken::new(0x80, CatCode::Letter).is_some());
+        let token = LatinUcsToken::new(0x2E7F, CatCode::Letter).unwrap();
+        assert_eq!(token.code_point(), 0x2E7F);
+        assert_eq!(token.cat_code(), CatCode::Letter);
+        assert!(LatinUcsToken::new(0x2E80, CatCode::OtherChar).is_none());
+
+        for input in [
+            "LatinUcsChar\n127\nLetter\n",
+            "LatinUcsChar\n11904\nLetter\n",
+            "LatinUcsChar\n223\nnot-a-catcode\n",
+            "LatinUcsChar\n223\nEscape\n",
+            "LatinUcsChar\n223\nActiveChar\n",
+            "LatinUcsChar\n223\nInvalidChar\n",
+        ] {
+            assert!(Token::undump(&mut input.lines()).is_err());
         }
     }
 }

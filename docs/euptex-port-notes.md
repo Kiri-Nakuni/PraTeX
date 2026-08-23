@@ -142,22 +142,40 @@ U+2E7F 以下でも `15..20` と表示される。この回復も回帰試験へ
 | 1a | e-TeX の**式**（`\numexpr` `\dimexpr` `\glueexpr` `\muexpr`） | **済**（枝 `etex-expr`、試験 12 本） |
 | 1b | 疎レジスタ（0–32767） | **済**（低位密＋高位疎、6種、挿入番号は別型） |
 | 1c | e-TeX のmark class（0–32767） | **済**（class 0は従来状態、非0は疎表、pageと`\vsplit`） |
-| 1d | e-TeX の糊成分問い合わせ | **済**（伸縮の係数と次数、通常糊・数式糊・式・fmt） |
+| 1d | e-TeX の糊成分問い合わせと型変換 | **済**（伸縮の係数と次数、`\mutoglue` / `\gluetomu`、通常糊・数式糊・式・fmt） |
 | 2 | e-TeX の**字句系** | **一部済**（`\detokenize` `\unexpanded` `\readline` `\protected` `\everyeof`。`\scantokens` は未） |
 | 3 | e-TeX の**内省** | **一部済**（`\currentgroup*` `\currentif*` `\lastnodetype` `\iffontchar`。`\fontchar*` `\showgroups` `\showtokens` 等は未） |
 | 4a | **Unicode block 分類表と `\kcatcode`**（代入・group・fmtまで） | **済**（U+10FFFFまで） |
 | 4b | **UTF-8 字句解析と CJK文字 token**（`16`〜`20`を一文字一token、分類をtokenへ固定） | **済**（typed制御綴、条件・展開・表示・fmtまで。JFM/文字nodeは後段） |
-| 4c | **`latin_ucs` と16 bit欧文表**（U+2E7F、OFM Level-0へ接続） | 未 |
-| 5 | **JFM**（和文フォントの寸法表）と `\jfont` | 未 |
+| 4c | **Unicode欧文 token とpattern alphabet**（`14`を一文字一token、cat/lc/uc/sf・case・active・fmt・hyphen trieまで） | **済**（U+0080〜U+2E7F。wide font nodeとnamespaced Unicode active生成は後段） |
+| 5 | **JFM**（和文フォントの寸法表）と `\jfont` | **進行中**（公開仕様だけによるbounded reader、横/縦・24-bit code・現行glue/kern拡張・直接class対表まで。font選択とscale接続は未） |
 | 6 | **Unicode 文字 node と DVI `set2` / `set3`** | 未 |
 | 7 | **`\kanjiskip` / `\xkanjiskip`** を主ループに差し込む | 未 |
 | 8 | **禁則**（`\prebreakpenalty` / `\postbreakpenalty` / `\inhibitxspcode`） | 未 |
 | 9 | **縦組**（dir ノード） | 未。**ここが一番遠い** |
 
-**1〜3 で e-TeX 相当になる。** LaTeX2e が要求するのはほぼここまでなので、
-**「LaTeX2e が動くか」は段 3 の後で試せる。**
+2026-08-22にWSL TeX Live 2026をresolver経由で通常探索し直したところ、`expl3-code.tex`は
+未定義primitiveなしで通過した。最初のhard errorはGerman hyphenation pattern
+`dehypht-x-2024-02-28.pat`の`.buß3`に対する`Nonletter`である。一時的な空`hyphen.cfg`で
+pattern読込みだけを隔離すると、無改変`latex.ltx`はerror 0で`latex.fmt`をdumpした。
+段4cでこの`.buß3`自体は解消した。ただし通常のLaTeX wrapperはPraTeXに`\kanjiskip`が無いため
+非pTeXのnative UTF-8 engine分岐へ入り、kcatcode 18のU+2019を含む後続patternで止まる。
+現在の次段は初期分類の偽装ではなく、一級の`\kanjiskip` / `\xkanjiskip`実装である。
+ASCIIの`ushyph1.tex`だけでformatを作れた過去の測定と、通常TeX Live探索でUnicode patternを
+読めない現状を混同しない。
 
-**4〜8 で「横組みの日本語が組める」。** 段 9 は別の山である。
+`.buß3`を通す最小条件は`LatinUcs`をUTF-8 byte列へ戻さない一文字token、Unicode cat/lccode表、
+Unicode文字を扱うpattern alphabet/trie、byte数でなく文字数を数える上限である。実段落の
+hyphenationまで完成させるにはUnicode文字nodeとOFM接続も後続する。pattern本文は互換性を測る
+opaque外部入力としてだけ使い、実装資料へ転記しない。
+
+**1〜3を全て終えれば e-TeX 相当になる。** 現在は一部が未完であり、LaTeX2eが動くことを
+e-TeX完全対応の代用にはしない。欠落とTeX--XeTの実処理は
+[e-TeXとTeX--XeTの対応状況](etex-texxet-status.md)で追跡する。
+
+**4〜8で横組みの日本語が組めるのは中間checkpointである。** 依頼者が定める最低限は
+pTeX相当なので、段9の縦組まで含めて完了とする。割注はpTeX primitiveではなく、ここには
+含めない。詳細は[pTeX相当からJLReq一級対応へ進むroadmap](japanese-typesetting-roadmap.md)にある。
 
 段7の内部機構は日本語専用に固定しない。JFMとUnicode文字nodeの後で、Han--Latin、
 Hangul--Latinなどを同じfinalizerへ渡し、CJKV region、Vaakの宣言表、低頻度WASM batchを
@@ -220,3 +238,9 @@ p4.1.2-u2.02も黒箱で照合した。
 4命令は一つの `GlueComponent` で表し、primitive名、`\meaning` の表示、fmt表現を
 同じ場所から決める。引数は既存の糊走査へ渡すので、通常値、skipレジスタ、`\glueexpr`、
 符号、単位不一致の決定を二重に持たない。
+
+同じ節の`\mutoglue` / `\gluetomu`もTeX Live 2026 e-upTeXへ黒箱照合した。前者は数式糊を
+通常糊へ、後者は通常糊を数式糊へ変え、幅・伸縮係数・次数の数値を変えない。逆の型を
+渡した場合は`Incompatible glue units`を報せた後、1muと1ptを同じscaled値として回復する。
+二命令は一つの`GlueConversion`からprimitive名、内部量の入出力型、`\meaning`、fmtを決め、
+値の走査とerror回復は既存`scan_glue`だけに持たせる。

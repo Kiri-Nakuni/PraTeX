@@ -5,7 +5,7 @@ use super::{
 };
 use crate::command::{
     ArithCommand, BoxDimension, Command, ConvertCommand, DefCommand, ExpandableCommand, FiOrElse,
-    FractionCommand, FractionType, GlueComponent, Hskip, IfTest, LimitType, MakeBox,
+    FractionCommand, FractionType, GlueComponent, GlueConversion, Hskip, IfTest, LimitType, MakeBox,
     MarkClassOperand, MarkCommand, MarkQuery, MathCommand,
     PageDimension, Prefix, PrefixableCommand, RemoveItem, ShorthandDef, ShowCommand,
     UnexpandableCommand, Vskip,
@@ -784,6 +784,12 @@ impl Eqtb {
             self.primitive_unexpandable(
                 component.primitive_name(),
                 UnexpandableCommand::GlueComponent(component),
+            );
+        }
+        for conversion in GlueConversion::ALL {
+            self.primitive_unexpandable(
+                conversion.primitive_name(),
+                UnexpandableCommand::GlueConversion(conversion),
             );
         }
         self.primitive_expandable(b"namespace", ExpandableCommand::Namespace);

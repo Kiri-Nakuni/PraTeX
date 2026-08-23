@@ -65,6 +65,11 @@ pub(crate) enum ClassificationContext {
 pub(crate) enum UnicodeDisposition {
     /// 元の UTF-8 byte 列を、8 bit `catcode` 表で処理する。
     RawBytes { class_id: CharClassId },
+    /// upTeX `latin_ucs`: current Unicode catcodeを持つ欧文一文字token。
+    LatinUcs {
+        class_id: CharClassId,
+        cat_code: CatCode,
+    },
     /// 一つの和文 token として処理する。
     Wide {
         class_id: CharClassId,
@@ -108,7 +113,13 @@ impl CharacterClassifier for Eqtb {
             KCatCode::OtherKChar => CjkCategory::OtherKChar,
             KCatCode::Hangul => CjkCategory::Hangul,
             KCatCode::Modifier => CjkCategory::Modifier,
-            KCatCode::LatinUcs | KCatCode::NotCjk => {
+            KCatCode::LatinUcs => {
+                return UnicodeDisposition::LatinUcs {
+                    class_id,
+                    cat_code: self.latin_ucs_cat_code(code_point),
+                };
+            }
+            KCatCode::NotCjk => {
                 return UnicodeDisposition::RawBytes { class_id };
             }
         };
@@ -155,7 +166,17 @@ where
             KCatCode::OtherKChar => CjkCategory::OtherKChar,
             KCatCode::Hangul => CjkCategory::Hangul,
             KCatCode::Modifier => CjkCategory::Modifier,
-            KCatCode::LatinUcs | KCatCode::NotCjk => {
+            KCatCode::LatinUcs => {
+                // 単体試験adapterにはUnicode catcode callbackを増やさず、低位表と
+                // 既定値だけで字句の分岐を試す。実表の試験はEqtb経路で行う。
+                let cat_code = if code_point <= u8::MAX.into() {
+                    (self.cat_code)(code_point as u8)
+                } else {
+                    CatCode::OtherChar
+                };
+                return UnicodeDisposition::LatinUcs { class_id, cat_code };
+            }
+            KCatCode::NotCjk => {
                 return UnicodeDisposition::RawBytes { class_id };
             }
         };
@@ -199,6 +220,17 @@ mod tests {
         assert!(matches!(
             eqtb.unicode_disposition(0x41, ClassificationContext::Input),
             UnicodeDisposition::RawBytes { .. }
+        ));
+
+        let mut eqtb = eqtb;
+        eqtb.kcat_code_define(0x00DF, KCatCode::LatinUcs, true);
+        eqtb.latin_ucs_cat_code_define(0x00DF, CatCode::Letter, true);
+        assert!(matches!(
+            eqtb.unicode_disposition(0x00DF, ClassificationContext::Input),
+            UnicodeDisposition::LatinUcs {
+                cat_code: CatCode::Letter,
+                ..
+            }
         ));
     }
 

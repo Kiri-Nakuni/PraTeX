@@ -1,4 +1,6 @@
-use crate::command::{BoxDimension, GlueComponent, InternalCommand, PageDimension, ToksCommand};
+use crate::command::{
+    BoxDimension, GlueComponent, GlueConversion, InternalCommand, PageDimension, ToksCommand,
+};
 use crate::dimension::{Dimension, MAX_DIMEN};
 use crate::eqtb::Eqtb;
 use crate::eqtb::{
@@ -154,6 +156,9 @@ fn scan_something_internal(
         InternalCommand::GlueComponent(component) => {
             fetch_glue_component(component, scanner, eqtb, logger)
         }
+        InternalCommand::GlueConversion(conversion) => {
+            fetch_converted_glue(conversion, scanner, eqtb, logger)
+        }
         InternalCommand::InputLineNumber => InternalValue::Int(eqtb.line_number() as i32),
         InternalCommand::Toks(toks_command) => fetch_token_list_or_font_identifier(
             toks_command,
@@ -224,14 +229,31 @@ fn fetch_glue_component(
     }
 }
 
+/// 公式 e-TeX manual 3.5 の糊型変換。
+///
+/// See 413. 値の走査と単位不一致の回復は既存の糊走査に集約し、ここでは
+/// `GlueSpec` の数値を変えずに内部量の型だけを付け替える。
+fn fetch_converted_glue(
+    conversion: GlueConversion,
+    scanner: &mut Scanner,
+    eqtb: &mut Eqtb,
+    logger: &mut Logger,
+) -> InternalValue {
+    let glue_spec = crate::glue::scan_glue(conversion.source_is_mu(), scanner, eqtb, logger);
+    match conversion {
+        GlueConversion::MuToGlue => InternalValue::Glue(glue_spec),
+        GlueConversion::GlueToMu => InternalValue::MuGlue(glue_spec),
+    }
+}
+
 /// See 414.
 fn fetch_category_code(
     scanner: &mut Scanner,
     eqtb: &mut Eqtb,
     logger: &mut Logger,
 ) -> InternalValue {
-    let chr = scanner.scan_char_num(eqtb, logger);
-    let cat_code = *eqtb.cat_codes.get(chr);
+    let chr = scanner.scan_latin_ucs_char_num(eqtb, logger);
+    let cat_code = eqtb.latin_ucs_cat_code(u32::from(chr));
     InternalValue::Int(cat_code as i32)
 }
 
@@ -247,7 +269,12 @@ fn fetch_character_code(
     eqtb: &mut Eqtb,
     logger: &mut Logger,
 ) -> InternalValue {
-    let n = scanner.scan_char_num(eqtb, logger) as usize;
+    let n = match code {
+        CodeType::LcCode | CodeType::UcCode | CodeType::SfCode => {
+            scanner.scan_latin_ucs_char_num(eqtb, logger) as usize
+        }
+        CodeType::MathCode | CodeType::DelCode => scanner.scan_char_num(eqtb, logger) as usize,
+    };
     let code_var = code.to_variable(n);
     let value = *eqtb.codes.get(code_var);
     InternalValue::Int(value)

@@ -52,7 +52,13 @@ impl Scanner {
             if token.is_left_brace() || token.is_right_brace() {
                 break;
             }
-            if let Command::Unexpandable(UnexpandableCommand::MacParam(c)) = command {
+            if let Command::Unexpandable(unexpandable) = command {
+                let Some(c) = unexpandable.macro_parameter_code() else {
+                    self.macro_def
+                        .parameter_text
+                        .push(ParamToken::Normal(token));
+                    continue;
+                };
                 if let Some(hash_brace) =
                     self.scan_parameter_or_hash_brace(c, param_count, eqtb, logger)
                 {
@@ -60,11 +66,10 @@ impl Scanner {
                 } else {
                     continue;
                 }
-            } else {
-                self.macro_def
-                    .parameter_text
-                    .push(ParamToken::Normal(token));
             }
+            self.macro_def
+                .parameter_text
+                .push(ParamToken::Normal(token));
         }
         self.macro_def.parameter_text.push(ParamToken::End);
         if let Command::Unexpandable(UnexpandableCommand::RightBrace(_)) = command {
@@ -89,7 +94,7 @@ impl Scanner {
     /// See 476.
     fn scan_parameter_or_hash_brace(
         &mut self,
-        mac_param_char: u8,
+        mac_param_char: u32,
         param_count: &mut u8,
         eqtb: &mut Eqtb,
         logger: &mut Logger,
@@ -151,7 +156,7 @@ impl Scanner {
                     return;
                 }
             } else {
-                if let Command::Unexpandable(UnexpandableCommand::MacParam(_)) = command {
+                if matches!(command, Command::Unexpandable(c) if c.macro_parameter_code().is_some()) {
                     let macro_token = self.look_for_parameter_number_or_double_hash(
                         token,
                         param_count,
@@ -238,7 +243,7 @@ impl Scanner {
         } else {
             self.get_command_and_token(eqtb, logger)
         };
-        if let Command::Unexpandable(UnexpandableCommand::MacParam(_)) = command {
+        if matches!(command, Command::Unexpandable(c) if c.macro_parameter_code().is_some()) {
             MacroToken::Normal(token)
         } else {
             match token {

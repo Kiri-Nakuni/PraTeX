@@ -280,6 +280,7 @@ fn test_if_cs_name_is_defined(
             | Token::Spacer(c)
             | Token::Letter(c)
             | Token::OtherChar(c) => name.push_byte(c),
+            Token::LatinUcsChar(c) => name.push_unicode(c.code_point()),
             Token::CjkChar(c) => name.push_unicode(c.code_point()),
             _ => {
                 if !matches!(command, UnexpandableCommand::EndCsName) {
@@ -401,7 +402,7 @@ enum IfCharacterCode {
 
 #[derive(Clone, Copy, PartialEq)]
 enum IfCharacterCategory {
-    Byte(CatCode),
+    NonCjk(CatCode),
     Cjk(CjkCategory),
     NonCharacter,
 }
@@ -432,13 +433,19 @@ fn get_x_token_or_active_char(
             // すべて `(Escape, 256)` に潰す設計で、同一性の判定は `\ifx` の仕事である
             match eqtb.control_sequences.active_char(cs) {
                 Some(c) => (
-                    IfCharacterCategory::Byte(CatCode::ActiveChar),
+                    IfCharacterCategory::NonCjk(CatCode::ActiveChar),
                     IfCharacterCode::Character(c as u32),
                 ),
-                None => (
-                    IfCharacterCategory::NonCharacter,
-                    IfCharacterCode::NonCharacter,
-                ),
+                None => match eqtb.control_sequences.wide_active_char(cs) {
+                    Some(code_point) => (
+                        IfCharacterCategory::NonCjk(CatCode::ActiveChar),
+                        IfCharacterCode::Character(code_point),
+                    ),
+                    None => (
+                        IfCharacterCategory::NonCharacter,
+                        IfCharacterCode::NonCharacter,
+                    ),
+                },
             }
         }
         UnexpandableCommand::TabMark(c) => byte_if_character(CatCode::TabMark, c),
@@ -459,6 +466,17 @@ fn get_x_token_or_active_char(
             IfCharacterCategory::Cjk(token.category()),
             IfCharacterCode::Character(token.code_point()),
         ),
+        UnexpandableCommand::LatinUcsChar(token)
+        | UnexpandableCommand::LatinUcsLeftBrace(token)
+        | UnexpandableCommand::LatinUcsRightBrace(token)
+        | UnexpandableCommand::LatinUcsMathShift(token)
+        | UnexpandableCommand::LatinUcsTabMark(token)
+        | UnexpandableCommand::LatinUcsMacParam(token)
+        | UnexpandableCommand::LatinUcsSupMark(token)
+        | UnexpandableCommand::LatinUcsSubMark(token) => (
+            IfCharacterCategory::NonCjk(token.cat_code()),
+            IfCharacterCode::Character(token.code_point()),
+        ),
         // Everything else is mapped to one distinct value.
         _ => (
             IfCharacterCategory::NonCharacter,
@@ -472,7 +490,7 @@ fn byte_if_character(
     character: u8,
 ) -> (IfCharacterCategory, IfCharacterCode) {
     (
-        IfCharacterCategory::Byte(category),
+        IfCharacterCategory::NonCjk(category),
         IfCharacterCode::Character(character as u32),
     )
 }

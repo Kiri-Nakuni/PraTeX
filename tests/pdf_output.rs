@@ -64,8 +64,26 @@ fn synthetic_pfb() -> Vec<u8> {
         bytes
     }
 
+    let mut key = 55_665u16;
+    let encrypted: Vec<u8> = b"rand"
+        .iter()
+        .copied()
+        .chain(
+            b"/Private 1 dict dup begin\n/StdVW [80] ND\n/Subrs 0 array\n"
+                .iter()
+                .copied(),
+        )
+        .map(|plain| {
+            let cipher = plain ^ (key >> 8) as u8;
+            key = key
+                .wrapping_add(u16::from(cipher))
+                .wrapping_mul(52_845)
+                .wrapping_add(22_719);
+            cipher
+        })
+        .collect();
     let mut bytes = segment(1, b"%!PS synthetic CLI font\n");
-    bytes.extend_from_slice(&segment(2, &[1, 2, 3, 4]));
+    bytes.extend_from_slice(&segment(2, &encrypted));
     bytes.extend_from_slice(&segment(1, b"cleartomark\n"));
     bytes.extend_from_slice(&[0x80, 3]);
     bytes
@@ -82,7 +100,6 @@ CapHeight 680\n\
 XHeight 430\n\
 Ascender 700\n\
 Descender -200\n\
-StdVW 80\n\
 StartCharMetrics 1\n\
 C 65 ; WX 1000 ; N A ;\n\
 EndCharMetrics\n\
@@ -170,7 +187,7 @@ fn 明示したfull_mapだけがtype1をstandalone_pdfへ埋め込む() {
     }
     write_synthetic_font(&directory);
     let map_path = directory.join("埋込み.map");
-    std::fs::write(&map_path, b"synthetic CliSynthetic 6 <<synthetic.pfb\n").unwrap();
+    std::fs::write(&map_path, b"synthetic CliSynthetic <<synthetic.pfb\n").unwrap();
     std::fs::write(
         directory.join("t.tex"),
         "\\catcode123=1\n\\catcode125=2\n\\batchmode\n\
@@ -193,6 +210,8 @@ fn 明示したfull_mapだけがtype1をstandalone_pdfへ埋め込む() {
     let pdf = std::fs::read(directory.join("t.pdf")).unwrap();
     assert!(contains(&pdf, b"/BaseFont /CliSynthetic"));
     assert!(contains(&pdf, b"/FontFile "));
+    assert!(contains(&pdf, b"/Flags 4"));
+    assert!(contains(&pdf, b"/StemV 80"));
     assert!(contains(&pdf, b"/Length1 "));
     assert!(contains(&pdf, b"%!PS synthetic CLI font\n"));
     assert!(contains(&pdf, b"/F2 "));

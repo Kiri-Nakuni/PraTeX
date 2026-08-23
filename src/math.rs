@@ -2373,7 +2373,11 @@ pub fn init_math(
             go_into_ordinary_math_mode(MathShiftKind::Inline, nest, scanner, eqtb, logger);
         }
         HorizontalModeType::Unrestricted { lang_data, .. } => {
-            if let Command::Unexpandable(UnexpandableCommand::MathShift(_)) = command {
+            if let Command::Unexpandable(
+                UnexpandableCommand::MathShift(_)
+                | UnexpandableCommand::LatinUcsMathShift(_),
+            ) = command
+            {
                 go_into_display_math_mode(
                     &lang_data,
                     hyphenator,
@@ -2723,7 +2727,9 @@ pub fn check_that_another_mathshift_symbol_follows(
 ) {
     // NOTE We use expansion here to get the next MathShift as this is what TeX82 does.
     let (unexpandable_command, token) = get_x_token(scanner, eqtb, logger);
-    if let UnexpandableCommand::MathShift(_) = unexpandable_command {
+    if let UnexpandableCommand::MathShift(_)
+    | UnexpandableCommand::LatinUcsMathShift(_) = unexpandable_command
+    {
         // All is good.
     } else {
         logger.print_err("Display math should end with $$");

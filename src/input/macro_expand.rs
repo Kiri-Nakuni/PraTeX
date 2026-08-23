@@ -37,7 +37,11 @@ pub fn macro_expand(
         show_text_of_macro_being_expanded(cs, &macro_def, eqtb, logger);
     }
     // If the macro expects some form of parameter.
-    if macro_def.parameter_text[0] != ParamToken::End {
+    if macro_def
+        .parameter_text
+        .first()
+        .is_some_and(|token| *token != ParamToken::End)
+    {
         match scan_parameters(
             &macro_def.parameter_text,
             &mut pstack,
@@ -301,6 +305,42 @@ fn report_runaway_argument(
     MacroCallError::IllegalPar
 }
 
+#[cfg(test)]
+mod format_compatibility_tests {
+    use super::*;
+    use crate::logger::{InteractionMode, Logger};
+    use crate::macros::MacroToken;
+
+    #[test]
+    fn 空のparameter_textを従来の無引数macroとして展開する() {
+        let result = Token::Letter(b'x');
+        let macro_call = MacroCall {
+            long: false,
+            outer: false,
+            protected: false,
+            macro_def: Rc::new(Macro {
+                parameter_text: Vec::new(),
+                replacement_text: vec![MacroToken::Normal(result)],
+            }),
+        };
+        let mut scanner = Scanner::new(Vec::new(), 0);
+        let mut eqtb = Eqtb::new();
+        let mut logger = Logger::new(String::new(), InteractionMode::Batch);
+
+        macro_expand(
+            macro_call,
+            Token::CSToken {
+                cs: ControlSequence::Undefined,
+            },
+            &mut scanner,
+            &mut eqtb,
+            &mut logger,
+        );
+
+        assert_eq!(scanner.get_token(&mut eqtb, &mut logger), result);
+    }
+}
+
 /// Returns false if we found a shifted match that we want to extend (goto continue),
 /// or true if no match is possible with what we have scanned so far.
 /// NOTE: \par tokens could be silently added to the argument here but its not
@@ -420,7 +460,7 @@ fn contribute_entire_group_to_current_parameter(
 fn tidy_up_parameter_just_scanned(
     m: usize,
     pstack: &mut Vec<RcTokenList>,
-    match_chr: u8,
+    match_chr: u32,
     scanner: &mut Scanner,
     eqtb: &Eqtb,
     logger: &mut Logger,
@@ -439,7 +479,7 @@ fn tidy_up_parameter_just_scanned(
     pstack.push(std::rc::Rc::new(parameter));
     if eqtb.integer(IntegerVariable::TracingMacros) > 0 {
         logger.begin_diagnostic(eqtb.tracing_online());
-        logger.print_nl(match_chr);
+        logger.print_nl_uptex(match_chr);
         logger.print_int(pstack.len() as i32);
         logger.print_str("<-");
         let list = &pstack[pstack.len() - 1];

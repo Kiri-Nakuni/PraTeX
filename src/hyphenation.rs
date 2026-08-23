@@ -1,7 +1,7 @@
 mod hyph_table;
 
 use crate::dimension::Dimension;
-use crate::eqtb::{Eqtb, FontIndex, IntegerVariable};
+use crate::eqtb::{Eqtb, FontIndex, IntegerVariable, MAX_LATIN_UCS_CODE};
 use crate::fonts::{new_character, CharTag, FontInfo, LigKernCommand};
 use crate::input::Scanner;
 use crate::logger::Logger;
@@ -14,6 +14,10 @@ pub use hyph_table::Hyphenator;
 use std::convert::TryFrom;
 
 const NON_CHAR: u16 = 256;
+
+fn usable_hyphenation_lc_code(code: i32) -> bool {
+    (1..=MAX_LATIN_UCS_CODE as i32).contains(&code)
+}
 
 impl Hyphenator {
     /// See 863.
@@ -116,7 +120,7 @@ struct WordHyphenator {
     word: Vec<Node>,
     suffix: Vec<Node>,
     letters: Vec<u16>,
-    lc_letters: Vec<u8>,
+    lc_letters: Vec<u16>,
     pattern: Vec<u8>,
     hyphens: [bool; 65],
 
@@ -171,7 +175,11 @@ impl WordHyphenator {
             hyphenated_hlist.append(&mut self.prefix);
             return;
         };
-        if hyphenator.l_hyf + hyphenator.r_hyf > 63 {
+        if hyphenator
+            .l_hyf
+            .checked_add(hyphenator.r_hyf)
+            .is_none_or(|minimum| minimum > 63)
+        {
             hyphenated_hlist.append(&mut self.prefix);
             hyphenated_hlist.push(first_node);
             return;
@@ -224,7 +232,7 @@ impl WordHyphenator {
                     ..
                 }) => {
                     let lc_code = eqtb.lc_code(character as usize);
-                    if lc_code != 0 {
+                    if usable_hyphenation_lc_code(lc_code) {
                         break (node, font_index, character);
                     }
                 }
@@ -235,7 +243,7 @@ impl WordHyphenator {
                 }) => {
                     if let Some(&character) = lig.first() {
                         let lc_code = eqtb.lc_code(character as usize);
-                        if lc_code != 0 {
+                        if usable_hyphenation_lc_code(lc_code) {
                             break (node, font_index, character);
                         }
                     }
@@ -290,7 +298,7 @@ impl WordHyphenator {
                         break;
                     }
                     let c = char_node.character;
-                    if eqtb.lc_code(c as usize) == 0 {
+                    if !usable_hyphenation_lc_code(eqtb.lc_code(c as usize)) {
                         break;
                     }
                     if self.letter_count == 63 {
@@ -306,7 +314,7 @@ impl WordHyphenator {
                     if ligature_node
                         .lig
                         .iter()
-                        .any(|&c| eqtb.lc_code(c as usize) == 0)
+                        .any(|&c| !usable_hyphenation_lc_code(eqtb.lc_code(c as usize)))
                     {
                         break;
                     }
@@ -386,13 +394,13 @@ impl WordHyphenator {
                 Node::Char(char_node) => {
                     let c = char_node.character;
                     self.letters.push(c as u16);
-                    self.lc_letters.push(eqtb.lc_code(c as usize) as u8);
+                    self.lc_letters.push(eqtb.lc_code(c as usize) as u16);
                 }
                 Node::Ligature(ligature_node) => {
                     let lig = &ligature_node.lig;
                     for &c in lig {
                         self.letters.push(c as u16);
-                        self.lc_letters.push(eqtb.lc_code(c as usize) as u8);
+                        self.lc_letters.push(eqtb.lc_code(c as usize) as u16);
                     }
                 }
                 Node::Kern(KernNode {
@@ -414,7 +422,11 @@ impl WordHyphenator {
         nodes: &mut impl Iterator<Item = Node>,
         hyphenator: &Hyphenator,
     ) -> bool {
-        if self.letter_count < hyphenator.l_hyf + hyphenator.r_hyf {
+        if hyphenator
+            .l_hyf
+            .checked_add(hyphenator.r_hyf)
+            .is_none_or(|minimum| self.letter_count < minimum)
+        {
             self.suffix.push(first_suffix_node);
             return false;
         }
@@ -470,7 +482,13 @@ impl WordHyphenator {
     /// Return true for goto return and else false.
     /// See 902.
     fn no_hyphens_were_found(&self, hyphenator: &Hyphenator) -> bool {
-        for j in hyphenator.l_hyf..=(self.letter_count - hyphenator.r_hyf) {
+        let Some(last_position) = self.letter_count.checked_sub(hyphenator.r_hyf) else {
+            return true;
+        };
+        if hyphenator.l_hyf > last_position {
+            return true;
+        }
+        for j in hyphenator.l_hyf..=last_position {
             if self.pattern[j] % 2 == 1 {
                 return false;
             }

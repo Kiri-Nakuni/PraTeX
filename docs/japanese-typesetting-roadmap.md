@@ -1,0 +1,199 @@
+# pTeX相当からJLReq一級対応へ進む日本語組版roadmap
+
+更新: 2026-08-22
+
+## 方針
+
+PraTeXでいう「最低限の日本語組版」は、横書きの一例を出すことではなく、**pTeX相当**である。
+JFM、和文font/node、自動和文間隔、禁則、横組・縦組、DVI/PDF出力までをengine coreで完成させる。
+割注はpTeX primitiveではないため、この完了条件には含めない。
+
+JLReqの標準的な日本語組版も一級機能としてengine内に置く。Vaak/WASMは標準規則を成立させる
+依存先にせず、利用者・出版社固有のprofileまたは実験的な低頻度処理を**明示要求した時だけ**
+差し替える境界に限る。既定日本語paragraphのcallback回数は0を条件とする。
+
+現在あるのはUTF-8 CJK token、`\kcatcode`、typed `LanguageRegion`と、独立したbounded JFM
+reader/modelまでである。JFMは横11／縦9、24-bit raw文字code、u8 class、skip、再配置、
+256超glue/kern indexを検査し、class対programをload時に直接表へcompileする。まだ和文fontへ
+接続していないため、和文glyph node、間隔、禁則、方向、和文出力は未実装であり、CJK tokenは
+組版時に捨てられる。
+
+`\kanjiskip` / `\xkanjiskip`のprimitive、JFMとのhybrid、暗黙K、
+script-pair拡張のclean-room設計は
+[和文間隔core設計](kanjiskip-core-design.md)に分離した。
+
+## 内部domain
+
+catcodeへ組版情報を押し込まない。少なくとも次を別の型として保つ。
+
+| domain | 役割 |
+|---|---|
+| `InputCategory(u8)` | tokenizerのcatcode。`kcatcode`互換viewも入力分類だけを扱う |
+| `TextIdentity` | 元のUnicode scalar列・IVS・将来の外字参照。正規化やglyph IDで同一性を潰さない |
+| `ScriptClassId` | Han、Kana、Hangul、Latin、Common等の組版script |
+| `LanguageRegion` | ja、zh-Hans、zh-Hant、ko、vi等のlayout locale |
+| `JfmClassId` / `LayoutClass` | font固有JFM classとJLReq文字class。互いにもcatcodeにも混ぜない |
+| `GlyphRequest` | font、方向、region、variation selector、feature、最終glyphの要求 |
+
+tokenとnodeへsource provenanceを保持できる余地を作る。これはIVS、PDF `ToUnicode`、診断、
+将来のincremental実行とLSPを同じ対応関係から解くためであり、glyph IDを論理文字へ逆推定しない。
+
+## P0: pTeX相当
+
+P0全体を終えて初めて「日本語組版対応」と呼ぶ。途中の横組PDFはcheckpointであって完了ではない。
+
+### P0a: JFMと和文glyph
+
+1. 公開JFM仕様からbounded readerを独立実装し、文字からclass、width、height、depth、italic、
+   class対glue/kernを得る。
+2. `\jfont`、`\tfont`と横・縦・欧文のcurrent fontを型付きにする。`zw`、`zh`を現在のJFMへ
+   接続し、暫定`em`代用を終える。
+3. 元のUnicode `TextIdentity`とJFM classを持つwide glyph nodeを追加する。
+4. DVIのwide character eventとPDFの和文font eventをbackend共通の意味recordへ渡す。
+   DVI byte列とPDF object表現はbackendごとに分ける。
+
+### P0b: 自動間隔と禁則
+
+listを閉じる一箇所の`finalize_horizontal_list`で、次を決める。
+
+- `\kanjiskip`、`\xkanjiskip`
+- `\autospacing`、`\noautospacing`、`\autoxspacing`、`\noautoxspacing`
+- `\xspcode`、`\inhibitxspcode`
+- `\inhibitglue`、`\disinhibitglue`
+- `\prebreakpenalty`、`\postbreakpenalty`、和文widow penalty
+
+自動nodeは明示glue/penaltyと区別できるprovenanceを持ち、finalizerを再実行しても二重挿入しない。
+ただし`PtexCompat`では、段落末に有効な`\kanjiskip`値が段落全体へ効くことや、暗黙のskipが
+`\lastskip`や`\showbox`へ通常の明示glueとして現れないことまでblack-boxで合わせる。
+
+### P0c: pTeX方向と縦組
+
+- typed `WritingMode`、direction node、direction boxを追加する。
+- 横／縦JFM、baseline shift、boxのwidth/height/depth、nested yoko/tateを公開意味どおり扱う。
+- line breaking、hpack/vpack、alignment、unbox、page builder、DVI/PDF shipoutを方向対応にする。
+- pTeX方向とTeX--XeTのLR区間はprimitive意味論を共有しない。内部nodeとbackend座標だけを
+  再利用できる構造にする。
+
+### P0d: 互換primitiveと合格条件
+
+公開pTeX/upTeX manualの和文primitiveを棚卸しし、局所・大域代入、group、fmt、`\the`、
+`\showthe`、`\meaning`、error回復を該当機能ごとに試験する。内部表現はUTF-8/Unicodeを
+第一とし、旧来の内部文字codeは観測可能な互換面だけadapterで再現する。
+
+TeX Live 2026の`euptex`をblack-box oracleにし、同じUTF-8入力について次を正規化比較する。
+
+- `\showbox`、`\showlists`のnode種、glue、kern、penalty
+- 行分割位置、boxのwidth/height/depth、baseline shift
+- `updvitype`のset/put、font、方向、sp座標
+- JFM class全組合せ、和和・和欧・欧和、font切替、group境界、明示glue、auto/inhibit
+- 狭い`\hsize`の禁則、nested yoko/tate、alignment、unbox、page境界
+
+PDFのbyte一致は要求しない。node意味、sp座標、描画結果、抽出Unicodeを比較する。
+
+## P1: e-upTeXを越えてJLReq実務に必要なcore意味論
+
+### 1. 優先順位付き行長調整
+
+JLReqは文字class対ごとの自然アキ、詰め・空け限界と、どのアキを先に調整するかを規定する。
+通常のTeX glue次数だけでは、約物、和欧文間、欧文間隔などの段階を十分に表せない。
+
+```text
+BoundaryRule {
+  natural,
+  shrink_limit,
+  stretch_limit,
+  shrink_tier,
+  stretch_tier,
+  break_rule,
+  line_edge_rule,
+  reason_id,
+}
+```
+
+固定個数のtierをengine-nativeな小整数tableとして処理する。`PtexCompat`と`Jlreq`をbuilt-in
+profileにし、`\kanjiskip`等は前者への互換adapterとする。`\jidori`や`\akigumi`のmacro面も
+同じ一行調整器を使う。
+
+### 2. class pairとsequenceを扱う禁則
+
+pTeX互換の一文字pre/post penaltyと登録制限は`PtexCompat`で再現する。一級JLReq profileでは、
+left/right class、writing mode、line contextをkeyにした疎なbreak ruleを持つ。連数字、rubyの
+親文字列、厳格／緩和禁則を、一文字の前後どちらか一値へ潰さない。
+
+### 3. 実font、IVS、fallback
+
+「和文fontには全和文文字がある」というpTeX前提を直接PDFへ持ち込まない。font `cmap`で実在を
+確認し、元のUnicode列・IVS、JFM class、glyph ID、fallback policyを別domainにする。欠字は
+typed nodeと診断にし、PDFの埋込み・`ToUnicode`へ同じ対応を渡す。
+
+### 4. rubyと圏点の構造
+
+author向け記法はLaPraTeX macroに置くが、正しい分割、overhang、衝突、縦組、accessibilityには
+base文字範囲とannotationの対応を知るsemantic nodeが必要である。モノルビ、グループルビ、
+熟語ルビ、両側ruby、圏点を一つの`AnnotationNode`系で扱う。
+
+### 5. 縦中横とglyph orientation
+
+`\tatechuyoko`の表面はmacroでよい。横方向sub-box、周囲のJLReq class、縦用advance、
+OpenType `vert`/`vrt2`、元文字と回転glyphの対応はcoreで扱う。
+
+### 6. 基本版面gridと段末均等化
+
+紙面寸法や見出し指定はLaPraTeXが宣言する。page builder側は自然なline extentsとgrid advanceを
+分け、ruby・圏点・大きなinline objectの後でもbaselineをgridへ戻せるようにする。多段末の
+均等化はfloat、明示改ページと同時に扱うcore policyとして後段に実装する。
+
+### 7. 割注
+
+P0には含めない。まずLaPraTeX/jlreq互換macroとして実装する。内側二行と外側行分割を同時に
+最適化する必要が現れた場合だけ、後段で`InlineSubflowNode`を検討する。
+
+## engine、macro、拡張の境界
+
+| 場所 | 対象 |
+|---|---|
+| engine core | JFM、和文glyph/font、spacing、禁則、優先行調整、方向・縦組、font実在、glyph-text対応、annotation意味、grid基盤 |
+| LaPraTeX macro | class option、版面宣言、見出し、ruby・圏点・縦中横・割注のauthor surface |
+| Vaak table | 利用者・出版社固有のclass/pair差替え。明示capabilityで一度uploadしhost側でcompile |
+| WASM batch | 実験的な形態素break、独自辞書、特殊annotation policyなど複雑で低頻度の処理 |
+
+標準日本語profileはVaak/WASMがなくても完全に動作する。拡張providerはfmtへrun-local handleを
+保存せず、無効・trap・fuel切れでは検証済みbuilt-in profileへ原子的に戻す。
+
+## 性能条件
+
+- ASCII paragraphではUnicode/JFM表引き、provider call、追加allocationを0にする。
+- JFM raw codeからclassへの検索はwide glyph生成時に一回、class pairはload時にcompileした
+  `u16`の直接表を一回引くだけにする。
+- spacing finalizerはlist終端で一回だけ。line breaker内にtrait objectやABI callを置かない。
+- priority調整は固定bucket、annotation/grid用allocationは使用時だけにする。
+- 10万字段落、混植、縦組をreleaseで測り、TeX82経路のTRIPとDVI/PDF意味比較を固定する。
+- P0完了時は同一意味のDVI corpusでupTeX/e-upTeXと正面比較し、engine本体の幾何平均を5%以内、
+  主要caseを10%以内にする。探索、fmt復元、PDF pipelineは内訳を分離する。
+- 性能抽象化が有意な退行を生み、意味上必要でもない場合は分離枝で差し戻す。
+
+## 後続段階
+
+1. P0の横・縦pTeX相当を完了する。
+2. `jsarticle`基本横組を通し、次に`jlreq`横組、最後にその縦組を通す。
+3. P1の優先行調整・class pair禁則・実font/IVSを先行実装する。
+4. LaPraTeXがruby、圏点、縦中横、版面gridをtyped core APIへ接続する。
+5. ja/zh-Hans/zh-Hant/ko/viの標準profileをcoreに追加し、同じ境界機構をCJKVへ一般化する。
+6. source provenanceと副作用journalを使い、incremental replayと実行結果ベースLSPへ接続する。
+
+## クリーンルーム資料
+
+上流実装sourceや上流の回帰試験は移植しない。公開manual、標準文書、許可された実行結果から
+独立fixtureを作る。
+
+- [pTeX guide](https://mirrors.ctan.org/info/ptex-manual/ptex-guide-en.pdf)
+- [pTeX manual](https://mirrors.ctan.org/info/ptex-manual/ptex-manual.pdf)
+- [JFM仕様](https://mirrors.ctan.org/info/ptex-manual/jfm.pdf)
+- [JFM clean-room実装記録](jfm-port-notes.md)
+- [W3C 日本語組版処理の要件](https://www.w3.org/TR/jlreq/)
+- [W3C Japanese Gap Analysis](https://www.w3.org/TR/jpan-gap/)
+- [W3C Simple Ruby](https://www.w3.org/TR/simple-ruby/)
+- [jlreq公式README](https://github.com/abenori/jlreq/blob/master/README-ja.md)
+- [LuaTeX-ja manual](https://tug.ctan.org/macros/luatex/generic/luatexja/doc/luatexja-ja.pdf)
+- [拡張可能なscript境界組版](extensible-layout-roadmap.md)
+- [文字・異体字・造字の内部表現](glyph-identity-roadmap.md)

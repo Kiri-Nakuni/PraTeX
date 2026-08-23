@@ -205,6 +205,12 @@ impl Logger {
         self
     }
 
+    pub fn print_nl_uptex(&mut self, code_point: u32) -> &mut Self {
+        self.ensure_newline();
+        crate::token::print_uptex_code_point(code_point, self);
+        self
+    }
+
     pub fn print_nl_str(&mut self, s: &str) -> &mut Self {
         self.ensure_newline();
         self.print_str(s);

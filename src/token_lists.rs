@@ -13,7 +13,9 @@ use crate::print::Printer;
 use crate::print::pseudo::PseudoPrinter;
 use crate::print::string::StringPrinter;
 use crate::scan_internal::{InternalValue, scan_internal_toks};
-use crate::token::{CjkCategory, CjkToken, Token, decode_uptex_input_code_point};
+use crate::token::{
+    CjkCategory, CjkToken, LatinUcsToken, Token, decode_uptex_input_code_point,
+};
 
 pub type RcTokenList = std::rc::Rc<Vec<Token>>;
 
@@ -102,6 +104,14 @@ pub fn str_toks(s: &[u8]) -> Vec<Token> {
 /// This is deliberately separate from [`str_toks`]: the latter is also the
 /// byte-oriented boundary used by Vaak and must keep one token per byte.
 pub(crate) fn printed_str_toks(s: &[u8], eqtb: &Eqtb) -> Vec<Token> {
+    printed_str_toks_with_latin_catcode(s, eqtb, Some(crate::eqtb::CatCode::OtherChar))
+}
+
+fn printed_str_toks_with_latin_catcode(
+    s: &[u8],
+    eqtb: &Eqtb,
+    latin_catcode: Option<crate::eqtb::CatCode>,
+) -> Vec<Token> {
     let mut list = Vec::with_capacity(s.len());
     let mut pos = 0;
     while pos < s.len() {
@@ -123,6 +133,21 @@ pub(crate) fn printed_str_toks(s: &[u8], eqtb: &Eqtb) -> Vec<Token> {
             continue;
         };
 
+        // Non-canonical UTF-8 spellings of ASCII still have canonical byte
+        // identity. This boundary can receive arbitrary byte strings, so it
+        // must make the same low-code decision as the line lexer before
+        // consulting the Japanese character table.
+        if code_point <= 0x7F {
+            let byte = code_point as u8;
+            list.push(if byte == b' ' {
+                Token::SPACE_TOKEN
+            } else {
+                Token::OtherChar(byte)
+            });
+            pos += len;
+            continue;
+        }
+
         let category = match eqtb.kcat_code(code_point) {
             KCatCode::Kanji => Some(CjkCategory::Kanji),
             KCatCode::Kana => Some(CjkCategory::Kana),
@@ -132,9 +157,22 @@ pub(crate) fn printed_str_toks(s: &[u8], eqtb: &Eqtb) -> Vec<Token> {
             // The public engine's printer-to-token path keeps this as one
             // Japanese token even when the current table says `not_cjk`.
             KCatCode::NotCjk => Some(CjkCategory::OtherKChar),
-            // TODO(upTeX stage 4c): emit one 16-bit-catcode Unicode European
-            // token.  That token type does not exist yet, so retain bytes.
-            KCatCode::LatinUcs => None,
+            KCatCode::LatinUcs => {
+                let cat_code =
+                    latin_catcode.unwrap_or_else(|| eqtb.latin_ucs_cat_code(code_point));
+                if cat_code == crate::eqtb::CatCode::InvalidChar {
+                    list.push(Token::CjkChar(
+                        CjkToken::new(code_point, CjkCategory::OtherKChar)
+                            .expect("latin_ucs range is a valid CJK token code point"),
+                    ));
+                } else if let Some(token) = LatinUcsToken::new(code_point, cat_code) {
+                    list.push(Token::LatinUcsChar(token));
+                } else {
+                    list.extend(s[pos..pos + len].iter().copied().map(Token::OtherChar));
+                }
+                pos += len;
+                continue;
+            }
         };
         if let Some(category) = category {
             if let Some(token) = CjkToken::new(code_point, category) {
@@ -245,6 +283,7 @@ fn scan_and_print_argument_for_convert_command(
                 | Token::Spacer(c)
                 | Token::Letter(c)
                 | Token::OtherChar(c) => string_printer.print_char(c),
+                Token::LatinUcsChar(token) => token.print_utf8(string_printer),
                 Token::CjkChar(token) => token.print_utf8(string_printer),
                 Token::CSToken { cs } => cs.sprint_cs(eqtb, string_printer),
                 Token::Null => {
@@ -363,7 +402,11 @@ pub fn detokenize_toks(scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Logg
     let toks = nested_scan_toks(scanner, false, eqtb, logger);
     let mut p = StringPrinter::new(eqtb.get_current_escape_character());
     token_show(&toks, &mut p, eqtb);
-    printed_str_toks(&p.into_string(), eqtb)
+    printed_str_toks_with_latin_catcode(
+        &p.into_string(),
+        eqtb,
+        Some(crate::eqtb::CatCode::OtherChar),
+    )
 }
 
 /// `\unexpanded{…}` の中身。**そのまま返す**（e-TeX）。
@@ -462,16 +505,46 @@ mod tests {
     }
 
     #[test]
-    fn 欧文符号位置と不正列はバイト字句へ戻す() {
+    fn unicode欧文符号位置は一文字になり不正列だけバイトへ戻す() {
         let mut eqtb = Eqtb::new();
         eqtb.kcat_code_define(0x2E00, KCatCode::LatinUcs, true);
+        eqtb.latin_ucs_cat_code_define(0x2E00, crate::eqtb::CatCode::Letter, true);
         assert_eq!(
             printed_str_toks("⸀".as_bytes(), &eqtb),
-            str_toks("⸀".as_bytes())
+            vec![Token::LatinUcsChar(
+                LatinUcsToken::new(0x2E00, crate::eqtb::CatCode::OtherChar).unwrap()
+            )]
         );
 
         let invalid = [b' ', 0xE3, b'A', 0x81];
         assert_eq!(printed_str_toks(&invalid, &eqtb), str_toks(&invalid));
+    }
+
+    #[test]
+    fn 印字列の非正規utf8_asciiは一つのbyte_tokenに正規化する() {
+        let eqtb = Eqtb::new();
+        assert_eq!(
+            printed_str_toks(&[0xE0, 0x81, 0x81, 0xE0, 0x80, 0xA0], &eqtb),
+            vec![Token::OtherChar(b'A'), Token::SPACE_TOKEN]
+        );
+    }
+
+    #[test]
+    fn stringのunicode欧文は現在値によらずcatcode十二になる() {
+        let (mut scanner, mut eqtb, mut logger) = 入力器を作る();
+        let token = LatinUcsToken::new(0x0100, crate::eqtb::CatCode::LeftBrace).unwrap();
+        scanner.ins_list(vec![Token::LatinUcsChar(token)], &eqtb, &mut logger);
+        eqtb.kcat_code_define(0x0100, KCatCode::LatinUcs, true);
+        eqtb.latin_ucs_cat_code_define(0x0100, crate::eqtb::CatCode::LeftBrace, true);
+
+        conv_toks(ConvertCommand::String, &mut scanner, &mut eqtb, &mut logger);
+
+        assert_eq!(
+            scanner.get_token(&mut eqtb, &mut logger),
+            Token::LatinUcsChar(
+                LatinUcsToken::new(0x0100, crate::eqtb::CatCode::OtherChar).unwrap()
+            )
+        );
     }
 
     #[test]
@@ -505,6 +578,32 @@ mod tests {
         assert_eq!(
             detokenize_toks(&mut scanner, &mut eqtb, &mut logger),
             vec![cjk(0x3042, CjkCategory::Modifier)]
+        );
+    }
+
+
+    #[test]
+    fn detokenizeしたunicode欧文は現在値によらずcatcode十二になる() {
+        let (mut scanner, mut eqtb, mut logger) = 入力器を作る();
+        eqtb.kcat_code_define(0x00DF, KCatCode::LatinUcs, true);
+        eqtb.latin_ucs_cat_code_define(0x00DF, crate::eqtb::CatCode::Letter, true);
+        scanner.ins_list(
+            vec![
+                Token::LEFT_BRACE_TOKEN,
+                Token::LatinUcsChar(
+                    LatinUcsToken::new(0x00DF, crate::eqtb::CatCode::Letter).unwrap(),
+                ),
+                Token::RIGHT_BRACE_TOKEN,
+            ],
+            &eqtb,
+            &mut logger,
+        );
+
+        assert_eq!(
+            detokenize_toks(&mut scanner, &mut eqtb, &mut logger),
+            vec![Token::LatinUcsChar(
+                LatinUcsToken::new(0x00DF, crate::eqtb::CatCode::OtherChar).unwrap()
+            )]
         );
     }
 }

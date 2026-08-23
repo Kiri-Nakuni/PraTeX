@@ -1,8 +1,99 @@
 # safe Rust 性能測定
 
+## 到達目標: upTeX / e-upTeX と正面比較する
+
+PraTeXの最終性能目標は、単に「Rust実装として十分速い」ことではなく、同じ入力を同じ
+意味でDVIへ組むupTeX / e-upTeXと同等のthroughputを得ることである。機能を省いた短い
+fixtureだけで達成扱いにせず、pTeX相当P0の完成に合わせて次を継続測定する。
+
+- process起動、TeX Live探索、fmt復元、展開、段落整形、JFM class対処理、page build、
+  DVI shipoutを分離したmicro/macro benchmark
+- ASCII、和文、和欧混植、禁則が多い狭い段落、100頁、横組、縦組の固定corpus
+- 同一TeX Live tree・warm/cold条件・CPU affinity・release LTOで交互に走らせたwall/CPU値
+- `updvitype`で正規化したnode/命令・sp座標が一致する実行だけを性能標本に採用
+
+P0のperformance gateは、engine本体のcorpus幾何平均をe-upTeXの5%以内、各主要caseを
+10%以内に置く。探索を含むend-to-endも別列で同じ水準を目指す。PDF直接出力はupTeX単体と
+同じ仕事ではないため、DVI core比較へ混ぜず、upTeX + driverのpipelineと別に測る。
+
+最適化はsafe Rustを既定にする。意味一致を固定したprofileで必要性が残り、`unsafe`を試す
+場合は専用枝を先に切り、安全条件・差分・性能値を独立に審査できるようにする。
+
 性能変更は、同じrelease設定・同じ合成入力で変更前後を交互に走らせ、出力の一致を
 確認してから採用する。測定用入力、実行ファイルの複製、logはリポジトリ外の
 `%TEMP%` にだけ置き、版方へ入れない。
+
+## WSL e-upTeXとの同一OS基線
+
+Windows版TeX Liveの遅さを比較基準にはしない。最初の中間gateは、同じPC、同じWSL、
+同じCPU scheduler上でPraTeXとTeX Live 2026 e-upTeXを交互に走らせ、探索とfmtを外した
+engine workloadで **1.2倍未満**へ入れることである。最終の5%/10% gateは、その後に
+pTeX相当corpusで判定する。
+
+`4745f3c`をWSL上でもrelease LTO buildし、INITEX、fmtなし、探索なしで測った。入力は
+macro展開と `\advance\count0 by 1` を1000万回行い、終了時に値を検査する。2回warm-up後、
+順序を反転しながら各11回測ったwall中央値は次である。
+
+| | PraTeX | e-upTeX | 比 |
+|---|---:|---:|---:|
+| 空に近いINITEX | 14.361 ms | 151.657 ms | 0.095 |
+| 1000万回展開・整数加算 | 1975.460 ms | 1140.525 ms | **1.732** |
+
+起動を概算で控除するとengine部分は約1.98倍であり、1.2倍gateを明確に越えた。このため
+`codex/perf-wsl-euptex-safe`を切り、safe Rustのprofile/refactorを先に行う。Windows nativeの
+PraTeX/e-upTeX値は環境差の参考にだけ残し、合否へ使わない。
+
+LLVMのinstrumentation profileでは、1000万回入力におよそ次の回数があった。
+
+- `InputStack::get_next` / `Scanner::get_next`: 1.11億 / 1.01億回
+- `get_x_token`: 9000万回
+- integer参照: 4110万回
+- `scan_keyword`: 2000万回
+- `RawVec::grow_amortized`: 約1000万回
+
+10M入力だけで学習したLLVM PGOも診断として試した。CPU 0固定の追加測定ではgeneric PGOが
+2151.80 msから1479.86 msへ短縮したが、同じ列のe-upTeX 1097.07 msに対してなお1.349倍だった。
+狭い入力へのPGOを製品上の解決とはせず、profileが示した確保とdispatchを一件ずつ直す。
+
+## キーワード成功経路の無確保化
+
+TeXの§407に相当する `scan_keyword` は、成功時にも一致済み字句を `Vec`へpushしていた。
+1000万回入力では `by` のためだけに約1000万回のgrow/freeが発生する。現行engineの最長語は
+6字なので、6字までは局所配列へ置き、失敗して字句を戻す時だけ `Vec`を作る。7字以上も
+従来どおり動くheap fallbackを残し、入力上限にはしない。
+
+親 `4745f3c` と `955318e` をWSL rustc 1.97.1、release LTO、CPU 0固定で比較した。100万回版を
+4回warm-up後、順序を交互にして各31回測った。
+
+| | 親 | 無確保化 | 短縮 |
+|---|---:|---:|---:|
+| wall中央値 | 252.708 ms | 240.270 ms | 4.92% |
+| child CPU中央値 | 257.403 ms | 243.710 ms | 5.32% |
+
+先頭空白と大文字、部分一致失敗の復元順、7字超の成功と失敗を直接試験した。release全体は
+507 passed、0 failed、6 ignored。TRIPは両段exit 0、999 records同士で、preamble comment、
+pointer、末尾paddingを除く意味差0だった。PraTeX DVI SHA-256は
+`b20af20a1463c6846f0c4c1ce687cd6354ce1a5f65ee401507627570787ae9fe`のままである。
+unsafe Rustは使っていない。
+
+## 最上位整数代入の直接化
+
+整数演算の代入は、group外でも毎回 `Definition` と `Variable` へ包み直し、保存levelを調べていた。
+最上位では局所・大域代入の意味が同じで、保存すべき外側の値もない。`9bb6023`ではloggerへ同期する
+`escapechar` / `newlinechar` を先に処理した後、`cur_level == 0`だけ整数表へ直接書く。group内、
+`globaldefs`、高位registerの既存経路は変えない。
+
+独立targetを用い、CPU時間で比較した結果は次である。
+
+| workload | 親 | 直接化 | 短縮 |
+|---|---:|---:|---:|
+| 100万回、31標本の中央値 | 272.864 ms | 256.476 ms | 6.00% |
+| 1000万回、11標本の中央値 | 2447.354 ms | 2257.860 ms | 7.74% |
+
+1000万回の平均でも5.69%短縮した。release全体は507 passed、0 failed、6 ignored。
+TRIPは両段exit 0、`tripos.tex`一致、DVI hashと既知の999 records意味差0を維持した。
+この時点でも同一WSL e-upTeX比1.2未満には届かない。依頼者判断によりunsafe最適化は一通りの
+機能完成後まで保留し、性能専用作業を止めてe-TeX/pdfTeXと日本語組版の統合へ戻った。
 
 ## 一字の差し戻し
 
@@ -92,8 +183,102 @@ Windows側から開くend-to-end試験は8.87 sだった。release LTOのlink 3�
 同じ解決結果を条件に、lazy/adaptive索引化とWSL内でのbounded読込みを別々に比較する。
 詳細は [TeX Live探索の移植記録](kpathsea-port-notes.md) にある。
 
+### `ls-R`索引表現のisolated safe-Rust実験（2026-08-22）
+
+end-to-end変更へ先走らないため、実リポジトリを編集せず、WSL
+`/tmp/pratex-lsr-safe-probe-*`の独立prototypeで次の四方式を比較した。
+
+- A: 現行readerの所有`HashMap`意味を再現
+- B: `RandomState`を保ち、unique name数とdirectory数を正確に予約
+- C: deterministic FNV-1aの所有`HashMap`
+- D: 一つのbyte arenaにoffset/lengthを持ち、FNV bucketをcollision-safeなbyte比較で連鎖
+
+環境はWSL2 Ubuntu 24.04、Linux 6.18.33.2、i7-13620H、CPU 2固定、rustc 1.97.1
+（LLVM 22.1.6）、`-O -C codegen-units=1`。warm-up 3回後、方式順を回転して24標本を取った。
+probe source SHA-256は
+`824b6b2220d46315d377552b6a0deda53193e506b75125f25a7302b9ed6f7e87`、binaryは
+`71839ced31f7706565482331243cf8bba8452eadd72d3b48b2256004be3f3149`である。
+ただしsourceとbinaryはWSL `/tmp/pratex-lsr-safe-probe-20260822`の消去により残っていない。
+このhashは当日のartifact同一性の記録であって、hashだけから再現はできない。従って本節は
+探索的測定として扱い、性能gateには使わない。採否を決める再測定では、A--D、意味論assert、
+合成非UTF-8 fixture、interleaved測定、RSS child modeを持つ`tools/lsr_safe_probe.rs`と、
+fixture発見・一時directory・toolchain/hash収集・CPU固定を行うrunnerを先にcommitする。
+
+公開CLI `kpsewhich --all ls-R`で得たfixtureは次の三つ。最大のdist treeは
+288,994行、17,298 directory、254,397 accepted entry、231,561 unique basename、
+22,836 cross-directory extra candidateだった。
+
+| fixture | byte | SHA-256 |
+|---|---:|---|
+| config | 80 | `418d569540155c83d3e01fb88cf8ecbf5870deedc3844f86d38df2f9b4d4f5b2` |
+| var | 3,330 | `25692224564e8ce593b8bbf8cabd142557b129aa69303d4d2021f4a6433c9e26` |
+| dist | 5,674,350 | `17677745673338040a914c26c1935da2c6515d573d3bc7fb3d1b7dbaf4cc0d9e` |
+
+全方式でbasenameをbyte-sortした**全name→candidate directory列**を直接`assert_eq`し、
+distのsemantic FNV64 `aa62d954fb168fec`が一致した。4096件の固定hit/miss corpusも結果列を
+直接比較し、checksumはhit `11f73eace8743fef`、miss `9eb4e710cf95c4fd`で一致した。
+非UTF-8 basename `na\xffme.tex`、重複抑制、hidden entry拒否を含む合成fixtureも一致した。
+
+最大distのbuild時間:
+
+| 方式 | 中央値 | 平均 | p10 / p90 | A比 |
+|---|---:|---:|---:|---:|
+| A | 49.562 ms | 52.726 ms | 45.849 / 61.076 ms | -- |
+| B | 27.112 ms | 27.768 ms | 22.836 / 31.496 ms | -45.3% |
+| C | 25.830 ms | 26.871 ms | 21.956 / 30.436 ms | -47.9% |
+| D | 24.164 ms | 25.823 ms | 21.556 / 28.646 ms | -51.3% |
+
+最大distのlookup中央値（ns/query）と個別process `/proc` VmHWM:
+
+| 方式 | hit | miss | VmHWM（raw入力込み） |
+|---|---:|---:|---:|
+| A | 60.287 | 21.101 | 56,832 KiB |
+| B | 61.090 | 22.026 | 44,464 KiB |
+| C | 53.898 | 31.733 | 44,464 KiB |
+| D | 56.285 | 42.479 | 32,168 KiB |
+
+Bはbuildとpeak memoryを大きく改善したが、正確なunique-name/directory件数を測定区間外から
+与えたoracle上限である。従って採用結果ではない。実readerが一回の走査で安価に作れる
+過大容量hintを設計し、end-to-end resolverで再測定する第一候補とする。
+
+C/DはhitだけならAより速い一方、missが50.4%/101.3%悪化した。さらにunkeyed FNVは、外部から
+細工できる`ls-R`に対するhash-flooding DoSを許し、Dのchainはbuild/lookupとも線形へ退化する。
+したがって現状は非推奨で、`RandomState`を外さない。Unix prototypeはraw byteを保持したが、
+Windows readerがinvalid UTF-8を拒む既存platform policyも表現変更で勝手に変えない。
+この絶対値は現行意味を模したprototype内訳であり、PraTeX end-to-end値ではない。
+
+## Linux TeX Liveでの費用分解
+
+Claudeが`codex/euptex-utf8-cjk-token`系の`04d4189`をLinux 7.0、i7-8650U、TeX Live 2026、
+release LTOで外部監査した。現在枝そのものやWindows--WSLの数値ではないため絶対値を混ぜないが、
+同じ一頁LaTeX入力を12回測って費用を段階的に足した結果は次だった。
+
+| 段階 | PraTeX | 増分 |
+|---|---:|---:|
+| 書式なし・空入力 | 約1.3 ms | process起動 |
+| 16.8 MiBのLaTeX fmtを読む | 約114 ms | fmt復元 約113 ms |
+| 一頁を組む | 約141 ms | 組版 約27 ms |
+| TeX Live外部探索を使う | 約522 ms | 探索 約381 ms |
+
+同じ条件のpdfTeXは一頁約196 msで、内訳の推定はkpathsea初期化約137 ms、fmtと組版約50 ms。
+PraTeXの組版部分は約27 ms対約25 msでほぼ同じであり、少なくともこのfixtureから
+「safe Rustの組版意味論が支配的に遅い」とは言えない。現時点の大きな費用は探索とfmt復元である。
+
+監査では用途別`--show-path`等の外部起動が一回約137--144 ms、自前`ls-R`索引が約103 msだった。
+したがって優先候補を次とする。
+
+1. 公開`texmf.cnf`の必要な部分集合を独立実装するか、正しさを証明できる場合だけ
+   `--show-path`を遅延し、外部kpathsea初期化回数を減らす。
+2. fmt 16.8 MiBの内訳を型・表ごとに計測し、既知個数の予約や疎表の表現を個別に比較する。
+3. `ls-R`の一行ごとの確保、HashMapの予約不足、短いkeyのhash costをprofileし、変更前後を
+   同じ索引結果で比較する。
+
+`texmf.cnf`全体を推測実装して探索順を変える最適化は採らない。曖昧・未対応な式は従来どおり
+公開`kpsewhich`へ戻す。1.3 msの探索不要起動、ASCII fast path、TRIP意味一致をhard boundaryにし、
+数値は同じcommit、TeX tree、language設定、親processのみの計測で取り直してから採否を決める。
+
 ## 次の候補
 
-測定済みの次候補は、入力行bufferの再利用、PDF文字命令の一時 `String` 除去、fmt復元時の
-既知個数による容量予約である。一つの枝へ混ぜず、同じ出力hashとTRIPを条件に個別採否を
-決める。
+測定済みの次候補は、探索外部processの削減、fmt内訳の計測、`ls-R`索引の確保削減、
+入力行bufferの再利用、PDF文字命令の一時`String`除去である。一つの枝へ混ぜず、同じ
+出力hashとTRIPを条件に個別採否を決める。

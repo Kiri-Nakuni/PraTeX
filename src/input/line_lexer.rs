@@ -4,7 +4,9 @@ use crate::eqtb::{
     CatCode, CharacterClassifier, ClassificationContext, ControlSequence, ControlSequenceNameUnit,
     Eqtb, UnicodeDisposition,
 };
-use crate::token::{decode_uptex_input_code_point, CjkCategory, CjkToken, Token};
+use crate::token::{
+    decode_uptex_input_code_point, CjkCategory, CjkToken, LatinUcsToken, Token,
+};
 
 /// Scans an input line and produces tokens.
 ///
@@ -96,6 +98,49 @@ impl LineLexer {
                     self.pos = next_pos;
                     self.state = LineLexerState::Midline;
                     return Ok(Some(LexerToken::CjkChar(token)));
+                }
+                UnexpandedInput::LatinUcs(token, next_pos) => {
+                    self.pos = next_pos;
+                    use CatCode::*;
+                    use LineLexerState::{Midline, NewLine, SkipBlanks};
+                    let lexer_token = match (self.state, token.cat_code()) {
+                        (_, Letter | OtherChar | LeftBrace | RightBrace | MathShift | TabMark
+                            | MacParam | SupMark | SubMark) => {
+                            self.state = Midline;
+                            LexerToken::LatinUcsChar(token)
+                        }
+                        (Midline, Spacer) => {
+                            self.state = SkipBlanks;
+                            LexerToken::Spacer
+                        }
+                        (_, Ignore) | (SkipBlanks, Spacer) | (NewLine, Spacer) => continue,
+                        (_, ActiveChar) => {
+                            self.state = Midline;
+                            LexerToken::WideActive(token.code_point())
+                        }
+                        (_, Escape) => self.scan_control_sequence(classifier),
+                        (_, Namespace) => self.scan_namespaced(classifier)?,
+                        (Midline, CarRet) => {
+                            self.pos = self.line.len();
+                            LexerToken::Spacer
+                        }
+                        (SkipBlanks, CarRet) | (_, Comment) => {
+                            self.pos = self.line.len();
+                            return Ok(None);
+                        }
+                        (NewLine, CarRet) => {
+                            self.pos = self.line.len();
+                            LexerToken::Par
+                        }
+                        (_, InvalidChar) => {
+                            self.state = Midline;
+                            LexerToken::CjkChar(
+                                CjkToken::new(token.code_point(), CjkCategory::OtherKChar)
+                                    .expect("latin_ucs range is a valid CJK token code point"),
+                            )
+                        }
+                    };
+                    return Ok(Some(lexer_token));
                 }
             };
             self.pos = next_pos;
@@ -216,7 +261,15 @@ impl LineLexer {
         if let Some((token, next_pos)) =
             self.literal_cjk_at_current_position(classifier, ClassificationContext::Input)
         {
-            return Some(UnexpandedInput::Cjk(token, next_pos));
+            return Some(match token {
+                DecodedUnicodeInput::Byte(chr, cat) => {
+                    UnexpandedInput::Byte(chr, cat, next_pos)
+                }
+                DecodedUnicodeInput::Cjk(token) => UnexpandedInput::Cjk(token, next_pos),
+                DecodedUnicodeInput::LatinUcs(token) => {
+                    UnexpandedInput::LatinUcs(token, next_pos)
+                }
+            });
         }
         self.next_unexpanded_character(classifier, ClassificationContext::Input)
             .map(|(chr, cat, next_pos)| UnexpandedInput::Byte(chr, cat, next_pos))
@@ -233,7 +286,21 @@ impl LineLexer {
         if let Some((token, next_pos)) = self
             .literal_cjk_at_current_position(classifier, ClassificationContext::ControlSequenceName)
         {
-            return Some(UnexpandedInput::Cjk(token, next_pos));
+            return Some(match token {
+                DecodedUnicodeInput::Byte(chr, cat) => {
+                    // A non-canonical UTF-8 spelling of an ASCII code has the
+                    // canonical byte identity in a control-sequence name.
+                    // Replace the source span so the borrowed byte-name path
+                    // cannot retain the original multi-byte spelling.
+                    self.line.drain(self.pos + 1..next_pos);
+                    self.line[self.pos] = chr;
+                    UnexpandedInput::Byte(chr, cat, self.pos + 1)
+                }
+                DecodedUnicodeInput::Cjk(token) => UnexpandedInput::Cjk(token, next_pos),
+                DecodedUnicodeInput::LatinUcs(token) => {
+                    UnexpandedInput::LatinUcs(token, next_pos)
+                }
+            });
         }
         self.next_unexpanded_character_with_replacement(
             classifier,
@@ -247,20 +314,34 @@ impl LineLexer {
         &self,
         classifier: &impl CharacterClassifier,
         context: ClassificationContext,
-    ) -> Option<(CjkToken, usize)> {
+    ) -> Option<(DecodedUnicodeInput, usize)> {
         if self.line.get(self.pos).copied()?.is_ascii() {
             return None;
         }
         let (code_point, len) = decode_uptex_input_code_point(&self.line[self.pos..])?;
-        let category = match classifier.unicode_disposition(code_point, context) {
-            UnicodeDisposition::Wide { category, .. } => category,
-            // Stage 4c will turn `LatinUcs` into a single Unicode European
-            // token.  Until then both non-CJK routes deliberately retain the
-            // original bytes and their ordinary 8-bit catcodes.
+        if code_point <= 0x7F {
+            let byte = code_point as u8;
+            return Some((
+                DecodedUnicodeInput::Byte(
+                    byte,
+                    classifier.byte_cat_code(byte, context),
+                ),
+                self.pos + len,
+            ));
+        }
+        let token = match classifier.unicode_disposition(code_point, context) {
+            UnicodeDisposition::Wide { category, .. } => DecodedUnicodeInput::Cjk(
+                CjkToken::new(code_point, category)
+                    .expect("the decoder only returns code points accepted by CjkToken"),
+            ),
+            UnicodeDisposition::LatinUcs { cat_code, .. } => {
+                DecodedUnicodeInput::LatinUcs(
+                    LatinUcsToken::new(code_point, cat_code)
+                        .expect("latin_ucs classification enforces U+0080..=U+2E7F"),
+                )
+            }
             UnicodeDisposition::RawBytes { .. } => return None,
         };
-        let token = CjkToken::new(code_point, category)
-            .expect("the decoder only returns code points accepted by CjkToken");
         Some((token, self.pos + len))
     }
 
@@ -402,6 +483,19 @@ impl LineLexer {
                                     self.scan_wide_word_tail(&mut name, classifier);
                                     return CsName::Wide(name);
                                 }
+                                Some(UnexpandedInput::LatinUcs(token, next_pos))
+                                    if token.cat_code() == CatCode::Letter =>
+                                {
+                                    let mut name = self.line[start..self.pos]
+                                        .iter()
+                                        .copied()
+                                        .map(ControlSequenceNameUnit::Byte)
+                                        .collect::<Vec<_>>();
+                                    name.push(ControlSequenceNameUnit::Unicode(token.code_point()));
+                                    self.pos = next_pos;
+                                    self.scan_wide_word_tail(&mut name, classifier);
+                                    return CsName::Wide(name);
+                                }
                                 _ => break,
                             }
                         }
@@ -448,6 +542,19 @@ impl LineLexer {
                 }
                 CsName::Wide(name)
             }
+            Some(UnexpandedInput::LatinUcs(token, next_pos)) => {
+                self.pos = next_pos;
+                let mut name = vec![ControlSequenceNameUnit::Unicode(token.code_point())];
+                if token.cat_code() == CatCode::Letter {
+                    self.scan_wide_word_tail(&mut name, classifier);
+                    self.state = LineLexerState::SkipBlanks;
+                } else if token.cat_code() == CatCode::Spacer {
+                    self.state = LineLexerState::SkipBlanks;
+                } else {
+                    self.state = LineLexerState::Midline;
+                }
+                CsName::Wide(name)
+            }
         }
     }
 
@@ -468,6 +575,12 @@ impl LineLexer {
                 }
                 Some(UnexpandedInput::Cjk(token, next_pos))
                     if cjk_can_continue_word(token.category()) =>
+                {
+                    name.push(ControlSequenceNameUnit::Unicode(token.code_point()));
+                    self.pos = next_pos;
+                }
+                Some(UnexpandedInput::LatinUcs(token, next_pos))
+                    if token.cat_code() == CatCode::Letter =>
                 {
                     name.push(ControlSequenceNameUnit::Unicode(token.code_point()));
                     self.pos = next_pos;
@@ -594,6 +707,14 @@ fn double_hex_to_byte(c: u8, cc: u8) -> u8 {
 enum UnexpandedInput {
     Byte(u8, CatCode, usize),
     Cjk(CjkToken, usize),
+    LatinUcs(LatinUcsToken, usize),
+}
+
+#[derive(Debug, Clone, Copy)]
+enum DecodedUnicodeInput {
+    Byte(u8, CatCode),
+    Cjk(CjkToken),
+    LatinUcs(LatinUcsToken),
 }
 
 /// A token as returned from [`LineLexer`].
@@ -636,8 +757,10 @@ pub enum LexerToken<'a> {
     Spacer,
     Letter(u8),
     OtherChar(u8),
+    LatinUcsChar(LatinUcsToken),
     CjkChar(CjkToken),
     ActiveChar(u8),
+    WideActive(u32),
     CommandSymbol(u8),
     CommandWord(&'a [u8]),
     /// A control-sequence name containing at least one decoded Unicode unit.
@@ -668,11 +791,15 @@ impl<'a> LexerToken<'a> {
             Spacer => Token::Spacer(b' '),
             Letter(c) => Token::Letter(c),
             OtherChar(c) => Token::OtherChar(c),
+            LatinUcsChar(token) => Token::LatinUcsChar(token),
             CjkChar(token) => Token::CjkChar(token),
             // **一文字と活性文字も探索に参加する**（`\usingnamespace`）。
             // 使っている名前空間が無ければ `Active(c)` / `Single(c)` そのものになる
             ActiveChar(c) => Token::CSToken {
                 cs: eqtb.lookup_active(c),
+            },
+            WideActive(code_point) => Token::CSToken {
+                cs: eqtb.lookup_or_create_wide_active(code_point)?,
             },
             CommandSymbol(c) => Token::CSToken {
                 cs: eqtb.lookup_symbol(c),
@@ -838,6 +965,40 @@ mod tests {
     }
 
     #[test]
+    fn 非正規utf8のasciiはkcatcodeに係らずbyteとして記号化する() {
+        let mut lexer = LineLexer::new(vec![0xE0, 0x81, 0x81]);
+        let token = lexer
+            .scan_next_token(
+                &|byte| {
+                    if byte == b'A' {
+                        CatCode::LeftBrace
+                    } else {
+                        CatCode::OtherChar
+                    }
+                },
+                &|_| KCatCode::Kanji,
+            )
+            .unwrap()
+            .unwrap();
+        assert!(matches!(token, LexerToken::LeftBrace(b'A')));
+        assert!(lexer
+            .scan_next_token(&ordinary_cat_code, &|_| KCatCode::LatinUcs)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn 非正規utf8のascii制御綴は正規asciiと同じ名前になる() {
+        let mut lexer = LineLexer::new(vec![b'\\', 0xE0, 0x81, 0x81]);
+        let token = lexer
+            .scan_next_token(&ordinary_cat_code, &|_| KCatCode::LatinUcs)
+            .unwrap()
+            .unwrap();
+        assert!(matches!(token, LexerToken::CommandSymbol(b'A')));
+        assert_eq!(lexer.line, br"\A");
+    }
+
+    #[test]
     fn 不正列は先頭一byteだけ戻して次のleadへ再同期する() {
         let cat_code = |_| CatCode::OtherChar;
         let kcat_code = |_| KCatCode::OtherKChar;
@@ -887,17 +1048,52 @@ mod tests {
     }
 
     #[test]
-    fn kcat十五と未実装の十四は元のbyte列を通す() {
-        for kcat in [KCatCode::NotCjk, KCatCode::LatinUcs] {
-            let mut lexer = LineLexer::new(HIRAGANA_A.to_vec());
-            for expected in HIRAGANA_A {
-                assert!(matches!(
-                    lexer.scan_next_token(&|_| CatCode::OtherChar, &|_| kcat),
-                    Ok(Some(LexerToken::OtherChar(actual))) if actual == *expected
-                ));
-            }
+    fn kcat十五だけが元のbyte列を通す() {
+        let mut lexer = LineLexer::new(HIRAGANA_A.to_vec());
+        for expected in HIRAGANA_A {
+            assert!(matches!(
+                lexer.scan_next_token(&|_| CatCode::OtherChar, &|_| KCatCode::NotCjk),
+                Ok(Some(LexerToken::OtherChar(actual))) if actual == *expected
+            ));
         }
     }
+
+    #[test]
+    fn latin_ucsはunicode欧文一文字tokenになる() {
+        let mut lexer = LineLexer::new("ß".as_bytes().to_vec());
+        let token = lexer
+            .scan_next_token(&|_| CatCode::Letter, &|_| KCatCode::LatinUcs)
+            .unwrap()
+            .unwrap();
+        let LexerToken::LatinUcsChar(token) = token else {
+            panic!("latin_ucs token expected");
+        };
+        assert_eq!(token.code_point(), 0x00DF);
+        assert_eq!(token.cat_code(), CatCode::Letter);
+        assert!(
+            lexer
+                .scan_next_token(&|_| CatCode::Letter, &|_| KCatCode::LatinUcs)
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn latin_ucsのcatcode十五だけは和文tokenへfallbackする() {
+        let mut lexer = LineLexer::new("ß".as_bytes().to_vec());
+        let token = lexer
+            .scan_next_token(&|_| CatCode::InvalidChar, &|_| KCatCode::LatinUcs)
+            .unwrap()
+            .unwrap();
+        assert_cjk_token(token, 0x00DF, CjkCategory::OtherKChar);
+
+        let mut byte_lexer = LineLexer::new(vec![b'x']);
+        assert!(matches!(
+            byte_lexer.scan_next_token(&|_| CatCode::InvalidChar, &|_| KCatCode::NotCjk),
+            Err(LexError::InvalidChar)
+        ));
+    }
+
 
     #[test]
     fn kcat十六から二十は一個のcjk_tokenになる() {

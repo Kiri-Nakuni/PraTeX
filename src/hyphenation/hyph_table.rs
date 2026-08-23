@@ -1,5 +1,5 @@
 use crate::command::UnexpandableCommand;
-use crate::eqtb::{Eqtb, IntegerVariable};
+use crate::eqtb::{Eqtb, IntegerVariable, MAX_LATIN_UCS_CODE};
 use crate::format::{Dumpable, FormatError};
 use crate::input::expansion::get_x_token;
 use crate::input::Scanner;
@@ -7,7 +7,7 @@ use crate::logger::Logger;
 use crate::print::Printer;
 use crate::token::Token;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::Write;
 
 /// Stores all the hyphenation related information.
@@ -15,7 +15,7 @@ pub struct Hyphenator {
     /// Stores for each language the hyphenation exceptions.
     /// The information is given as a list of the hyphen positions.
     /// See 926.
-    pub exceptions: [HashMap<Vec<u8>, Vec<usize>>; 256],
+    pub exceptions: [HashMap<Vec<u16>, Vec<usize>>; 256],
 
     pre_trie: PreTrie,
 
@@ -61,20 +61,20 @@ impl Hyphenator {
 
     /// Returns false for Return, else true.
     /// See 923.
-    pub fn find_hyphen_locations(&self, word: &[u8], pattern: &mut Vec<u8>) -> bool {
-        pattern.clear();
-        for _ in 0..word.len() - 1 {
-            pattern.push(0);
+    pub fn find_hyphen_locations(&self, word: &[u16], pattern: &mut Vec<u8>) -> bool {
+        if word.len() < 2 {
+            pattern.clear();
+            return false;
         }
+        pattern.clear();
+        pattern.resize(word.len() - 1, 0);
         // First look for the pattern in the exception table.
         if !self.find_pattern_in_exceptions(&word[1..word.len() - 1], pattern) {
             // Alternatively look for the pattern in the trie.
-            if !self
-                .trie
-                .as_ref()
-                .unwrap()
-                .determine_hyph_pattern(word, self.cur_lang, pattern)
-            {
+            let Some(trie) = self.trie.as_ref() else {
+                return false;
+            };
+            if !trie.determine_hyph_pattern(word, self.cur_lang, pattern) {
                 // Pattern was not found in the trie either.
                 return false;
             }
@@ -82,10 +82,17 @@ impl Hyphenator {
 
         // found:
         for j in 0..self.l_hyf {
-            pattern[j] = 0;
+            if let Some(value) = pattern.get_mut(j) {
+                *value = 0;
+            }
         }
         for j in 0..self.r_hyf {
-            pattern[word.len() - 2 - j] = 0;
+            let Some(index) = word.len().checked_sub(2 + j) else {
+                break;
+            };
+            if let Some(value) = pattern.get_mut(index) {
+                *value = 0;
+            }
         }
         true
     }
@@ -93,10 +100,17 @@ impl Hyphenator {
     /// If the word is in the exception table, store the corresponding pattern in `pattern` and
     /// return true, else return false.
     /// See 930., 931. and 932.
-    fn find_pattern_in_exceptions(&self, word: &[u8], pattern: &mut Vec<u8>) -> bool {
-        if let Some(hyphen_positions) = self.exceptions[self.cur_lang].get(word) {
+    fn find_pattern_in_exceptions(&self, word: &[u16], pattern: &mut Vec<u8>) -> bool {
+        let Some(exceptions) = self.exceptions.get(self.cur_lang) else {
+            return false;
+        };
+        if let Some(hyphen_positions) = exceptions.get(word) {
             for &pos in hyphen_positions {
-                pattern[pos] = 1;
+                if let Some(value) = pattern.get_mut(pos) {
+                    *value = 1;
+                } else {
+                    return false;
+                }
             }
             true
         } else {
@@ -105,8 +119,20 @@ impl Hyphenator {
     }
 
     /// See 939., 940. and 941.
-    fn enter_hyphenation_exception(&mut self, word: Vec<u8>, hyphen_positions: Vec<usize>) {
+    fn enter_hyphenation_exception(&mut self, word: Vec<u16>, hyphen_positions: Vec<usize>) {
         self.exceptions[self.cur_lang].insert(word, hyphen_positions);
+    }
+
+    fn format_exceptions_are_valid(&self) -> bool {
+        self.exceptions.iter().all(|map| {
+            map.iter().all(|(word, positions)| {
+                (2..=63).contains(&word.len())
+                    && word
+                        .iter()
+                        .all(|&code| (1..=MAX_LATIN_UCS_CODE as u16).contains(&code))
+                    && positions.iter().all(|&position| position <= word.len())
+            })
+        })
     }
 }
 
@@ -121,14 +147,108 @@ pub struct Trie {
 #[derive(Clone, Copy)]
 pub struct TrieNode {
     link: Option<usize>,
-    chr: Option<u8>,
+    chr: Option<u16>,
     op: Option<usize>,
 }
 
 impl Trie {
+    fn format_state_is_valid(&self) -> bool {
+        if self.nodes.len() < 257
+            || self.nodes[0].chr.is_some()
+            || self.nodes[0].link.is_some()
+            || self.nodes[0].op.is_some()
+            || !hyf_operations_are_valid(&self.hyf_ops, &self.op_code_hash)
+        {
+            return false;
+        }
+
+        let mut families = vec![Vec::new(); self.nodes.len()];
+        for (index, node) in self.nodes.iter().enumerate() {
+            if node
+                .chr
+                .is_some_and(|c| u32::from(c) > MAX_LATIN_UCS_CODE)
+                || node.link.is_some_and(|link| link >= self.nodes.len())
+                || (node.chr.is_none() && (node.link.is_some() || node.op.is_some()))
+            {
+                return false;
+            }
+            if let Some(chr) = node.chr {
+                let chr = usize::from(chr);
+                if index <= chr {
+                    return false;
+                }
+                families[index - chr].push(index);
+            }
+        }
+        for node in &self.nodes {
+            if node
+                .link
+                .is_some_and(|base| base == 0 || families[base].is_empty())
+            {
+                return false;
+            }
+        }
+
+        for lang in 0..256 {
+            match self.nodes[lang + 1].chr {
+                None => {}
+                Some(c) => {
+                    if usize::from(c) != lang
+                        || !self.language_patterns_are_valid(lang + 1, lang, &families)
+                    {
+                        return false;
+                    }
+                }
+            }
+        }
+        true
+    }
+
+    fn language_patterns_are_valid(
+        &self,
+        language_node: usize,
+        lang: usize,
+        families: &[Vec<usize>],
+    ) -> bool {
+        let mut maximum_depth_seen = HashMap::new();
+        let mut stack = vec![(language_node, 0usize)];
+        while let Some((index, depth)) = stack.pop() {
+            if depth > 63
+                || self.nodes[index]
+                    .op
+                    .is_some_and(|op| op >= self.hyf_ops[lang].len())
+            {
+                return false;
+            }
+            if maximum_depth_seen
+                .get(&index)
+                .is_some_and(|&previous| previous >= depth)
+            {
+                continue;
+            }
+            maximum_depth_seen.insert(index, depth);
+            let Some(base) = self.nodes[index].link else {
+                continue;
+            };
+            let Some(child_depth) = depth.checked_add(1) else {
+                return false;
+            };
+            for &child in &families[base] {
+                stack.push((child, child_depth));
+            }
+        }
+        true
+    }
+
     /// See 923.
-    fn determine_hyph_pattern(&self, word: &[u8], lang: usize, pattern: &mut Vec<u8>) -> bool {
-        match self.nodes[lang + 1].chr {
+    fn determine_hyph_pattern(&self, word: &[u16], lang: usize, pattern: &mut Vec<u8>) -> bool {
+        if lang >= 256 {
+            return false;
+        }
+        let Some(language_node) = self.nodes.get(lang + 1) else {
+            return false;
+        };
+        match language_node.chr {
             None => return false,
             Some(chr) => {
                 if chr as usize != lang {
@@ -138,11 +258,19 @@ impl Trie {
         }
 
         for j in 0..word.len() {
-            let Some(mut base) = self.nodes[lang + 1].link else {
+            let Some(mut base) = language_node.link else {
                 continue;
             };
             for l in j..word.len() {
-                let node = self.nodes[base + word[l] as usize];
+                // Unicode対応後は、各familyを「実在する最大の兄弟」までしか
+                // 確保しない。未登録の高位文字を引いたときは単に不一致であり、
+                // 圧縮表の外を添字にしてはならない。
+                let Some(index) = base.checked_add(usize::from(word[l])) else {
+                    break;
+                };
+                let Some(node) = self.nodes.get(index).copied() else {
+                    break;
+                };
 
                 if node.chr != Some(word[l]) {
                     break;
@@ -169,11 +297,20 @@ impl Trie {
         lang: usize,
     ) {
         let mut v = op;
-        loop {
-            let hyf_op = self.hyf_ops[lang][v];
-            let i = l - hyf_op.distance;
-            if hyf_op.num > pattern[i] {
-                pattern[i] = hyf_op.num;
+        // A valid op chain always points to an earlier entry. Keep a step
+        // bound as defense in depth for a format that escaped validation.
+        for _ in 0..self.hyf_ops[lang].len() {
+            let Some(&hyf_op) = self.hyf_ops[lang].get(v) else {
+                break;
+            };
+            let Some(i) = l.checked_sub(hyf_op.distance) else {
+                break;
+            };
+            let Some(value) = pattern.get_mut(i) else {
+                break;
+            };
+            if hyf_op.num > *value {
+                *value = hyf_op.num;
             }
             v = match hyf_op.next {
                 Some(index) => index,
@@ -219,7 +356,7 @@ impl Hyphenator {
                 UnexpandableCommand::Letter(c)
                 | UnexpandableCommand::Other(c)
                 | UnexpandableCommand::CharGiven(c) => append_new_letter_or_hyphen(
-                    c,
+                    u32::from(c),
                     &mut word,
                     &mut hyphen_positions,
                     scanner,
@@ -229,7 +366,7 @@ impl Hyphenator {
                 UnexpandableCommand::CharNum => {
                     let c = scanner.scan_char_num(eqtb, logger);
                     append_new_letter_or_hyphen(
-                        c,
+                        u32::from(c),
                         &mut word,
                         &mut hyphen_positions,
                         scanner,
@@ -237,11 +374,25 @@ impl Hyphenator {
                         logger,
                     );
                 }
-                UnexpandableCommand::RightBrace(_) | UnexpandableCommand::Spacer => {
+                UnexpandableCommand::LatinUcsChar(token) => append_new_letter_or_hyphen(
+                    token.code_point(),
+                    &mut word,
+                    &mut hyphen_positions,
+                    scanner,
+                    eqtb,
+                    logger,
+                ),
+                UnexpandableCommand::RightBrace(_)
+                | UnexpandableCommand::LatinUcsRightBrace(_)
+                | UnexpandableCommand::Spacer => {
                     if word.len() > 1 {
                         self.enter_hyphenation_exception(word, hyphen_positions);
                     }
-                    if let UnexpandableCommand::RightBrace(_) = unexpandable_command {
+                    if matches!(
+                        unexpandable_command,
+                        UnexpandableCommand::RightBrace(_)
+                            | UnexpandableCommand::LatinUcsRightBrace(_)
+                    ) {
                         return;
                     }
                     word = Vec::new();
@@ -267,33 +418,60 @@ fn give_improper_hyphenation_error(scanner: &mut Scanner, eqtb: &mut Eqtb, logge
 
 /// See 937. and 938.
 fn append_new_letter_or_hyphen(
-    chr: u8,
-    word: &mut Vec<u8>,
+    chr: u32,
+    word: &mut Vec<u16>,
     hyphen_positions: &mut Vec<usize>,
     scanner: &mut Scanner,
     eqtb: &mut Eqtb,
     logger: &mut Logger,
 ) {
-    if chr == b'-' {
+    if chr == u32::from(b'-') {
         if word.len() < 63 {
             hyphen_positions.push(word.len());
         }
-    } else if eqtb.lc_code(chr as usize) == 0 {
+    } else if !is_valid_hyphenation_code(eqtb.lc_code(chr as usize)) {
         logger.print_err("Not a letter");
         let help = &[
-            "Letters in \\hyphenation words must have \\lccode>0.",
+            "Letters in \\hyphenation words must have a usable \\lccode.",
             "Proceed; I'll ignore the character I just read.",
         ];
         logger.error(help, scanner, eqtb);
     } else if word.len() < 63 {
-        word.push(eqtb.lc_code(chr as usize) as u8);
+        word.push(eqtb.lc_code(chr as usize) as u16);
     }
+}
+
+fn hyf_operations_are_valid(
+    hyf_ops: &[Vec<HyfOp>; 256],
+    op_code_hash: &[HashMap<HyfOp, usize>; 256],
+) -> bool {
+    for lang in 0..256 {
+        let ops = &hyf_ops[lang];
+        let hash = &op_code_hash[lang];
+        if hash.len() != ops.len() {
+            return false;
+        }
+        for (index, op) in ops.iter().enumerate() {
+            if !(1..=9).contains(&op.num)
+                || op.distance > 63
+                || op.next.is_some_and(|next| next >= index)
+                || hash.get(op) != Some(&index)
+            {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+fn is_valid_hyphenation_code(code: i32) -> bool {
+    (1..=MAX_LATIN_UCS_CODE as i32).contains(&code)
 }
 
 /// See 947.
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 struct PreTrieNode {
-    c: u8,
+    c: u16,
     op: Option<usize>,
     first_child: Option<usize>,
     next_sibling: Option<usize>,
@@ -327,8 +505,163 @@ impl PreTrie {
         }
     }
 
+    fn format_state_is_valid(&self) -> bool {
+        let Some(root) = self.nodes.first() else {
+            return false;
+        };
+        if root.c != 0
+            || root.op.is_some()
+            || root.next_sibling.is_some()
+            || !hyf_operations_are_valid(&self.hyf_ops, &self.op_code_hash)
+        {
+            return false;
+        }
+
+        for node in &self.nodes {
+            if u32::from(node.c) > MAX_LATIN_UCS_CODE
+                || node
+                    .first_child
+                    .is_some_and(|index| index >= self.nodes.len())
+                || node
+                    .next_sibling
+                    .is_some_and(|index| index >= self.nodes.len())
+            {
+                return false;
+            }
+        }
+
+        let Some(reachable) = self.reachable_nodes_without_cycles() else {
+            return false;
+        };
+        if !self.sibling_families_are_strictly_increasing(&reachable) {
+            return false;
+        }
+
+        let mut language_node = root.first_child;
+        while let Some(index) = language_node {
+            let lang = usize::from(self.nodes[index].c);
+            if lang >= 256 || !self.language_subtrie_is_valid(index, lang) {
+                return false;
+            }
+            language_node = self.nodes[index].next_sibling;
+        }
+        true
+    }
+
+    /// Validate the reachable child/sibling DAG without using the process
+    /// stack. Shared reduced subtries are valid; directed cycles are not.
+    fn reachable_nodes_without_cycles(&self) -> Option<Vec<bool>> {
+        let mut reachable = vec![false; self.nodes.len()];
+        let mut stack = vec![0];
+        while let Some(index) = stack.pop() {
+            if reachable[index] {
+                continue;
+            }
+            reachable[index] = true;
+            if let Some(child) = self.nodes[index].first_child {
+                stack.push(child);
+            }
+            if let Some(sibling) = self.nodes[index].next_sibling {
+                stack.push(sibling);
+            }
+        }
+
+        let mut indegree = vec![0usize; self.nodes.len()];
+        for (index, node) in self.nodes.iter().enumerate() {
+            if !reachable[index] {
+                continue;
+            }
+            for target in [node.first_child, node.next_sibling]
+                .into_iter()
+                .flatten()
+            {
+                indegree[target] = indegree[target].checked_add(1)?;
+            }
+        }
+        let mut queue = VecDeque::new();
+        for (index, &is_reachable) in reachable.iter().enumerate() {
+            if is_reachable && indegree[index] == 0 {
+                queue.push_back(index);
+            }
+        }
+        let mut visited = 0usize;
+        while let Some(index) = queue.pop_front() {
+            visited += 1;
+            let node = self.nodes[index];
+            for target in [node.first_child, node.next_sibling]
+                .into_iter()
+                .flatten()
+            {
+                indegree[target] -= 1;
+                if indegree[target] == 0 {
+                    queue.push_back(target);
+                }
+            }
+        }
+        (visited == reachable.iter().filter(|&&value| value).count()).then_some(reachable)
+    }
+
+    fn sibling_families_are_strictly_increasing(&self, reachable: &[bool]) -> bool {
+        for (index, node) in self.nodes.iter().enumerate() {
+            if !reachable[index] {
+                continue;
+            }
+            let mut child = node.first_child;
+            let mut previous = None;
+            while let Some(child_index) = child {
+                let c = self.nodes[child_index].c;
+                if previous.is_some_and(|previous| previous >= c) {
+                    return false;
+                }
+                previous = Some(c);
+                child = self.nodes[child_index].next_sibling;
+            }
+        }
+        true
+    }
+
+    fn language_subtrie_is_valid(&self, language_node: usize, lang: usize) -> bool {
+        if self.nodes[language_node]
+            .op
+            .is_some_and(|op| op >= self.hyf_ops[lang].len())
+        {
+            return false;
+        }
+
+        let mut maximum_depth_seen = vec![0usize; self.nodes.len()];
+        let mut stack = Vec::new();
+        if let Some(child) = self.nodes[language_node].first_child {
+            stack.push((child, 1usize));
+        }
+        while let Some((index, depth)) = stack.pop() {
+            if depth > 63 {
+                return false;
+            }
+            if self.nodes[index]
+                .op
+                .is_some_and(|op| op >= self.hyf_ops[lang].len())
+            {
+                return false;
+            }
+            if maximum_depth_seen[index] >= depth {
+                continue;
+            }
+            maximum_depth_seen[index] = depth;
+            if let Some(child) = self.nodes[index].first_child {
+                let Some(child_depth) = depth.checked_add(1) else {
+                    return false;
+                };
+                stack.push((child, child_depth));
+            }
+            if let Some(sibling) = self.nodes[index].next_sibling {
+                stack.push((sibling, depth));
+            }
+        }
+        true
+    }
+
     /// See 963.
-    fn insert(&mut self, word: &[u8], op: Option<usize>) -> Result<(), ()> {
+    fn insert(&mut self, word: &[u16], op: Option<usize>) -> Result<(), ()> {
         // We start with the parent being the root.
         let mut parent = 0;
         for &c in word {
@@ -370,7 +703,7 @@ impl PreTrie {
     /// See 963.
     fn insert_new_pattern_into_linked_trie(
         &mut self,
-        mut word: Vec<u8>,
+        mut word: Vec<u16>,
         pattern: Vec<u8>,
         lang: usize,
         scanner: &mut Scanner,
@@ -379,7 +712,7 @@ impl PreTrie {
     ) {
         let v = self.compute_trie_op_code(&word, pattern, lang);
         // Use the language as the letter at index zero.
-        word.insert(0, lang as u8);
+        word.insert(0, lang as u16);
         match self.insert(&word, v) {
             Ok(()) => {}
             Err(()) => {
@@ -393,7 +726,7 @@ impl PreTrie {
     /// Creates a new TrieNode and sets the given next sibling. Returns the
     /// corresponding index in the node list.
     /// See 964.
-    fn push_new_trie_node(&mut self, c: u8, next_sibling: Option<usize>) -> usize {
+    fn push_new_trie_node(&mut self, c: u16, next_sibling: Option<usize>) -> usize {
         self.nodes.push(PreTrieNode {
             c,
             op: None,
@@ -406,7 +739,7 @@ impl PreTrie {
     /// See 965.
     fn compute_trie_op_code(
         &mut self,
-        word: &[u8],
+        word: &[u16],
         mut pattern: Vec<u8>,
         lang: usize,
     ) -> Option<usize> {
@@ -464,16 +797,26 @@ impl PreTrie {
 
     /// See 949.
     fn reduce_subtrie(&mut self, subtrie_root: Option<usize>) -> Option<usize> {
-        match subtrie_root {
-            None => None,
-            Some(index) => {
-                let next_sibling = self.nodes[index].next_sibling;
-                let first_child = self.nodes[index].first_child;
-                self.nodes[index].next_sibling = self.reduce_subtrie(next_sibling);
-                self.nodes[index].first_child = self.reduce_subtrie(first_child);
-                Some(self.subtrie_representative(index))
-            }
+        // A Unicode family can legally have one sibling for every latin_ucs
+        // code point. Recursing through that sibling list would make valid
+        // input consume O(U+2E7F) call frames. Collect one level iteratively;
+        // recursion is then only over pattern depth (at most 64 including the
+        // language node).
+        let mut siblings = Vec::new();
+        let mut current = subtrie_root;
+        while let Some(index) = current {
+            siblings.push(index);
+            current = self.nodes[index].next_sibling;
         }
+
+        let mut reduced_next = None;
+        for index in siblings.into_iter().rev() {
+            let first_child = self.nodes[index].first_child;
+            self.nodes[index].first_child = self.reduce_subtrie(first_child);
+            self.nodes[index].next_sibling = reduced_next;
+            reduced_next = Some(self.subtrie_representative(index));
+        }
+        reduced_next
     }
 
     /// Return the unique representative of equal subtries.
@@ -507,6 +850,8 @@ impl PreTrie {
         }];
         if let Some(index) = self.trie_root() {
             self.first_fit(index, &mut allocations, &mut trie_ref);
+            debug_assert_eq!(trie_ref.get(&index), Some(&1));
+            Self::reserve_unused_language_slots(&mut allocations);
             self.trie_pack(index, &mut allocations, &mut trie_ref);
         }
         self.move_data_into_trie(allocations.len(), trie_ref)
@@ -520,15 +865,18 @@ impl PreTrie {
         trie_ref: &mut HashMap<usize, usize>,
     ) {
         let c = self.nodes[p].c;
+        // Unicode欧文の符号位置までfree-listを歩く前に、添字そのものを確保する。
+        Self::ensure_allocation_extent(0, c as usize + 2, allocations);
         let mut z = 0;
         // Ensure that the base will be at index 1 or higher.
         while z <= c as usize {
             z = allocations[z].next;
         }
         let mut h;
+        let family_extent = self.maximum_sibling_code(p) + 2;
         loop {
             h = z - c as usize;
-            Self::enforce_trie_max_larger_than_trie(h, allocations);
+            Self::ensure_allocation_extent(h, family_extent, allocations);
             if allocations[h].is_base {
                 // not_found:
                 z = allocations[z].next;
@@ -546,8 +894,12 @@ impl PreTrie {
     }
 
     /// See 954.
-    fn enforce_trie_max_larger_than_trie(h: usize, allocations: &mut Vec<AllocationCell>) {
-        if allocations.len() - h < 257 {
+    fn ensure_allocation_extent(
+        h: usize,
+        required_extent: usize,
+        allocations: &mut Vec<AllocationCell>,
+    ) {
+        if allocations.len() - h < required_extent {
             loop {
                 let pos = allocations.len();
                 allocations.push(AllocationCell {
@@ -556,9 +908,38 @@ impl PreTrie {
                     next: pos + 1,
                     prev: pos - 1,
                 });
-                if allocations.len() - h == 257 {
+                if allocations.len() - h == required_extent {
                     break;
                 }
+            }
+        }
+    }
+
+    /// Slots 1 through 256 are addressed directly by `language + 1`.
+    /// After fitting the root language family at base 1, keep its unused
+    /// members out of the free list so descendant families cannot masquerade
+    /// as another language root.
+    fn reserve_unused_language_slots(allocations: &mut Vec<AllocationCell>) {
+        Self::ensure_allocation_extent(0, 256 + 2, allocations);
+        for index in 1..=256 {
+            if allocations[index].is_taken {
+                continue;
+            }
+            let previous = allocations[index].prev;
+            let next = allocations[index].next;
+            allocations[previous].next = next;
+            allocations[next].prev = previous;
+            allocations[index].is_taken = true;
+        }
+    }
+
+    fn maximum_sibling_code(&self, mut p: usize) -> usize {
+        let mut maximum = 0;
+        loop {
+            maximum = maximum.max(self.nodes[p].c as usize);
+            match self.nodes[p].next_sibling {
+                Some(next) => p = next,
+                None => return maximum,
             }
         }
     }
@@ -657,7 +1038,10 @@ impl PreTrie {
                 vec![unused_node; 256 + 1]
             }
             Some(index) => {
-                let mut nodes = vec![unused_node; len];
+                // The first 256 occupied positions are the fixed language
+                // slots even when the only loaded patterns use low languages
+                // and a small alphabet.
+                let mut nodes = vec![unused_node; len.max(256 + 1)];
                 // Write the actual trie data into the table trie.
                 self.trie_fix(index, &mut nodes, &trie_ref);
                 nodes
@@ -751,7 +1135,7 @@ impl Hyphenator {
             match unexpandable_command {
                 UnexpandableCommand::Letter(c) | UnexpandableCommand::Other(c) => {
                     append_new_letter_or_hyphen_level(
-                        c,
+                        u32::from(c),
                         &mut digit_sensed,
                         &mut word,
                         &mut pattern,
@@ -760,7 +1144,20 @@ impl Hyphenator {
                         logger,
                     )
                 }
-                UnexpandableCommand::RightBrace(_) | UnexpandableCommand::Spacer => {
+                UnexpandableCommand::LatinUcsChar(token) => {
+                    append_new_letter_or_hyphen_level(
+                        token.code_point(),
+                        &mut digit_sensed,
+                        &mut word,
+                        &mut pattern,
+                        scanner,
+                        eqtb,
+                        logger,
+                    )
+                }
+                UnexpandableCommand::RightBrace(_)
+                | UnexpandableCommand::LatinUcsRightBrace(_)
+                | UnexpandableCommand::Spacer => {
                     // If there is at least one character in current pattern
                     if !word.is_empty() {
                         self.pre_trie.insert_new_pattern_into_linked_trie(
@@ -772,7 +1169,11 @@ impl Hyphenator {
                             logger,
                         );
                     }
-                    if let UnexpandableCommand::RightBrace(_) = unexpandable_command {
+                    if matches!(
+                        unexpandable_command,
+                        UnexpandableCommand::RightBrace(_)
+                            | UnexpandableCommand::LatinUcsRightBrace(_)
+                    ) {
                         return;
                     }
                     // Reset for next pattern.
@@ -793,32 +1194,38 @@ impl Hyphenator {
 
 /// See 962.
 fn append_new_letter_or_hyphen_level(
-    mut chr: u8,
+    mut chr: u32,
     digit_sensed: &mut bool,
-    word: &mut Vec<u8>,
+    word: &mut Vec<u16>,
     pattern: &mut Vec<u8>,
     scanner: &mut Scanner,
     eqtb: &mut Eqtb,
     logger: &mut Logger,
 ) {
-    if *digit_sensed || chr < b'0' || chr > b'9' {
-        if chr == b'.' {
+    if *digit_sensed || chr < u32::from(b'0') || chr > u32::from(b'9') {
+        if chr == u32::from(b'.') {
             chr = 0;
         } else {
-            chr = eqtb.lc_code(chr as usize) as u8;
-            if chr == 0 {
+            let lc_code = eqtb.lc_code(chr as usize);
+            if !is_valid_hyphenation_code(lc_code) {
                 logger.print_err("Nonletter");
                 let help = &["(See Appendix H.)"];
                 logger.error(help, scanner, eqtb);
+                // U+2E80 is accepted as an upTeX case-table sentinel, but it
+                // is not a tokenizable latin_ucs character and must never be
+                // installed in the trie. The character has already been
+                // consumed, so ignoring it also guarantees forward progress.
+                return;
             }
+            chr = lc_code as u32;
         }
         if word.len() < 63 {
-            word.push(chr);
+            word.push(chr as u16);
             pattern.push(0);
             *digit_sensed = false;
         }
     } else if word.len() < 63 {
-        pattern[word.len()] = chr - b'0';
+        pattern[word.len()] = (chr - u32::from(b'0')) as u8;
         *digit_sensed = true;
     }
 }
@@ -852,6 +1259,10 @@ impl Dumpable for Hyphenator {
 
         hyphenator.pre_trie = PreTrie::undump(lines)?;
         hyphenator.trie = Option::undump(lines)?;
+
+        if !hyphenator.format_exceptions_are_valid() {
+            return Err(FormatError::ParseError);
+        }
 
         Ok(hyphenator)
     }
@@ -893,7 +1304,11 @@ impl Dumpable for PreTrie {
     fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
         let mut pre_trie = PreTrie::new();
         pre_trie.nodes = Vec::undump(lines)?;
-        pre_trie.subtrie_hash = HashMap::undump(lines)?;
+        // Representatives are a build-time cache. The reachable node graph is
+        // authoritative, so do not trust stale or forged cache entries from a
+        // format file.
+        let _: HashMap<PreTrieNode, usize> = HashMap::undump(lines)?;
+        pre_trie.subtrie_hash = HashMap::new();
         for i in 0..pre_trie.hyf_ops.len() {
             let ops = Vec::undump(lines)?;
             pre_trie.hyf_ops[i] = ops;
@@ -902,7 +1317,10 @@ impl Dumpable for PreTrie {
             let map = HashMap::undump(lines)?;
             pre_trie.op_code_hash[i] = map;
         }
-        Ok(pre_trie)
+        pre_trie
+            .format_state_is_valid()
+            .then_some(pre_trie)
+            .ok_or(FormatError::ParseError)
     }
 }
 
@@ -916,7 +1334,10 @@ impl Dumpable for PreTrieNode {
     }
 
     fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
-        let c = u8::undump(lines)?;
+        let c = u16::undump(lines)?;
+        if u32::from(c) > MAX_LATIN_UCS_CODE {
+            return Err(FormatError::ParseError);
+        }
         let op = Option::undump(lines)?;
         let first_child = Option::undump(lines)?;
         let next_sibling = Option::undump(lines)?;
@@ -953,11 +1374,14 @@ impl Dumpable for Trie {
             let map = HashMap::undump(lines)?;
             op_code_hash[i] = map;
         }
-        Ok(Self {
+        let trie = Self {
             nodes,
             hyf_ops,
             op_code_hash,
-        })
+        };
+        trie.format_state_is_valid()
+            .then_some(trie)
+            .ok_or(FormatError::ParseError)
     }
 }
 
@@ -971,8 +1395,230 @@ impl Dumpable for TrieNode {
 
     fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
         let link = Option::undump(lines)?;
-        let chr = Option::undump(lines)?;
+        let chr: Option<u16> = Option::undump(lines)?;
+        if chr.is_some_and(|c| u32::from(c) > MAX_LATIN_UCS_CODE) {
+            return Err(FormatError::ParseError);
+        }
         let op = Option::undump(lines)?;
         Ok(Self { link, chr, op })
+    }
+}
+
+#[cfg(test)]
+mod latin_ucs_tests {
+    use super::*;
+
+    fn dump_to_string(value: &impl Dumpable) -> String {
+        let mut bytes = Vec::new();
+        value.dump(&mut bytes).unwrap();
+        String::from_utf8(bytes).unwrap()
+    }
+
+    #[test]
+    fn 未登録の高位unicode欧文は圧縮trieの範囲外を読まない() {
+        let empty = TrieNode {
+            link: None,
+            chr: None,
+            op: None,
+        };
+        let mut nodes = vec![empty; 257];
+        nodes[1] = TrieNode {
+            link: Some(1),
+            chr: Some(0),
+            op: None,
+        };
+        let trie = Trie {
+            nodes,
+            hyf_ops: std::array::from_fn(|_| Vec::new()),
+            op_code_hash: std::array::from_fn(|_| HashMap::new()),
+        };
+        let mut pattern = vec![0; 2];
+
+        assert!(trie.determine_hyph_pattern(
+            &[0, MAX_LATIN_UCS_CODE as u16, 0],
+            0,
+            &mut pattern
+        ));
+        assert_eq!(pattern, vec![0; 2]);
+    }
+
+    #[test]
+    fn 範囲外のlanguageは圧縮trieを読まない() {
+        let trie = Trie {
+            nodes: vec![
+                TrieNode {
+                    link: None,
+                    chr: None,
+                    op: None,
+                };
+                257
+            ],
+            hyf_ops: std::array::from_fn(|_| Vec::new()),
+            op_code_hash: std::array::from_fn(|_| HashMap::new()),
+        };
+        let mut pattern = vec![0; 2];
+
+        assert!(!trie.determine_hyph_pattern(
+            &[0, b'a' as u16, 0],
+            usize::MAX,
+            &mut pattern,
+        ));
+        assert_eq!(pattern, vec![0; 2]);
+    }
+
+    #[test]
+    fn unicode欧文の長い兄弟列は再帰せずに縮約する() {
+        let last_code = MAX_LATIN_UCS_CODE as u16;
+        let mut nodes = Vec::with_capacity(usize::from(last_code) + 3);
+        nodes.push(PreTrieNode {
+            c: 0,
+            op: None,
+            first_child: Some(1),
+            next_sibling: None,
+        });
+        nodes.push(PreTrieNode {
+            c: 0,
+            op: None,
+            first_child: Some(2),
+            next_sibling: None,
+        });
+        for c in 0..=last_code {
+            let index = nodes.len();
+            nodes.push(PreTrieNode {
+                c,
+                op: None,
+                first_child: None,
+                next_sibling: (c < last_code).then_some(index + 1),
+            });
+        }
+        let mut pre_trie = PreTrie::new();
+        pre_trie.nodes = nodes;
+
+        assert!(pre_trie.format_state_is_valid());
+        pre_trie.reduce();
+        assert!(pre_trie.format_state_is_valid());
+    }
+
+    #[test]
+    fn unicode欧文patternの事前trieと圧縮trieをformat往復する() {
+        let mut pre_trie = PreTrie::new();
+        let op = pre_trie.new_trie_op(
+            HyfOp {
+                distance: 0,
+                num: 3,
+                next: None,
+            },
+            0,
+        );
+        pre_trie.insert(&[0, u16::from(b'b'), 0x00DF], Some(op)).unwrap();
+        let trie = pre_trie.to_trie_mut();
+
+        let pre_input = dump_to_string(&pre_trie);
+        assert!(PreTrie::undump(&mut pre_input.lines()).is_ok());
+        let trie_input = dump_to_string(&trie);
+        assert!(Trie::undump(&mut trie_input.lines()).is_ok());
+    }
+
+    #[test]
+    fn 循環する事前trieをformatから読まない() {
+        let mut pre_trie = PreTrie::new();
+        pre_trie.nodes[0].first_child = Some(1);
+        pre_trie.nodes.push(PreTrieNode {
+            c: 0,
+            op: None,
+            first_child: Some(1),
+            next_sibling: None,
+        });
+        let input = dump_to_string(&pre_trie);
+
+        assert!(matches!(
+            PreTrie::undump(&mut input.lines()),
+            Err(FormatError::ParseError)
+        ));
+    }
+
+    #[test]
+    fn 範囲外のハイフン操作をformatから読まない() {
+        let mut pre_trie = PreTrie::new();
+        let bad_op = HyfOp {
+            distance: 64,
+            num: 1,
+            next: None,
+        };
+        pre_trie.hyf_ops[0].push(bad_op);
+        pre_trie.op_code_hash[0].insert(bad_op, 0);
+        let input = dump_to_string(&pre_trie);
+
+        assert!(matches!(
+            PreTrie::undump(&mut input.lines()),
+            Err(FormatError::ParseError)
+        ));
+    }
+
+    #[test]
+    fn 圧縮trieの範囲外参照をformatから読まない() {
+        let empty = TrieNode {
+            link: None,
+            chr: None,
+            op: None,
+        };
+        let mut trie = Trie {
+            nodes: vec![empty; 257],
+            hyf_ops: std::array::from_fn(|_| Vec::new()),
+            op_code_hash: std::array::from_fn(|_| HashMap::new()),
+        };
+        trie.nodes[1] = TrieNode {
+            link: Some(258),
+            chr: Some(0),
+            op: None,
+        };
+        let input = dump_to_string(&trie);
+
+        assert!(matches!(
+            Trie::undump(&mut input.lines()),
+            Err(FormatError::ParseError)
+        ));
+    }
+
+    #[test]
+    fn 圧縮trieの言語別範囲外操作をformatから読まない() {
+        let empty = TrieNode {
+            link: None,
+            chr: None,
+            op: None,
+        };
+        let mut trie = Trie {
+            nodes: vec![empty; 258],
+            hyf_ops: std::array::from_fn(|_| Vec::new()),
+            op_code_hash: std::array::from_fn(|_| HashMap::new()),
+        };
+        trie.nodes[1] = TrieNode {
+            link: Some(257),
+            chr: Some(0),
+            op: None,
+        };
+        trie.nodes[257] = TrieNode {
+            link: None,
+            chr: Some(0),
+            op: Some(0),
+        };
+        let input = dump_to_string(&trie);
+
+        assert!(matches!(
+            Trie::undump(&mut input.lines()),
+            Err(FormatError::ParseError)
+        ));
+    }
+
+    #[test]
+    fn 例外単語の範囲外位置をformatから読まない() {
+        let mut hyphenator = Hyphenator::new();
+        hyphenator.exceptions[0].insert(vec![u16::from(b'a'), u16::from(b'b')], vec![3]);
+        let input = dump_to_string(&hyphenator);
+
+        assert!(matches!(
+            Hyphenator::undump(&mut input.lines()),
+            Err(FormatError::ParseError)
+        ));
     }
 }

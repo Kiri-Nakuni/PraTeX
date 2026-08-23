@@ -168,14 +168,15 @@ subset未実装中に黙ってfull embedへ昇格させない。初期実測の
 page resource、shipoutを接続し、`--pdf-font-map=<name>` または分離値で通常CLIから
 明示的に有効化できる。合成full-mapのprocess E2EではPFB payload、FontDescriptor、
 Font resource、`<41> Tj` を同じstandalone PDFで確認した。map初期化、parse、資材欠落も
-panicせずfatal診断へ戻す。次はsubset、flags/StemVの明示policy、同一物理fontのsize間
-object共有を実装する。
+panicせずfatal診断へ戻す。flags/StemV policyは後述の実配布map対応で実装した。次は
+subsetと同一物理fontのsize間object共有を実装する。
 資材はTEXMFから実行時探索し、版方へコピーしない。
 
 公式CTAN `amsfonts.zip` は一時領域だけへ展開して実資材を照合した。`cmr10.pfb` は
 Length1/2/3 = 4287/30900/545、wrapper除去後35732 bytesでparserを通る。公開
 `cmr10.afm` は `StdVW` / `StdHW` を省略し、同一glyphを複数codeへ同じ幅で割り当てるため、
-前者を明示fallback対象、後者を同幅の場合だけ許すよう修正した。archiveは版方にない。
+前者はPFB Private辞書の`/StdVW`だけをfallbackにし、後者は同幅の場合だけ許すよう修正した。
+archiveは版方にない。
 
 ## LaTeX実測
 
@@ -296,7 +297,8 @@ resolverを通らない再現、kpsewhich process一回あたり約150 msとい�
 2. 引数なしkpsewhichのline protocolを一つの子processとしてrun中だけ保持し、cache missごとの
    process起動を除く。失敗、壊れた応答、子process終了時のfallback境界をprocess試験で固定する。
 3. 100 pageの命令数上位をprofileし、safe Rustのまま不要な仕事を減らす。
-4. 通常LaTeXで残る1 sp差と、実配布`pdftex.map`の複数font resource、flags、StemVを分けて直す。
+4. 通常LaTeXで残る1 sp差と、実配布`pdftex.map`のType 1 subsetを分けて直す。複数resource、
+   flags、StemVは2026-08-22の`codex/pdf-texlive-type1`で解消した。
 
 進行中の `codex/pratex-quiet-readme` ではprimary binaryとbannerをPraTeXへ変更し、旧`rtex`
 binaryを互換aliasとして残した。`--quiet`はbanner、入力括弧、通常page marker、output/transcript
@@ -401,3 +403,203 @@ TCX、glyph identity、任意寸法単位、watcher/downloader/LSP、LaPraTeXは
 現時点でClaude側へ必要なVaak API追加はない。将来table upload capabilityを始める時に、
 一文字・一境界ごとのcallbackではなく、run-localな明示要求とhost-owned compiled tableの
 契約を先に相談する。
+
+## TeX Live Type 1 resource互換
+
+`codex/pdf-texlive-type1`で、TeX Live 2026の5,573,038 byte・46,380行の`pdftex.map`を
+未使用entryで止めずに読めるようにした。map resourceは順序と`<` / `<<` / `<[`を保持し、
+`.t3 + .pfb`併記や`< file.pfb`の分離markerを構文段階で失わない。対応可否と重複は実際に
+選んだTFMだけで検査し、未対応headerを黙って実行・無視しない。
+
+mapのfontflags省略時はpdfTeX manualの既定値4を使う。AFMに`StdVW`が無い場合はAdobe Type 1
+仕様のeexecをsafe Rustでstream復号し、先頭4 byteを捨ててPrivate辞書の`/StdVW`だけを読む。
+PostScriptは実行せず、token長128 byte、Private走査1 MiBの上限を持ち、Subrs/CharStringsで
+止める。固定StemVは推測しない。Vaak API変更とunsafe Rustはない。
+
+実機Ubuntu-24.04 / TeX Live 2026では、正規`cmr10 CMR10 <cmr10.pfb`が新しいmap/flags/StemV
+経路を通り、未実装subsetだけで停止した。検証用の一時`<<cmr10.pfb` mapでは実物PFB/AFMから
+1 page / 37,491 bytesのPDFを生成し、strict pypdf、Poppler PDF 1.4 parse、144 dpi renderを
+通した。`/BaseFont /CMR10`、`/Flags 4`、`/StemV 69`、Length1/2/3=4287/30900/545を確認した。
+正規mapのsubset要求をfullへ昇格してはいない。次の独立課題はType 1 subsetである。
+
+固定幅の実物`cmtt10`も別の一時full mapで通した。AFMはfixed pitchだが、pdfTeXの省略時
+契約を優先して`/Flags 4`のままにし、AFMからbit 1を再推論しない。strict pypdfで`ABC`、
+`/BaseFont /CMTT10`、PFB由来`/StemV 69`、Length1/2/3=4364/26170/545、Poppler描画を確認した。
+
+## e-TeX / TeX--XeT監査と日本語組版の優先境界
+
+e-TeXは式、protected展開、拡張register、class別mark、readline、糊成分などが動く一方、
+完全対応ではない。`\scantokens`、show群、fontchar群、parshape照会、penalty配列、discard、
+`\middle`等が残る。`\lastnodetype`にはpage遷移で型を同期しない可能性も見つかった。
+TeX--XeTは`\TeXXeTstate`と`\predisplaydirection`の値保存だけで、begin/end L/R、方向node、
+LR stack、反転、shipoutは未実装。詳細は`docs/etex-texxet-status.md`へ記録した。
+
+日本語の最低線は横組smokeではなくpTeX相当で、JFM、和文font/node、自動spacing、禁則、
+横・縦方向、DVI/PDFをengine coreで完成させる。JLReqの標準規則もcoreに置き、Vaak/WASMは
+利用者固有・実験的な明示差替えだけにする。Claude側APIはまだ変更不要。将来table uploadを
+始める場合も、既定日本語経路へcallbackを置かない。段階とe-upTeXに足りない意味論は
+`docs/japanese-typesetting-roadmap.md`へまとめた。
+
+## `claude/for-codex` 56f1d90を確認
+
+性能監査の訂正と費用分解を確認した。組版約27 ms対pdfTeX約25 ms、探索約381 ms、fmt復元
+約113 msという同一Linux fixtureの内訳を`docs/performance.md`へ記録した。子processを含む
+`perf stat`の古い結論は使わず、探索不要時の約1.3 ms起動をhard boundaryにする。
+`texmf.cnf`部分集合、fmt内訳、`ls-R`確保削減はそれぞれ別枝・同じ出力で測る。
+
+Type 1の三つの指摘（実map複数resource、flags省略、AFM `StdVW`省略）は今回の`bb7235f`で
+対応した。正規subset指定は黙ってfullへ変えず、次の独立課題に残した。
+
+`\kanjiskip`はpackage判定だけを通すdummyにはせず、JFM・和文node・spacing・禁則と一緒に
+pTeX互換の実意味をcoreへ入れる。標準日本語をVaak callbackへ逃がさない。
+
+VaakのMIT表示を配布物へ同梱する必要とCargo manifestのlicense欠落も確認した。ただし
+権利表示は文言を推測せず、`../vaak/LICENSE`の原文とrtex GPL-3.0の関係を保つ独立した
+housekeeping commitにする。Linux上のUNC組立試験のOS依存も別枝で再現してから直す。
+
+## JFM core開始とupTeX性能目標
+
+`codex/ptex-jfm-core`で、公開JFM仕様だけからsafe Rustのbounded reader/modelを追加中。
+横組ID 11、縦組ID 9、14 halfword長、24-bit raw文字code + u8 class、char_info、fix_word、
+glue/kern、skip、再配置、256超indexを検査する。JFM内のcodeはUnicode/JISを自己記述しないため、
+parserで推測せず、後段の和文font定義に明示encodingを持たせる。
+
+組版時にprogramを逐次解釈しないよう、load時にclass対を`u16`の直接表へcompileする。
+raw codeからclassへの検索もwide glyph生成時の一度だけにし、nodeへ`JfmClassId`を保持する予定。
+標準日本語経路のVaak/WASM callbackは0のままで、Vaak API変更はまだ不要。
+
+WSL TeX Live 2026の配布JFM 96件を上流source/testなしで黒箱走査した。横56／縦40、全件
+`bc=0,np=9`。`upjisr-h.tfm`（812 bytes、SHA-256
+`7d686f3edaa70f30195b2ced00c0babfc54910dcadfe93a80061d99b61dfaedf`）を環境依存試験で
+実際にparse済み。配布96件には非零skip、再配置、256超indexがなかったため、現行拡張は
+独立合成fixtureで固定する。
+
+依頼者が性能の最終条件を明確化した。PraTeXは同一意味のDVI workloadでupTeX/e-upTeXと
+正面比較できる水準を目標にする。起動、探索、fmt、展開、和文class対、line/page、shipoutを
+分離し、P0 corpusのengine幾何平均5%以内・主要case10%以内をgateとして文書化した。
+safe Rustを先に詰め、unsafeを試す場合は明示専用枝へ分離する。
+
+このreader段階は合成14試験、`upjisr-h`単体、配布JFM 96件全件のignored試験を通した。
+全releaseは503 passed、0 failed、6 ignored。TRIP二段exit 0、`tripos.tex`一致、DVI hashは直前と同じ
+`b20af20a1463c6846f0c4c1ce687cd6354ce1a5f65ee401507627570787ae9fe`。
+Vaak側で追従する変更はない。
+
+## WSL同士のPraTeX対e-upTeX基線と性能枝への切替
+
+依頼者が比較基準をさらに明確化した。Windows版TeX Liveの遅さへ勝つだけでは足りず、
+**同じPCのWSL上で動くe-upTeX**にタメを張る。PraTeX/e-upTeXをINITEX、fmtなし、探索なし、
+同じ1000万回のmacro展開＋整数加算で2回warm-up後に各11回測った。Windows native値と
+WSL e-upTeXを直接割るのはOS/runtimeが違うため、合否には使わない。PraTeXも同じWSLで
+release LTO buildして交互に走らせた公平な中央値は次だった。
+
+- WSL PraTeX `4745f3c`: 1,975.460 ms
+- WSL TeX Live 2026 e-upTeX: 1,140.525 ms
+- wall中央値比: 1.732倍
+- 起動控除の概算比: 約1.98倍
+
+PraTeXは依頼者が再設計の目安にした1.2倍を明確に越える。
+JFM readerをcommit/pushした後、safe Rust専用の性能枝へ切り替え、展開器、token入力stack、
+整数走査をprofileする。勝敗はWSL e-upTeX比1.2倍未満、TRIPと全試験の意味一致で判定する。
+Windows e-upTeX値は参考に留め、性能gateには使わない。
+
+## 性能枝の第一commitとVaak内部API設計
+
+`codex/perf-wsl-euptex-safe`の`955318e`をpushした。1000万回入力のprofileでは
+`scan_keyword`成功時の`Vec` grow/freeが約1000万回あったため、現行最長6字を局所表へ置き、
+失敗時と将来の7字超だけheapへ移すようにした。WSL CPU 0固定、100万回、31回交互測定で
+wall中央値252.708→240.270 ms（4.92%短縮）、child CPU中央値257.403→243.710 ms
+（5.32%短縮）。releaseは507 passed、0 failed、6 ignored。TRIPは両段exit 0、999 records、
+許容差除外後の意味差0、DVI hash不変。safe Rustだけである。
+
+LLVM PGOも診断として試した。10M専用profileのgeneric PGOは2151.80→1479.86 msまで短縮したが、
+同じ列のe-upTeX 1097.07 msに対して1.349倍で、1.2倍には届かない。狭い入力へ過適合したPGOを
+解決扱いせず、input/expansion/integer dispatchをprofile順に直す。
+
+依頼者から、内蔵Vaakと外向きWASMを二車線にする研究案を受け取った。PraTeX側では
+`docs/vaak-embedding-api-design.md`を作成中で、標準日本語経路callback 0、明示登録だけでphaseを
+有効化、Leaf/MaySuspend、opaque handle、validated Patch/BreakPlan、WASM 0/1 bulk、fmt/daemon
+generationを設計している。現行Vaakが既に持つcompile-time `u16` HostFn index、Program2 cache、
+Runner再利用を新規課題と誤認しない。
+
+Claude/Vaak側に将来必要と見込むのは、prepared/layoutの正式API、typed host completion、
+allocation-free Leaf、MaySuspend start/resume、host-owned nominal tokenである。現行Vaakは裸の
+NameだけをHostCallへするため、初版名は`node_kind`等にし、`node.kind`型namespaceは別機能として
+相談する。まだPraTeX codeへのphase/node hook実装は始めず、文書レビューを先に完了する。
+
+## Vaak embedding probe確認と統合作業への復帰
+
+Vaakをfetchし、`origin/codex/embedding-probe`の`67489a8`を確認した。core変更ではなく、
+`Program2`/再利用`Runner`を使う例・試験・測定である。paired extraは一引数native HostCallが
+約75--90 ns、二引数が約105--130 ns。9,999 nodes、210,524 NodeOpsは負荷の振れを含め
+約162--319 msだった。native NodeOpsがnamed functionより軽く、内蔵Vaakでは細粒度callを許し、
+外向きWASMだけをbulkにする二車線の判断を支持する。
+
+同枝の監査後、S-22 `188c119`で`run_writeback`、host read/write set、定数添字の
+`HostBinding::read_at/write_at/len`、同値write抑止がcoreへ入ったことも確認した。PraTeXは
+`Runner::run_writeback`へ接続し、実行時誤りより前のregister変更をC-2どおり残す試験を追加した。
+Vaak coreには引き続きprepared/layout公開API、typed host function completion、
+allocation-free Leaf、MaySuspend、opaque host tokenがない。PraTeX設計ではさらに、Vaak所有の
+`HostLayout`へPraTeX固有`CapabilityKind`を入れずlayout-local opaque IDだけを渡すこと、live-node
+entryは明示引数つきnamed entry一本にすること、ephemeral tokenをaggregateの入れ子まで推移的に
+escape検査することを固定した。敵対的再レビュー後、実装開始を妨げるP0は残っていない。
+
+S-22周辺には二点返したい。第一に、partial経路は`read_at`成功で選べる一方、`write_at`を対で
+実装したか宣言できず、`false`も無視するため、readだけoverrideしたbindingの書込みが黙って落ち得る。
+第二に、最新`host_touched`は`Ref` / `Freeze` / `MutMethod`だけの利用を`Some([])`にし得る。
+PraTeXは当面、usedかつ空集合を`Touch::All`へ倒してalias関数の同期漏れを防ぐ。長さ参照だけなら
+余計に256要素を同期するが、性能作業を保留した現在は正しさを優先する。Vaak側で空集合と
+「全部必要」を区別できればこのfallbackを狭められる。
+
+監査中にVaak local `codex/main`は`3fd38d9`まで進み、`da2afdf`のresolved PlaceとSTEEL追随を
+確認した。入れ子pathの根複製を避け、host解析をtop chunkへ限定したため、別chunkの同番号slotを
+hostと誤認する懸念は解消している。公開`Op`は増えたがPraTeXは網羅matchしないため追随不要。
+named entry、typed HostFn result、opaque token、embedding suspendはまだ未実装である。Vaak作業木の
+既存dirty `.gitignore`、`examples/hello.vaak`、`for_CLAUDE.md`、VSIXには触れていない。
+
+性能枝では`9bb6023`までsafe Rustで進め、最上位整数代入を1000万回中央値で7.74%短縮した。
+release 507/507、TRIP両段exit 0、DVI hash不変。依頼者判断によりunsafe tuningは一通り動いた後へ
+保留し、`codex/euptex-integration-resume`を切ってe-TeX/pdfTeX、日本語組版へ戻った。
+
+## LaTeX通常探索で露出したLatinUcs blocker
+
+WSL TeX Live 2026をresolver経由で通常探索して`latex.ltx`を再実測した。`expl3-code.tex`を
+抜け、未定義primitiveは0。最初のhard errorは`dehypht-x-2024-02-28.pat`の`.buß3`に対する
+`Nonletter`だった。一時的な空`hyphen.cfg`でpatternだけを隔離するとerror 0で`latex.fmt`を
+dumpした。以前のASCII `ushyph1.tex`測定と矛盾せず、通常配布treeまで広げたため段4c
+`latin_ucs`/Unicode欧文表が露出した形である。
+
+次のprimitiveを一個足す段階ではなく、Unicode欧文token、cat/lccode save stack/fmt、Unicode
+pattern alphabet/trie、文字数上限が一単位になる。PraTeX側でStage 4cの第一sliceを設計中。
+標準LaTeX/日本語経路なのでVaak/WASMへ逃がさずengine coreへ置く。
+
+## Vaak `64ccf4e` と性能監査 `a7d18bb` の確認
+
+Vaak `origin/codex/main` の `64ccf4e` までfetchした。resolved `Place` による入れ子代入は
+根集合を複製せず、Fenwick構造体版が修正前から約10.3倍、flat版との差が1.63倍まで縮んだ
+という実測を確認した。`Program2` / `Runner` の利用APIは変わっておらず、PraTeXは公開
+`Op`を網羅matchしないため追随変更は不要である。S-22 `run_writeback` 接続もそのまま通る。
+
+PraTeX側 `origin/claude/for-codex` の `a7d18bb` も確認した。fmt復元の
+`CountedLines::next`、`ls-R`索引のSipHash、外部`kpsewhich`が大きいというperf分解は、
+次回の性能段階に使う。依頼者の判断で、unsafe Rustだけでなく性能専用の作業自体を、まず
+e-TeX/pdfTeX/e-upTeXと日本語組版が一通り動くまで保留した。二進fmtは破損検出、版番号、
+決定的dump、旧fmtの扱いを設計してから独立枝で検証し、現在の統合枝へ混ぜない。
+
+現在は通常TeX Liveの`latex.ltx`で露出した`latin_ucs`、再現済みのpage遷移後
+`\lastnodetype`、その次の`\scantokens` virtual inputを進めている。`\scantokens`は
+`docs/scantokens-design.md`にclean-room黒箱契約を固定した。標準日本語経路は引き続き
+engine coreであり、Vaak/WASM callbackは置かない。Vaak側のnamed entry、typed HostFn完了値、
+opaque token、suspend/resumeが正式化されるまでは、PraTeXのphase hook実装を先走らせない。
+
+## 性能監査 `82fa3a2` の確認
+
+一頁LaTeXでuplatex DVI 229 ms、PraTeX通常探索524 ms、資材を手元へ置いたPraTeX 140 msという
+追加分解を確認した。PraTeXの基礎140 msに対して外部`kpsewhich`約291 ms、自前`ls-R`索引等
+約93 msという見立ては、組版器のunsafe化より探索境界を先に疑う根拠として保存する。
+
+依頼者の判断で性能専用作業は、一通りe-TeX/pdfTeX/e-upTeXと日本語組版が動くまで保留中である。
+現在枝は`codex/euptex-integration-resume`で、`latin_ucs`、Unicode hyphen pattern、
+`\lastnodetype`、`\scantokens`を進めている。したがって現時点では探索・fmtへ実装変更を返さない。
+再開時は、資材を手元へ写す140 msをそのまま互換gateにはせず、同じTeX treeと同じresolver結果を
+条件に`texmf.cnf`部分集合、`ls-R`索引、fmtを独立に変更する。各枝をpushした時点で、提案された
+Linux perf手順による再測定をお願いしたい。
