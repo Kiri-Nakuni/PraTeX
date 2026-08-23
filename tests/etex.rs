@@ -37,6 +37,19 @@ fn 版を答える() {
 }
 
 #[test]
+fn pratexは自分の版だけを名乗る() {
+    let log = run_tex(
+        "PraTeX版",
+        "\\message{[PraTeX=\\the\\pratexversion]}\n\
+         \\ifdefined\\pTeXversion\\message{[pTeX偽装]}\\fi\n\
+         \\ifdefined\\upTeXversion\\message{[upTeX偽装]}\\fi\n\
+         \\ifdefined\\pdftexversion\\message{[pdfTeX偽装]}\\fi",
+    );
+    assert!(log.contains("[PraTeX=1]"), "{log}");
+    assert!(!log.contains("偽装"), "{log}");
+}
+
+#[test]
 fn protectedはedefで展開されない() {
     // **これが `\protected` の全部である**
     let log = run_tex(
