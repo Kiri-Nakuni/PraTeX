@@ -453,6 +453,26 @@ pub(crate) struct PtexSpacingState {
     penalties: KinsokuPenaltyTable,
 }
 
+/// JLReq Appendix A.1/A.2のうち、横組和文JFM経路で扱う括弧対。
+///
+/// ASCII括弧はLatin経路のままとし、JLReq Appendix Aの注記に従って和文で使う
+/// fullwidth互換形を登録する。横組限定の欧文引用符、guillemet、縦組限定の
+/// double primeはこのbounded subsetに含めない。
+const BUILT_IN_HORIZONTAL_JAPANESE_BRACKET_PAIRS: [(char, char); 12] = [
+    ('（', '）'),
+    ('〔', '〕'),
+    ('［', '］'),
+    ('｛', '｝'),
+    ('〈', '〉'),
+    ('《', '》'),
+    ('「', '」'),
+    ('『', '』'),
+    ('【', '】'),
+    ('⦅', '⦆'),
+    ('〘', '〙'),
+    ('〖', '〗'),
+];
+
 impl PtexSpacingState {
     pub(crate) fn initex() -> Self {
         Self {
@@ -471,22 +491,23 @@ impl PtexSpacingState {
     /// production経路を固定する代表subsetだけである。公開primitiveを生やす前に、
     /// code point表をconsumerへ散らさないためplanner所有の一箇所で構築する。
     pub(crate) fn built_in_minimal(kanji_skip: FixedGlue, xkanji_skip: FixedGlue) -> Self {
-        const LINE_START_PROHIBITED: [char; 4] = ['、', '。', '」', '）'];
-        const LINE_END_PROHIBITED: [char; 2] = ['「', '（'];
-
         let mut state = Self::initex();
         state.set_kanji_skip(kanji_skip);
         state.set_xkanji_skip(xkanji_skip);
-        for character in LINE_START_PROHIBITED {
+        for character in ['、', '。'] {
             state
                 .penalties_mut()
                 .set_pre(LayoutCharacterCode::from_scalar(character), 10_000)
                 .expect("the fixed BuiltIn subset is below the bounded kinsoku table limit");
         }
-        for character in LINE_END_PROHIBITED {
+        for (opening, closing) in BUILT_IN_HORIZONTAL_JAPANESE_BRACKET_PAIRS {
             state
                 .penalties_mut()
-                .set_post(LayoutCharacterCode::from_scalar(character), 10_000)
+                .set_post(LayoutCharacterCode::from_scalar(opening), 10_000)
+                .expect("the fixed BuiltIn subset is below the bounded kinsoku table limit");
+            state
+                .penalties_mut()
+                .set_pre(LayoutCharacterCode::from_scalar(closing), 10_000)
                 .expect("the fixed BuiltIn subset is below the bounded kinsoku table limit");
         }
         state
@@ -1344,7 +1365,7 @@ mod tests {
     }
 
     #[test]
-    fn built_in最小禁則は句読点と代表的な括弧の分離を防ぐ() {
+    fn built_in最小禁則は和文括弧だけをjlreqの行端に固定する() {
         let planner = JapaneseSpacingPlanner::built_in_ptex();
         let state = PtexSpacingState::built_in_minimal(glue(10), glue(20));
         assert_eq!(
@@ -1363,36 +1384,73 @@ mod tests {
                 },
             ]
         );
-        assert_eq!(
-            actions(planner.plan_boundary(
-                japanese('（', 1, 1, 0),
-                japanese('あ', 1, 1, 0),
-                BoundaryContext::DEFAULT,
-                &state,
-                None,
-            ))[0],
-            PlannedSpacingAction::KinsokuPenalty { value: 10_000 }
-        );
-        assert_eq!(
-            actions(planner.plan_boundary(
-                japanese('「', 1, 1, 0),
-                japanese('あ', 1, 1, 0),
-                BoundaryContext::DEFAULT,
-                &state,
-                None,
-            ))[0],
-            PlannedSpacingAction::KinsokuPenalty { value: 10_000 }
-        );
-        assert_eq!(
-            actions(planner.plan_boundary(
-                japanese('あ', 1, 1, 0),
-                japanese('」', 1, 1, 0),
-                BoundaryContext::DEFAULT,
-                &state,
-                None,
-            ))[0],
-            PlannedSpacingAction::KinsokuPenalty { value: 10_000 }
-        );
+        for (opening, closing) in BUILT_IN_HORIZONTAL_JAPANESE_BRACKET_PAIRS {
+            assert_eq!(
+                state
+                    .penalties()
+                    .post(LayoutCharacterCode::from_scalar(opening)),
+                10_000,
+                "U+{:04X}",
+                opening as u32
+            );
+            assert_eq!(
+                state
+                    .penalties()
+                    .pre(LayoutCharacterCode::from_scalar(closing)),
+                10_000,
+                "U+{:04X}",
+                closing as u32
+            );
+            assert_eq!(
+                actions(planner.plan_boundary(
+                    japanese(opening, 1, 1, 0),
+                    japanese('あ', 1, 1, 0),
+                    BoundaryContext::DEFAULT,
+                    &state,
+                    None,
+                ))[0],
+                PlannedSpacingAction::KinsokuPenalty { value: 10_000 }
+            );
+            assert_eq!(
+                actions(planner.plan_boundary(
+                    japanese('あ', 1, 1, 0),
+                    japanese(closing, 1, 1, 0),
+                    BoundaryContext::DEFAULT,
+                    &state,
+                    None,
+                ))[0],
+                PlannedSpacingAction::KinsokuPenalty { value: 10_000 }
+            );
+        }
+        assert_eq!(state.penalties().len(), 26);
+
+        for (opening, closing) in [
+            ('(', ')'),
+            ('[', ']'),
+            ('{', '}'),
+            ('‘', '’'),
+            ('“', '”'),
+            ('«', '»'),
+            ('〝', '〟'),
+            ('｟', '｠'),
+        ] {
+            assert_eq!(
+                state
+                    .penalties()
+                    .post(LayoutCharacterCode::from_scalar(opening)),
+                0,
+                "excluded U+{:04X}",
+                opening as u32
+            );
+            assert_eq!(
+                state
+                    .penalties()
+                    .pre(LayoutCharacterCode::from_scalar(closing)),
+                0,
+                "excluded U+{:04X}",
+                closing as u32
+            );
+        }
     }
 
     #[test]

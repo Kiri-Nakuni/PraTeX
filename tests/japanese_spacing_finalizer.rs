@@ -20,6 +20,22 @@ const QUARTER: i32 = 0x0004_0000;
 const HALF: i32 = 0x0008_0000;
 const ONE: i32 = 0x0010_0000;
 
+/// JLReq Appendix A.1/A.2から採った、横組JFM経路の和文括弧subset。
+const JLREQ_HORIZONTAL_JAPANESE_BRACKET_PAIRS: [(char, char); 12] = [
+    ('（', '）'),
+    ('〔', '〕'),
+    ('［', '］'),
+    ('｛', '｝'),
+    ('〈', '〉'),
+    ('《', '》'),
+    ('「', '」'),
+    ('『', '』'),
+    ('【', '】'),
+    ('⦅', '⦆'),
+    ('〘', '〙'),
+    ('〖', '〗'),
+];
+
 fn char_type(character_code: u32, character_type: u8) -> [u8; 4] {
     [
         ((character_code >> 8) & 0xff) as u8,
@@ -31,17 +47,22 @@ fn char_type(character_code: u32, character_type: u8) -> [u8; 4] {
 
 /// class1→2は2.5pt glue、class2→1は-2.5pt kernになる10pt横組JFM。
 fn spacing_jfm() -> Vec<u8> {
-    let char_types = [
-        char_type(0, 0),
-        char_type(0x003001, 3),
-        char_type(0x003002, 3),
-        char_type(0x00300c, 4),
-        char_type(0x00300d, 5),
-        char_type(0x003042, 1),
-        char_type(0x003044, 2),
-        char_type(0x00ff08, 4),
-        char_type(0x00ff09, 5),
+    let mut mapped_characters = vec![
+        (0, 0),
+        (0x003001, 3),
+        (0x003002, 3),
+        (0x003042, 1),
+        (0x003044, 2),
     ];
+    for (opening, closing) in JLREQ_HORIZONTAL_JAPANESE_BRACKET_PAIRS {
+        mapped_characters.push((opening as u32, 4));
+        mapped_characters.push((closing as u32, 5));
+    }
+    mapped_characters.sort_unstable_by_key(|&(character, _)| character);
+    let char_types = mapped_characters
+        .into_iter()
+        .map(|(character, class)| char_type(character, class))
+        .collect::<Vec<_>>();
     let char_infos = [
         [1, 0x11, 0, 0],
         [2, 0x11, 1, 0],
@@ -189,14 +210,20 @@ fn joined_log(directory: &Path, stem: &str) -> String {
         .replace(['\r', '\n'], "")
 }
 
-fn common_prefix() -> &'static str {
-    "\\catcode123=1\n\\catcode125=2\n\\batchmode\n\
-     \\font\\L=latin at 10pt \\L\n\
-     \\pratexjfont\\J=spacing at 10pt \\J\n\
-     \\kcatcode\"3001=16 \\kcatcode\"3002=16\n\
-     \\kcatcode\"300C=16 \\kcatcode\"300D=16\n\
-     \\kcatcode\"3042=16 \\kcatcode\"3044=16\n\
-     \\kcatcode\"FF08=16 \\kcatcode\"FF09=16\n"
+fn common_prefix() -> String {
+    let mut source = "\\catcode123=1\n\\catcode125=2\n\\batchmode\n\
+                      \\font\\L=latin at 10pt \\L\n\
+                      \\pratexjfont\\J=spacing at 10pt \\J\n\
+                      \\kcatcode\"3001=16 \\kcatcode\"3002=16\n\
+                      \\kcatcode\"3042=16 \\kcatcode\"3044=16\n"
+        .to_owned();
+    for (opening, closing) in JLREQ_HORIZONTAL_JAPANESE_BRACKET_PAIRS {
+        source.push_str(&format!(
+            "\\kcatcode\"{:X}=16 \\kcatcode\"{:X}=16\n",
+            opening as u32, closing as u32
+        ));
+    }
+    source
 }
 
 #[test]
@@ -408,37 +435,66 @@ fn alignment_cellも局所kをunsave前にsnapshotする() {
 }
 
 #[test]
-fn k境界は改行候補になりbuilt_in最小禁則は鍵括弧の分離を防ぐ() {
-    let directory = prepare_directory("改行と最小禁則");
-    let source = format!(
-        "{}\\setbox0=\\hbox{{「あ」\\kern1pt\\vrule width1pt height1pt depth0pt}}
+fn built_in和文括弧は行端で分離せずdviへ一度だけ出る() {
+    let directory = prepare_directory("和文括弧の禁則とDVI");
+    let mut source = common_prefix();
+    source.push_str("\\setbox0=\\hbox{");
+    for (opening, closing) in JLREQ_HORIZONTAL_JAPANESE_BRACKET_PAIRS {
+        source.push(opening);
+        source.push('あ');
+        source.push(closing);
+    }
+    source.push_str(
+        "\\kern1pt\\vrule width1pt height1pt depth0pt}
          \\shipout\\box0
          \\hsize=5pt \\parindent=0pt \\tolerance=10000 \\pretolerance=-1
          \\kanjiskip=1pt
-         ああ\\par \\message{{[kanji-lines=\\the\\prevgraf]}}
-         あ。\\par \\message{{[kinsoku-lines=\\the\\prevgraf]}}
-         「あ\\par \\message{{[open-bracket-lines=\\the\\prevgraf]}}
-         あ」\\par \\message{{[close-bracket-lines=\\the\\prevgraf]}}
-         \\end\n",
-        common_prefix()
+         ああ\\par \\message{[kanji-lines=\\the\\prevgraf]}
+         あ。\\par \\message{[kinsoku-lines=\\the\\prevgraf]}
+",
     );
+    for (opening, closing) in JLREQ_HORIZONTAL_JAPANESE_BRACKET_PAIRS {
+        source.push_str(&format!(
+            "{opening}あ\\par \\message{{[open-{:X}=\\the\\prevgraf]}}\n",
+            opening as u32
+        ));
+        source.push_str(&format!(
+            "あ{closing}\\par \\message{{[close-{:X}=\\the\\prevgraf]}}\n",
+            closing as u32
+        ));
+    }
+    source.push_str("\\end\n");
     std::fs::write(directory.join("t.tex"), source).unwrap();
     let output = run_rtex(&directory, &["t.tex"]);
-    assert_success(&output, "Kと禁則のline break試験を実行できなかった");
+    assert_success(&output, "和文括弧の禁則とDVI試験を実行できなかった");
     let log = joined_log(&directory, "t");
     assert!(log.contains("[kanji-lines=2]"), "{log}");
     assert!(log.contains("[kinsoku-lines=1]"), "{log}");
-    assert!(log.contains("[open-bracket-lines=1]"), "{log}");
-    assert!(log.contains("[close-bracket-lines=1]"), "{log}");
+    for (opening, closing) in JLREQ_HORIZONTAL_JAPANESE_BRACKET_PAIRS {
+        assert!(
+            log.contains(&format!("[open-{:X}=1]", opening as u32)),
+            "{log}"
+        );
+        assert!(
+            log.contains(&format!("[close-{:X}=1]", closing as u32)),
+            "{log}"
+        );
+    }
     let (wide, rules) = first_page_events(&std::fs::read(directory.join("t.dvi")).unwrap());
+    let mut expected = Vec::new();
+    for (opening, closing) in JLREQ_HORIZONTAL_JAPANESE_BRACKET_PAIRS {
+        expected.extend([opening as u32, 0x3042, closing as u32]);
+    }
     assert_eq!(
         wide.iter().map(|event| event.character).collect::<Vec<_>>(),
-        [0x300c, 0x3042, 0x300d]
+        expected
     );
-    assert_eq!(wide[1].h, wide[0].h + 5 * 65_536);
-    assert_eq!(wide[2].h, wide[0].h + 10 * 65_536);
+    for (index, event) in wide.iter().enumerate() {
+        assert_eq!(event.h, wide[0].h + index as i32 * 5 * 65_536);
+    }
     assert_eq!(rules.len(), 1);
-    assert_eq!(rules[0].h, wide[0].h + 16 * 65_536);
+    assert_eq!(rules[0].h, wide[0].h + (wide.len() as i32 * 5 + 1) * 65_536);
+    assert_eq!(rules[0].width, 65_536);
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -491,8 +547,17 @@ fn first_page_events(bytes: &[u8]) -> (Vec<WideEvent>, Vec<RuleEvent>) {
                 let character = read_unsigned(bytes, &mut position, usize::from(opcode - 127));
                 wide.push(WideEvent { character, h });
                 h += match character {
-                    0x300c | 0x300d | 0x3042 => 5 * 65_536,
+                    0x3042 => 5 * 65_536,
                     0x3044 => 10 * 65_536,
+                    character
+                        if JLREQ_HORIZONTAL_JAPANESE_BRACKET_PAIRS.iter().any(
+                            |&(opening, closing)| {
+                                character == opening as u32 || character == closing as u32
+                            },
+                        ) =>
+                    {
+                        5 * 65_536
+                    }
                     _ => panic!("fixture外のwide glyph U+{character:04X}"),
                 };
             }

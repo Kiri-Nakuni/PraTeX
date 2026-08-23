@@ -22,13 +22,29 @@ DVI `set2` / `set3`まで一続きに接続したため、選択済み横組JFM�
 256超glue/kern indexを検査し、class対programをload時に直接表へcompileする。
 
 JFM pair adjustment、K/X自動空白、BuiltIn最小禁則は横組の実hlist・行分割・DVIへ
-接続済みである。最小禁則は句読点と丸括弧に加え、`U+300C 「`を行末、`U+300D 」`を
-行頭に分離しない。この二文字は[W3C InternationalのJLReq Table 2](https://www.w3.org/International/jlreq/tables/table_en3.pdf)
-でそれぞれopening brackets (cl-01)、closing brackets (cl-02)に分類されることを根拠とする。
+接続済みである。[W3C JLReq Table 2](https://www.w3.org/International/jlreq/tables/table_en3.pdf)
+はcl-01の後とcl-02の前で分離しないclass間規則を定める。Table 2自体はcode point表ではないため、
+所属文字の一次資料は同じ2020-08-11 W3C Working Group Note
+[JLReqのAppendix A.1/A.2](https://www.w3.org/TR/jlreq/)とする。
 
-これはcl-01/cl-02全文字ではなく、代表的な和文鍵括弧をproduction経路に固定するbounded
-checkpointである。main-loopでの早期挿入、box/discretionary境界の完成、禁則class全体、
-`\tfont`と縦組は未完了であり、P0全体や「日本語組版対応」の完了ではない。
+現在の横組和文JFM経路で採用するのは、次の12対である。
+
+- `U+FF08/U+FF09`（`（）`）、`U+3014/U+3015`（`〔〕`）、`U+FF3B/U+FF3D`（`［］`）、
+  `U+FF5B/U+FF5D`（`｛｝`）
+- `U+3008/U+3009`（`〈〉`）、`U+300A/U+300B`（`《》`）、`U+300C/U+300D`（`「」`）、
+  `U+300E/U+300F`（`『』`）
+- `U+3010/U+3011`（`【】`）、`U+2985/U+2986`（`⦅⦆`）、`U+3018/U+3019`（`〘〙`）、
+  `U+3016/U+3017`（`〖〗`）
+
+Appendix Aは小括弧・角括弧・波括弧をASCII code pointで記載する一方、和文組版では
+fullwidth互換形を使う実装慣行を注記している。このためBuiltIn表は`U+0028/U+0029`、
+`U+005B/U+005D`、`U+007B/U+007D`をLatin経路のままとし、対応する上記fullwidth形だけを
+和文禁則に入れる。横組限定の欧文引用符`U+2018/U+2019`、`U+201C/U+201D`、
+guillemet `U+00AB/U+00BB`、縦組限定の`U+301D/U+301F`、Appendixがそのcode pointを
+挙げない`U+FF5F/U+FF60`はこのbounded subsetへ拡張しない。
+
+main-loopでの早期挿入、box/discretionary境界の完成、禁則class全体、`\tfont`と縦組は
+未完了であり、P0全体や「日本語組版対応」の完了ではない。
 
 `\kanjiskip` / `\xkanjiskip`の実spacing、JFMとのhybrid、暗黙K、
 script-pair拡張のclean-room設計は
