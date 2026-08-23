@@ -308,6 +308,10 @@ barrierである。自動JFM/K/X/禁則nodeはtyped provenanceを持ち、unbox�
 それだけを除いて元境界から再生成する。hbox、段落、alignment cell、display math移行の
 `unsave` / pop前にsnapshotし、局所K/Xを失わない。
 
+このcheckpointのrelease試験は627 passed、0 failed、7 ignored。合成JFM/TFMのproduction試験
+6件でnode幅、局所group、alignment、fmt、再finalize、barrier、line break、DVI座標を固定した。
+origin/mainのplain欧文DVI page body 183 bytesはbyte差分0で、公式CTAN TRIPも既知正常hashを維持した。
+
 ### 残るintegration hook
 
 1. eqtbにauto switch、`[XspCode; 256]`、sparse inhibit/完全禁則表を所有させ、各代入を

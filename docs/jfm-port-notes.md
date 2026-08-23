@@ -147,3 +147,14 @@ node・sp座標・DVI意味をe-upTeXと比較して初めてpTeX相当P0の一�
   このmachineにはPLtoTF/TFtoPL/DVItypeがないため、hash検証済み公式`trip.tfm`を使い、
   DVItypeによる今回の意味比較は未実行
 - PraTeX通常sourceにunsafe Rustなし。他engineのsource・上流test・version偽装は使用していない
+
+## 2026-08-23の横組spacing checkpoint
+
+- JFM class pair、K/X、4文字BuiltIn禁則を中央finalizerから実hlistへ一度だけmaterialize
+- hbox、段落、alignment、fmt、unbox再評価、line break、DVI glyph/rule座標の合成fixture 6件が成功
+- `cargo test --release --locked --no-fail-fast`: 627 passed、0 failed、7 ignored
+- origin/main plain DVIのBOP--EOP 183 bytesはbyte差分0、body SHA-256
+  `980ceaa638dd272dac0b46ec0870ac166715db10655b004917de96615396337a`
+- CTAN TRIP両段exit 0、`tripos.tex`最小正規化後一致、DVI SHA-256
+  `b20af20a1463c6846f0c4c1ce687cd6354ce1a5f65ee401507627570787ae9fe`
+- これはlist-close correctness checkpointで、main-loop JFM、仮想K、完全JLReq、縦組の完成ではない

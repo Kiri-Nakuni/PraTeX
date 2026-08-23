@@ -189,7 +189,7 @@ engine内部IDを分け、標準日本語ではVaak/WASM call 0、組版中のal
 
 ## 横組JFM/K/X/禁則finalizerの最小production slice
 
-状態: **`codex2/japanese-spacing-finalizer`でfocused試験まで成功**。
+状態: **`codex2/japanese-spacing-finalizer`の`a29cb22`をpush済み。全releaseとDVI/TRIP gate成功**。
 
 - font load時にJFM class対glue/kernを選択sizeへscaleしたdense表へcompileし、wide nodeが持つ
   Unicode、font/metric ID、JFM classだけで中央plannerを引く。同一fontのpair調整をKより優先し、
@@ -205,6 +205,12 @@ engine内部IDを分け、標準日本語ではVaak/WASM call 0、組版中のal
   標準日本語でもVaak/WASM registryを引かない。
 - 既知限界は、JFM/禁則もlist-close materializeで`\unskip` / `\lastnodesubtype`のpTeX意味が
   未完成、Kが仮想eventでなく可視実glue、xsp/inhibit/auto switch・box edge・disc・縦組未接続。
+- `cargo test --release --locked --no-fail-fast`は627 passed、0 failed、7 ignored。
+  spacing process試験6件、glyph 5件、K/X parameter 3件もreleaseで全緑。
+- origin/main固定fixtureとのplain DVI BOP--EOPは双方183 bytesでbyte差分0、body SHA-256
+  `980ceaa638dd272dac0b46ec0870ac166715db10655b004917de96615396337a`。
+- CTAN TRIPは両段exit 0、`tripos.tex`最小正規化後一致、DVIは既知正常hash
+  `b20af20a1463c6846f0c4c1ce687cd6354ce1a5f65ee401507627570787ae9fe`を維持。
 
 ## 完了済み: `\lastnodetype` page状態
 
@@ -327,7 +333,7 @@ pwsh -NoProfile -File tools/run-trip.ps1
 
 2026-08-23の現作業枝での既知正常値:
 
-- 現在release: 594 passed、0 failed、6 ignored
+- 現在release: 627 passed、0 failed、7 ignored
 - TRIP Stage1/Stage2 exit 0
 - `tripos.tex`正規化後一致
 - DVI SHA-256: `b20af20a1463c6846f0c4c1ce687cd6354ce1a5f65ee401507627570787ae9fe`
