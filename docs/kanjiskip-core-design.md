@@ -1,6 +1,6 @@
 # `\kanjiskip` / `\xkanjiskip` core設計
 
-更新: 2026-08-22
+更新: 2026-08-23
 
 ## 目的と調査境界
 
@@ -245,7 +245,55 @@ Han–Latin、Hangul–Latin等も同じ`ScriptPairRule`へ載せる。
 pTeX primitiveは`BuiltInPtex` profileへのadapterであり、
 標準日本語paragraphをVaak/WASMへ委譲しない。
 
-## 8. commit順
+## 8. 横組みplanner slice
+
+`src/script_spacing/planner.rs`は、node/main loopへ接続する前の中央決定層である。
+PraTeXのengine identityやversionをpTeX/upTeXに偽装せず、組版profileを
+`JapaneseSpacingProfile::BuiltInPtex`として明示的に選ぶ。primitive名は、対応する
+eqtb/save/fmt/node意味が接続されるまで登録しない。
+
+plannerの入力は元の文字境界、JFM font/metric/class identity、JFM連続性、list終端時の
+`PtexSpacingState` snapshotである。出力は固定長`BoundaryActionPlan`であり、次を型で区別する。
+
+- main loop phase: `KinsokuPenalty`、`JfmGlue`、`JfmKern`
+- list finalizer phase: `ImplicitKanjiSkip`、`MaterialXKanjiSkip`
+
+禁則は境界で「左文字のpost + 右文字のpre」を一つに合成し、JFM由来空白より先に出す。
+同一JFM font/metricのclass対にglue/kernがあればそれをKより優先し、表に規則がない、
+連続性が切れた、font/metricが変わった、または`inhibitglue`状態なら暗黙Kへ戻る。
+異なるJFM font間の厳密なpTeX挙動は黒箱課題なので、現sliceでは誤ってclass対を横断しない
+保守的fallbackとする。
+
+和欧・欧和は、`xspcode`と`inhibitxspcode`を「和→欧=bit 0、欧→和=bit 1」の
+同じ0--3 codecへ正規化し、両側の許可bitの論理積でmaterial Xを決める。
+`noautospacing`は幅0の暗黙K境界を、`noautoxspacing`は許可済み境界に幅0のmaterial Xを残す。
+plannerは既存の自動actionを入力に取らない純粋関数なので、自動provenanceだけを除いて
+同じ元境界を再評価すれば冪等である。JFM/禁則はmain loop phaseだけ、K/Xは最終値を使う
+list finalizer phaseだけをconsumerが適用する。
+
+`PtexSpacingState`には`ptex-spacing-state-v1`の版付きfmt codecがあり、auto switch、K/X、
+256要素xsp表、sparse inhibit/禁則表を全成分往復する。undumpは0--3、Unicode scalar、
+glue寸法、疎表上限、entryの昇順・一意性を検証してからstateを公開する。現時点ではeqtb本体へ
+fieldを追加していないので、このcodecが通常fmtへ書かれるとはまだ主張しない。
+
+ASCII-only listは`ScriptSpacingListState::needs_script_spacing=false`のままになり、
+`finalize_if_needed`はcallbackを呼ばない。このgateをprofile dispatch、JFM表引き、provider選択、
+出力event生成のすべてより前に置く。したがって従来のplain欧文経路にはcallback、table lookup、
+追加allocationを入れず、統合時にはorigin/mainとDVI意味列・座標を比較する。
+
+### 未接続のintegration hook
+
+1. eqtbにauto switch、`[XspCode; 256]`、sparse inhibit/禁則表を所有させ、各代入を
+   save stackの一単位として局所復元する。group外の値だけをfmtへdumpする。
+2. font load時に既存`Jfm`の12.20値を選択sizeへscaleし、`CompiledJfmPairSpacingTable`を
+   font instanceごとに一度作る。文字nodeには再検索済みclassとfont/metric IDを持たせる。
+3. main loopはmain-loop phaseだけをmaterializeし、JFM由来nodeの観測・`unskip`を保つ。
+   list closeは自動K/X provenanceだけを除去し、`unsave`前の最終snapshotでfinalizer phaseを
+   再適用する。利用者の明示glue/penaltyは除去しない。
+4. line breaker、packer、DVI/PDF backendは`ImplicitKanjiSkip`を同じ仮想glue eventとして読む。
+   plain欧文DVI differentialを先に固定し、その後に和文event oracleを追加する。
+
+## 9. commit順
 
 1. K/Xを通常glue parameterとして追加し、generic意味とfmtを固定
 2. auto switch、query、xsp/inhibit表をtyped eqtb state化
@@ -257,7 +305,7 @@ pTeX primitiveは`BuiltInPtex` profileへのadapterであり、
 8. 隠しGlue checkpointから仮想Kへsafe-Rust最適化
 9. script-pair built-in tableと明示opt-in provider境界
 
-## 9. 集中試験
+## 10. 集中試験
 
 - `漢字間隔と和欧文間隔はinitexでは零である`
 - `漢字間隔は局所代入から復元される`
@@ -276,7 +324,7 @@ pTeX primitiveは`BuiltInPtex` profileへのadapterであり、
 - `標準日本語組版はvaakとwasmを呼ばない`
 - `純欧文listは和文finalizerを通らない`
 
-## 10. 残る黒箱課題
+## 11. 残る黒箱課題
 
 - rule、kern、box等のJFM edge matrix
 - discretionaryのpre/post/no-breakとK/X/JFM
