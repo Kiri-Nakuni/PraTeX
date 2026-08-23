@@ -8,6 +8,8 @@ use crate::spacing_table_domain::{
     VALID_WRITING_MODE_MASK, WRITING_MODE_COUNT,
 };
 
+use std::num::NonZeroU32;
+
 pub(crate) mod finalizer;
 pub(crate) mod planner;
 
@@ -41,6 +43,11 @@ pub(crate) struct ScriptClassId(u16);
 impl ScriptClassId {
     const fn index(self) -> usize {
         self.0 as usize
+    }
+
+    /// Constructs a dense ID obtained from the shared provider-class codec.
+    pub(crate) fn from_validated_dense_index(index: u32) -> Option<Self> {
+        u16::try_from(index).ok().map(Self)
     }
 }
 
@@ -125,6 +132,309 @@ impl FixedGlue {
     }
 }
 
+/// A contextual length basis after the public API or wire codec has been removed.
+///
+/// Context-dependent values remain exact recipes until a boundary supplies one immutable metric
+/// snapshot. In particular, registration must not freeze `em` or `zw` to whichever font happened
+/// to be current at that time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum ContextualSpacingLengthBasis {
+    AbsoluteScaledPoint,
+    LeftEm,
+    RightEm,
+    LeftZw,
+    RightZw,
+}
+
+/// A reduced rational length owned by the native compiled table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ContextualSpacingLength {
+    numerator: i64,
+    denominator: NonZeroU32,
+    basis: ContextualSpacingLengthBasis,
+}
+
+impl ContextualSpacingLength {
+    /// Constructs a value that has already passed the canonical proposal validator.
+    ///
+    /// This constructor deliberately takes `NonZeroU32`; callers cannot accidentally reintroduce
+    /// the raw wire denominator-zero state while crossing into the native table.
+    pub(crate) const fn from_canonical_parts(
+        numerator: i64,
+        denominator: NonZeroU32,
+        basis: ContextualSpacingLengthBasis,
+    ) -> Self {
+        Self {
+            numerator,
+            denominator,
+            basis,
+        }
+    }
+
+    pub(crate) const fn numerator(self) -> i64 {
+        self.numerator
+    }
+
+    pub(crate) const fn denominator(self) -> u32 {
+        self.denominator.get()
+    }
+
+    pub(crate) const fn basis(self) -> ContextualSpacingLengthBasis {
+        self.basis
+    }
+
+    /// Resolves this exact recipe using one boundary-local metric snapshot.
+    pub(crate) fn resolve(
+        self,
+        metrics: BoundaryMetricSnapshot,
+    ) -> Result<Dimension, ContextualSpacingResolutionError> {
+        let basis_value = match self.basis {
+            ContextualSpacingLengthBasis::AbsoluteScaledPoint => 1,
+            ContextualSpacingLengthBasis::LeftEm => metrics.left_em,
+            ContextualSpacingLengthBasis::RightEm => metrics.right_em,
+            ContextualSpacingLengthBasis::LeftZw => metrics.left_zw,
+            ContextualSpacingLengthBasis::RightZw => metrics.right_zw,
+        };
+        let product = i128::from(self.numerator)
+            .checked_mul(i128::from(basis_value))
+            .ok_or(ContextualSpacingResolutionError::ArithmeticOverflow { basis: self.basis })?;
+        let denominator = i128::from(self.denominator.get());
+        let quotient = product / denominator;
+        let remainder = product % denominator;
+        let twice_remainder = remainder
+            .abs()
+            .checked_mul(2)
+            .ok_or(ContextualSpacingResolutionError::ArithmeticOverflow { basis: self.basis })?;
+        let rounded = if twice_remainder >= denominator {
+            quotient
+                .checked_add(product.signum())
+                .ok_or(ContextualSpacingResolutionError::ArithmeticOverflow { basis: self.basis })?
+        } else {
+            quotient
+        };
+        if !(-i128::from(MAX_DIMEN)..=i128::from(MAX_DIMEN)).contains(&rounded) {
+            return Err(ContextualSpacingResolutionError::DimensionOutOfBounds {
+                basis: self.basis,
+                rounded,
+            });
+        }
+        i32::try_from(rounded).map_err(|_| ContextualSpacingResolutionError::DimensionOutOfBounds {
+            basis: self.basis,
+            rounded,
+        })
+    }
+}
+
+/// Font/JFM dimensions captured once for one left/right boundary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct BoundaryMetricSnapshot {
+    left_em: Dimension,
+    right_em: Dimension,
+    left_zw: Dimension,
+    right_zw: Dimension,
+}
+
+impl BoundaryMetricSnapshot {
+    pub(crate) fn new(
+        left_em: Dimension,
+        right_em: Dimension,
+        left_zw: Dimension,
+        right_zw: Dimension,
+    ) -> Result<Self, BoundaryMetricSnapshotError> {
+        for (metric, value) in [
+            (BoundaryMetric::LeftEm, left_em),
+            (BoundaryMetric::RightEm, right_em),
+            (BoundaryMetric::LeftZw, left_zw),
+            (BoundaryMetric::RightZw, right_zw),
+        ] {
+            if !(0..=MAX_DIMEN).contains(&value) {
+                return Err(BoundaryMetricSnapshotError { metric, value });
+            }
+        }
+        Ok(Self {
+            left_em,
+            right_em,
+            left_zw,
+            right_zw,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BoundaryMetric {
+    LeftEm,
+    RightEm,
+    LeftZw,
+    RightZw,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct BoundaryMetricSnapshotError {
+    pub(crate) metric: BoundaryMetric,
+    pub(crate) value: Dimension,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ContextualSpacingResolutionError {
+    ArithmeticOverflow {
+        basis: ContextualSpacingLengthBasis,
+    },
+    DimensionOutOfBounds {
+        basis: ContextualSpacingLengthBasis,
+        rounded: i128,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ScriptSpacingBreakRule {
+    UseBuiltIn,
+    Allow,
+    Forbid,
+    Penalty,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ScriptSpacingLineEdgeRule {
+    UseBuiltIn,
+    Retain,
+    DiscardAtStart,
+    DiscardAtEnd,
+    DiscardAtBoth,
+}
+
+/// Native form of one custom class-pair boundary rule.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ScriptSpacingBoundaryRule {
+    natural: ContextualSpacingLength,
+    shrink_limit: ContextualSpacingLength,
+    stretch_limit: ContextualSpacingLength,
+    shrink_tier: u8,
+    stretch_tier: u8,
+    break_rule: ScriptSpacingBreakRule,
+    line_edge_rule: ScriptSpacingLineEdgeRule,
+    penalty: i32,
+    reason_id: u32,
+}
+
+impl ScriptSpacingBoundaryRule {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) const fn from_canonical_parts(
+        natural: ContextualSpacingLength,
+        shrink_limit: ContextualSpacingLength,
+        stretch_limit: ContextualSpacingLength,
+        shrink_tier: u8,
+        stretch_tier: u8,
+        break_rule: ScriptSpacingBreakRule,
+        line_edge_rule: ScriptSpacingLineEdgeRule,
+        penalty: i32,
+        reason_id: u32,
+    ) -> Self {
+        Self {
+            natural,
+            shrink_limit,
+            stretch_limit,
+            shrink_tier,
+            stretch_tier,
+            break_rule,
+            line_edge_rule,
+            penalty,
+            reason_id,
+        }
+    }
+
+    pub(crate) const fn lengths(
+        self,
+    ) -> (
+        ContextualSpacingLength,
+        ContextualSpacingLength,
+        ContextualSpacingLength,
+    ) {
+        (self.natural, self.shrink_limit, self.stretch_limit)
+    }
+
+    pub(crate) const fn tiers(self) -> (u8, u8) {
+        (self.shrink_tier, self.stretch_tier)
+    }
+
+    pub(crate) const fn break_rule(self) -> ScriptSpacingBreakRule {
+        self.break_rule
+    }
+
+    pub(crate) const fn line_edge_rule(self) -> ScriptSpacingLineEdgeRule {
+        self.line_edge_rule
+    }
+
+    pub(crate) const fn penalty(self) -> i32 {
+        self.penalty
+    }
+
+    pub(crate) const fn reason_id(self) -> u32 {
+        self.reason_id
+    }
+
+    pub(crate) fn resolve(
+        self,
+        metrics: BoundaryMetricSnapshot,
+    ) -> Result<ResolvedScriptSpacingBoundaryRule, ContextualSpacingResolutionError> {
+        Ok(ResolvedScriptSpacingBoundaryRule {
+            glue: FixedGlue {
+                width: self.natural.resolve(metrics)?,
+                stretch: HigherOrderDimension {
+                    value: self.stretch_limit.resolve(metrics)?,
+                    order: DimensionOrder::Normal,
+                },
+                shrink: HigherOrderDimension {
+                    value: self.shrink_limit.resolve(metrics)?,
+                    order: DimensionOrder::Normal,
+                },
+            },
+            shrink_tier: self.shrink_tier,
+            stretch_tier: self.stretch_tier,
+            break_rule: self.break_rule,
+            line_edge_rule: self.line_edge_rule,
+            penalty: self.penalty,
+            reason_id: self.reason_id,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ResolvedScriptSpacingBoundaryRule {
+    glue: FixedGlue,
+    shrink_tier: u8,
+    stretch_tier: u8,
+    break_rule: ScriptSpacingBreakRule,
+    line_edge_rule: ScriptSpacingLineEdgeRule,
+    penalty: i32,
+    reason_id: u32,
+}
+
+impl ResolvedScriptSpacingBoundaryRule {
+    pub(crate) const fn glue(self) -> FixedGlue {
+        self.glue
+    }
+
+    pub(crate) const fn tiers(self) -> (u8, u8) {
+        (self.shrink_tier, self.stretch_tier)
+    }
+
+    pub(crate) const fn break_rule(self) -> ScriptSpacingBreakRule {
+        self.break_rule
+    }
+
+    pub(crate) const fn line_edge_rule(self) -> ScriptSpacingLineEdgeRule {
+        self.line_edge_rule
+    }
+
+    pub(crate) const fn penalty(self) -> i32 {
+        self.penalty
+    }
+
+    pub(crate) const fn reason_id(self) -> u32 {
+        self.reason_id
+    }
+}
+
 /// The result consumed by native Japanese spacing and by uploaded compiled profiles alike.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ScriptSpacingAction {
@@ -133,6 +443,7 @@ pub(crate) enum ScriptSpacingAction {
     KanjiSkip,
     XKanjiSkip,
     FixedGlue(FixedGlue),
+    BoundaryRule(ScriptSpacingBoundaryRule),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -323,12 +634,6 @@ struct UnicodeScalarRange {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct ValidatedScalarRange {
-    original_index: usize,
-    range: UnicodeScalarRange,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct RangeSpan {
     start: usize,
     end: usize,
@@ -353,6 +658,88 @@ struct ValidatedRule {
     action: ScriptSpacingAction,
 }
 
+/// A scalar range whose Unicode, class and context domains were already validated.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CanonicalScriptSpacingRange {
+    start: u32,
+    end: u32,
+    class: ScriptClassId,
+    region_mask: ProviderRegionMask,
+    writing_mode_mask: ProviderWritingModeMask,
+}
+
+impl CanonicalScriptSpacingRange {
+    pub(crate) const fn from_validated_parts(
+        start: u32,
+        end: u32,
+        class: ScriptClassId,
+        region_mask: ProviderRegionMask,
+        writing_mode_mask: ProviderWritingModeMask,
+    ) -> Self {
+        Self {
+            start,
+            end,
+            class,
+            region_mask,
+            writing_mode_mask,
+        }
+    }
+}
+
+/// A class-pair rule whose class IDs and context masks were already validated as one table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CanonicalScriptSpacingRule {
+    left: ScriptClassId,
+    right: ScriptClassId,
+    region_mask: ProviderRegionMask,
+    writing_mode_mask: ProviderWritingModeMask,
+    action: ScriptSpacingAction,
+}
+
+impl CanonicalScriptSpacingRule {
+    pub(crate) const fn from_validated_parts(
+        left: ScriptClassId,
+        right: ScriptClassId,
+        region_mask: ProviderRegionMask,
+        writing_mode_mask: ProviderWritingModeMask,
+        action: ScriptSpacingAction,
+    ) -> Self {
+        Self {
+            left,
+            right,
+            region_mask,
+            writing_mode_mask,
+            action,
+        }
+    }
+}
+
+/// Provider-independent input to the one native table compiler.
+///
+/// Construction is restricted to validators/adapters that have already checked the complete
+/// proposal. The compiler below expands masks and allocates the dense table, but intentionally
+/// does not make the scalar/mask/overlap decisions a second time.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CanonicalScriptSpacingTableCandidate {
+    class_capacity: u16,
+    ranges: Vec<CanonicalScriptSpacingRange>,
+    rules: Vec<CanonicalScriptSpacingRule>,
+}
+
+impl CanonicalScriptSpacingTableCandidate {
+    pub(crate) fn from_validated_parts(
+        class_capacity: u16,
+        ranges: Vec<CanonicalScriptSpacingRange>,
+        rules: Vec<CanonicalScriptSpacingRule>,
+    ) -> Self {
+        Self {
+            class_capacity,
+            ranges,
+            rules,
+        }
+    }
+}
+
 /// A host-owned table. All allocation and validation happens when it is compiled.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct CompiledScriptSpacingTable {
@@ -373,7 +760,8 @@ impl CompiledScriptSpacingTable {
     ) -> Result<Self, ScriptSpacingTableError> {
         validate_proposal_size(&proposal)?;
 
-        let class_count = proposal.class_count as u16;
+        let class_capacity = u16::try_from(proposal.class_count)
+            .map_err(|_| ScriptSpacingTableError::CompiledTableTooLarge)?;
         let mut validated_range_classes = Vec::new();
         validated_range_classes
             .try_reserve_exact(proposal.ranges.len())
@@ -404,59 +792,24 @@ impl CompiledScriptSpacingTable {
             });
         }
 
-        let mut ranges_by_context: [Vec<ValidatedScalarRange>; CLASSIFICATION_CONTEXT_COUNT] =
-            std::array::from_fn(|_| Vec::new());
-        for ((range_index, range), class) in proposal
-            .ranges
-            .into_iter()
-            .enumerate()
-            .zip(validated_range_classes)
-        {
-            let validated_range = UnicodeScalarRange {
-                start: range.start,
-                end: range.end,
+        let mut canonical_ranges = Vec::new();
+        canonical_ranges
+            .try_reserve_exact(proposal.ranges.len())
+            .map_err(|_| ScriptSpacingTableError::CompiledTableTooLarge)?;
+        for (range, class) in proposal.ranges.into_iter().zip(validated_range_classes) {
+            canonical_ranges.push(CanonicalScriptSpacingRange::from_validated_parts(
+                range.start,
+                range.end,
                 class,
-            };
-            for writing_mode in WritingMode::ALL {
-                if !range.writing_mode_mask.contains(writing_mode) {
-                    continue;
-                }
-                for region_code in 0..REGION_COUNT {
-                    if range.region_mask.contains_code(region_code) {
-                        ranges_by_context[classification_context_index(region_code, writing_mode)]
-                            .push(ValidatedScalarRange {
-                                original_index: range_index,
-                                range: validated_range,
-                            });
-                    }
-                }
-            }
+                range.region_mask,
+                range.writing_mode_mask,
+            ));
         }
 
-        let expanded_range_count = ranges_by_context
-            .iter()
-            .try_fold(0usize, |count, ranges| count.checked_add(ranges.len()));
-        let mut ranges = Vec::with_capacity(
-            expanded_range_count.ok_or(ScriptSpacingTableError::CompiledTableTooLarge)?,
-        );
-        let mut range_spans = [RangeSpan::EMPTY; CLASSIFICATION_CONTEXT_COUNT];
-        for writing_mode in WritingMode::ALL {
-            for region_code in 0..REGION_COUNT {
-                let context = classification_context_index(region_code, writing_mode);
-                let context_ranges = &mut ranges_by_context[context];
-                context_ranges.sort_unstable_by_key(|entry| {
-                    (entry.range.start, entry.range.end, entry.original_index)
-                });
-                let start = ranges.len();
-                ranges.extend(context_ranges.iter().map(|entry| entry.range));
-                range_spans[context] = RangeSpan {
-                    start,
-                    end: ranges.len(),
-                };
-            }
-        }
-
-        let mut rules = Vec::with_capacity(proposal.rules.len());
+        let mut rules = Vec::new();
+        rules
+            .try_reserve_exact(proposal.rules.len())
+            .map_err(|_| ScriptSpacingTableError::CompiledTableTooLarge)?;
         for (rule_index, rule) in proposal.rules.into_iter().enumerate() {
             let left = validate_rule_class(rule_index, rule.left, proposal.class_count)?;
             let right = validate_rule_class(rule_index, rule.right, proposal.class_count)?;
@@ -488,26 +841,138 @@ impl CompiledScriptSpacingTable {
         }
         rules.sort_unstable_by_key(|rule| (rule.key, rule.original_index));
 
+        let mut canonical_rules = Vec::new();
+        canonical_rules
+            .try_reserve_exact(rules.len())
+            .map_err(|_| ScriptSpacingTableError::CompiledTableTooLarge)?;
+        for rule in rules {
+            canonical_rules.push(CanonicalScriptSpacingRule::from_validated_parts(
+                ScriptClassId(rule.key.left),
+                ScriptClassId(rule.key.right),
+                ProviderRegionMask::from_wire(1 << rule.key.region),
+                ProviderWritingModeMask::from_wire(1 << rule.key.writing_mode.index()),
+                rule.action,
+            ));
+        }
+
+        Self::compile_canonical(CanonicalScriptSpacingTableCandidate::from_validated_parts(
+            class_capacity,
+            canonical_ranges,
+            canonical_rules,
+        ))
+    }
+
+    /// Expands one fully validated provider-independent candidate into the native dense table.
+    ///
+    /// Domain validation deliberately stays outside this method. Both the native proposal adapter
+    /// above and external adapters must produce this typed candidate before reaching the one
+    /// allocation/expansion implementation.
+    pub(crate) fn compile_canonical(
+        candidate: CanonicalScriptSpacingTableCandidate,
+    ) -> Result<Self, ScriptSpacingTableError> {
+        Self::compile_canonical_with_max_dense_slots(candidate, usize::MAX)
+    }
+
+    fn compile_canonical_with_max_dense_slots(
+        candidate: CanonicalScriptSpacingTableCandidate,
+        max_dense_slots: usize,
+    ) -> Result<Self, ScriptSpacingTableError> {
+        let class_count = candidate.class_capacity;
+        let mut ranges_by_context: [Vec<UnicodeScalarRange>; CLASSIFICATION_CONTEXT_COUNT] =
+            std::array::from_fn(|_| Vec::new());
+        for context_ranges in &mut ranges_by_context {
+            context_ranges
+                .try_reserve_exact(candidate.ranges.len())
+                .map_err(|_| ScriptSpacingTableError::CompiledTableTooLarge)?;
+        }
+        for range in candidate.ranges {
+            let native_range = UnicodeScalarRange {
+                start: range.start,
+                end: range.end,
+                class: range.class,
+            };
+            for writing_mode in WritingMode::ALL {
+                if !range.writing_mode_mask.contains(writing_mode) {
+                    continue;
+                }
+                for region_code in 0..REGION_COUNT {
+                    if range.region_mask.contains_code(region_code) {
+                        ranges_by_context[classification_context_index(region_code, writing_mode)]
+                            .push(native_range);
+                    }
+                }
+            }
+        }
+
+        let expanded_range_count = ranges_by_context
+            .iter()
+            .try_fold(0usize, |count, ranges| count.checked_add(ranges.len()))
+            .ok_or(ScriptSpacingTableError::CompiledTableTooLarge)?;
+        let mut ranges = Vec::new();
+        ranges
+            .try_reserve_exact(expanded_range_count)
+            .map_err(|_| ScriptSpacingTableError::CompiledTableTooLarge)?;
+        let mut range_spans = [RangeSpan::EMPTY; CLASSIFICATION_CONTEXT_COUNT];
+        for writing_mode in WritingMode::ALL {
+            for region_code in 0..REGION_COUNT {
+                let context = classification_context_index(region_code, writing_mode);
+                let context_ranges = &mut ranges_by_context[context];
+                context_ranges.sort_unstable_by_key(|range| (range.start, range.end));
+                let start = ranges.len();
+                ranges.extend(context_ranges.iter().copied());
+                range_spans[context] = RangeSpan {
+                    start,
+                    end: ranges.len(),
+                };
+            }
+        }
+
         let slot_count = usize::from(class_count)
             .checked_mul(usize::from(class_count))
             .and_then(|count| count.checked_mul(REGION_COUNT))
             .and_then(|count| count.checked_mul(WRITING_MODE_COUNT))
             .ok_or(ScriptSpacingTableError::CompiledTableTooLarge)?;
-        let mut action_indices = vec![0; slot_count];
-        let mut actions = Vec::with_capacity(rules.len() + 1);
+        if slot_count > max_dense_slots {
+            return Err(ScriptSpacingTableError::CompiledTableTooLarge);
+        }
+        let mut action_indices = Vec::new();
+        action_indices
+            .try_reserve_exact(slot_count)
+            .map_err(|_| ScriptSpacingTableError::CompiledTableTooLarge)?;
+        action_indices.resize(slot_count, 0);
+        let action_capacity = candidate
+            .rules
+            .len()
+            .checked_add(1)
+            .ok_or(ScriptSpacingTableError::CompiledTableTooLarge)?;
+        let mut actions = Vec::new();
+        actions
+            .try_reserve_exact(action_capacity)
+            .map_err(|_| ScriptSpacingTableError::CompiledTableTooLarge)?;
         actions.push(ScriptSpacingAction::BuiltInFallback);
-        for rule in rules {
+        for rule in candidate.rules {
             let action_index = u16::try_from(actions.len())
                 .map_err(|_| ScriptSpacingTableError::CompiledTableTooLarge)?;
-            let slot = slot_index(
-                usize::from(class_count),
-                ScriptClassId(rule.key.left),
-                ScriptClassId(rule.key.right),
-                rule.key.region as usize,
-                rule.key.writing_mode,
-            );
-            action_indices[slot] = action_index;
             actions.push(rule.action);
+            for writing_mode in WritingMode::ALL {
+                if !rule.writing_mode_mask.contains(writing_mode) {
+                    continue;
+                }
+                for region_code in 0..REGION_COUNT {
+                    if !rule.region_mask.contains_code(region_code) {
+                        continue;
+                    }
+                    let slot = slot_index(
+                        usize::from(class_count),
+                        rule.left,
+                        rule.right,
+                        region_code,
+                        writing_mode,
+                    );
+                    debug_assert_eq!(action_indices[slot], 0, "canonical rules must not overlap");
+                    action_indices[slot] = action_index;
+                }
+            }
         }
 
         Ok(Self {
@@ -517,6 +982,19 @@ impl CompiledScriptSpacingTable {
             action_indices,
             actions,
         })
+    }
+
+    #[cfg(test)]
+    /// Supplies a deterministic dense-allocation ceiling so atomic failure can be tested without
+    /// relying on the process allocator to exhaust memory.
+    pub(crate) fn try_replace_canonical_with_max_dense_slots(
+        &mut self,
+        candidate: CanonicalScriptSpacingTableCandidate,
+        max_dense_slots: usize,
+    ) -> Result<(), ScriptSpacingTableError> {
+        let replacement = Self::compile_canonical_with_max_dense_slots(candidate, max_dense_slots)?;
+        *self = replacement;
+        Ok(())
     }
 
     /// Compiles first and only then replaces the active table.

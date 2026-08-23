@@ -2,7 +2,7 @@
 //!
 //! wire decoder や Vaak adapter は、外部表現をこの proposal へ写してから同じ validator を
 //! 通す。validator は全 record を一時領域で検証・正規化し終えた場合だけ
-//! [`ValidatedSpacingProfileProposalV0`] を返すため、途中までの table を公開できない。
+//! [`CanonicalSpacingTableCandidateV0`] を返すため、途中までの table を公開できない。
 //!
 //! この型はproductionの[`crate::script_spacing::CompiledScriptSpacingTable`]ではない。W0-Dでは
 //! canonical候補をraw proposalへ戻して再検証せず、この型を一方向にconsumeするcompilerへ
@@ -175,6 +175,16 @@ impl SpacingTableProposalV0 {
     ) -> Self {
         Self { ranges, rules }
     }
+
+    #[cfg(test)]
+    pub(crate) fn into_parts(
+        self,
+    ) -> (
+        Vec<SpacingClassRangeProposalV0>,
+        Vec<SpacingPairRuleProposalV0>,
+    ) {
+        (self.ranges, self.rules)
+    }
 }
 
 #[repr(u16)]
@@ -317,13 +327,22 @@ impl ValidatedSpacingPairRuleV0 {
 
 /// 全件検証・有理数既約化・canonical整列を終えた場合だけ構築できるtable候補。
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ValidatedSpacingProfileProposalV0 {
+pub(crate) struct CanonicalSpacingTableCandidateV0 {
+    /// `SpacingTableConfigV0.max_classes`が宣言したdense ID capacity。
+    ///
+    /// response中に実際に現れたclass数ではなく、未使用IDを含む`1..=max_classes`の容量である。
+    /// 将来のschemaでactual countを追加しても、この値から推測してはならない。
+    provider_class_capacity: u32,
     ranges: Vec<ValidatedSpacingClassRangeV0>,
     rules: Vec<ValidatedSpacingPairRuleV0>,
     record_bytes: u64,
 }
 
-impl ValidatedSpacingProfileProposalV0 {
+impl CanonicalSpacingTableCandidateV0 {
+    pub(crate) const fn provider_class_capacity(&self) -> u32 {
+        self.provider_class_capacity
+    }
+
     pub(crate) fn ranges(&self) -> &[ValidatedSpacingClassRangeV0] {
         &self.ranges
     }
@@ -340,11 +359,17 @@ impl ValidatedSpacingProfileProposalV0 {
     pub(crate) fn into_parts(
         self,
     ) -> (
+        u32,
         Vec<ValidatedSpacingClassRangeV0>,
         Vec<ValidatedSpacingPairRuleV0>,
         u64,
     ) {
-        (self.ranges, self.rules, self.record_bytes)
+        (
+            self.provider_class_capacity,
+            self.ranges,
+            self.rules,
+            self.record_bytes,
+        )
     }
 
     /// 新しいproposalを先に全件検証し、成功時だけ現在値と交換する。
@@ -534,7 +559,7 @@ pub(crate) fn validate_spacing_table_proposal_v0(
     config: SpacingTableConfigV0,
     max_record_bytes: u64,
     proposal: SpacingTableProposalV0,
-) -> Result<ValidatedSpacingProfileProposalV0, SpacingTableValidationErrorV0> {
+) -> Result<CanonicalSpacingTableCandidateV0, SpacingTableValidationErrorV0> {
     validate_config(config)?;
     let record_bytes = validate_proposal_size(config, max_record_bytes, &proposal)?;
 
@@ -582,7 +607,8 @@ pub(crate) fn validate_spacing_table_proposal_v0(
         .map_err(|_| SpacingTableValidationErrorV0::AllocationFailed)?;
     validated_rules.extend(rules.into_iter().map(|entry| entry.value));
 
-    Ok(ValidatedSpacingProfileProposalV0 {
+    Ok(CanonicalSpacingTableCandidateV0 {
+        provider_class_capacity: config.max_classes,
         ranges: validated_ranges,
         rules: validated_rules,
         record_bytes,
@@ -1026,7 +1052,7 @@ mod tests {
     fn validate(
         ranges: Vec<SpacingClassRangeProposalV0>,
         rules: Vec<SpacingPairRuleProposalV0>,
-    ) -> Result<ValidatedSpacingProfileProposalV0, SpacingTableValidationErrorV0> {
+    ) -> Result<CanonicalSpacingTableCandidateV0, SpacingTableValidationErrorV0> {
         validate_spacing_table_proposal_v0(
             config(),
             ALL_RECORD_BYTES,
@@ -1338,6 +1364,11 @@ mod tests {
         let validated =
             validate_spacing_table_proposal_v0(small, 24 + 88, proposal.clone()).unwrap();
         assert_eq!(validated.record_bytes(), 112);
+        assert_eq!(
+            validated.provider_class_capacity(),
+            2,
+            "未使用IDがあってもrequestのdense capacityを保つ"
+        );
         assert!(matches!(
             validate_spacing_table_proposal_v0(small, 111, proposal),
             Err(SpacingTableValidationErrorV0::TooManyRecordBytes { .. })

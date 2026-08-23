@@ -4,7 +4,8 @@
 
 状態: **実験実装。ABI 0.0のversion・feature・capability・operation交渉と、runtime非依存の
 wire/mailbox検証、`SpacingTableUpload`のhost-owned domain検証を実装済み。
-unit validator・runtime・module profile検査・lease・provider接続は未実装**
+検証済みspacing候補からnative compiled tableへの一方向compiler bridgeも実装済み。
+unit validator・runtime・module profile検査・lease・provider registration/dispatcher接続は未実装**
 
 ## 1. 結論
 
@@ -491,8 +492,11 @@ region maskのbit nは`LanguageRegion` code nを表す。writing-mode maskはbit
 他bitは0とする。0 maskは「全部」ではなく不正である。
 
 `layout_schema=0`のhost上限はclass 64、range 4096、pair rule 16384であり、requestの各上限も
-これを越えない。`max_reason_ids`は件数で、許されるreason IDは`0..max_reason_ids`の半開区間で
-ある。従って0ならpair ruleを一件も受理しない。
+これを越えない。schema 0の`max_classes`はresponseに現れたclassの実数ではなく、provider-local
+dense ID `1..=max_classes`の**容量**でもある。未使用IDを許し、compiled tableもこの容量を保つ。
+将来actual countを別fieldで導入する場合に、使用済み最大IDやrange数から推測して混同しない。
+`max_reason_ids`は件数で、許されるreason IDは`0..max_reason_ids`の半開区間である。従って0なら
+pair ruleを一件も受理しない。
 
 ### 10.3 response
 
@@ -1101,11 +1105,18 @@ context付きrange/pair keyの検査を置き、現行`CompiledScriptSpacingTabl
 `src/wasm_spacing_table_v0.rs`には、Vaak/WASM/試験adapterで共有するhost-owned proposalと、
 scalar、mask、重複key、有理長、tier、break/edge/penalty、件数・byteを全件検証してからだけ
 canonical候補を返すdomain validatorを実装した。この候補はproduction compiled tableではない。
-W0-Dではraw proposalへ戻して現行validatorを再実行せず、検証済み候補をconsumeするcompilerへ
-native/custom経路を合流させる。codecとdomain validatorはruntime memory pointerや
+`src/wasm_spacing_compiler_v0.rs`には、この候補をraw proposalへ戻さず一方向にconsumeし、
+nativeの`CompiledScriptSpacingTable`へ渡すcompiler bridgeを実装した。class/range/pair/maskの
+domain判断は再実装せず、既存native proposalも同じcanonical compilerへ合流する。context依存の
+left/right `em` / `zw`は登録時のspへ近似せず、既約有理数とbasisのnative recipe、tier、break、
+line-edge、penalty、reasonをcompiled actionへ保持する。sp解決は一境界のimmutable metric snapshotを
+明示引数に取り、checked整数算術とhalf-away-from-zero丸めを使い、`MAX_DIMEN`外を拒否する。
+compile失敗時はactive tableを交換しない。
+
+codec、domain validator、compiler bridgeはruntime memory pointerや
 PraTeX nodeを保持しない。これらはmodule parser、policy grant、affine lease、runtime、unit domain
-validator、provider registrationを実装したことを意味しない。標準日本語経路はこの境界を呼ばず
-callback 0回である。
+validator、provider registration、dispatcher activationを実装したことを意味しない。標準日本語
+経路と既存BuiltIn/FixedGlue hot pathはこの境界を呼ばずcallback 0回である。
 
 | 段 | 内容 | 完了条件 |
 |---|---|---|
@@ -1113,7 +1124,7 @@ callback 0回である。
 | W0-A | host-owned proposal型とspacing/unit validator | **spacingの最初のbounded sliceは完了**。共有proposalを全件検証してcanonical候補だけを返し、部分交換0を試験済み。unit validatorとadapter接続は未完 |
 | W0-B | 0.0 byte codecとgolden/property test | **完了**。Rust layout非依存のcanonical encode/decode、全切断位置、reserved/range/limit/mailbox/transport拒否を固定 |
 | W0-C | optional runtime adapter、module profile、fixed mailbox | default build不変、import/start/memory/fuel境界を検査 |
-| W0-D | `SpacingTableUpload` | explicit custom profileだけ有効、登録後WASM call 0 |
+| W0-D | `SpacingTableUpload` | **compiler bridgeのbounded sliceは完了**。canonical候補をnative tableへ原子的にcompileし、context長を遅延checked解決する。runtime registration、explicit custom profile選択、dispatcher接続は未完 |
 | W0-E | `UnitTableUpload` | 中央`scan_units`だけへ接続、組込み単位不変 |
 | W0-F | `SpacingBatch` | owned batch一回、revision再検査、atomic native fallback |
 | W0-G | `UnitContextBatch` | context一回、全dynamic unit一括、cache世代失効 |
