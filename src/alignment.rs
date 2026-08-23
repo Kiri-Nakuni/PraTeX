@@ -497,6 +497,7 @@ fn determine_mode(nest: &SemanticState) -> RichMode {
             list: Vec::new(),
             subtype: HorizontalModeType::Restricted,
             space_factor: hmode.space_factor,
+            script_spacing: Default::default(),
         }),
         RichMode::Math(_) => {
             let RichMode::Vertical(outer_vmode) = nest.outer_mode() else {
@@ -586,6 +587,7 @@ impl Alignment {
                 // The space_factor is not used but we keep this for backward compatibility in
                 // diagnostic messages.
                 space_factor: 0,
+                script_spacing: Default::default(),
             }),
             RichMode::Horizontal(_) => {
                 // The prev_depth is not used but we keep this for backward compatibility in
@@ -685,6 +687,9 @@ impl Alignment {
             self.extend_alignment_or_complain(&mut ending_command, scanner, eqtb, logger);
         }
         if ending_command != AlignCommand::Span {
+            if let RichMode::Horizontal(hmode) = nest.mode_mut() {
+                hmode.finalize_script_spacing(eqtb);
+            }
             eqtb.unsave(scanner, logger);
             eqtb.new_save_level(GroupType::AlignEntry, &scanner.input_stack, logger);
             self.package_unset_box_for_current_column_and_record_width(nest, eqtb);

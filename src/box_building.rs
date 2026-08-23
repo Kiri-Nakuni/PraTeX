@@ -94,6 +94,9 @@ pub fn handle_right_brace(
             logger,
         ),
         GroupType::AdjustedHbox { shift_amount, spec } => {
+            if let RichMode::Horizontal(hmode) = nest.mode_mut() {
+                hmode.finalize_script_spacing(eqtb);
+            }
             eqtb.unsave(scanner, logger);
             let old_level = nest.pop_nest(eqtb);
             let RichMode::Horizontal(hmode) = old_level.mode else {
@@ -452,6 +455,9 @@ fn package(
     logger: &mut Logger,
 ) {
     let d = eqtb.dimen(DimensionVariable::BoxMaxDepth);
+    if let RichMode::Horizontal(hmode) = nest.mode_mut() {
+        hmode.finalize_script_spacing(eqtb);
+    }
     eqtb.unsave(scanner, logger);
     let old_level = nest.pop_nest(eqtb);
     let list_node = match old_level.mode {
@@ -673,6 +679,7 @@ pub fn new_graf(
                 lang_data,
             },
             space_factor: 1000,
+            script_spacing: Default::default(),
         }),
         &scanner.input_stack,
         eqtb,
@@ -753,6 +760,9 @@ pub fn end_graf(
         ..
     }) = nest.mode()
     {
+        if let RichMode::Horizontal(hmode) = nest.mode_mut() {
+            hmode.finalize_script_spacing(eqtb);
+        }
         let old_level = nest.pop_nest(eqtb);
         let RichMode::Horizontal(hmode) = old_level.mode else {
             panic!("We know it is horizontal");

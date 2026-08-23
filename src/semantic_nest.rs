@@ -83,12 +83,18 @@ impl SemanticState {
 
     /// See 214.
     pub fn tail_push(&mut self, node: Node, eqtb: &mut Eqtb) {
+        if let RichMode::Horizontal(hmode) = self.mode_mut() {
+            hmode.observe_appended_nodes(std::slice::from_ref(&node));
+        }
         self.cur_list_mut().push(node);
         self.update_last_node_info(eqtb);
     }
 
     /// See 214.
     pub fn tail_append(&mut self, mut list: Vec<Node>, eqtb: &mut Eqtb) {
+        if let RichMode::Horizontal(hmode) = self.mode_mut() {
+            hmode.observe_appended_nodes(&list);
+        }
         self.cur_list_mut().append(&mut list);
         self.update_last_node_info(eqtb)
     }

@@ -1265,7 +1265,8 @@ fn read_japanese_font_info(
         SizeIndicator::Factor((-size_specification) as u32)
     };
     match load_japanese_font_info(path, size, scanner) {
-        Ok(font) => {
+        Ok(mut font) => {
+            font.bind_index(font_index);
             eqtb.japanese_fonts.push(font);
             Some(font_index)
         }

@@ -1825,7 +1825,11 @@ impl Dumpable for Eqtb {
         let write_cs = ControlSequence::undump(lines)?;
 
         let fonts = Vec::undump(lines)?;
-        let japanese_fonts: Vec<JapaneseFontInfo> = Vec::undump(lines)?;
+        let mut japanese_fonts: Vec<JapaneseFontInfo> = Vec::undump(lines)?;
+        for (position, font) in japanese_fonts.iter_mut().enumerate() {
+            let index = JapaneseFontIndex::from_position(position).ok_or(FormatError::ParseError)?;
+            font.bind_index(index);
+        }
         if cur_japanese_font
             .is_some_and(|index| index.position() >= japanese_fonts.len())
         {

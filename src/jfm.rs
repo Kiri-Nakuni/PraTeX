@@ -42,6 +42,10 @@ impl JfmClassId {
     pub(crate) const fn number(self) -> u8 {
         self.0
     }
+
+    pub(crate) const fn from_number(number: u8) -> Self {
+        Self(number)
+    }
 }
 
 impl Dumpable for JfmClassId {
@@ -215,6 +219,11 @@ impl Jfm {
 
     pub(crate) fn char_info(&self, class: JfmClassId) -> &JfmCharInfo {
         &self.char_infos[class.index()]
+    }
+
+    pub(crate) fn class_count(&self) -> u16 {
+        u16::try_from(self.char_infos.len())
+            .expect("validated JFM character types are bounded to 256 classes")
     }
 
     pub(crate) fn relative_width(&self, class: JfmClassId) -> JfmFixWord {

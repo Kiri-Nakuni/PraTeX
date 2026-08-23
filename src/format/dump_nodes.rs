@@ -3,10 +3,11 @@ use crate::dimension::Dimension;
 use crate::eqtb::{undump_insertion_index, undump_mark_class_index, FontIndex, SkipVariable};
 use crate::nodes::noads::{ChoiceNode, Noad, StyleNode};
 use crate::nodes::{
-    AdjustNode, CharNode, CloseNode, DimensionOrder, DiscNode, GlueNode, GlueRatio, GlueSign,
-    GlueSpec, GlueType, HigherOrderDimension, HlistOrVlist, InsNode, KernNode, KernSubtype,
-    LanguageNode, LeaderKind, LigatureNode, ListNode, MarkNode, MathNode, MathNodeKind, Node,
-    OpenNode, PenaltyNode, RuleNode, SpecialNode, UnsetNode, WhatsitNode, WideCharNode, WriteNode,
+    AdjustNode, AutomaticJapaneseGlue, CharNode, CloseNode, DimensionOrder, DiscNode, GlueNode,
+    GlueRatio, GlueSign, GlueSpec, GlueType, HigherOrderDimension, HlistOrVlist, InsNode, KernNode,
+    KernSubtype, LanguageNode, LeaderKind, LigatureNode, ListNode, MarkNode, MathNode,
+    MathNodeKind, Node, OpenNode, PenaltyNode, PenaltySubtype, RuleNode, SpecialNode, UnsetNode,
+    WhatsitNode, WideCharNode, WriteNode,
 };
 
 use std::io::Write;
@@ -526,6 +527,17 @@ impl Dumpable for GlueType {
                 writeln!(target, "Skip")?;
                 skip_var.dump(target)?;
             }
+            Self::AutomaticJapanese(kind) => {
+                writeln!(
+                    target,
+                    "{}",
+                    match kind {
+                        AutomaticJapaneseGlue::Jfm => "AutomaticJapaneseJfm",
+                        AutomaticJapaneseGlue::KanjiSkip => "AutomaticJapaneseKanjiSkip",
+                        AutomaticJapaneseGlue::XKanjiSkip => "AutomaticJapaneseXKanjiSkip",
+                    }
+                )?;
+            }
             Self::NonScript => writeln!(target, "NonScript")?,
             Self::MuGlue => writeln!(target, "MuGlue")?,
             Self::Leaders {
@@ -547,6 +559,13 @@ impl Dumpable for GlueType {
             "Skip" => {
                 let skip_var = SkipVariable::undump(lines)?;
                 Self::Skip(skip_var)
+            }
+            "AutomaticJapaneseJfm" => Self::AutomaticJapanese(AutomaticJapaneseGlue::Jfm),
+            "AutomaticJapaneseKanjiSkip" => {
+                Self::AutomaticJapanese(AutomaticJapaneseGlue::KanjiSkip)
+            }
+            "AutomaticJapaneseXKanjiSkip" => {
+                Self::AutomaticJapanese(AutomaticJapaneseGlue::XKanjiSkip)
             }
             "NonScript" => Self::NonScript,
             "MuGlue" => Self::MuGlue,
@@ -592,6 +611,7 @@ impl Dumpable for KernNode {
             KernSubtype::Explicit => writeln!(target, "Explicit")?,
             KernSubtype::AccKern => writeln!(target, "AccKern")?,
             KernSubtype::MuGlue => writeln!(target, "MuGlue")?,
+            KernSubtype::AutomaticJapaneseJfm => writeln!(target, "AutomaticJapaneseJfm")?,
         }
         self.width.dump(target)?;
         Ok(())
@@ -604,6 +624,7 @@ impl Dumpable for KernNode {
             "Explicit" => KernSubtype::Explicit,
             "AccKern" => KernSubtype::AccKern,
             "MuGlue" => KernSubtype::MuGlue,
+            "AutomaticJapaneseJfm" => KernSubtype::AutomaticJapaneseJfm,
             _ => return Err(FormatError::ParseError),
         };
         let width = Dimension::undump(lines)?;
@@ -613,13 +634,26 @@ impl Dumpable for KernNode {
 
 impl Dumpable for PenaltyNode {
     fn dump(&self, target: &mut impl Write) -> Result<(), std::io::Error> {
+        writeln!(
+            target,
+            "{}",
+            match self.subtype {
+                PenaltySubtype::Normal => "Normal",
+                PenaltySubtype::AutomaticJapaneseKinsoku => "AutomaticJapaneseKinsoku",
+            }
+        )?;
         self.penalty.dump(target)?;
         Ok(())
     }
 
     fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
+        let subtype = match lines.next().ok_or(FormatError::IncompleteFile)? {
+            "Normal" => PenaltySubtype::Normal,
+            "AutomaticJapaneseKinsoku" => PenaltySubtype::AutomaticJapaneseKinsoku,
+            _ => return Err(FormatError::ParseError),
+        };
         let penalty = i32::undump(lines)?;
-        Ok(Self { penalty })
+        Ok(Self { penalty, subtype })
     }
 }
 
@@ -944,7 +978,7 @@ mod tests {
             subtype: KernSubtype::Normal,
             width: -1,
         });
-        let penalty = Node::Penalty(PenaltyNode { penalty: -123 });
+        let penalty = Node::Penalty(PenaltyNode::new(-123));
         let unset = Node::Unset(UnsetNode {
             width: 1,
             height: 2,
@@ -1370,7 +1404,7 @@ mod tests {
 
     #[test]
     fn dump_penalty_node() {
-        let penalty_node = PenaltyNode { penalty: -123 };
+        let penalty_node = PenaltyNode::new(-123);
 
         let mut file = Vec::new();
         penalty_node.dump(&mut file).unwrap();
@@ -1497,7 +1531,13 @@ mod tests {
 
     #[test]
     fn language_nodeの壊れたformat値を拒否する() {
-        for input in ["256\n2\n3\n", "1\n0\n3\n", "1\n64\n3\n", "1\n2\n0\n", "1\n2\n64\n"] {
+        for input in [
+            "256\n2\n3\n",
+            "1\n0\n3\n",
+            "1\n64\n3\n",
+            "1\n2\n0\n",
+            "1\n2\n64\n",
+        ] {
             assert!(matches!(
                 LanguageNode::undump(&mut input.lines()),
                 Err(FormatError::ParseError)
@@ -1563,5 +1603,44 @@ mod tests {
         assert_eq!(fil, fil_undumped);
         assert_eq!(fill, fill_undumped);
         assert_eq!(filll, filll_undumped);
+    }
+
+    #[test]
+    fn 自動和文spacingのprovenanceをfmtで全種類往復する() {
+        let spec = std::rc::Rc::new(GlueSpec {
+            width: 11,
+            stretch: HigherOrderDimension {
+                order: DimensionOrder::Normal,
+                value: 12,
+            },
+            shrink: HigherOrderDimension {
+                order: DimensionOrder::Normal,
+                value: 13,
+            },
+        });
+        let nodes = vec![
+            Node::Glue(GlueNode::new_automatic_japanese(
+                AutomaticJapaneseGlue::Jfm,
+                spec.clone(),
+            )),
+            Node::Glue(GlueNode::new_automatic_japanese(
+                AutomaticJapaneseGlue::KanjiSkip,
+                spec.clone(),
+            )),
+            Node::Glue(GlueNode::new_automatic_japanese(
+                AutomaticJapaneseGlue::XKanjiSkip,
+                spec,
+            )),
+            Node::Kern(KernNode {
+                subtype: KernSubtype::AutomaticJapaneseJfm,
+                width: -17,
+            }),
+            Node::Penalty(PenaltyNode::new_automatic_japanese(10_000)),
+        ];
+        let mut file = Vec::new();
+        nodes.dump(&mut file).unwrap();
+        let input = String::from_utf8(file).unwrap();
+        let restored = Vec::<Node>::undump(&mut input.lines()).unwrap();
+        assert_eq!(restored, nodes);
     }
 }

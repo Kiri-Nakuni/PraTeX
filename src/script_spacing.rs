@@ -2,6 +2,7 @@ use crate::dimension::{Dimension, MAX_DIMEN};
 use crate::eqtb::LanguageRegion;
 use crate::nodes::{DimensionOrder, HigherOrderDimension};
 
+pub(crate) mod finalizer;
 pub(crate) mod planner;
 
 pub(crate) const MAX_SCRIPT_SPACING_CLASSES: u32 = 64;
