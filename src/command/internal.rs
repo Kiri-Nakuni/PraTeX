@@ -20,6 +20,8 @@ pub enum InternalCommand {
     // ==== e-TeX / pdfTeX の問い合わせ ====
     /// `\eTeXversion`
     ETeXVersion,
+    /// `\pratexversion` — PraTeX 自身を識別する読み取り専用の版番号。
+    PraTeXVersion,
     /// `\pdfshellescape`（読み取り専用）
     PdfShellEscape,
     /// `\currentgrouplevel`

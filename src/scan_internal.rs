@@ -140,6 +140,7 @@ fn scan_something_internal(
         InternalCommand::Badness => InternalValue::Int(eqtb.last_badness),
         // ==== e-TeX / pdfTeX の問い合わせ ====
         InternalCommand::ETeXVersion => InternalValue::Int(2),
+        InternalCommand::PraTeXVersion => InternalValue::Int(1),
         // 外部コマンドの実行を許さないため、読み取り専用の無効状態だけを答える。
         InternalCommand::PdfShellEscape => InternalValue::Int(0),
         InternalCommand::CurrentGroupLevel => {

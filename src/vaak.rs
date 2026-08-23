@@ -66,7 +66,9 @@ use std::rc::Rc;
 use std::sync::OnceLock;
 
 use vaak::ast::{HostItem, ValueType};
-use vaak::embedding::{prepare, EmbeddingRunner, HostLayout, PreparedProgram};
+use vaak::embedding::{
+    prepare, EmbeddingRunner, HostLayout, PrepareDiagnostic, PrepareStage, PreparedProgram,
+};
 use vaak::value::Value;
 
 /// Vaak のホスト ABI が公開する低位 count/dimen レジスタの個数。
@@ -125,7 +127,7 @@ impl Touch {
 ///
 /// 組み上がったものを呼び出しのたびに複製していた。命令列も定数表も位置情報も、
 /// **一度作れば二度と変わらない**のに、毎回写していた——`Rc` で貸せば済む。
-type Cached = Rc<Result<Built, Vec<String>>>;
+type Cached = Rc<Result<Built, Vec<PrepareDiagnostic>>>;
 
 thread_local! {
     static CACHE: RefCell<HashMap<Vec<u8>, Cached>> = RefCell::new(HashMap::new());
@@ -196,17 +198,16 @@ pub fn vaak_def(global: bool, scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &m
 
     // **今のうちに組む。** 誤りがあれば、使われる前に分かる
     let id = intern(&source);
-    let errs = NAMED.with(|n| match &*n.borrow().0[id as usize].1 {
-        Err(e) => e.len(),
-        Ok(_) => 0,
+    let error = NAMED.with(|n| match &*n.borrow().0[id as usize].1 {
+        Err(errors) => Some(format_static_errors(
+            errors,
+            &Src::Bytes(&source),
+            " at definition",
+        )),
+        Ok(_) => None,
     });
-    if errs > 0 {
-        report_error(
-            &format!("{errs} static error(s) at definition"),
-            scanner,
-            eqtb,
-            logger,
-        );
+    if let Some(message) = error {
+        report_error(b"vaakdef", &message, scanner, eqtb, logger);
     }
     let command = Command::Expandable(ExpandableCommand::VaakCall(id));
     eqtb.cs_define(cs, command, global);
@@ -225,7 +226,7 @@ pub fn vaak_call(id: u32, scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut L
     let Some(cached) = cached else { return };
     let (code, error) = run_cached(&cached, id, eqtb, logger);
     if let Some(msg) = error {
-        report_error(&msg, scanner, eqtb, logger);
+        report_error(b"vaakdef", &msg, scanner, eqtb, logger);
     }
     let mut buf = [0u8; 12];
     let toks = str_toks(itoa(code, &mut buf));
@@ -283,16 +284,10 @@ fn compile_cached(source: &[u8]) -> Cached {
     })
 }
 
-fn build(source: &[u8]) -> Result<Built, Vec<String>> {
+fn build(source: &[u8]) -> Result<Built, Vec<PrepareDiagnostic>> {
     let src = String::from_utf8_lossy(source);
     let ex = exposed();
-    let program = prepare(&src, ex).map_err(|error| {
-        error
-            .diagnostics()
-            .iter()
-            .map(|diagnostic| diagnostic.message.clone())
-            .collect::<Vec<_>>()
-    })?;
+    let program = prepare(&src, ex).map_err(|error| error.diagnostics().to_vec())?;
     // **一度だけ調べる。** 命令列を全部見るので、呼び出しのたびにはできない
     let used = program.host_used();
     Ok(Built {
@@ -350,7 +345,7 @@ pub fn vaak_input(scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Logger) {
         None => (0, Some(format!("cannot read {}", logical_path.display()))),
     };
     if let Some(msg) = error {
-        report_error(&msg, scanner, eqtb, logger);
+        report_error(b"vaakinput", &msg, scanner, eqtb, logger);
     }
     let mut buf = [0u8; 12];
     let toks = str_toks(itoa(code, &mut buf));
@@ -376,7 +371,7 @@ pub fn direct_vaak(token: Token, scanner: &mut Scanner, eqtb: &mut Eqtb, logger:
     let (code, error) = run_vaak(&source, eqtb, logger);
 
     if let Some(msg) = error {
-        report_error(&msg, scanner, eqtb, logger);
+        report_error(b"directvaak", &msg, scanner, eqtb, logger);
     }
 
     // **必ず数字を出す。** 展開が空だと TeX の数値走査が壊れる
@@ -426,17 +421,14 @@ fn run_built(
     let built = match &**cached {
         Ok(p) => p,
         Err(errs) => {
-            // **数しか出せない**——rtex の記録は 7 ビットで、Vaak の文言は日本語である。
-            // 中身を見たいときは `VAAK_DEBUG=1` を立てると標準エラーへ出る
+            // 埋め込みAPIが返した段階・位置・本文を失わない。TeXのerror contextだけでは
+            // 一般テキストの内側のどこでVaak検査が止まったか分からないためである。
             if std::env::var_os("VAAK_DEBUG").is_some() {
                 for e in errs {
-                    eprintln!("vaak: {e}");
+                    eprintln!("vaak: {}", e.message);
                 }
             }
-            return (
-                0,
-                Some(format!("{} static error(s) before running", errs.len())),
-            );
+            return (0, Some(format_static_errors(errs, &src, "")));
         }
     };
 
@@ -523,8 +515,12 @@ fn run_built(
 fn line_col(src: &[u8], offset: u32) -> (usize, usize) {
     let mut line = 1;
     let mut col = 1;
-    for b in src.iter().take(offset as usize) {
-        if *b == b'\n' {
+    let source = String::from_utf8_lossy(src);
+    for (byte_offset, character) in source.char_indices() {
+        if byte_offset >= offset as usize {
+            break;
+        }
+        if character == '\n' {
             line += 1;
             col = 1;
         } else {
@@ -532,6 +528,33 @@ fn line_col(src: &[u8], offset: u32) -> (usize, usize) {
         }
     }
     (line, col)
+}
+
+/// prepare時の診断を、TeXの一件のerrorから読める長さへまとめる。
+///
+/// 同じsourceで複数の検査が失敗しても最初の三件は隠さず、残りの件数を示す。
+/// 位置はVaak embedding APIのUTF-8 byte offsetを、表示時だけ行・桁へ直す。
+fn format_static_errors(errors: &[PrepareDiagnostic], src: &Src<'_>, suffix: &str) -> String {
+    const SHOWN: usize = 3;
+    let mut message = String::new();
+    for (index, diagnostic) in errors.iter().take(SHOWN).enumerate() {
+        if index != 0 {
+            message.push_str("; ");
+        }
+        let (line, column) = src.line_col(diagnostic.span.start);
+        let stage = match diagnostic.stage {
+            PrepareStage::Parse => "parse",
+            PrepareStage::Check => "check",
+            PrepareStage::TypeCheck => "type check",
+            PrepareStage::Compile => "compile",
+        };
+        let text = diagnostic.message.replace('\r', " ").replace('\n', " ");
+        message.push_str(&format!("{stage} error{suffix} at {line}:{column}: {text}"));
+    }
+    if errors.len() > SHOWN {
+        message.push_str(&format!("; and {} more", errors.len() - SHOWN));
+    }
+    message
 }
 
 /// 見ている添字を順に。
@@ -581,13 +604,21 @@ fn regs_to_value(before: &[i32; N_REGS]) -> Value {
 /// エラーを報告する。**`\directlua` と見た目を揃える。**
 ///
 /// ```text
-/// ! Vaak interpreter error [\directvaak]:1:5: the run did not finish.
+/// ! Vaak interpreter error [\directvaak]:check error at 1:5: unknown name.
 /// ```
-fn report_error(msg: &str, scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Logger) {
+fn report_error(
+    command: &[u8],
+    msg: &str,
+    scanner: &mut Scanner,
+    eqtb: &mut Eqtb,
+    logger: &mut Logger,
+) {
     logger.print_err("Vaak interpreter error [");
-    logger.print_esc_str(b"directvaak");
+    logger.print_esc_str(command);
     logger.print_str("]:");
-    logger.slow_print_str(msg.as_bytes());
+    // PrepareDiagnosticはUTF-8本文を持つ。`slow_print_str`へ渡すと各byteが
+    // `^^xx`になって診断が読めないため、upTeX対応済みのraw文字列経路を使う。
+    logger.print_str(msg);
     logger.error(
         &[
             "The Vaak code you gave could not be run to completion.",
