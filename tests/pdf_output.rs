@@ -179,6 +179,45 @@ fn pdfを直接二page書きruleだけをcontentへ入れる() {
 }
 
 #[test]
+fn papersize_specialの物理寸法を後続pageもmediaboxへ使う() {
+    let (directory, output) = run_tex(
+        "A4 papersize special",
+        &["--output-format=pdf"],
+        "\\setbox0=\\hbox{\\special{papersize=210mm,297mm}%\n\
+         \\vrule width20pt height10pt depth0pt}\n\
+         \\shipout\\box0\n\
+         \\setbox0=\\hbox{\\vrule width1pt height2pt depth0pt}\n\
+         \\shipout\\box0",
+    );
+    assert_success(&output, &directory);
+
+    let pdf = std::fs::read(directory.join("t.pdf")).unwrap();
+    assert_eq!(
+        count(&pdf, b"/MediaBox [0 0 595.275591 841.889764]"),
+        2,
+        "第一pageのA4 specialを、specialのない第二pageも継承する"
+    );
+    assert!(!contains(&pdf, b"papersize="));
+}
+
+#[test]
+fn 壊れたpapersize_specialはpdf診断で停止する() {
+    let (directory, output) = run_tex(
+        "broken papersize special",
+        &["--output-format=pdf"],
+        "\\shipout\\hbox{\\special{papersize=210mm}}",
+    );
+    assert!(!output.status.success());
+    assert_not_panicked(&output);
+    let log = joined_log(&directory.join("t.log"));
+    assert!(contains(&log, b"PDF output failed"));
+    assert!(contains(
+        &log,
+        b"PDF papersize special needs `width,height`"
+    ));
+}
+
+#[test]
 fn 明示したfull_mapだけがtype1をstandalone_pdfへ埋め込む() {
     let directory = test_directory("CLI Type1埋込み");
     std::fs::create_dir_all(&directory).unwrap();

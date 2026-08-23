@@ -10,6 +10,7 @@ use crate::pdf_document::{
 use crate::pdf_font::{
     prepare_type1_font, MissingStemVPolicy, PdfType1Font, PdfType1FontRequest, PreparedPdfType1Font,
 };
+use crate::pdf_special::{parse_pdf_special, PdfPaperSize, PdfSpecialError};
 use crate::scaled::Scaled;
 
 use std::collections::HashMap;
@@ -60,7 +61,10 @@ struct Position {
 }
 
 struct PageState {
-    media_height: PdfCoordinate,
+    /// このpageのcontent座標を作り始めた時点の媒体高。
+    /// 第一pageの途中でpapersize specialを読む場合も、既出contentと基底を混ぜない。
+    coordinate_media_height: PdfCoordinate,
+    paper_size: Option<PdfPaperSize>,
     declared_height: Scaled,
     min_horizontal: Scaled,
     max_horizontal: Scaled,
@@ -97,6 +101,8 @@ pub(crate) struct PdfBackend<W: Write> {
     fonts: HashMap<u32, PdfFontState>,
     current_font: Option<u32>,
     page: Option<PageState>,
+    /// 第一pageで確定した物理媒体寸法。後続pageはspecialがなくても継承する。
+    paper_size: Option<PdfPaperSize>,
 }
 
 impl<W: Write> PdfBackend<W> {
@@ -151,6 +157,7 @@ impl<W: Write> PdfBackend<W> {
             fonts: HashMap::new(),
             current_font: None,
             page: None,
+            paper_size: None,
         })
     }
 
@@ -209,6 +216,20 @@ impl<W: Write> PdfBackend<W> {
             .ok_or(PdfBackendError::PositionOverflow)
     }
 
+    /// papersize specialの値は物理寸法なので、文書の`\mag`とは独立にPDF座標へする。
+    fn physical_paper_coordinates(
+        paper_size: PdfPaperSize,
+    ) -> Result<(PdfCoordinate, PdfCoordinate), PdfBackendError> {
+        let (width_numerator, width_denominator) = paper_size.width.sp_ratio();
+        let (height_numerator, height_denominator) = paper_size.height.sp_ratio();
+        let width = PdfCoordinate::from_scaled_ratio(width_numerator, width_denominator, 1000)?;
+        let height = PdfCoordinate::from_scaled_ratio(height_numerator, height_denominator, 1000)?;
+        if !width.is_positive() || !height.is_positive() {
+            return Err(PdfBackendError::InvalidPageSize { width, height });
+        }
+        Ok((width, height))
+    }
+
     fn include_interval(minimum: &mut Scaled, maximum: &mut Scaled, first: Scaled, second: Scaled) {
         *minimum = (*minimum).min(first).min(second);
         *maximum = (*maximum).max(first).max(second);
@@ -222,7 +243,7 @@ impl<W: Write> PdfBackend<W> {
         let vertical = PdfCoordinate::from_scaled(page.position.vertical, magnification)?;
         let x = PdfCoordinate::ONE_INCH.checked_add(horizontal)?;
         let y = page
-            .media_height
+            .coordinate_media_height
             .checked_sub(PdfCoordinate::ONE_INCH)?
             .checked_sub(vertical)?;
         Ok((x, y))
@@ -318,10 +339,16 @@ impl<W: Write> ShipoutBackend for PdfBackend<W> {
         // TeXは負幅・負高のboxも作れる。物理媒体まで負にせず、内容範囲を空として扱う。
         let declared_width = page_width.max(0);
         let declared_height = page_height.max(0);
-        let media_width = PdfCoordinate::from_scaled(declared_width, self.magnification)?
-            .checked_add(double_margin)?;
-        let media_height = PdfCoordinate::from_scaled(declared_height, self.magnification)?
-            .checked_add(double_margin)?;
+        let (media_width, media_height) = if let Some(paper_size) = self.paper_size {
+            Self::physical_paper_coordinates(paper_size)?
+        } else {
+            (
+                PdfCoordinate::from_scaled(declared_width, self.magnification)?
+                    .checked_add(double_margin)?,
+                PdfCoordinate::from_scaled(declared_height, self.magnification)?
+                    .checked_add(double_margin)?,
+            )
+        };
         if !media_width.is_positive() || !media_height.is_positive() {
             return Err(PdfBackendError::InvalidPageSize {
                 width: media_width,
@@ -330,7 +357,8 @@ impl<W: Write> ShipoutBackend for PdfBackend<W> {
         }
         self.current_font = None;
         self.page = Some(PageState {
-            media_height,
+            coordinate_media_height: media_height,
+            paper_size: self.paper_size,
             declared_height,
             min_horizontal: 0,
             max_horizontal: declared_width,
@@ -355,20 +383,33 @@ impl<W: Write> ShipoutBackend for PdfBackend<W> {
             return Err(PdfBackendError::UnbalancedPushes(page.position_stack.len()));
         }
         let page = self.page.take().expect("page presence checked above");
-        let left = PdfCoordinate::from_scaled(page.min_horizontal, self.magnification)?;
-        let right = PdfCoordinate::from_scaled(page.max_horizontal, self.magnification)?;
-        let top = PdfCoordinate::from_scaled(page.min_vertical, self.magnification)?;
-        let bottom = PdfCoordinate::from_scaled(page.max_vertical, self.magnification)?;
-        let double_margin = PdfCoordinate::ONE_INCH.checked_add(PdfCoordinate::ONE_INCH)?;
-        let media_width = right.checked_sub(left)?.checked_add(double_margin)?;
-        let media_height = bottom.checked_sub(top)?.checked_add(double_margin)?;
+        let (media_width, media_height, translate_x, translate_y) =
+            if let Some(paper_size) = page.paper_size {
+                let (media_width, media_height) = Self::physical_paper_coordinates(paper_size)?;
+                // specialはpage contentの途中に現れ得る。座標基底をその場で変えず、pageを
+                // 閉じる時にcontent全体を一度だけ新しい上端へ合わせる。
+                let zero = PdfCoordinate::from_scaled(0, 1000)?;
+                let translate_y = media_height.checked_sub(page.coordinate_media_height)?;
+                (media_width, media_height, zero, translate_y)
+            } else {
+                let left = PdfCoordinate::from_scaled(page.min_horizontal, self.magnification)?;
+                let right = PdfCoordinate::from_scaled(page.max_horizontal, self.magnification)?;
+                let top = PdfCoordinate::from_scaled(page.min_vertical, self.magnification)?;
+                let bottom = PdfCoordinate::from_scaled(page.max_vertical, self.magnification)?;
+                let double_margin = PdfCoordinate::ONE_INCH.checked_add(PdfCoordinate::ONE_INCH)?;
+                let media_width = right.checked_sub(left)?.checked_add(double_margin)?;
+                let media_height = bottom.checked_sub(top)?.checked_add(double_margin)?;
 
-        // 既に書いた座標は宣言寸法を基準にしている。観測した描画範囲がboxからはみ出す
-        // 場合だけ平行移動し、左右上下の物理1inch余白を保つ。
-        let zero = PdfCoordinate::from_scaled(0, self.magnification)?;
-        let declared_height = PdfCoordinate::from_scaled(page.declared_height, self.magnification)?;
-        let translate_x = zero.checked_sub(left)?;
-        let translate_y = bottom.checked_sub(declared_height)?;
+                // 既に書いた座標は宣言寸法を基準にしている。観測した描画範囲がboxから
+                // はみ出す場合だけ平行移動し、左右上下の物理1inch余白を保つ。
+                let zero = PdfCoordinate::from_scaled(0, self.magnification)?;
+                let declared_height =
+                    PdfCoordinate::from_scaled(page.declared_height, self.magnification)?;
+                let translate_x = zero.checked_sub(left)?;
+                let translate_y = bottom.checked_sub(declared_height)?;
+                (media_width, media_height, translate_x, translate_y)
+            };
+        let zero = PdfCoordinate::from_scaled(0, 1000)?;
         let content = if translate_x != zero || translate_y != zero {
             let mut translated =
                 format!("q\n1 0 0 1 {translate_x} {translate_y} cm\n").into_bytes();
@@ -692,8 +733,25 @@ impl<W: Write> ShipoutBackend for PdfBackend<W> {
         Ok(())
     }
 
-    fn write_special(&mut self, _bytes: &[u8]) -> Result<(), Self::Error> {
-        self.current_page_mut()?;
+    fn write_special(&mut self, bytes: &[u8]) -> Result<(), Self::Error> {
+        if self.page.is_none() {
+            return Err(PdfBackendError::NoOpenPage);
+        }
+        let Some(paper_size) = parse_pdf_special(bytes)? else {
+            return Ok(());
+        };
+        if self.document.page_count() != 0 && self.paper_size != Some(paper_size) {
+            return Err(PdfBackendError::PaperSizeChangedAfterFirstPage {
+                original: self.paper_size,
+                requested: paper_size,
+            });
+        }
+        // 第一page内では最後のpapersize specialを採用する。閉じた後は同一値だけ許す。
+        self.paper_size = Some(paper_size);
+        self.page
+            .as_mut()
+            .expect("page presence checked above")
+            .paper_size = Some(paper_size);
         Ok(())
     }
 
@@ -712,10 +770,15 @@ pub(crate) enum PdfBackendError {
     Document(PdfDocumentError),
     FontResource(FontResourceError),
     NamedCidProfile(NamedCidProfileError),
+    Special(PdfSpecialError),
     InvalidMagnification(Scaled),
     InvalidPageSize {
         width: PdfCoordinate,
         height: PdfCoordinate,
+    },
+    PaperSizeChangedAfterFirstPage {
+        original: Option<PdfPaperSize>,
+        requested: PdfPaperSize,
     },
     PageAlreadyOpen,
     NoOpenPage,
@@ -778,12 +841,28 @@ impl fmt::Display for PdfBackendError {
             Self::Document(error) => error.fmt(formatter),
             Self::FontResource(error) => error.fmt(formatter),
             Self::NamedCidProfile(error) => error.fmt(formatter),
+            Self::Special(error) => error.fmt(formatter),
             Self::InvalidMagnification(magnification) => {
                 write!(formatter, "invalid PDF magnification {magnification}")
             }
             Self::InvalidPageSize { width, height } => {
                 write!(formatter, "invalid PDF page size {width} by {height}")
             }
+            Self::PaperSizeChangedAfterFirstPage {
+                original,
+                requested,
+            } => match original {
+                Some(original) => write!(
+                    formatter,
+                    "PDF papersize changed after the first page from {} by {} to {} by {}",
+                    original.width, original.height, requested.width, requested.height
+                ),
+                None => write!(
+                    formatter,
+                    "PDF papersize was first specified after the first page as {} by {}",
+                    requested.width, requested.height
+                ),
+            },
             Self::PageAlreadyOpen => formatter.write_str("a PDF page is already open"),
             Self::NoOpenPage => formatter.write_str("no PDF page is open"),
             Self::PageStillOpen => formatter.write_str("cannot finish PDF with an open page"),
@@ -872,6 +951,7 @@ impl std::error::Error for PdfBackendError {
             Self::Document(error) => Some(error),
             Self::FontResource(error) => Some(error),
             Self::NamedCidProfile(error) => Some(error),
+            Self::Special(error) => Some(error),
             _ => None,
         }
     }
@@ -892,6 +972,12 @@ impl From<FontResourceError> for PdfBackendError {
 impl From<NamedCidProfileError> for PdfBackendError {
     fn from(error: NamedCidProfileError) -> Self {
         Self::NamedCidProfile(error)
+    }
+}
+
+impl From<PdfSpecialError> for PdfBackendError {
+    fn from(error: PdfSpecialError) -> Self {
+        Self::Special(error)
     }
 }
 
@@ -1596,6 +1682,59 @@ EndFontMetrics\n"
             2
         );
         assert!(!含む(&pdf, b"RAW-SPECIAL-MUST-NOT-APPEAR"));
+    }
+
+    #[test]
+    fn 第一pageの最後のpapersizeをmag非依存で後続pageへ継承する() {
+        let mut backend = PdfBackend::new(Vec::new(), 1200).unwrap();
+        backend
+            .start_page(&[0; 10], 10 * 65536, 10 * 65536)
+            .unwrap();
+        backend.put_rule(65536, 65536).unwrap();
+        backend.write_special(b"papersize=1in,2in").unwrap();
+        backend.write_special(b"papersize=2in,3in").unwrap();
+        backend.end_page().unwrap();
+        backend
+            .start_page(&[0; 10], 20 * 65536, 20 * 65536)
+            .unwrap();
+        backend.write_special(b"papersize=2in,3in").unwrap();
+        backend.end_page().unwrap();
+        let (pdf, _) = backend.finish_with_target().unwrap();
+
+        assert_eq!(
+            pdf.windows(b"/MediaBox [0 0 144 216]".len())
+                .filter(|window| *window == b"/MediaBox [0 0 144 216]")
+                .count(),
+            2,
+            "papersizeはTeXのmagを掛けず全pageへ継承する"
+        );
+        assert!(
+            含む(&pdf, b"q\n1 0 0 1 0 60.044832 cm\n"),
+            "第一page途中のspecialは既出content全体を新しい上端へ合わせる"
+        );
+    }
+
+    #[test]
+    fn 壊れたpapersizeと第二pageからの変更を黙殺しない() {
+        let mut malformed = PdfBackend::new(Vec::new(), 1000).unwrap();
+        malformed.start_page(&[0; 10], 0, 0).unwrap();
+        assert!(matches!(
+            malformed.write_special(b"papersize=10pt"),
+            Err(PdfBackendError::Special(_))
+        ));
+
+        let mut late = PdfBackend::new(Vec::new(), 1000).unwrap();
+        late.start_page(&[0; 10], 0, 0).unwrap();
+        late.write_special(b"papersize=2in,3in").unwrap();
+        late.end_page().unwrap();
+        late.start_page(&[0; 10], 0, 0).unwrap();
+        assert!(matches!(
+            late.write_special(b"papersize=3in,4in"),
+            Err(PdfBackendError::PaperSizeChangedAfterFirstPage {
+                original: Some(_),
+                requested: _,
+            })
+        ));
     }
 
     #[test]

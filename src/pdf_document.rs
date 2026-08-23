@@ -39,16 +39,42 @@ impl PdfCoordinate {
     /// `1pt = 1/72.27in`、`1bp = 1/72in`、`1pt = 65536sp` とmagをまとめた
     /// `sp * mag * 7200 / (1000 * 65536 * 7227)` を丸める。
     pub(crate) fn from_scaled(scaled: i32, mag: i32) -> Result<Self, PdfDocumentError> {
-        let numerator = i128::from(scaled)
+        Self::from_scaled_ratio(i128::from(scaled), 1, mag)
+    }
+
+    /// sp基底の整数比をPDF座標へ一度だけ丸める。
+    ///
+    /// papersize specialのようにTeX registerを経ない物理寸法を、途中でsp整数へ潰さない
+    /// ための境界である。分母は正でなければならない。
+    pub(crate) fn from_scaled_ratio(
+        scaled_numerator: i128,
+        scaled_denominator: i128,
+        mag: i32,
+    ) -> Result<Self, PdfDocumentError> {
+        if scaled_denominator <= 0 {
+            return Err(PdfDocumentError::CoordinateOverflow);
+        }
+        let numerator = scaled_numerator
             .checked_mul(i128::from(mag))
             .and_then(|value| value.checked_mul(7200))
             .and_then(|value| value.checked_mul(Self::UNITS_PER_BP))
             .ok_or(PdfDocumentError::CoordinateOverflow)?;
-        let denominator = 1000_i128 * 65536 * 7227;
+        let denominator = scaled_denominator
+            .checked_mul(1000_i128 * 65536 * 7227)
+            .ok_or(PdfDocumentError::CoordinateOverflow)?;
         let rounded = if numerator >= 0 {
-            (numerator + denominator / 2) / denominator
+            numerator
+                .checked_add(denominator / 2)
+                .ok_or(PdfDocumentError::CoordinateOverflow)?
+                / denominator
         } else {
-            -((-numerator + denominator / 2) / denominator)
+            let absolute = numerator
+                .checked_neg()
+                .ok_or(PdfDocumentError::CoordinateOverflow)?;
+            -(absolute
+                .checked_add(denominator / 2)
+                .ok_or(PdfDocumentError::CoordinateOverflow)?
+                / denominator)
         };
         let value = i64::try_from(rounded).map_err(|_| PdfDocumentError::CoordinateOverflow)?;
         Ok(Self(value))
@@ -656,6 +682,17 @@ EndProfile\n",
         assert_eq!(negative.to_string(), "-0.996264");
         let magnified = PdfCoordinate::from_scaled(65536, 1200).unwrap();
         assert_eq!(magnified.to_string(), "1.195517");
+    }
+
+    #[test]
+    fn sp整数へ丸めず物理一inchを整数比から変換する() {
+        let one_inch =
+            PdfCoordinate::from_scaled_ratio(7_227 * 65_536, 100, 1000).unwrap();
+        assert_eq!(one_inch.to_string(), "72");
+        assert!(matches!(
+            PdfCoordinate::from_scaled_ratio(1, 0, 1000),
+            Err(PdfDocumentError::CoordinateOverflow)
+        ));
     }
 
     #[test]

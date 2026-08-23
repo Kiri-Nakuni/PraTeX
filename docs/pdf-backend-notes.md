@@ -18,6 +18,7 @@
   <https://adobe-type-tools.github.io/font-tech-notes/pdfs/T1_SPEC.pdf>
 - Karl Berryほか, *Dvips: A DVI-to-PostScript Translator*
   <https://www.tug.org/texinfohtml/dvips.html>
+  - `papersize=width,height` specialと受理するTeX単位
 
 PDF ReferenceはPDFを生成するsoftwareへ、必要なdata structureとoperatorを使う許諾を
 明記している。ここでは仕様本文を転載せず、必要なobject関係だけを独自のRust型へ写す。
@@ -129,6 +130,14 @@ black-box fixtureを追加して広げる。
 - TeX座標は左上・下向き、PDFは左下・上向きなので、物理1inch余白を含むMediaBoxの
   高さから現在の縦位置を引く。
 - 余白72bpは `\mag` で拡大せず、内容座標とfont sizeだけへmagを掛ける。
+- 第一page内の最後の`papersize=width,height` specialは物理MediaBoxを確定し、specialのない
+  後続pageにも継承する。`in`、`cm`、`mm`、`pt`、`sp`、`bp`、`pc`、`dd`、`cc`を受ける。
+  十進値を途中で整数spへ丸めず、spを基底とする既約整数比のままPDF固定小数境界へ運ぶ。
+  用紙寸法には`\mag`を掛けない。第一pageの途中で読んでも既出contentと座標基底を混ぜず、
+  page終了時にcontent全体を新しい上端へ一度だけ平行移動する。
+- `papersize`を第二page以降で初指定・変更すること、非正値、未知単位、欠損、overflowは
+  typed errorにする。同一値の再指定だけは許す。明示用紙では内容に合わせてMediaBoxを
+  勝手に拡張せず、はみ出しは通常のPDF clippingに委ねる。
 - 宣言されたbox寸法だけでなく、実際に置いた文字・ruleの範囲も追跡する。負幅や
   overfull内容があるときはcontentを平行移動してMediaBoxを拡張し、1inch余白を保つ。
 - set/put ruleは `re f` へ写す。setだけが横位置を進める。
@@ -140,7 +149,7 @@ black-box fixtureを追加して広げる。
   同一pageで同じresourceを一回だけ登録し、各文字の絶対`Tm`差は渡されたJFM幅をspから
   固定小数bpへ変換した値に一致する。BMP source codeは同じfontの`/ToUnicode`から
   元Unicode scalarへ戻せる。
-- raw `\special` はcontent streamへ注入せず捨てる。
+- 認識しないraw `\special` はcontent streamへ注入せず捨てる。
 
 最小LaTeX文書のCourier実測は1 page / 2169 bytes。Popplerとstrict pypdfが構造を読め、renderで
 本文、単純な数式、ページ番号を確認した。Courierの字形へCMの幅を使うため見た目と
@@ -175,8 +184,8 @@ PDF primitive/font処理が完成したという意味ではない。
 ## 6. 次の段階
 
 1. 通常mapのType 1 subset埋込みと、同じ物理fontを異なるsizeで使う時のobject共有へ進む。
-2. `\pdfpagewidth` / `\pdfpageheight` 相当または認識済みpapersize specialで物理媒体を
-   指定できるようにする。
+2. 実装済みpapersize specialと同じ型付き媒体境界へ、PraTeX正規名のpage-size primitiveを
+   接続する。pdfTeX互換名は意味が一致してから別途扱う。
 3. Type 1が揃ってから `\pdfoutput` を登録し、LaTeXのpdfTeX backend判定を有効にする。
 4. 汎用ToUnicode、run batching、TrueType、和文字形の埋込み、複数profile tableは独立した
    後続段階とする。今回のnamed CID profileを埋込みfontやOTFであるかのように扱わない。

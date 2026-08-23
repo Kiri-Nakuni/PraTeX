@@ -203,6 +203,11 @@ PDFiumで抽出を確認していますが、字形表示の可搬性や全extra
 Viewer固有の非表示とDVI/PDF生成不良を混同しないため、可搬な表示確認にはDVIとTeX Liveの
 `dvipdfmx`も使ってください。
 
+直接PDFはDvips互換の`\special{papersize=幅,高さ}`を認識します。`in`、`cm`、`mm`、`pt`、
+`sp`、`bp`、`pc`、`dd`、`cc`を使え、最初のpage内で最後に指定した正の寸法を後続pageにも
+継承します。物理用紙寸法へ`\mag`は掛けません。認識した形式の欠損・未知単位・第二page
+以降での変更はPDF出力errorになり、それ以外のraw specialはPDF contentへ注入せず捨てます。
+
 文書またはformatが和文fontを明示選択していない場合も、PraTeXは最初のCJK文字でだけ
 `upjisr-h at 10pt`を遅延して選びます。これはplainや一般classで「TFMはあるのにcurrent
 和文fontがない」状態を避けるための既定値です。カレントの`upjisr-h.tfm`を最優先し、なければ

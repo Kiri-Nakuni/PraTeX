@@ -41,6 +41,7 @@ mod pdf_cid_font;
 mod pdf_document;
 #[allow(dead_code)]
 mod pdf_font;
+mod pdf_special;
 mod print;
 mod run_options;
 mod runtime_clock;
