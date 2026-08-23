@@ -20,11 +20,24 @@ black-box観測から独立して書く。
 索引は最終結果を推測するためではなく、外部processを省いても結果が変わらない場合だけ使う。
 曖昧さ、壊れた入力、未対応のpath式はerrorへ潰さず、公開CLIへ戻す。
 
-`FileKind`ごとに`tex`、`tfm`、`map`、`enc files`、`type1 fonts`、`afm`などの公開format名を
+`FileKind`ごとに`tex`、`tfm`、`vf`、`map`、`enc files`、`type1 fonts`、`afm`などの公開format名を
 対応させる。TeX入力、`\input`、`\openin`、`\pdffilesize`、TFM、PDF map、encoding、
 Type 1、AFM、Vaak入力は同じresolver契約を通る。Scannerが所有するTeX入力・TFM等は一つの
 instanceを共有するが、PDF font resource loaderは現在別instanceなのでcacheも共有しない。
 論理名と解決後の物理pathは別の型で保持し、TEXMF上の配置をDVI font名やPDF map keyへ漏らさない。
+
+欧文TFMと、拡張子`.tfm`を共有するJFMはどちらも`FileKind::Tfm`で探す。font定義に現れた
+拡張子なしの論理名はloader境界で`.tfm`を補ってresolverへ渡すが、fontのidentity、fmt、DVIへは
+元の論理名だけを保持する。TeX Live上にJFMが**存在して解決できること**と、組版中のcurrent
+Japanese fontにそれを**選択すること**は別である。現段階では`\pratexjfont`で定義し、そのfont
+選択命令を実行するかclassのfont hookへ登録する必要がある。未選択のままCJK文字へ到達した時の
+`CJK typesetting needs a Japanese font metric`は、TFM探索失敗を直接意味しない。
+
+VFは`FileKind::Vf`から公開CLIの`--format=vf`と用途別`--show-path=vf`へ対応し、同じrun-local
+cacheと`ls-R` fast pathを使える。ただし通常のDVI生成でPraTeX自身はVFを展開しない。DVIに残した
+論理font名からVFを読むconsumerは`dvipdfmx`等のDVI driverであり、そのdriver自身のkpathsea探索に
+属する。将来、直接PDF backendがvirtual fontを展開する時のためにresolver用途は用意するが、
+現在のfont定義時に未使用VFを先読みしない。
 
 ## `ls-R` fast path
 
@@ -101,6 +114,15 @@ Windows側の既定resolverから`cmr10.tfm`を解決して内容を開けるこ
 ```powershell
 $env:PRATEX_TEST_WSL = '1'
 cargo test --release file_search::tests::既定resolverがwsl_tex_liveのtfmをwindowsから開ける -- --ignored
+```
+
+配布JFMと対応VFの用途分離は、native TeX Liveまたは上記WSL bridgeを使える環境で次のignored試験を
+有効にする。`upjisr-h.tfm`と`upjisr-h.vf`を同じresolver instanceから二回ずつ解決し、物理fileを
+開けることとrun-local cacheの安定した結果を照合する。
+
+```powershell
+$env:PRATEX_TEST_TEXLIVE = '1'
+cargo test --release file_search::tests::tex_liveのjfmとvfを用途別に解決できる -- --ignored
 ```
 
 ## 性能と残る問題

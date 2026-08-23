@@ -738,6 +738,7 @@ fn file_kind_name(kind: FileKind) -> &'static str {
         FileKind::Tex => "TeX input",
         FileKind::Format => "format",
         FileKind::Tfm => "TFM",
+        FileKind::Vf => "VF",
         FileKind::FontMap => "font map",
         FileKind::Encoding => "encoding",
         FileKind::Type1 => "Type 1 font",

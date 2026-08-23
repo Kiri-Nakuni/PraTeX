@@ -3,6 +3,7 @@ use crate::command::prefixable::load_font_info;
 use crate::eqtb::Eqtb;
 use crate::file_search::{CommandExecutor, CommandOutput, KpsewhichResolver, ResolverOptions};
 use crate::fonts::SizeIndicator;
+use crate::japanese_fonts::load_japanese_font_info;
 use crate::logger::{InteractionMode, Logger};
 use crate::mode_independent::open_read_file;
 use crate::os_str_to_bytes;
@@ -281,6 +282,85 @@ fn 解決したtfmの物理pathを論理font名とareaへ漏らさない() {
     fs::remove_dir(directory).unwrap();
 }
 
+#[test]
+fn 欧文tfmとjfmは拡張子を補って同じrun_resolverを使う() {
+    let directory = temporary_directory("tfm-jfm-resolver");
+    let latin_physical_path = directory.join("物理欧文.tfm");
+    let japanese_physical_path = directory.join("物理和文.tfm");
+    fs::write(&latin_physical_path, minimal_tfm()).unwrap();
+    fs::write(&japanese_physical_path, minimal_jfm()).unwrap();
+    let latin_logical_path = Path::new(&unique_name("logical-area")).join("cmr10");
+    let japanese_logical_path = Path::new(&unique_name("logical-area")).join("upjisr-h");
+    let arguments = Rc::new(RefCell::new(Vec::new()));
+    let executor = CapturingExecutor {
+        arguments: Rc::clone(&arguments),
+        responses: [
+            success(&latin_physical_path),
+            success(&japanese_physical_path),
+        ]
+        .into_iter()
+        .collect(),
+    };
+    let resolver = KpsewhichResolver::new(ResolverOptions::default(), executor);
+    let mut scanner = Scanner::new_with_file_resolver(Vec::new(), 0, Box::new(resolver));
+
+    for _ in 0..2 {
+        let Ok(latin) = load_font_info(
+            &latin_logical_path,
+            SizeIndicator::Factor(1000),
+            b'-' as i32,
+            -1,
+            &mut scanner,
+        ) else {
+            panic!("resolver上の欧文TFMを読めなかった");
+        };
+        assert_eq!(latin.name, b"cmr10");
+        assert_eq!(
+            latin.area,
+            os_str_to_bytes(latin_logical_path.parent().unwrap().as_os_str())
+        );
+
+        let japanese = load_japanese_font_info(
+            &japanese_logical_path,
+            SizeIndicator::Factor(1000),
+            &mut scanner,
+        )
+        .expect("resolver上のJFMを読む");
+        assert_eq!(japanese.name, b"upjisr-h");
+        assert_eq!(
+            japanese.area,
+            os_str_to_bytes(japanese_logical_path.parent().unwrap().as_os_str())
+        );
+    }
+
+    let arguments = arguments.borrow();
+    assert_eq!(arguments.len(), 2, "成功結果は同じrun内で再照会しない");
+    let mut expected_latin_query = latin_logical_path.clone();
+    expected_latin_query.set_extension("tfm");
+    let mut expected_japanese_query = japanese_logical_path.clone();
+    expected_japanese_query.set_extension("tfm");
+    for (actual, expected) in arguments
+        .iter()
+        .zip([expected_latin_query, expected_japanese_query])
+    {
+        assert!(actual.contains(&OsString::from("--format=tfm")));
+        assert_eq!(
+            actual.last().map(OsString::as_os_str),
+            Some(expected.as_os_str())
+        );
+    }
+    assert!(!arguments
+        .iter()
+        .any(|invocation| invocation.iter().any(|argument| {
+            argument.as_os_str() == latin_physical_path.as_os_str()
+                || argument.as_os_str() == japanese_physical_path.as_os_str()
+        })));
+
+    fs::remove_file(latin_physical_path).unwrap();
+    fs::remove_file(japanese_physical_path).unwrap();
+    fs::remove_dir(directory).unwrap();
+}
+
 fn minimal_tfm() -> Vec<u8> {
     // Six size words, a two-word header, four zero dimension words, and seven parameters.
     let mut bytes = Vec::new();
@@ -292,5 +372,69 @@ fn minimal_tfm() -> Vec<u8> {
     bytes.extend_from_slice(&[0x00, 0xa0, 0x00, 0x00]);
     bytes.extend_from_slice(&[0; 4 * 4]);
     bytes.extend_from_slice(&[0; 7 * 4]);
+    bytes
+}
+
+fn minimal_jfm() -> Vec<u8> {
+    const ZERO: i32 = 0;
+    const HALF: i32 = 0x0008_0000;
+    const ONE: i32 = 0x0010_0000;
+    let char_types = [[0_u8; 4]];
+    let char_infos = [[1_u8, 0x10, 0, 0]];
+    let widths = [ZERO, ONE];
+    let heights = [ZERO, HALF];
+    let depths = [ZERO];
+    let italics = [ZERO];
+    let params = [ZERO; 9];
+    let nt = char_types.len();
+    let lh = 2;
+    let bc = 0;
+    let ec = char_infos.len() - 1;
+    let lf = 7
+        + nt
+        + lh
+        + (ec - bc + 1)
+        + widths.len()
+        + heights.len()
+        + depths.len()
+        + italics.len()
+        + params.len();
+    let mut bytes = Vec::with_capacity(lf * 4);
+    for value in [
+        11,
+        nt as u16,
+        lf as u16,
+        lh as u16,
+        bc as u16,
+        ec as u16,
+        widths.len() as u16,
+        heights.len() as u16,
+        depths.len() as u16,
+        italics.len() as u16,
+        0,
+        0,
+        0,
+        params.len() as u16,
+    ] {
+        bytes.extend_from_slice(&value.to_be_bytes());
+    }
+    bytes.extend_from_slice(&0x1234_5678_u32.to_be_bytes());
+    bytes.extend_from_slice(&(10_u32 << 20).to_be_bytes());
+    for table in [&char_types[..], &char_infos[..]] {
+        for word in table {
+            bytes.extend_from_slice(word);
+        }
+    }
+    for table in [
+        &widths[..],
+        &heights[..],
+        &depths[..],
+        &italics[..],
+        &params[..],
+    ] {
+        for value in table {
+            bytes.extend_from_slice(&value.to_be_bytes());
+        }
+    }
     bytes
 }

@@ -28,6 +28,7 @@ pub(crate) enum FileKind {
     Tex,
     Format,
     Tfm,
+    Vf,
     FontMap,
     Encoding,
     Type1,
@@ -42,6 +43,7 @@ impl FileKind {
             Self::Tex => "tex",
             Self::Format => "fmt",
             Self::Tfm => "tfm",
+            Self::Vf => "vf",
             Self::FontMap => "map",
             Self::Encoding => "enc files",
             Self::Type1 => "type1 fonts",
@@ -1294,6 +1296,49 @@ mod tests {
     }
 
     #[test]
+    fn tfmとvfは同じrun_cacheで用途を混ぜずに解決する() {
+        let fake = FakeExecutor::with_responses([
+            success(b"/tree/fonts/tfm/public/example.tfm"),
+            success(b"/tree/fonts/vf/public/example.vf"),
+        ]);
+        let mut resolver = KpsewhichResolver::new(ResolverOptions::default(), fake.clone());
+        let tfm_name = unique_absent_name("example.tfm");
+        let vf_name = unique_absent_name("example.vf");
+
+        for _ in 0..2 {
+            let tfm = resolver.resolve(FileKind::Tfm, &tfm_name).unwrap().unwrap();
+            let vf = resolver.resolve(FileKind::Vf, &vf_name).unwrap().unwrap();
+            assert_eq!(tfm.logical_name(), &tfm_name);
+            assert_eq!(vf.logical_name(), &vf_name);
+            assert_ne!(
+                tfm.logical_name().as_os_str(),
+                tfm.physical_path().as_os_str()
+            );
+            assert_ne!(
+                vf.logical_name().as_os_str(),
+                vf.physical_path().as_os_str()
+            );
+        }
+
+        let invocations = fake.invocations.borrow();
+        assert_eq!(invocations.len(), 2);
+        assert!(invocations[0]
+            .arguments
+            .contains(&OsString::from("--format=tfm")));
+        assert_eq!(
+            invocations[0].arguments.last().map(OsString::as_os_str),
+            Some(tfm_name.as_os_str())
+        );
+        assert!(invocations[1]
+            .arguments
+            .contains(&OsString::from("--format=vf")));
+        assert_eq!(
+            invocations[1].arguments.last().map(OsString::as_os_str),
+            Some(vf_name.as_os_str())
+        );
+    }
+
+    #[test]
     fn 起動失敗を不在にせず次回は再試行する() {
         let fake = FakeExecutor::with_responses([
             Err(io::Error::new(io::ErrorKind::NotFound, "kpsewhichなし")),
@@ -1568,6 +1613,7 @@ mod tests {
             (FileKind::Tex, "tex"),
             (FileKind::Format, "fmt"),
             (FileKind::Tfm, "tfm"),
+            (FileKind::Vf, "vf"),
             (FileKind::FontMap, "map"),
             (FileKind::Encoding, "enc files"),
             (FileKind::Type1, "type1 fonts"),
@@ -1728,6 +1774,52 @@ mod tests {
         assert!(fake.invocations.borrow()[0]
             .arguments
             .contains(&OsString::from("--show-path=tex")));
+    }
+
+    #[test]
+    fn tfmとvfは用途別pathから同じlsr索引を引く() {
+        let fixture = DatabaseFixture::new(
+            "font-kinds",
+            b"./fonts/tfm/public/example:\nmetric.tfm\n\
+./fonts/vf/public/example:\nmetric.vf\n",
+            &[
+                "fonts/tfm/public/example/metric.tfm",
+                "fonts/vf/public/example/metric.vf",
+            ],
+        );
+        let fake = FakeExecutor::with_responses([
+            search_path_success([database_only_recursive(&fixture.root.join("fonts/tfm"))]),
+            search_path_success([database_only_recursive(&fixture.root.join("fonts/vf"))]),
+        ]);
+        let mut resolver = KpsewhichResolver::new(fixture.options(), fake.clone());
+
+        let tfm = resolver
+            .resolve(FileKind::Tfm, &LogicalFileName::new("metric.tfm"))
+            .unwrap()
+            .unwrap();
+        let vf = resolver
+            .resolve(FileKind::Vf, &LogicalFileName::new("metric.vf"))
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(tfm.source(), ResolutionSource::FilenameDatabase);
+        assert_eq!(
+            tfm.physical_path(),
+            fixture.root.join("fonts/tfm/public/example/metric.tfm")
+        );
+        assert_eq!(vf.source(), ResolutionSource::FilenameDatabase);
+        assert_eq!(
+            vf.physical_path(),
+            fixture.root.join("fonts/vf/public/example/metric.vf")
+        );
+        let invocations = fake.invocations.borrow();
+        assert_eq!(invocations.len(), 2);
+        assert!(invocations[0]
+            .arguments
+            .contains(&OsString::from("--show-path=tfm")));
+        assert!(invocations[1]
+            .arguments
+            .contains(&OsString::from("--show-path=vf")));
     }
 
     #[test]
@@ -1984,6 +2076,31 @@ mod tests {
             ResolutionSource::FilenameDatabase | ResolutionSource::WslKpsewhich
         ));
         assert!(fs::File::open(resolved.physical_path()).is_ok());
+    }
+
+    #[test]
+    #[ignore = "PRATEX_TEST_TEXLIVE=1 の実環境でだけ配布JFM/VFを照合"]
+    fn tex_liveのjfmとvfを用途別に解決できる() {
+        assert_eq!(std::env::var("PRATEX_TEST_TEXLIVE").as_deref(), Ok("1"));
+        let mut resolver = KpsewhichResolver::default();
+
+        for (kind, name) in [
+            (FileKind::Tfm, "upjisr-h.tfm"),
+            (FileKind::Vf, "upjisr-h.vf"),
+        ] {
+            let logical = LogicalFileName::new(name);
+            let first = resolver.resolve(kind, &logical).unwrap().unwrap();
+            let second = resolver.resolve(kind, &logical).unwrap().unwrap();
+            assert_eq!(first.logical_name(), &logical);
+            assert_eq!(first.physical_path(), second.physical_path());
+            assert!(matches!(
+                first.source(),
+                ResolutionSource::FilenameDatabase
+                    | ResolutionSource::Kpsewhich
+                    | ResolutionSource::WslKpsewhich
+            ));
+            assert!(fs::File::open(first.physical_path()).is_ok());
+        }
     }
 
     #[cfg(unix)]
