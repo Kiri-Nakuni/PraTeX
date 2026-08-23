@@ -21,6 +21,18 @@ pub fn fatal_error(cause: &str, input_stack: &InputStack, eqtb: &Eqtb, logger: &
     succumb(help, input_stack, eqtb, logger);
 }
 
+/// 出力backendが返した具体的な原因を、shipout中のTeX文脈より先に表示して終了する。
+pub fn fatal_output_error(
+    cause: &str,
+    input_stack: &InputStack,
+    eqtb: &Eqtb,
+    logger: &mut Logger,
+) -> ! {
+    logger.print_err(cause);
+    let help = &["The output file is incomplete; no font or glyph fallback was used."];
+    succumb(help, input_stack, eqtb, logger);
+}
+
 /// See 94.
 pub fn overflow(
     resource: &str,

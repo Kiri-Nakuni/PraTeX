@@ -97,11 +97,13 @@ fn prepare_directory(name: &str) -> PathBuf {
         "t.log",
         "t.pdf",
         "synthetic.tfm",
+        "upjisr-h.tfm",
         "min10.cidprofile",
     ] {
         let _ = std::fs::remove_file(directory.join(name));
     }
     std::fs::write(directory.join("synthetic.tfm"), synthetic_jfm()).unwrap();
+    std::fs::write(directory.join("upjisr-h.tfm"), synthetic_jfm()).unwrap();
     std::fs::write(
         directory.join("min10.cidprofile"),
         b"PraTeX-Named-CID-Profile 1\n\
@@ -121,13 +123,15 @@ EndProfile\n",
     directory
 }
 
-fn write_input(directory: &Path) {
+fn write_input(directory: &Path, jfm_name: &str) {
     std::fs::write(
         directory.join("t.tex"),
-        "\\catcode123=1\n\\catcode125=2\n\\batchmode\n\
-         \\pratexjfont\\J=synthetic at 10pt\n\\J\n\
-         \\kcatcode\"3042=16\n\
-         \\setbox0=\\hbox{ああ}\n\\shipout\\box0\n\\end\n",
+        format!(
+            "\\catcode123=1\n\\catcode125=2\n\\batchmode\n\
+             \\pratexjfont\\J={jfm_name} at 10pt\n\\J\n\
+             \\kcatcode\"3042=16\n\
+             \\setbox0=\\hbox{{ああ}}\n\\shipout\\box0\n\\end\n"
+        ),
     )
     .unwrap();
 }
@@ -157,7 +161,7 @@ fn occurrences(haystack: &[u8], needle: &[u8]) -> usize {
 #[test]
 fn 合成jfmの二文字をnamed_cid_pdfへ一続きで出す() {
     let directory = prepare_directory("wide-success");
-    write_input(&directory);
+    write_input(&directory, "synthetic");
     let output = run_rtex(&directory, true);
     assert!(
         output.status.success(),
@@ -190,9 +194,27 @@ fn 合成jfmの二文字をnamed_cid_pdfへ一続きで出す() {
 }
 
 #[test]
-fn profileなしの和文pdfはtofuへ落とさず診断する() {
+fn 既定upjisr_hは追加指定なしで和文pdfを出す() {
+    let directory = prepare_directory("built-in-upjisr-h");
+    write_input(&directory, "upjisr-h");
+    let output = run_rtex(&directory, false);
+    assert!(
+        output.status.success(),
+        "既定profileで和文PDFを出せなかった: {}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let pdf = std::fs::read(directory.join("t.pdf")).unwrap();
+    assert!(pdf
+        .windows(b"/BaseFont /HeiseiMin-W3-UniJIS-UCS2-H".len())
+        .any(|window| window == b"/BaseFont /HeiseiMin-W3-UniJIS-UCS2-H"));
+    assert_eq!(occurrences(&pdf, b"<3042> Tj"), 2);
+}
+
+#[test]
+fn 内蔵profileのないjfmはtofuへ落とさず原因を先に診断する() {
     let directory = prepare_directory("missing-profile");
-    write_input(&directory);
+    write_input(&directory, "synthetic");
     let output = run_rtex(&directory, false);
     assert!(!output.status.success());
     let transcript = format!(
@@ -203,7 +225,9 @@ fn profileなしの和文pdfはtofuへ落とさず診断する() {
     )
     .replace(['\r', '\n'], "");
     assert!(
-        transcript.contains("requires an explicit named CID profile"),
+        transcript.contains("JFM `synthetic` has no built-in named CID profile"),
         "{transcript}"
     );
+    assert!(transcript.contains("! PDF output failed:"), "{transcript}");
+    assert!(!transcript.contains("! Emergency stop"), "{transcript}");
 }

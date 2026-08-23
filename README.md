@@ -145,8 +145,6 @@ Copy-Item -LiteralPath (Join-Path $repo 'tex\latex\pratex\pratex-japanese.sty') 
   -Destination $demo -Force
 Copy-Item -LiteralPath (Join-Path $repo 'docs\examples\prjsarticle-sample.tex') `
   -Destination $demo -Force
-Copy-Item -LiteralPath (Join-Path $repo 'docs\examples\upjisr-h.cidprofile') `
-  -Destination $demo -Force
 
 Push-Location $demo
 try {
@@ -161,9 +159,7 @@ try {
   if ($LASTEXITCODE -ne 0) { throw 'dvipdfmx failed' }
 
   # 実験的な直接PDF。制約は直後の説明を参照する。
-  & $pratex --quiet --output-format=pdf `
-    --pdf-japanese-cid-profile=upjisr-h.cidprofile `
-    -- '&latex' prjsarticle-sample.tex
+  & $pratex --quiet --output-format=pdf -- '&latex' prjsarticle-sample.tex
   if ($LASTEXITCODE -ne 0) { throw 'PraTeX direct PDF generation failed' }
 } finally {
   Pop-Location
@@ -187,7 +183,6 @@ demo=$(mktemp -d "${TMPDIR:-/tmp}/pratex-demo.XXXXXXXX")
 cp "$repo/tex/latex/pratex/prjsarticle.cls" "$demo/"
 cp "$repo/tex/latex/pratex/pratex-japanese.sty" "$demo/"
 cp "$repo/docs/examples/prjsarticle-sample.tex" "$demo/"
-cp "$repo/docs/examples/upjisr-h.cidprofile" "$demo/"
 
 cd "$demo"
 "$pratex" --quiet -- latex.ltx
@@ -199,6 +194,8 @@ dvipdfmx -o prjsarticle-sample-from-dvi.pdf prjsarticle-sample.dvi
 `\pratexjfont`で`upjisr-h at 10pt`を定義し、本文開始hookから和文fontを選びます。
 別JFMを試す場合だけ、`docs/examples/prjsarticle-upjisr-h-adapter.tex`と同じ形で
 `\pratexsetjapanesefonthook`を後から上書きできます。
+直接PDFでは、既定JFM `upjisr-h`を内蔵CID profileへ結ぶため追加optionは要りません。
+別JFMだけは`--pdf-japanese-cid-profile=PATH`で対応するprofileを明示してください。
 現段階の直接PDFは和文字形を埋め込まず、`HeiseiMin-W3`と`UniJIS-UCS2-H`を解決できる
 viewerに依存し、ToUnicodeも持ちません。可搬な表示確認にはDVIとTeX Liveの`dvipdfmx`を
 使ってください。
@@ -283,7 +280,7 @@ KOMA-Script確認には使えません。
 | `-output-format=dvi` / `--output-format=dvi` | DVIを出力する（既定） |
 | `-output-format=pdf` / `--output-format=pdf` | PDFを直接出力する |
 | `--pdf-font-map=<map>` | PDF出力でmapを指定し、対応するType 1 fontを埋め込む |
-| `--pdf-japanese-cid-profile=<path>` | PDF出力で一つのJFMを明示named CID fontへ結ぶ物理profileを読む |
+| `--pdf-japanese-cid-profile=<path>` | PDF出力で内蔵`upjisr-h` profileを上書きし、一つのJFMを明示named CID fontへ結ぶ |
 | `--quiet` | banner、page番号、通常の出力要約など、自動的な端末出力を抑える |
 | `--` | 以降をPraTeXのoptionとして解釈せず、TeXの入力行へ渡す |
 
@@ -295,9 +292,9 @@ KOMA-Script確認には使えません。
 PDF backendの現在の範囲と制約は
 [docs/pdf-backend-notes.md](docs/pdf-backend-notes.md) を参照してください。
 JFM/TFMには文字幅やclassはあっても、outline、bitmap、CID対応表はありません。このため
-`--pdf-japanese-cid-profile`の経路は字形を埋め込まず、指定したBaseFontと
+既定`upjisr-h` profileと`--pdf-japanese-cid-profile`の経路は字形を埋め込まず、指定したBaseFontと
 `UniJIS-UCS2-H`を実装するviewer環境でだけ意図した和文表示になります。portableな字形表示や
-抽出を保証する機能ではなく、profileなしでtofuへ黙ってfallbackすることもありません。
+抽出を保証する機能ではなく、内蔵profileのないJFMをtofuへ黙ってfallbackすることもありません。
 TeX Live探索の対応範囲、WSL境界、性能値は
 [docs/kpathsea-port-notes.md](docs/kpathsea-port-notes.md) に記録しています。
 

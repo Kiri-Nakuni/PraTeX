@@ -68,7 +68,8 @@ fontの定義済み状態はbackend文書ごとの `Vec<bool>` に持ち、fmt�
 Courier smokeを保つ。DVIとの併用、空値、壊れたmap、欠けた資材は黙って無視せず診断して
 終了する。mapのsubset指定をfullへ昇格しない。
 
-`--pdf-japanese-cid-profile=<path>` または値を次の引数へ分けた形では、pathを論理名探索へ
+既定の横組JFM `upjisr-h`はrepository内の検査済みprofileを自動選択する。
+`--pdf-japanese-cid-profile=<path>` または値を次の引数へ分けた形ではそれを上書きし、pathを論理名探索へ
 渡さず、明示された物理fileを一回だけ最大64 KiBまで読む。一fileは一JFMだけに対応し、
 productionのfont定義時にJFM論理名を照合する。profile loader、path、provider handleはfmtへ
 保存せず、glyph loopは書き込み済みfont handleだけを使う。Type 1 mapと同時指定してもよく、
@@ -101,8 +102,8 @@ advanceにだけ使い、profileの`DefaultWidth`やPDF `/W`をJFMから推測�
 JFM/TFMはmetricとclassを与えるだけで、outline、bitmap、Unicode--CID mappingを持たない。
 このsliceはFontFileを埋め込まないため、`BaseFont`を実装し`UniJIS-UCS2-H`を解決できるviewerで
 だけ意図した字形になる。Standard 14以外のnamed fontが常に利用できる保証はなく、portableな
-表示、text extraction、PDF/A適合を主張しない。profileなしやJFM名不一致をCourier/tofuへ
-fallbackせず停止する。Repositoryへ第三者font資材は追加していない。
+表示、text extraction、PDF/A適合を主張しない。内蔵profileのないJFMやJFM名不一致を
+Courier/tofuへfallbackせず停止する。Repositoryへ第三者font資材は追加していない。
 
 実配布mapのresourceは順序と`<` / `<<` / `<[`を保つ配列として構文解析する。同じ行に
 encoding、generic header、font programが複数並んでも、未使用entryだけを理由にmap全体を

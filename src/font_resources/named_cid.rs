@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 
 pub(crate) const MAX_NAMED_CID_PROFILE_BYTES: usize = 64 * 1024;
 const PROFILE_HEADER: &str = "PraTeX-Named-CID-Profile 1";
+const BUILT_IN_UPJISR_H_PROFILE: &[u8] = include_bytes!("../../docs/examples/upjisr-h.cidprofile");
 
 /// このsliceで固定するPDF 1.4 predefined CMap。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -303,6 +304,32 @@ pub(crate) trait NamedCidFontProfileLoader {
     fn load(&mut self, jfm_name: &str) -> Result<NamedCidFontProfile, NamedCidProfileError>;
 }
 
+/// 横組の既定JFMだけを、repositoryで検査したnamed CID契約へ結ぶloader。
+///
+/// 任意のJFM名を似たfontへ推測で結ばない。別JFMにはCLIの明示profileを要求する。
+pub(crate) struct BuiltInNamedCidProfileLoader {
+    upjisr_h: NamedCidFontProfile,
+}
+
+impl BuiltInNamedCidProfileLoader {
+    pub(crate) fn new() -> Result<Self, NamedCidProfileError> {
+        Ok(Self {
+            upjisr_h: NamedCidFontProfile::parse(BUILT_IN_UPJISR_H_PROFILE)?,
+        })
+    }
+}
+
+impl NamedCidFontProfileLoader for BuiltInNamedCidProfileLoader {
+    fn load(&mut self, jfm_name: &str) -> Result<NamedCidFontProfile, NamedCidProfileError> {
+        if jfm_name != self.upjisr_h.jfm_name() {
+            return Err(NamedCidProfileError::NoBuiltInProfile {
+                requested_name: jfm_name.to_owned(),
+            });
+        }
+        Ok(self.upjisr_h.clone())
+    }
+}
+
 /// CLIで明示された一つの物理pathを、探索せず直接読むloader。
 pub(crate) struct FileNamedCidProfileLoader {
     path: PathBuf,
@@ -416,6 +443,9 @@ pub(crate) enum NamedCidProfileError {
         profile_name: String,
         requested_name: String,
     },
+    NoBuiltInProfile {
+        requested_name: String,
+    },
 }
 
 impl fmt::Display for NamedCidProfileError {
@@ -501,6 +531,10 @@ impl fmt::Display for NamedCidProfileError {
                     " is for JFM `{profile_name}`, not requested JFM `{requested_name}`"
                 )
             }
+            Self::NoBuiltInProfile { requested_name } => write!(
+                formatter,
+                "Japanese PDF JFM `{requested_name}` has no built-in named CID profile; pass --pdf-japanese-cid-profile=PATH"
+            ),
         }
     }
 }
@@ -629,6 +663,19 @@ EndProfile\n"
                 && found_path == path
         ));
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn 既定横組jfmだけを内蔵profileへ結ぶ() {
+        let mut loader = BuiltInNamedCidProfileLoader::new().unwrap();
+        let profile = loader.load("upjisr-h").unwrap();
+        assert_eq!(profile.jfm_name(), "upjisr-h");
+        assert_eq!(profile.base_font(), "HeiseiMin-W3");
+        assert!(matches!(
+            loader.load("user-jfm"),
+            Err(NamedCidProfileError::NoBuiltInProfile { requested_name })
+                if requested_name == "user-jfm"
+        ));
     }
 
     trait ReplaceAscii {

@@ -2,10 +2,12 @@ use crate::dimension::{is_running, Dimension, MAX_DIMEN};
 use crate::eqtb::{
     ControlSequence, DimensionVariable, Eqtb, FontIndex, IntegerVariable, RegisterIndex,
 };
-use crate::error::fatal_error;
+use crate::error::fatal_output_error;
 use crate::file_search::{KpsewhichResolver, LogicalFileName};
 use crate::font_resources::loader::{FontResourceLoader, Type1ResourceLoader};
-use crate::font_resources::named_cid::{FileNamedCidProfileLoader, NamedCidFontProfileLoader};
+use crate::font_resources::named_cid::{
+    BuiltInNamedCidProfileLoader, FileNamedCidProfileLoader, NamedCidFontProfileLoader,
+};
 use crate::input::token_source::TokenSourceType;
 use crate::input::Scanner;
 use crate::japanese_fonts::JapaneseFontIndex;
@@ -144,7 +146,9 @@ impl Output {
             );
             let whatsit_list = document
                 .ship_box_out(&list_node, eqtb)
-                .unwrap_or_else(|error| fatal_error(&error, &scanner.input_stack, eqtb, logger));
+                .unwrap_or_else(|error| {
+                    fatal_output_error(&error, &scanner.input_stack, eqtb, logger)
+                });
             for whatsit_node in whatsit_list {
                 self.out_what(&whatsit_node, scanner, eqtb, logger);
             }
@@ -303,7 +307,9 @@ fn ensure_output_open(
                         eqtb,
                     ) {
                         Ok(document) => OutputDocument::Pdf(document),
-                        Err(error) => fatal_error(&error, &scanner.input_stack, eqtb, logger),
+                        Err(error) => {
+                            fatal_output_error(&error, &scanner.input_stack, eqtb, logger)
+                        }
                     }
                 }
             }
@@ -419,7 +425,9 @@ impl Document<PdfFileBackend> {
                         format!("PDF Japanese CID profile initialization failed: {error}")
                     })?,
                 )),
-                None => None,
+                None => Some(Box::new(BuiltInNamedCidProfileLoader::new().map_err(
+                    |error| format!("PDF built-in Japanese CID profile is invalid: {error}"),
+                )?)),
             };
         let backend = PdfBackend::with_loaders(
             pdf_file,
