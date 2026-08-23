@@ -1,6 +1,7 @@
 use super::box_dimension::BoxDimension;
 use super::glue_component::GlueComponent;
 use super::glue_conversion::GlueConversion;
+use super::font_char_dimension::FontCharDimension;
 use super::page_dimension::PageDimension;
 use super::raw_string::RawStringCommand;
 use crate::eqtb::{
@@ -19,6 +20,8 @@ pub enum InternalCommand {
     Toks(ToksCommand),
     RawString(RawStringCommand),
     Badness,
+    /// e-TeX の `\fontcharwd`、`\fontcharht`、`\fontchardp`、`\fontcharic`。
+    FontCharDimension(FontCharDimension),
     // ==== e-TeX / pdfTeX の問い合わせ ====
     /// `\eTeXversion`
     ETeXVersion,

@@ -1,5 +1,6 @@
 use crate::command::{
-    BoxDimension, GlueComponent, GlueConversion, InternalCommand, PageDimension, ToksCommand,
+    BoxDimension, FontCharDimension, GlueComponent, GlueConversion, InternalCommand,
+    PageDimension, ToksCommand,
 };
 use crate::dimension::{Dimension, MAX_DIMEN};
 use crate::eqtb::Eqtb;
@@ -15,8 +16,8 @@ use crate::logger::Logger;
 use crate::nodes::{DimensionOrder, GlueSpec, HigherOrderDimension};
 use crate::page_breaking::PageContents;
 use crate::print::Printer;
-use crate::semantic_nest::Mode;
 use crate::script_spacing::planner::LayoutCharacterCode;
+use crate::semantic_nest::Mode;
 use crate::token::Token;
 
 use std::io::Write;
@@ -71,9 +72,9 @@ pub fn scan_internal_integer(
         InternalValue::Glue(glue_spec) => glue_spec.width,
         InternalValue::Dimen(dimen) => dimen,
         InternalValue::Int(integer) => integer,
-        InternalValue::Ident(_)
-        | InternalValue::TokenList(_)
-        | InternalValue::RawString(_) => panic!("Should not be possible"),
+        InternalValue::Ident(_) | InternalValue::TokenList(_) | InternalValue::RawString(_) => {
+            panic!("Should not be possible")
+        }
     }
 }
 
@@ -142,22 +143,19 @@ fn scan_something_internal(
         InternalCommand::LastKern => fetch_last_kern(scanner, eqtb),
         InternalCommand::LastSkip => fetch_last_skip(scanner, eqtb),
         InternalCommand::Badness => InternalValue::Int(eqtb.last_badness),
+        InternalCommand::FontCharDimension(dimension) => {
+            fetch_font_char_dimension(dimension, scanner, eqtb, logger)
+        }
         // ==== e-TeX / pdfTeX の問い合わせ ====
         InternalCommand::ETeXVersion => InternalValue::Int(2),
-        InternalCommand::PraTeXVersion => {
-            InternalValue::Int(crate::version::PRATEX_VERSION_MAJOR)
-        }
+        InternalCommand::PraTeXVersion => InternalValue::Int(crate::version::PRATEX_VERSION_MAJOR),
         // 外部コマンドの実行を許さないため、読み取り専用の無効状態だけを答える。
         InternalCommand::PdfShellEscape => InternalValue::Int(0),
-        InternalCommand::CurrentGroupLevel => {
-            InternalValue::Int(eqtb.cur_level_for_etex())
-        }
+        InternalCommand::CurrentGroupLevel => InternalValue::Int(eqtb.cur_level_for_etex()),
         InternalCommand::CurrentGroupType => InternalValue::Int(eqtb.cur_group_for_etex()),
         InternalCommand::CurrentIfLevel => InternalValue::Int(scanner.cur_if_level_for_etex()),
         InternalCommand::CurrentIfType => InternalValue::Int(scanner.cur_if_type_for_etex()),
-        InternalCommand::CurrentIfBranch => {
-            InternalValue::Int(scanner.cur_if_branch_for_etex())
-        }
+        InternalCommand::CurrentIfBranch => InternalValue::Int(scanner.cur_if_branch_for_etex()),
         InternalCommand::LastNodeType => InternalValue::Int(eqtb.last_node_type_for_etex()),
         InternalCommand::InteractionMode => InternalValue::Int(logger.interaction as i32),
         InternalCommand::GlueComponent(component) => {
@@ -238,6 +236,21 @@ fn scan_something_internal(
     value
 }
 
+/// 公式 e-TeX manual 3.4 の 8-bit TFM 文字寸法問い合わせ。
+///
+/// font identifier と character number の文法・回復は既存scannerへ委ね、
+/// 欠落字と四つのtableの選択は `FontInfo::char_dimension` だけで決める。
+fn fetch_font_char_dimension(
+    dimension: FontCharDimension,
+    scanner: &mut Scanner,
+    eqtb: &mut Eqtb,
+    logger: &mut Logger,
+) -> InternalValue {
+    let font_index = scan_font_ident(scanner, eqtb, logger);
+    let character = scanner.scan_char_num(eqtb, logger);
+    InternalValue::Dimen(eqtb.fonts[font_index as usize].char_dimension(character, dimension))
+}
+
 fn fetch_raw_string(
     command: crate::command::RawStringCommand,
     toks_allowed: bool,
@@ -273,12 +286,8 @@ fn fetch_glue_component(
     match component {
         GlueComponent::Stretch => InternalValue::Dimen(glue_spec.stretch.value),
         GlueComponent::Shrink => InternalValue::Dimen(glue_spec.shrink.value),
-        GlueComponent::StretchOrder => {
-            InternalValue::Int(order_rank(glue_spec.stretch.order))
-        }
-        GlueComponent::ShrinkOrder => {
-            InternalValue::Int(order_rank(glue_spec.shrink.order))
-        }
+        GlueComponent::StretchOrder => InternalValue::Int(order_rank(glue_spec.stretch.order)),
+        GlueComponent::ShrinkOrder => InternalValue::Int(order_rank(glue_spec.shrink.order)),
     }
 }
 
@@ -587,7 +596,6 @@ impl Dumpable for ValueType {
     }
 }
 
-
 // ================= e-TeX の式（`\numexpr` 系）=================
 //
 // **文法は二段だけである。**
@@ -616,7 +624,11 @@ fn mult_and_add(x: i64, n: i64, d: i64, max: i64) -> Result<i64, ()> {
     let prod = x.checked_mul(n).ok_or(())?;
     // **半分は絶対値の大きい方へ寄せる**
     let half = d / 2;
-    let q = if prod >= 0 { (prod + half) / d } else { -((-prod + half) / d) };
+    let q = if prod >= 0 {
+        (prod + half) / d
+    } else {
+        -((-prod + half) / d)
+    };
     if q.abs() > max {
         return Err(());
     }
@@ -713,7 +725,6 @@ fn add_spec(
         out.shrink = combine(a.shrink.clone(), b.shrink.clone(), plus, overflow, max);
     }
     out
-
 }
 
 fn combine(
@@ -725,20 +736,29 @@ fn combine(
 ) -> HigherOrderDimension {
     let bv = if plus { b.value } else { -b.value };
     if a.value == 0 {
-        return HigherOrderDimension { order: b.order, value: bv };
+        return HigherOrderDimension {
+            order: b.order,
+            value: bv,
+        };
     }
     if bv == 0 {
         return a;
     }
     match order_rank(a.order).cmp(&order_rank(b.order)) {
         std::cmp::Ordering::Greater => a,
-        std::cmp::Ordering::Less => HigherOrderDimension { order: b.order, value: bv },
+        std::cmp::Ordering::Less => HigherOrderDimension {
+            order: b.order,
+            value: bv,
+        },
         std::cmp::Ordering::Equal => {
             let r = a.value as i64 + bv as i64;
             if r.abs() > max {
                 *overflow = true;
             }
-            HigherOrderDimension { order: a.order, value: r.clamp(-max, max) as i32 }
+            HigherOrderDimension {
+                order: a.order,
+                value: r.clamp(-max, max) as i32,
+            }
         }
     }
 }
@@ -853,10 +873,20 @@ fn scan_expr_factor(
     scanner.back_input(token, eqtb, logger);
     let mut spec = GlueSpec::ZERO_GLUE;
     match kind {
-        ValueType::Int => spec.width = <i32 as crate::integer::IntegerExt>::scan_int(scanner, eqtb, logger),
+        ValueType::Int => {
+            spec.width = <i32 as crate::integer::IntegerExt>::scan_int(scanner, eqtb, logger)
+        }
         ValueType::Dimen => spec.width = crate::dimension::scan_normal_dimen(scanner, eqtb, logger),
-        ValueType::Glue => spec = crate::glue::scan_glue(false, scanner, eqtb, logger).as_ref().clone(),
-        ValueType::Mu => spec = crate::glue::scan_glue(true, scanner, eqtb, logger).as_ref().clone(),
+        ValueType::Glue => {
+            spec = crate::glue::scan_glue(false, scanner, eqtb, logger)
+                .as_ref()
+                .clone()
+        }
+        ValueType::Mu => {
+            spec = crate::glue::scan_glue(true, scanner, eqtb, logger)
+                .as_ref()
+                .clone()
+        }
     }
     spec
 }

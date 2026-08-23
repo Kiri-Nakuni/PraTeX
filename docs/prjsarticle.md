@@ -35,7 +35,9 @@ NFSS接続は後続sliceとする。
 `upjisr-h.tfm`を置かない隔離runtimeでは、package読込み位置で先に
 `Japanese font ...=upjisr-h at 10.0pt not loaded: JFM file was not found`と診断することも
 実測した。これはCJK文字へ到達後の`CJK typesetting needs a Japanese font metric`とは別で、
-資材探索失敗とcurrent和文font未選択を混同しない。
+資材探索失敗とcurrent和文font未選択を混同しない。packageを使わないplain・一般classでは、
+未選択の最初のCJK文字に限ってengineが同じ`upjisr-h at 10pt`を遅延選択する。class hookの
+明示選択はこのfallbackより先に決まり、上書きされない。
 
 ## production出力までのengine依存
 

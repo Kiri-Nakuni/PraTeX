@@ -1,7 +1,7 @@
 //! Here resides the structures that contain the font information that TeX needs as well
 //! as methods to load such font information from a file.
 
-use crate::command::{PrefixableCommand, UnexpandableCommand};
+use crate::command::{FontCharDimension, PrefixableCommand, UnexpandableCommand};
 use crate::dimension::Dimension;
 use crate::eqtb::{ControlSequence, Eqtb, FontIndex, FontVariable, IntegerVariable, NULL_FONT};
 use crate::format::{Dumpable, FormatError};
@@ -654,20 +654,47 @@ impl FontInfo {
         &self.char_infos[(c - self.bc) as usize]
     }
 
+    /// 文字がこの 8-bit TFM に実在するときだけ、その共通 char-info を返す。
+    ///
+    /// `bc..=ec` の外、空の nullfont、width index 0 の欠落字を一箇所で区別する。
+    fn existing_char_info(&self, c: u8) -> Option<&CharInfo> {
+        if c < self.bc || c > self.ec {
+            return None;
+        }
+        self.char_infos
+            .get(usize::from(c - self.bc))
+            .filter(|info| info.width_index > 0)
+    }
+
+    /// e-TeX の四つの font-character 問い合わせが共有する metric 経路。
+    ///
+    /// TFM に文字がなければ、どの成分も 0pt（0sp）である。
+    pub(crate) fn char_dimension(&self, c: u8, dimension: FontCharDimension) -> Dimension {
+        let Some(info) = self.existing_char_info(c) else {
+            return 0;
+        };
+        match dimension {
+            FontCharDimension::Width => self.widths[info.width_index],
+            FontCharDimension::Height => self.heights[info.height_index],
+            FontCharDimension::Depth => self.depths[info.depth_index],
+            FontCharDimension::Italic => self.italics[info.italic_index],
+        }
+    }
+
     pub fn width(&self, c: u8) -> Dimension {
-        self.widths[self.char_info(c).width_index]
+        self.char_dimension(c, FontCharDimension::Width)
     }
 
     pub fn height(&self, c: u8) -> Dimension {
-        self.heights[self.char_info(c).height_index]
+        self.char_dimension(c, FontCharDimension::Height)
     }
 
     pub fn depth(&self, c: u8) -> Dimension {
-        self.depths[self.char_info(c).depth_index]
+        self.char_dimension(c, FontCharDimension::Depth)
     }
 
     pub fn italic(&self, c: u8) -> Dimension {
-        self.italics[self.char_info(c).italic_index]
+        self.char_dimension(c, FontCharDimension::Italic)
     }
 
     pub fn tag(&self, c: u8) -> CharTag {
@@ -675,7 +702,7 @@ impl FontInfo {
     }
 
     pub fn char_exists(&self, c: u8) -> bool {
-        self.char_info(c).width_index > 0
+        self.existing_char_info(c).is_some()
     }
 
     pub fn slant(&self) -> Scaled {
@@ -1202,5 +1229,74 @@ impl Dumpable for ExtensibleRecipe {
         let bot = Option::undump(lines)?;
         let rep = u8::undump(lines)?;
         Ok(Self { top, mid, bot, rep })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn 合成font() -> FontInfo {
+        let mut font = FontInfo::null_font();
+        font.bc = 65;
+        font.ec = 66;
+        font.char_infos = vec![
+            CharInfo {
+                width_index: 1,
+                height_index: 1,
+                depth_index: 1,
+                italic_index: 1,
+                tag: CharTag::None,
+            },
+            // width index 0 は、他成分のindexに値があっても欠落字である。
+            CharInfo {
+                width_index: 0,
+                height_index: 1,
+                depth_index: 1,
+                italic_index: 1,
+                tag: CharTag::None,
+            },
+        ];
+        font.widths = vec![0, 10];
+        font.heights = vec![0, 20];
+        font.depths = vec![0, 30];
+        font.italics = vec![0, 40];
+        font
+    }
+
+    #[test]
+    fn fontchar寸法は共通の存在判定から四成分を選ぶ() {
+        let font = 合成font();
+        assert_eq!(font.char_dimension(65, FontCharDimension::Width), 10);
+        assert_eq!(font.char_dimension(65, FontCharDimension::Height), 20);
+        assert_eq!(font.char_dimension(65, FontCharDimension::Depth), 30);
+        assert_eq!(font.char_dimension(65, FontCharDimension::Italic), 40);
+
+        for dimension in FontCharDimension::ALL {
+            assert_eq!(font.char_dimension(66, dimension), 0);
+            assert_eq!(font.char_dimension(64, dimension), 0);
+            assert_eq!(font.char_dimension(255, dimension), 0);
+            assert_eq!(FontInfo::null_font().char_dimension(0, dimension), 0);
+        }
+        assert!(!font.char_exists(66));
+        assert!(!FontInfo::null_font().char_exists(0));
+    }
+
+    #[test]
+    fn fontchar内部寸法のthe文字列は全てother文字になる() {
+        let eqtb = Eqtb::new();
+        let tokens = crate::token_lists::value_to_the_toks(
+            crate::scan_internal::InternalValue::Dimen(5 * 65_536),
+            &eqtb,
+        )
+        .unwrap();
+        assert_eq!(
+            tokens,
+            b"5.0pt"
+                .iter()
+                .copied()
+                .map(crate::token::Token::OtherChar)
+                .collect::<Vec<_>>()
+        );
     }
 }

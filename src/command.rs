@@ -4,6 +4,7 @@ mod conditionals;
 mod convert;
 mod def;
 mod fraction;
+mod font_char_dimension;
 mod glue_component;
 mod glue_conversion;
 mod internal;
@@ -27,6 +28,7 @@ pub use conditionals::{FiOrElse, IfTest};
 pub use convert::ConvertCommand;
 pub use def::DefCommand;
 pub use fraction::{FractionCommand, FractionType};
+pub use font_char_dimension::FontCharDimension;
 pub use glue_component::GlueComponent;
 pub use glue_conversion::GlueConversion;
 pub use internal::{InternalCommand, ToksCommand};
@@ -153,6 +155,8 @@ pub enum UnexpandableCommand {
     LastKern,
     LastSkip,
     Badness,
+    /// e-TeX の 8-bit TFM 文字寸法問い合わせ。
+    FontCharDimension(FontCharDimension),
     // ==== e-TeX / pdfTeX の問い合わせ ====
     ETeXVersion,
     PraTeXVersion,
@@ -267,6 +271,9 @@ impl UnexpandableCommand {
             Self::LastKern => Some(InternalCommand::LastKern),
             Self::LastSkip => Some(InternalCommand::LastSkip),
             Self::Badness => Some(InternalCommand::Badness),
+            Self::FontCharDimension(dimension) => {
+                Some(InternalCommand::FontCharDimension(*dimension))
+            }
             Self::ETeXVersion => Some(InternalCommand::ETeXVersion),
             Self::PraTeXVersion => Some(InternalCommand::PraTeXVersion),
             Self::PdfShellEscape => Some(InternalCommand::PdfShellEscape),
@@ -435,6 +442,7 @@ impl UnexpandableCommand {
             Self::LastKern => printer.print_esc_str(b"lastkern"),
             Self::LastSkip => printer.print_esc_str(b"lastskip"),
             Self::Badness => printer.print_esc_str(b"badness"),
+            Self::FontCharDimension(dimension) => dimension.display(printer),
             Self::ETeXVersion => printer.print_esc_str(b"eTeXversion"),
             Self::PraTeXVersion => printer.print_esc_str(b"pratexversion"),
             Self::PdfShellEscape => printer.print_esc_str(b"pdfshellescape"),

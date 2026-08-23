@@ -115,6 +115,7 @@ fn prepare_directory(name: &str) -> PathBuf {
         "use.log",
         "use.dvi",
         "synthetic.tfm",
+        "upjisr-h.tfm",
         "vertical.tfm",
     ] {
         let _ = std::fs::remove_file(directory.join(file_name));
@@ -125,6 +126,42 @@ fn prepare_directory(name: &str) -> PathBuf {
     )
     .unwrap();
     directory
+}
+
+#[test]
+fn 未選択ならカレントのupjisr_hを最初の和文で遅延選択する() {
+    let directory = prepare_directory("既定JFM遅延選択");
+    std::fs::write(
+        directory.join("upjisr-h.tfm"),
+        synthetic_jfm(HORIZONTAL_JFM_ID),
+    )
+    .unwrap();
+    std::fs::write(
+        directory.join("t.tex"),
+        "\\catcode123=1\n\\catcode125=2\n\\batchmode\n\
+         \\kcatcode\"3042=16\nあ\\par\n\\end\n",
+    )
+    .unwrap();
+
+    let output = run_rtex(&directory, &["t.tex"]);
+    assert_success(&output, "カレントの既定JFMを遅延選択できなかった");
+    let log = std::fs::read_to_string(directory.join("t.log")).unwrap();
+    assert!(
+        !log.contains("CJK typesetting needs a Japanese font metric"),
+        "{log}"
+    );
+    let events = parse_first_page(&std::fs::read(directory.join("t.dvi")).unwrap());
+    assert_eq!(events.wide.len(), 1);
+    assert_eq!(events.wide[0].character, 0x3042);
+    assert_eq!(events.wide[0].font, Some(256));
+    assert!(
+        events
+            .font_definitions
+            .iter()
+            .any(|(_, name)| name == b"upjisr-h"),
+        "既定JFM名のfont definitionがない: {:?}",
+        events.font_definitions
+    );
 }
 
 fn run_rtex(directory: &Path, arguments: &[&str]) -> Output {

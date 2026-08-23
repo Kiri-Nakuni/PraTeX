@@ -5,9 +5,9 @@ use super::{
 };
 use crate::command::{
     ArithCommand, BoxDimension, Command, ConvertCommand, DefCommand, ExpandableCommand, FiOrElse,
-    FractionCommand, FractionType, GlueComponent, GlueConversion, Hskip, IfTest, LimitType, MakeBox,
-    MarkClassOperand, MarkCommand, MarkQuery, MathCommand, PageDimension, Prefix,
-    PrefixableCommand, RawStringCommand, RemoveItem, ShorthandDef, ShowCommand,
+    FontCharDimension, FractionCommand, FractionType, GlueComponent, GlueConversion, Hskip, IfTest,
+    LimitType, MakeBox, MarkClassOperand, MarkCommand, MarkQuery, MathCommand, PageDimension,
+    Prefix, PrefixableCommand, RawStringCommand, RemoveItem, ShorthandDef, ShowCommand,
     UnexpandableCommand, Vskip,
 };
 use crate::logger::InteractionMode;
@@ -724,14 +724,8 @@ impl Eqtb {
         self.primitive_unexpandable(b"hrule", UnexpandableCommand::Hrule);
         self.primitive_unexpandable(b"ignorespaces", UnexpandableCommand::IgnoreSpaces);
         self.primitive_unexpandable(b"insert", UnexpandableCommand::Insert);
-        self.primitive_unexpandable(
-            b"mark",
-            UnexpandableCommand::Mark(MarkClassOperand::Zero),
-        );
-        self.primitive_unexpandable(
-            b"marks",
-            UnexpandableCommand::Mark(MarkClassOperand::Scan),
-        );
+        self.primitive_unexpandable(b"mark", UnexpandableCommand::Mark(MarkClassOperand::Zero));
+        self.primitive_unexpandable(b"marks", UnexpandableCommand::Mark(MarkClassOperand::Scan));
         self.primitive_unexpandable(
             b"mathaccent",
             UnexpandableCommand::Math(MathCommand::MathAccent),
@@ -793,8 +787,14 @@ impl Eqtb {
         // e-TeX の式。**内部量として振る舞う**
         for (name, kind) in [
             (b"numexpr".as_slice(), crate::scan_internal::ValueType::Int),
-            (b"dimexpr".as_slice(), crate::scan_internal::ValueType::Dimen),
-            (b"glueexpr".as_slice(), crate::scan_internal::ValueType::Glue),
+            (
+                b"dimexpr".as_slice(),
+                crate::scan_internal::ValueType::Dimen,
+            ),
+            (
+                b"glueexpr".as_slice(),
+                crate::scan_internal::ValueType::Glue,
+            ),
             (b"muexpr".as_slice(), crate::scan_internal::ValueType::Mu),
         ] {
             self.primitive_unexpandable(name, UnexpandableCommand::Expr(kind));
@@ -847,13 +847,21 @@ impl Eqtb {
 
         // See 384.
         for (singular, plural, query) in [
-            (b"topmark".as_slice(), b"topmarks".as_slice(), MarkQuery::Top),
+            (
+                b"topmark".as_slice(),
+                b"topmarks".as_slice(),
+                MarkQuery::Top,
+            ),
             (
                 b"firstmark".as_slice(),
                 b"firstmarks".as_slice(),
                 MarkQuery::First,
             ),
-            (b"botmark".as_slice(), b"botmarks".as_slice(), MarkQuery::Bot),
+            (
+                b"botmark".as_slice(),
+                b"botmarks".as_slice(),
+                MarkQuery::Bot,
+            ),
             (
                 b"splitfirstmark".as_slice(),
                 b"splitfirstmarks".as_slice(),
@@ -927,21 +935,21 @@ impl Eqtb {
         self.primitive_unexpandable(b"lastskip", UnexpandableCommand::LastSkip);
         self.primitive_unexpandable(b"inputlineno", UnexpandableCommand::InputLineNumber);
         self.primitive_unexpandable(b"badness", UnexpandableCommand::Badness);
+        for dimension in FontCharDimension::ALL {
+            self.primitive_unexpandable(
+                dimension.primitive_name(),
+                UnexpandableCommand::FontCharDimension(dimension),
+            );
+        }
         // ==== e-TeX / pdfTeX の問い合わせ ====
         self.primitive_unexpandable(b"eTeXversion", UnexpandableCommand::ETeXVersion);
         self.primitive_unexpandable(b"pratexversion", UnexpandableCommand::PraTeXVersion);
-        self.primitive_unexpandable(
-            b"pdfshellescape",
-            UnexpandableCommand::PdfShellEscape,
-        );
+        self.primitive_unexpandable(b"pdfshellescape", UnexpandableCommand::PdfShellEscape);
         self.primitive_unexpandable(
             b"interactionmode",
             UnexpandableCommand::Prefixable(PrefixableCommand::InteractionMode),
         );
-        self.primitive_unexpandable(
-            b"currentgrouplevel",
-            UnexpandableCommand::CurrentGroupLevel,
-        );
+        self.primitive_unexpandable(b"currentgrouplevel", UnexpandableCommand::CurrentGroupLevel);
         self.primitive_unexpandable(b"currentgrouptype", UnexpandableCommand::CurrentGroupType);
         self.primitive_unexpandable(b"currentiflevel", UnexpandableCommand::CurrentIfLevel);
         self.primitive_unexpandable(b"currentiftype", UnexpandableCommand::CurrentIfType);
@@ -1014,9 +1022,15 @@ impl Eqtb {
             (b"pdfstrcmp".as_slice(), ConvertCommand::PdfStrCmp),
             (b"pdfescapehex".as_slice(), ConvertCommand::PdfEscapeHex),
             (b"pdfunescapehex".as_slice(), ConvertCommand::PdfUnescapeHex),
-            (b"pdfescapestring".as_slice(), ConvertCommand::PdfEscapeString),
+            (
+                b"pdfescapestring".as_slice(),
+                ConvertCommand::PdfEscapeString,
+            ),
             (b"pdfescapename".as_slice(), ConvertCommand::PdfEscapeName),
-            (b"pdfcreationdate".as_slice(), ConvertCommand::PdfCreationDate),
+            (
+                b"pdfcreationdate".as_slice(),
+                ConvertCommand::PdfCreationDate,
+            ),
         ] {
             self.primitive_expandable(n, ExpandableCommand::Convert(c));
         }

@@ -170,6 +170,31 @@ try {
 }
 ```
 
+Linux/macOSでは同じ確認を次のように実行できます。`pratex`は絶対pathにしてから一時
+directoryへ移ります。
+
+```sh
+kpsewhich latex.ltx
+kpsewhich hyphen.cfg
+kpsewhich upjisr-h.tfm
+kpsewhich upjisr-h.vf
+kpsewhich tcrm1000.tfm
+
+cargo build --release --locked --bin pratex
+repo=$(pwd)
+pratex="$repo/target/release/pratex"
+demo=$(mktemp -d "${TMPDIR:-/tmp}/pratex-demo.XXXXXXXX")
+cp "$repo/tex/latex/pratex/prjsarticle.cls" "$demo/"
+cp "$repo/tex/latex/pratex/pratex-japanese.sty" "$demo/"
+cp "$repo/docs/examples/prjsarticle-sample.tex" "$demo/"
+cp "$repo/docs/examples/upjisr-h.cidprofile" "$demo/"
+
+cd "$demo"
+"$pratex" --quiet -- latex.ltx
+"$pratex" --quiet -- '&latex' prjsarticle-sample.tex
+dvipdfmx -o prjsarticle-sample-from-dvi.pdf prjsarticle-sample.dvi
+```
+
 `prjsarticle`はhookを定義した後で`pratex-japanese`を読みます。このpackageが
 `\pratexjfont`で`upjisr-h at 10pt`を定義し、本文開始hookから和文fontを選びます。
 別JFMを試す場合だけ、`docs/examples/prjsarticle-upjisr-h-adapter.tex`と同じ形で
@@ -177,6 +202,34 @@ try {
 現段階の直接PDFは和文字形を埋め込まず、`HeiseiMin-W3`と`UniJIS-UCS2-H`を解決できる
 viewerに依存し、ToUnicodeも持ちません。可搬な表示確認にはDVIとTeX Liveの`dvipdfmx`を
 使ってください。
+
+文書またはformatが和文fontを明示選択していない場合も、PraTeXは最初のCJK文字でだけ
+`upjisr-h at 10pt`を遅延して選びます。これはplainや一般classで「TFMはあるのにcurrent
+和文fontがない」状態を避けるための既定値です。カレントの`upjisr-h.tfm`を最優先し、なければ
+同じTFM resolverでTeX Liveを探索します。`\pratexjfont`による明示選択が常に優先されます。
+英文だけの実行ではJFMを探索しません。VFはPraTeXが先読みする資材ではなく、DVIを処理する
+`dvipdfmx`側が`upjisr-h.vf`をkpathseaで探索します。
+
+別のTFM/JFMを明示する場合、和文にはPraTeX固有の`\pratexjfont`、欧文にはTeXの`\font`を
+使います。論理名には通常`.tfm`を付けません。定義した制御綴を実行した時点からcurrent fontに
+なります。
+
+```tex
+% 和文JFM。カレントの metrics/my-jfm.tfm、次いでTeX Liveを探索する。
+\pratexjfont\MyJapanese=metrics/my-jfm at 12pt
+\MyJapanese
+
+% 欧文TFM。
+\font\MyLatin=cmr10 at 10pt
+\MyLatin
+```
+
+`prjsarticle`で本文開始時の選択も差し替える場合は、class読込み後に次を置きます。
+
+```tex
+\pratexjfont\MyJapanese=metrics/my-jfm at 12pt
+\pratexsetjapanesefonthook{\MyJapanese}
+```
 
 ### `scrartcl`の最小確認
 

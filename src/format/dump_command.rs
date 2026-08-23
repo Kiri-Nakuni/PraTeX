@@ -1,8 +1,8 @@
 use super::{Dumpable, FormatError};
 use crate::command::{
-    Command, ConvertCommand, ExpandableCommand, FiOrElse, GlueComponent, GlueConversion, Hskip,
-    IfTest, MacroCall, MakeBox, MarkClassOperand, MarkCommand, MarkQuery, MathCommand,
-    PrefixableCommand, RemoveItem, ShowCommand, UnexpandableCommand, Vskip,
+    Command, ConvertCommand, ExpandableCommand, FiOrElse, FontCharDimension, GlueComponent,
+    GlueConversion, Hskip, IfTest, MacroCall, MakeBox, MarkClassOperand, MarkCommand, MarkQuery,
+    MathCommand, PrefixableCommand, RemoveItem, ShowCommand, UnexpandableCommand, Vskip,
 };
 use crate::eqtb::CatCode;
 use crate::nodes::LeaderKind;
@@ -232,6 +232,10 @@ impl Dumpable for UnexpandableCommand {
             Self::LastKern => writeln!(target, "LastKern")?,
             Self::LastSkip => writeln!(target, "LastSkip")?,
             Self::Badness => writeln!(target, "Badness")?,
+            Self::FontCharDimension(dimension) => {
+                writeln!(target, "FontCharDimension")?;
+                dimension.dump(target)?;
+            }
             Self::ETeXVersion => writeln!(target, "ETeXVersion")?,
             Self::PraTeXVersion => writeln!(target, "PraTeXVersion")?,
             Self::PdfShellEscape => writeln!(target, "PdfShellEscape")?,
@@ -437,6 +441,7 @@ impl Dumpable for UnexpandableCommand {
             "LastKern" => Ok(Self::LastKern),
             "LastSkip" => Ok(Self::LastSkip),
             "Badness" => Ok(Self::Badness),
+            "FontCharDimension" => Ok(Self::FontCharDimension(FontCharDimension::undump(lines)?)),
             "ETeXVersion" => Ok(Self::ETeXVersion),
             "PraTeXVersion" => Ok(Self::PraTeXVersion),
             "PdfShellEscape" => Ok(Self::PdfShellEscape),
@@ -927,6 +932,20 @@ mod tests {
     }
 
     #[test]
+    fn fontchar寸法命令のformatを往復する() {
+        for dimension in FontCharDimension::ALL {
+            let command = UnexpandableCommand::FontCharDimension(dimension);
+            let mut file = Vec::new();
+            command.dump(&mut file).unwrap();
+            let input = String::from_utf8(file).unwrap();
+            assert_eq!(
+                UnexpandableCommand::undump(&mut input.lines()).unwrap(),
+                command
+            );
+        }
+    }
+
+    #[test]
     fn 和文文字命令のformatを往復する() {
         let token = CjkToken::new(0x10_FFFF, CjkCategory::Modifier).unwrap();
         let command = UnexpandableCommand::CjkChar(token);
@@ -994,10 +1013,8 @@ mod tests {
         let cs_name = ExpandableCommand::CsName;
         let convert = ExpandableCommand::Convert(ConvertCommand::Number);
         let the = ExpandableCommand::The;
-        let mark = ExpandableCommand::Mark(MarkCommand::new(
-            MarkQuery::Top,
-            MarkClassOperand::Zero,
-        ));
+        let mark =
+            ExpandableCommand::Mark(MarkCommand::new(MarkQuery::Top, MarkClassOperand::Zero));
         let macro_call = ExpandableCommand::Macro(MacroCall {
             protected: false,
             long: false,

@@ -29,9 +29,11 @@ instanceを共有するが、PDF font resource loaderは現在別instanceなの�
 欧文TFMと、拡張子`.tfm`を共有するJFMはどちらも`FileKind::Tfm`で探す。font定義に現れた
 拡張子なしの論理名はloader境界で`.tfm`を補ってresolverへ渡すが、fontのidentity、fmt、DVIへは
 元の論理名だけを保持する。TeX Live上にJFMが**存在して解決できること**と、組版中のcurrent
-Japanese fontにそれを**選択すること**は別である。現段階では`\pratexjfont`で定義し、そのfont
-選択命令を実行するかclassのfont hookへ登録する必要がある。未選択のままCJK文字へ到達した時の
-`CJK typesetting needs a Japanese font metric`は、TFM探索失敗を直接意味しない。
+Japanese fontにそれを**選択すること**は別である。明示した`\pratexjfont`またはclassのfont
+hookを優先し、未選択のまま最初のCJK文字へ到達した時だけ`upjisr-h at 10pt`を遅延選択する。
+この時点で初めて同じ`FileKind::Tfm` resolverを使うため、英文だけのrunへJFM探索costや必須資材を
+持ち込まない。カレントに`upjisr-h.tfm`があれば外部探索前に採用する。それもTeX Live上のJFMも
+見つからなかった場合に限り、`CJK typesetting needs a Japanese font metric`へ探索失敗理由を併記する。
 
 VFは`FileKind::Vf`から公開CLIの`--format=vf`と用途別`--show-path=vf`へ対応し、同じrun-local
 cacheと`ls-R` fast pathを使える。ただし通常のDVI生成でPraTeX自身はVFを展開しない。DVIに残した

@@ -15,6 +15,7 @@ use crate::input::expansion::get_x_token;
 use crate::input::token_source::TokenSourceType;
 use crate::input::Scanner;
 use crate::integer::{Integer, IntegerExt};
+use crate::japanese_fonts::{load_japanese_font_info, JapaneseFontError, JapaneseFontIndex};
 use crate::logger::Logger;
 use crate::main_loop::{main_loop, WordScanner};
 use crate::math::{
@@ -36,14 +37,17 @@ use crate::output::Output;
 use crate::packaging::scan_spec;
 use crate::page_breaking::PageBuilder;
 use crate::print::Printer;
-use crate::scaled::xn_over_d;
+use crate::scaled::{xn_over_d, UNITY};
 use crate::scan_boxes::{begin_box, scan_box, scan_leader_box};
 use crate::semantic_nest::{Mode, RichMode, SemanticState};
 use crate::token::{CjkToken, LatinUcsToken, Token};
 use crate::vertical_mode::{VerticalMode, IGNORE_DEPTH};
 use crate::write_streams::{do_close_out, do_open_out, do_write, implement_immediate};
 
+use std::path::Path;
 use std::rc::Rc;
+
+const DEFAULT_HORIZONTAL_JFM: &str = "upjisr-h";
 
 /// Returns true when dumping, else false.
 /// See 1030.
@@ -78,33 +82,34 @@ pub fn main_control(
                 UnexpandableCommand::Relax { .. } => {
                     // Do nothing.
                 }
-                UnexpandableCommand::LeftBrace(_)
-                | UnexpandableCommand::LatinUcsLeftBrace(_) => {
+                UnexpandableCommand::LeftBrace(_) | UnexpandableCommand::LatinUcsLeftBrace(_) => {
                     eqtb.new_save_level(GroupType::Simple, &scanner.input_stack, logger)
                 }
-                UnexpandableCommand::RightBrace(_)
-                | UnexpandableCommand::LatinUcsRightBrace(_) => handle_right_brace(
-                    token,
-                    align_state,
-                    hyphenator,
-                    page_builder,
-                    output,
-                    nest,
-                    scanner,
-                    eqtb,
-                    logger,
-                ),
-                UnexpandableCommand::MathShift(_)
-                | UnexpandableCommand::LatinUcsMathShift(_) => init_math(
-                    hmode.subtype,
-                    hyphenator,
-                    page_builder,
-                    output,
-                    nest,
-                    scanner,
-                    eqtb,
-                    logger,
-                ),
+                UnexpandableCommand::RightBrace(_) | UnexpandableCommand::LatinUcsRightBrace(_) => {
+                    handle_right_brace(
+                        token,
+                        align_state,
+                        hyphenator,
+                        page_builder,
+                        output,
+                        nest,
+                        scanner,
+                        eqtb,
+                        logger,
+                    )
+                }
+                UnexpandableCommand::MathShift(_) | UnexpandableCommand::LatinUcsMathShift(_) => {
+                    init_math(
+                        hmode.subtype,
+                        hyphenator,
+                        page_builder,
+                        output,
+                        nest,
+                        scanner,
+                        eqtb,
+                        logger,
+                    )
+                }
                 UnexpandableCommand::ParEnd => {
                     if scanner.align_state < 0 {
                         off_save(unexpandable_command, token, scanner, eqtb, logger);
@@ -358,6 +363,7 @@ pub fn main_control(
                 | UnexpandableCommand::LastKern
                 | UnexpandableCommand::LastSkip
                 | UnexpandableCommand::Badness
+                | UnexpandableCommand::FontCharDimension(_)
                 | UnexpandableCommand::ETeXVersion
                 | UnexpandableCommand::PraTeXVersion
                 | UnexpandableCommand::PdfShellEscape
@@ -395,22 +401,22 @@ pub fn main_control(
                 UnexpandableCommand::Relax { .. } => {
                     // Do nothing.
                 }
-                UnexpandableCommand::LeftBrace(_)
-                | UnexpandableCommand::LatinUcsLeftBrace(_) => {
+                UnexpandableCommand::LeftBrace(_) | UnexpandableCommand::LatinUcsLeftBrace(_) => {
                     eqtb.new_save_level(GroupType::Simple, &scanner.input_stack, logger)
                 }
-                UnexpandableCommand::RightBrace(_)
-                | UnexpandableCommand::LatinUcsRightBrace(_) => handle_right_brace(
-                    token,
-                    align_state,
-                    hyphenator,
-                    page_builder,
-                    output,
-                    nest,
-                    scanner,
-                    eqtb,
-                    logger,
-                ),
+                UnexpandableCommand::RightBrace(_) | UnexpandableCommand::LatinUcsRightBrace(_) => {
+                    handle_right_brace(
+                        token,
+                        align_state,
+                        hyphenator,
+                        page_builder,
+                        output,
+                        nest,
+                        scanner,
+                        eqtb,
+                        logger,
+                    )
+                }
                 UnexpandableCommand::Spacer => {
                     // Do nothing.
                 }
@@ -495,22 +501,29 @@ pub fn main_control(
                     delete_last(remove_item, nest, scanner, eqtb, logger)
                 }
                 UnexpandableCommand::CjkChar(c) => {
-                    if eqtb.cur_japanese_font().is_none() {
-                        report_cjk_typesetting_unavailable(c, scanner, eqtb, logger);
-                    } else {
-                        // 横組fontを選んだ和文は、欧文文字と同じく外部vertical modeから
-                        // paragraphを開始し、horizontal main loopでWideCharへする。
-                        scanner.back_input(token, eqtb, logger);
-                        new_graf(
-                            true,
-                            hyphenator,
-                            page_builder,
-                            output,
-                            nest,
+                    match ensure_horizontal_japanese_font(scanner, eqtb) {
+                        Ok(_) => {
+                            // 横組fontを選んだ和文は、欧文文字と同じく外部vertical modeから
+                            // paragraphを開始し、horizontal main loopでWideCharへする。
+                            scanner.back_input(token, eqtb, logger);
+                            new_graf(
+                                true,
+                                hyphenator,
+                                page_builder,
+                                output,
+                                nest,
+                                scanner,
+                                eqtb,
+                                logger,
+                            );
+                        }
+                        Err(error) => report_cjk_typesetting_unavailable(
+                            c,
+                            Some(error),
                             scanner,
                             eqtb,
                             logger,
-                        );
+                        ),
                     }
                 }
                 UnexpandableCommand::LatinUcsChar(c) => {
@@ -657,6 +670,7 @@ pub fn main_control(
                 | UnexpandableCommand::LastKern
                 | UnexpandableCommand::LastSkip
                 | UnexpandableCommand::Badness
+                | UnexpandableCommand::FontCharDimension(_)
                 | UnexpandableCommand::ETeXVersion
                 | UnexpandableCommand::PraTeXVersion
                 | UnexpandableCommand::PdfShellEscape
@@ -696,8 +710,7 @@ pub fn main_control(
                 UnexpandableCommand::Spacer | UnexpandableCommand::Relax { .. } => {
                     // Do nothing.
                 }
-                UnexpandableCommand::LeftBrace(_)
-                | UnexpandableCommand::LatinUcsLeftBrace(_) => {
+                UnexpandableCommand::LeftBrace(_) | UnexpandableCommand::LatinUcsLeftBrace(_) => {
                     mmode.append_node(Node::Noad(Noad::Normal(NormalNoad::new())), eqtb);
                     scanner.back_input(token, eqtb, logger);
                     scan_subformula_enclosed_in_braces(
@@ -708,20 +721,20 @@ pub fn main_control(
                         logger,
                     );
                 }
-                UnexpandableCommand::RightBrace(_)
-                | UnexpandableCommand::LatinUcsRightBrace(_) => handle_right_brace(
-                    token,
-                    align_state,
-                    hyphenator,
-                    page_builder,
-                    output,
-                    nest,
-                    scanner,
-                    eqtb,
-                    logger,
-                ),
-                UnexpandableCommand::MathShift(_)
-                | UnexpandableCommand::LatinUcsMathShift(_) => {
+                UnexpandableCommand::RightBrace(_) | UnexpandableCommand::LatinUcsRightBrace(_) => {
+                    handle_right_brace(
+                        token,
+                        align_state,
+                        hyphenator,
+                        page_builder,
+                        output,
+                        nest,
+                        scanner,
+                        eqtb,
+                        logger,
+                    )
+                }
+                UnexpandableCommand::MathShift(_) | UnexpandableCommand::LatinUcsMathShift(_) => {
                     if let GroupType::MathShift { kind } = eqtb.cur_group.typ {
                         after_math(
                             kind,
@@ -748,7 +761,7 @@ pub fn main_control(
                     }
                 }
                 UnexpandableCommand::CjkChar(c) => {
-                    report_cjk_typesetting_unavailable(c, scanner, eqtb, logger)
+                    report_cjk_typesetting_unavailable(c, None, scanner, eqtb, logger)
                 }
                 UnexpandableCommand::LatinUcsChar(c) => {
                     report_latin_ucs_typesetting_unavailable(c, scanner, eqtb, logger)
@@ -1037,12 +1050,8 @@ pub fn main_control(
                     MathCommand::MathCharGiven(c) => set_math_char(mmode, c, eqtb),
                     MathCommand::Radical => math_radical(nest, scanner, eqtb, logger),
                 },
-                UnexpandableCommand::LatinUcsSupMark(_) => {
-                    superscript(nest, scanner, eqtb, logger)
-                }
-                UnexpandableCommand::LatinUcsSubMark(_) => {
-                    subscript(nest, scanner, eqtb, logger)
-                }
+                UnexpandableCommand::LatinUcsSupMark(_) => superscript(nest, scanner, eqtb, logger),
+                UnexpandableCommand::LatinUcsSubMark(_) => subscript(nest, scanner, eqtb, logger),
                 UnexpandableCommand::Kern => {
                     mmode.append_node(scan_kern(scanner, eqtb, logger), eqtb)
                 }
@@ -1087,6 +1096,7 @@ pub fn main_control(
                 | UnexpandableCommand::LastKern
                 | UnexpandableCommand::LastSkip
                 | UnexpandableCommand::Badness
+                | UnexpandableCommand::FontCharDimension(_)
                 | UnexpandableCommand::ETeXVersion
                 | UnexpandableCommand::PraTeXVersion
                 | UnexpandableCommand::PdfShellEscape
@@ -1248,13 +1258,16 @@ fn append_cjk_character(
     eqtb: &mut Eqtb,
     logger: &mut Logger,
 ) {
-    let Some(font_index) = eqtb.cur_japanese_font() else {
-        report_cjk_typesetting_unavailable(token, scanner, eqtb, logger);
-        return;
+    let font_index = match ensure_horizontal_japanese_font(scanner, eqtb) {
+        Ok(font_index) => font_index,
+        Err(error) => {
+            report_cjk_typesetting_unavailable(token, Some(error), scanner, eqtb, logger);
+            return;
+        }
     };
     let code_point = token.code_point();
     let Some(font) = eqtb.japanese_fonts.get(font_index.position()) else {
-        report_cjk_typesetting_unavailable(token, scanner, eqtb, logger);
+        report_cjk_typesetting_unavailable(token, None, scanner, eqtb, logger);
         return;
     };
     let metrics = font.metrics_for_unicode(code_point);
@@ -1272,9 +1285,51 @@ fn append_cjk_character(
     );
 }
 
-/// current横組JFMがない時は、Unicodeをbyte分解せず従来の明示診断を保つ。
+/// 明示選択を優先し、未選択時だけTeX Live標準の横組JFMを遅延して選ぶ。
+///
+/// 英文だけのrunでは和文資材を要求せず、最初のCJK文字で初めてTFM/JFM resolverを使う。
+/// See 1041.
+fn ensure_horizontal_japanese_font(
+    scanner: &mut Scanner,
+    eqtb: &mut Eqtb,
+) -> Result<JapaneseFontIndex, JapaneseFontError> {
+    if let Some(font_index) = eqtb.cur_japanese_font() {
+        return Ok(font_index);
+    }
+
+    let logical_path = Path::new(DEFAULT_HORIZONTAL_JFM);
+    let requested_size = 10 * UNITY;
+    if let Some(font_index) = eqtb
+        .japanese_fonts
+        .iter()
+        .enumerate()
+        .find_map(|(position, font)| {
+            font.same_identity(logical_path, requested_size)
+                .then(|| JapaneseFontIndex::from_position(position))
+                .flatten()
+        })
+    {
+        eqtb.japanese_font_define(Some(font_index), true);
+        return Ok(font_index);
+    }
+
+    let font_index = JapaneseFontIndex::from_position(eqtb.japanese_fonts.len())
+        .ok_or(JapaneseFontError::TooManyFonts)?;
+    let mut font = load_japanese_font_info(
+        logical_path,
+        crate::fonts::SizeIndicator::AtSize(requested_size),
+        scanner,
+    )?;
+    font.bind_index(font_index);
+    eqtb.japanese_fonts.push(font);
+    eqtb.japanese_font_define(Some(font_index), true);
+    Ok(font_index)
+}
+
+/// resolverでも既定JFMを選べない時は、Unicodeをbyte分解せず明示診断を保つ。
 fn report_cjk_typesetting_unavailable(
     token: CjkToken,
+    default_font_error: Option<JapaneseFontError>,
     scanner: &mut Scanner,
     eqtb: &mut Eqtb,
     logger: &mut Logger,
@@ -1283,8 +1338,15 @@ fn report_cjk_typesetting_unavailable(
     logger.print_str(" (`");
     token.print_utf8(logger);
     logger.print_str("' was ignored)");
+    if let Some(error) = default_font_error {
+        logger.print_str("; automatic `");
+        logger.print_str(DEFAULT_HORIZONTAL_JFM);
+        logger.print_str(" at 10pt' selection failed: ");
+        logger.print_str(&error.to_string());
+    }
     let help = &[
-        "Select a bounded horizontal JFM with \\pratexjfont before this character.",
+        "Install upjisr-h.tfm in TeX Live, put it in the working directory,",
+        "or select another bounded horizontal JFM with \\pratexjfont.",
         "I'll ignore this character and continue without splitting it into bytes.",
     ];
     logger.error(help, scanner, eqtb)
