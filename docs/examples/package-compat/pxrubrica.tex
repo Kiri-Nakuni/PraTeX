@@ -1,0 +1,14 @@
+\documentclass[a4paper,10pt]{prjsarticle}
+\InputIfFileExists{prjsarticle-test-adapter.tex}{}{}
+\usepackage{pxrubrica}
+\makeatletter
+\ifpxrr@in@unicode
+  \typeout{PRATEX-PXRUBRICA-UNICODE-BRANCH=1}
+\else
+  \typeout{PRATEX-PXRUBRICA-UNICODE-BRANCH=0}
+\fi
+\makeatother
+
+\begin{document}
+\ruby[j]{日本語}{に|ほん|ご}の\ruby[j]{組版}{くみ|はん}を確認する。
+\end{document}

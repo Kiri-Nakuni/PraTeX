@@ -1,0 +1,19 @@
+\documentclass[a4paper,10pt]{prjsarticle}
+\InputIfFileExists{prjsarticle-test-adapter.tex}{}{}
+
+\title{PraTeXの代表和欧混植文書}
+\author{PraTeX compatibility probe}
+\date{2026年8月23日}
+
+\begin{document}
+\maketitle
+
+\section{日本語とLatin text}
+日本語の段落にPraTeX、W3C JLReq、safe Rustという欧文を混在させる。
+句読点「、」「。」と括弧「（）」を含め、横組JFMの文字nodeをDVIへ出す。
+
+\begin{itemize}
+  \item 日本語の項目とLatin text。
+  \item 二つ目の項目。
+\end{itemize}
+\end{document}

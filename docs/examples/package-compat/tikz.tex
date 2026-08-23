@@ -1,0 +1,15 @@
+\documentclass{article}
+\usepackage[dvips]{xcolor}
+\ifdefined\eTeXrevision
+  \typeout{PRATEX-COMPAT-eTeXrevision=present}
+\else
+  \typeout{PRATEX-COMPAT-eTeXrevision=missing}
+\fi
+\usepackage{tikz}
+
+\begin{document}
+\begin{tikzpicture}
+  \draw[blue,thick] (0,0) -- (1,0) -- (1,1) -- cycle;
+  \node at (0.65,0.35) {TikZ};
+\end{tikzpicture}
+\end{document}
