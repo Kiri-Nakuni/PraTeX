@@ -47,6 +47,16 @@ fn assert_success(output: &Output) {
     );
 }
 
+fn dvi_comment(path: &Path) -> Vec<u8> {
+    let dvi = std::fs::read(path).unwrap();
+    assert_eq!(dvi.first(), Some(&247), "DVI preambleがない");
+    assert_eq!(dvi.get(1), Some(&2), "DVI id byteがTeX形式でない");
+    let length = *dvi.get(14).expect("DVI comment lengthがない") as usize;
+    dvi.get(15..15 + length)
+        .expect("DVI commentが途中で切れている")
+        .to_vec()
+}
+
 #[test]
 fn helpとversionはengineを起動せず成功する() {
     let directory = prepare_directory("help version", &[]);
@@ -58,6 +68,10 @@ fn helpとversionはengineを起動せず成功する() {
         b"-fmt=NAME".as_slice(),
         b"-interaction=MODE".as_slice(),
         b"-halt-on-error".as_slice(),
+        b"-jobname=STRING".as_slice(),
+        b"-output-comment=STRING".as_slice(),
+        b"-no-shell-escape".as_slice(),
+        b"-no-mktex=TYPE".as_slice(),
         b"--                           pass all following".as_slice(),
     ] {
         assert!(contains(&help.stdout, option));
@@ -212,4 +226,160 @@ fn halt_on_errorは最初の回復可能errorで失敗終了する() {
     assert!(contains(&halted.stdout, b"<<BEFORE-ERROR>>"));
     assert!(!contains(&halted.stdout, b"<<AFTER-ERROR>>"));
     assert!(!contains(&halted.stderr, b"panicked at"));
+}
+
+#[test]
+fn jobnameはtex値とlogと全出力のbasenameを一貫して変える() {
+    let directory = prepare_directory(
+        "job name identity",
+        &[
+            (
+                "source.tex",
+                concat!(
+                    "\\catcode123=1 \\catcode125=2\n",
+                    "\\message{<<JOB=\\jobname>>}\n",
+                    "\\shipout\\hbox{\\vrule width 1pt height 1pt}\n",
+                    "\\end\n",
+                ),
+            ),
+            ("dump.tex", "\\catcode123=1 \\catcode125=2 \\dump\n"),
+        ],
+    );
+    std::fs::create_dir_all(directory.join("nested")).unwrap();
+
+    let dvi = run(
+        &directory,
+        &["--jobname", "nested/dot.name", "source.tex"],
+    );
+    assert_success(&dvi);
+    assert!(contains(&dvi.stdout, b"<<JOB=nested/dot.name>>"));
+    assert!(directory.join("nested/dot.name.log").is_file());
+    assert!(directory.join("nested/dot.name.dvi").is_file());
+    assert!(!directory.join("nested/dot.dvi").exists());
+    assert!(!directory.join("source.dvi").exists());
+
+    let pdf = run(
+        &directory,
+        &[
+            "-output-format=pdf",
+            "-jobname=nested/pdf.name",
+            "source.tex",
+        ],
+    );
+    assert_success(&pdf);
+    assert!(contains(&pdf.stdout, b"<<JOB=nested/pdf.name>>"));
+    assert!(directory.join("nested/pdf.name.log").is_file());
+    assert!(directory.join("nested/pdf.name.pdf").is_file());
+
+    let format = run(
+        &directory,
+        &["-ini", "--jobname=nested/fmt.name", "dump.tex"],
+    );
+    assert_success(&format);
+    assert!(directory.join("nested/fmt.name.log").is_file());
+    assert!(directory.join("nested/fmt.name.fmt").is_file());
+}
+
+#[test]
+fn 空jobnameは空のtex値とdot始まりの出力名になる() {
+    let directory = prepare_directory(
+        "empty job name",
+        &[(
+            "source.tex",
+            concat!(
+                "\\catcode123=1 \\catcode125=2\n",
+                "\\message{<<JOB=\\jobname>>}\n",
+                "\\shipout\\hbox{\\vrule width 1pt height 1pt}\n",
+                "\\end\n",
+            ),
+        )],
+    );
+
+    let output = run(&directory, &["-jobname=", "source.tex"]);
+    assert_success(&output);
+    assert!(contains(&output.stdout, b"<<JOB=>>"));
+    assert!(directory.join(".log").is_file());
+    assert!(directory.join(".dvi").is_file());
+}
+
+#[test]
+fn output_commentはdviだけへ指定byte列をそのまま置く() {
+    let directory = prepare_directory(
+        "output comment",
+        &[(
+            "source.tex",
+            concat!(
+                "\\catcode123=1 \\catcode125=2\n",
+                "\\shipout\\hbox{\\vrule width 1pt height 1pt}\\end\n",
+            ),
+        )],
+    );
+
+    let specified = run(
+        &directory,
+        &[
+            "-jobname=specified",
+            "--output-comment",
+            "CLI-COMMENT",
+            "source.tex",
+        ],
+    );
+    assert_success(&specified);
+    assert_eq!(dvi_comment(&directory.join("specified.dvi")), b"CLI-COMMENT");
+
+    let empty = run(
+        &directory,
+        &["-jobname=empty", "-output-comment=", "source.tex"],
+    );
+    assert_success(&empty);
+    assert_eq!(dvi_comment(&directory.join("empty.dvi")), b"");
+
+    let maximum = "A".repeat(255);
+    let maximum_option = format!("-output-comment={maximum}");
+    let maximum_output = run(
+        &directory,
+        &["-jobname=maximum", &maximum_option, "source.tex"],
+    );
+    assert_success(&maximum_output);
+    assert_eq!(dvi_comment(&directory.join("maximum.dvi")), maximum.as_bytes());
+
+    let pdf = run(
+        &directory,
+        &[
+            "-output-format=pdf",
+            "-jobname=pdf-comment",
+            "-output-comment=PDF-IGNORED",
+            "source.tex",
+        ],
+    );
+    assert_success(&pdf);
+    let pdf_bytes = std::fs::read(directory.join("pdf-comment.pdf")).unwrap();
+    assert!(!contains(&pdf_bytes, b"PDF-IGNORED"));
+}
+
+#[test]
+fn 外部生成を無効にする指定は実行状態も無効のままにする() {
+    let directory = prepare_directory(
+        "disabled external execution",
+        &[(
+            "policy.tex",
+            concat!(
+                "\\catcode123=1 \\catcode125=2\n",
+                "\\message{<<SHELL=\\the\\pdfshellescape>>}\\end\n",
+            ),
+        )],
+    );
+
+    let output = run(
+        &directory,
+        &[
+            "--no-shell-escape",
+            "-no-mktex",
+            "tex",
+            "--no-mktex=tfm",
+            "policy.tex",
+        ],
+    );
+    assert_success(&output);
+    assert!(contains(&output.stdout, b"<<SHELL=0>>"));
 }

@@ -149,8 +149,8 @@ fn scan_something_internal(
         // ==== e-TeX / pdfTeX の問い合わせ ====
         InternalCommand::ETeXVersion => InternalValue::Int(2),
         InternalCommand::PraTeXVersion => InternalValue::Int(crate::version::PRATEX_VERSION_MAJOR),
-        // 外部コマンドの実行を許さないため、読み取り専用の無効状態だけを答える。
-        InternalCommand::PdfShellEscape => InternalValue::Int(0),
+        // CLIのrun-scoped policyを答える。現在parserが受理できる状態は無効だけである。
+        InternalCommand::PdfShellEscape => InternalValue::Int(logger.shell_escape_status()),
         InternalCommand::CurrentGroupLevel => InternalValue::Int(eqtb.cur_level_for_etex()),
         InternalCommand::CurrentGroupType => InternalValue::Int(eqtb.cur_group_for_etex()),
         InternalCommand::CurrentIfLevel => InternalValue::Int(scanner.cur_if_level_for_etex()),

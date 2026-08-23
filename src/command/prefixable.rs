@@ -1290,7 +1290,7 @@ fn largest_legal_code_value(code: CodeType) -> i32 {
 
 /// See 1257.
 fn new_font(global: bool, scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Logger) {
-    if logger.job_name.is_none() {
+    if logger.log_file.is_none() {
         logger.open_log_file(&scanner.input_stack, eqtb);
     }
     let cs = get_r_token(scanner, eqtb, logger);
@@ -1337,7 +1337,7 @@ fn new_font(global: bool, scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut L
 
 /// PraTeX nativeの横組JFM font定義。`\jfont`はこの同一決定箇所へのaliasである。
 fn new_japanese_font(global: bool, scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Logger) {
-    if logger.job_name.is_none() {
+    if logger.log_file.is_none() {
         logger.open_log_file(&scanner.input_stack, eqtb);
     }
     let cs = get_r_token(scanner, eqtb, logger);
@@ -1792,7 +1792,7 @@ mod raw_string_assignment_tests {
             Self {
                 hyphenator: Hyphenator::new(),
                 page_builder: PageBuilder::new(),
-                output: Output::new(OutputFormat::Dvi, None, None),
+                output: Output::new(OutputFormat::Dvi, None, None, None),
                 nest: SemanticState::new(),
                 logger: Logger::new(String::new(), InteractionMode::Batch),
             }

@@ -277,6 +277,10 @@ KOMA-Script確認には使えません。
 | `-ini` | initial engineを選び、format生成を可能にする |
 | `-interaction=<mode>` | `batchmode`, `nonstopmode`, `scrollmode`, `errorstopmode`から選ぶ |
 | `-halt-on-error` | 最初のTeX errorで回復を打ち切り、失敗終了する |
+| `-jobname=<name>` | `\jobname`とlog、DVI/PDF、fmtのbasenameを同じ明示値にする |
+| `-output-comment=<text>` | DVI preamble commentを指定する。直接PDFでは受理するが使わない |
+| `-no-shell-escape` | shell実行が無効であることを明示する。正方向は未実装errorになる |
+| `-no-mktex=tex|tfm` | tex/tfm自動生成が無効であることを明示する。正方向は未実装errorになる |
 | `-output-format=dvi` / `--output-format=dvi` | DVIを出力する（既定） |
 | `-output-format=pdf` / `--output-format=pdf` | PDFを直接出力する |
 | `--pdf-font-map=<map>` | PDF出力でmapを指定し、対応するType 1 fontを埋め込む |

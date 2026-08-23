@@ -129,12 +129,16 @@ const CLI_HELP: &str = concat!(
     "  -ini                         use the initial engine, for dumping formats\n",
     "  -interaction=MODE            batchmode, nonstopmode, scrollmode, or errorstopmode\n",
     "  -halt-on-error               stop at the first TeX error\n",
+    "  -jobname=STRING              set the job name, including output basenames\n",
+    "  -output-comment=STRING       set the DVI preamble comment\n",
+    "  -no-shell-escape             assert that shell execution is disabled\n",
+    "  -no-mktex=TYPE               assert that tex or tfm generation is disabled\n",
     "\n",
     "PraTeX options:\n",
     "  -output-format=FORMAT        dvi or pdf (default: dvi)\n",
     "  --pdf-font-map=PATH          Type 1 map used by direct PDF output\n",
     "  --pdf-japanese-cid-profile=PATH\n",
-    "                               named CID profile used by direct PDF output\n",
+    "                               override the direct-PDF Japanese CID profile\n",
     "  --quiet                      hide automatic progress, not document output\n",
     "  --                           pass all following arguments to TeX input\n",
 );
@@ -189,6 +193,9 @@ pub fn tex_main() -> Result<(), ()> {
     // PraTeXには配布時に固定されたdefault fmtがまだない。selectorがないrunは、既存の
     // source実行互換を保ってinitial engineへ入る。明示fmtの有無ではvirginと区別できる。
     let initial_mode = arguments.ini || format_name.is_none();
+    // PraTeXにはmktex生成経路がない。parserが正方向を拒否し、このrunでも無効を保つ。
+    debug_assert!(!arguments.mktex_tex_enabled);
+    debug_assert!(!arguments.mktex_tfm_enabled);
 
     if !arguments.quiet {
         if initial_mode {
@@ -206,6 +213,9 @@ pub fn tex_main() -> Result<(), ()> {
         arguments.quiet,
         arguments.interaction,
         arguments.halt_on_error,
+        arguments.job_name,
+        arguments.output_comment,
+        arguments.shell_escape_enabled,
         initial_mode,
         first_line,
         first_non_space_pos,
@@ -223,6 +233,9 @@ fn run_loaded_engine(
     quiet: bool,
     interaction: Option<InteractionMode>,
     halt_on_error: bool,
+    job_name: Option<OsString>,
+    output_comment: Option<Vec<u8>>,
+    shell_escape_enabled: bool,
     initial_mode: bool,
     mut first_line: Vec<u8>,
     first_non_space_pos: usize,
@@ -230,6 +243,7 @@ fn run_loaded_engine(
     engine: Box<InitialEngineState>,
 ) -> ! {
     let (mut logger, mut hyphenator, mut eqtb) = *engine;
+    logger.apply_cli_run_identity(job_name, shell_escape_enabled);
     logger.set_quiet(quiet);
     logger.set_initial_mode(initial_mode);
     logger.apply_cli_error_policy(interaction, halt_on_error);
@@ -245,7 +259,12 @@ fn run_loaded_engine(
         && eqtb.cat_code(first_line[first_non_space_pos]) != CatCode::Escape;
 
     // Initialize global variables and data structures.
-    let mut output = Output::new(output_format, pdf_font_map, pdf_japanese_cid_profile);
+    let mut output = Output::new(
+        output_format,
+        output_comment,
+        pdf_font_map,
+        pdf_japanese_cid_profile,
+    );
     let mut page_builder = PageBuilder::new();
     let mut nest = SemanticState::new();
 
@@ -394,7 +413,7 @@ fn final_cleanup(
     if !dumping {
         logger.newline_char = None;
     }
-    if logger.job_name.is_none() {
+    if logger.log_file.is_none() {
         logger.open_log_file(&scanner.input_stack, eqtb);
     }
 

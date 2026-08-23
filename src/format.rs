@@ -7,7 +7,7 @@ use crate::eqtb::{ControlSequence, Eqtb, FontIndex, IntegerVariable};
 use crate::error::dump_in_group_error;
 use crate::hyphenation::Hyphenator;
 use crate::input::InputStack;
-use crate::logger::{InteractionMode, Logger};
+use crate::logger::{job_output_path, InteractionMode, Logger};
 use crate::nodes::GlueRatio;
 use crate::print::Printer;
 use crate::{open_in, open_out, os_string_from_bytes};
@@ -206,8 +206,7 @@ fn create_format_ident_and_open_file(
     format_ident.push_str(&date);
     logger.terminal_logging = logger.interaction != InteractionMode::Batch;
     let job_name = logger.job_name.as_ref().unwrap();
-    let mut path = PathBuf::from(job_name);
-    path.set_extension(FORMAT_EXTENSION);
+    let mut path = job_output_path(job_name, FORMAT_EXTENSION);
 
     let file = loop {
         match open_out(&path) {

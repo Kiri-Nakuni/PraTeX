@@ -39,6 +39,15 @@ pub(crate) struct ParsedArguments {
     pub(crate) ini: bool,
     /// 最初の回復可能TeX errorでprocessを失敗終了させる。
     pub(crate) halt_on_error: bool,
+    /// 明示値は空文字やpath separatorも含め、OS文字列のまま出力名へ使う。
+    pub(crate) job_name: Option<OsString>,
+    /// DVI preambleへ入れるbyte列。PDF modeでは受理するが使用しない。
+    pub(crate) output_comment: Option<Vec<u8>>,
+    /// PraTeXはshell escapeを実装していない。正方向のoptionはparserが拒否する。
+    pub(crate) shell_escape_enabled: bool,
+    /// PraTeX resolverはmktex生成を行わない。file typeごとの不変条件を明示する。
+    pub(crate) mktex_tex_enabled: bool,
+    pub(crate) mktex_tfm_enabled: bool,
     pub(crate) output_format: OutputFormat,
     /// Type 1 埋込みを明示的に有効にする map の論理名または物理 path。
     pub(crate) pdf_font_map: Option<OsString>,
@@ -91,6 +100,16 @@ fn parse_interaction(value: &OsStr) -> Result<InteractionMode, RunOptionError> {
         .ok_or_else(|| RunOptionError::UnknownInteractionMode(value.to_owned()))
 }
 
+fn disable_mktex(file_type: &OsStr) -> Result<(), RunOptionError> {
+    match file_type.to_str() {
+        Some("tex" | "tfm") => Ok(()),
+        Some(other) => Err(RunOptionError::UnknownMktexFileType(other.to_owned())),
+        None => Err(RunOptionError::UnknownMktexFileType(
+            file_type.to_string_lossy().into_owned(),
+        )),
+    }
+}
+
 /// Web2C互換optionとPraTeX固有optionをTeXの最初の入力行から分ける。
 ///
 /// `--` より前の未知のdash始まりは綴り違いを黙ってTeXへ流さず、明示errorにする。
@@ -103,6 +122,11 @@ pub(crate) fn parse_arguments(
     let mut format_name = None;
     let mut ini = false;
     let mut halt_on_error = false;
+    let mut job_name = None;
+    let mut output_comment = None;
+    let shell_escape_enabled = false;
+    let mktex_tex_enabled = false;
+    let mktex_tfm_enabled = false;
     let mut output_format = OutputFormat::Dvi;
     let mut pdf_font_map = None;
     let mut pdf_japanese_cid_profile = None;
@@ -131,6 +155,50 @@ pub(crate) fn parse_arguments(
             }
             if argument == "-halt-on-error" || argument == "--halt-on-error" {
                 halt_on_error = true;
+                continue;
+            }
+            if let Some(value) = strip_os_prefix(&argument, "-jobname=")
+                .or_else(|| strip_os_prefix(&argument, "--jobname="))
+            {
+                job_name = Some(value);
+                continue;
+            }
+            if argument == "-jobname" || argument == "--jobname" {
+                job_name = Some(arguments.next().ok_or(RunOptionError::MissingJobName)?);
+                continue;
+            }
+            if let Some(value) = strip_os_prefix(&argument, "-output-comment=")
+                .or_else(|| strip_os_prefix(&argument, "--output-comment="))
+            {
+                output_comment = Some(crate::os_str_to_bytes(&value));
+                continue;
+            }
+            if argument == "-output-comment" || argument == "--output-comment" {
+                let value = arguments
+                    .next()
+                    .ok_or(RunOptionError::MissingOutputComment)?;
+                output_comment = Some(crate::os_str_to_bytes(&value));
+                continue;
+            }
+            if argument == "-no-shell-escape" || argument == "--no-shell-escape" {
+                // Disabled is already the only available PraTeX capability state.
+                continue;
+            }
+            if let Some(value) = strip_os_prefix(&argument, "-no-mktex=")
+                .or_else(|| strip_os_prefix(&argument, "--no-mktex="))
+            {
+                if value.is_empty() {
+                    return Err(RunOptionError::MissingMktexFileType);
+                }
+                disable_mktex(&value)?;
+                continue;
+            }
+            if argument == "-no-mktex" || argument == "--no-mktex" {
+                let value = arguments
+                    .next()
+                    .filter(|value| !value.is_empty())
+                    .ok_or(RunOptionError::MissingMktexFileType)?;
+                disable_mktex(&value)?;
                 continue;
             }
             if let Some(value) =
@@ -234,6 +302,13 @@ pub(crate) fn parse_arguments(
     if pdf_japanese_cid_profile.is_some() && output_format != OutputFormat::Pdf {
         return Err(RunOptionError::PdfJapaneseCidProfileRequiresPdf);
     }
+    if output_format == OutputFormat::Dvi {
+        if let Some(comment) = &output_comment {
+            if comment.len() > u8::MAX as usize {
+                return Err(RunOptionError::OutputCommentTooLong(comment.len()));
+            }
+        }
+    }
 
     Ok(ParsedArguments {
         immediate_action,
@@ -241,6 +316,11 @@ pub(crate) fn parse_arguments(
         format_name,
         ini,
         halt_on_error,
+        job_name,
+        output_comment,
+        shell_escape_enabled,
+        mktex_tex_enabled,
+        mktex_tfm_enabled,
         output_format,
         pdf_font_map,
         pdf_japanese_cid_profile,
@@ -251,6 +331,11 @@ pub(crate) fn parse_arguments(
 
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) enum RunOptionError {
+    MissingJobName,
+    MissingOutputComment,
+    OutputCommentTooLong(usize),
+    MissingMktexFileType,
+    UnknownMktexFileType(String),
     MissingFormatName,
     MissingInteractionMode,
     UnknownInteractionMode(String),
@@ -266,6 +351,19 @@ pub(crate) enum RunOptionError {
 impl fmt::Display for RunOptionError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::MissingJobName => formatter.write_str("missing value for -jobname"),
+            Self::MissingOutputComment => {
+                formatter.write_str("missing value for -output-comment")
+            }
+            Self::OutputCommentTooLong(length) => write!(
+                formatter,
+                "DVI output comment is {length} bytes (maximum is 255)"
+            ),
+            Self::MissingMktexFileType => formatter.write_str("missing value for -no-mktex"),
+            Self::UnknownMktexFileType(file_type) => write!(
+                formatter,
+                "unknown -no-mktex file type `{file_type}` (expected tex or tfm)"
+            ),
             Self::MissingFormatName => formatter.write_str("missing value for -fmt"),
             Self::MissingInteractionMode => {
                 formatter.write_str("missing value for -interaction")
@@ -321,6 +419,11 @@ mod tests {
         assert_eq!(parsed.format_name, None);
         assert!(!parsed.ini);
         assert!(!parsed.halt_on_error);
+        assert_eq!(parsed.job_name, None);
+        assert_eq!(parsed.output_comment, None);
+        assert!(!parsed.shell_escape_enabled);
+        assert!(!parsed.mktex_tex_enabled);
+        assert!(!parsed.mktex_tfm_enabled);
         assert!(!parsed.quiet);
         assert_eq!(parsed.tex_arguments, strings(&["&plain", "hello.tex"]));
     }
@@ -376,6 +479,76 @@ mod tests {
         assert!(parsed.ini);
         assert!(parsed.halt_on_error);
         assert_eq!(parsed.tex_arguments, strings(&["hello.tex"]));
+    }
+
+    #[test]
+    fn jobnameは空値とpathを含むos文字列を保つ() {
+        for (arguments, expected) in [
+            (strings(&["-jobname=dir/name", "hello.tex"]), "dir/name"),
+            (strings(&["--jobname", "dot.name", "hello.tex"]), "dot.name"),
+            (strings(&["-jobname=", "hello.tex"]), ""),
+            (strings(&["--jobname", "", "hello.tex"]), ""),
+        ] {
+            let parsed = parse_arguments(arguments).unwrap();
+            assert_eq!(parsed.job_name, Some(OsString::from(expected)));
+            assert_eq!(parsed.tex_arguments, strings(&["hello.tex"]));
+        }
+    }
+
+    #[test]
+    fn output_commentは空から二百五十五byteまでdviへ保持する() {
+        for arguments in [
+            strings(&["-output-comment=CLI-COMMENT", "hello.tex"]),
+            strings(&["--output-comment", "CLI-COMMENT", "hello.tex"]),
+        ] {
+            let parsed = parse_arguments(arguments).unwrap();
+            assert_eq!(parsed.output_comment, Some(b"CLI-COMMENT".to_vec()));
+        }
+
+        let empty = parse_arguments(strings(&["-output-comment=", "hello.tex"])).unwrap();
+        assert_eq!(empty.output_comment, Some(Vec::new()));
+
+        let maximum = "A".repeat(255);
+        let parsed = parse_arguments([OsString::from(format!(
+            "-output-comment={maximum}"
+        ))])
+        .unwrap();
+        assert_eq!(parsed.output_comment.unwrap().len(), 255);
+
+        let overlong = "B".repeat(256);
+        assert_eq!(
+            parse_arguments([OsString::from(format!("-output-comment={overlong}"))]),
+            Err(RunOptionError::OutputCommentTooLong(256))
+        );
+        let pdf = parse_arguments([
+            OsString::from("-output-format=pdf"),
+            OsString::from(format!("-output-comment={overlong}")),
+        ])
+        .unwrap();
+        assert_eq!(pdf.output_comment.unwrap().len(), 256);
+    }
+
+    #[test]
+    fn 外部実行を無効にする指定だけを受理する() {
+        let parsed = parse_arguments(strings(&[
+            "--no-shell-escape",
+            "-no-mktex=tex",
+            "--no-mktex",
+            "tfm",
+            "hello.tex",
+        ]))
+        .unwrap();
+        assert!(!parsed.shell_escape_enabled);
+        assert!(!parsed.mktex_tex_enabled);
+        assert!(!parsed.mktex_tfm_enabled);
+        assert_eq!(parsed.tex_arguments, strings(&["hello.tex"]));
+
+        for positive in ["-shell-escape", "--shell-restricted", "-mktex=tex"] {
+            assert_eq!(
+                parse_arguments(strings(&[positive])),
+                Err(RunOptionError::UnknownOption(OsString::from(positive)))
+            );
+        }
     }
 
     #[test]
@@ -563,6 +736,22 @@ mod tests {
         assert_eq!(
             parse_arguments(strings(&["--fmt"])),
             Err(RunOptionError::MissingFormatName)
+        );
+        assert_eq!(
+            parse_arguments(strings(&["-jobname"])),
+            Err(RunOptionError::MissingJobName)
+        );
+        assert_eq!(
+            parse_arguments(strings(&["-output-comment"])),
+            Err(RunOptionError::MissingOutputComment)
+        );
+        assert_eq!(
+            parse_arguments(strings(&["-no-mktex="])),
+            Err(RunOptionError::MissingMktexFileType)
+        );
+        assert_eq!(
+            parse_arguments(strings(&["--no-mktex", "pk"])),
+            Err(RunOptionError::UnknownMktexFileType("pk".to_owned()))
         );
     }
 

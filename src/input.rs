@@ -866,6 +866,8 @@ impl Scanner {
                     .expect("Path should have stem here")
                     .to_os_string(),
             );
+        }
+        if logger.log_file.is_none() {
             logger.open_log_file(&self.input_stack, eqtb);
         }
 

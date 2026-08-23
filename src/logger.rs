@@ -8,12 +8,23 @@ use crate::semantic_nest::Mode;
 use crate::token_lists::token_show;
 use crate::{open_out, os_string_from_bytes, read_line};
 
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 
 pub const BANNER: &str = crate::version::BANNER;
+
+/// job nameを出力stemとして扱い、既存のdotを置換せず拡張子を追記する。
+///
+/// 空job nameは公式Web2Cと同じく`.log`、`.dvi`、`.fmt`などになる。consumerごとに
+/// `PathBuf::set_extension`と文字列追記を混在させないための一決定点である。
+pub(crate) fn job_output_path(job_name: &OsStr, extension: &str) -> PathBuf {
+    let mut path = job_name.to_os_string();
+    path.push(".");
+    path.push(extension);
+    PathBuf::from(path)
+}
 
 /// See 54.
 pub struct Logger {
@@ -26,6 +37,8 @@ pub struct Logger {
     halt_on_error: bool,
     /// initial/virginはbuild全体でなくrunごとに選ぶ。fmtへは保存しない。
     initial_mode: bool,
+    /// 外部shell実行のrun-scoped状態。現在受理できる値はfalseだけである。
+    shell_escape_enabled: bool,
     pub term_offset: usize,
     pub log_file: Option<BufWriter<File>>,
     pub file_offset: usize,
@@ -82,6 +95,7 @@ impl Logger {
             quiet: false,
             halt_on_error: false,
             initial_mode: false,
+            shell_escape_enabled: false,
             term_offset: 0,
             file_offset: 0,
             log_file: None,
@@ -143,6 +157,22 @@ impl Logger {
 
     pub fn is_initial_mode(&self) -> bool {
         self.initial_mode
+    }
+
+    /// fmtから復元されないCLI identity/security状態を、入力を開く前に適用する。
+    pub fn apply_cli_run_identity(
+        &mut self,
+        job_name: Option<OsString>,
+        shell_escape_enabled: bool,
+    ) {
+        if let Some(job_name) = job_name {
+            self.job_name = Some(job_name);
+        }
+        self.shell_escape_enabled = shell_escape_enabled;
+    }
+
+    pub fn shell_escape_status(&self) -> i32 {
+        i32::from(self.shell_escape_enabled)
     }
 
     /// banner以外の自動進捗をtranscriptへ残し、quiet時だけ端末から隠す。
@@ -827,8 +857,7 @@ impl Logger {
                 name
             }
         };
-        let mut path = PathBuf::from(&job_name);
-        path.set_extension("log");
+        let mut path = job_output_path(&job_name, "log");
         let mut log_file = loop {
             match open_out(&path) {
                 Ok(file) => {

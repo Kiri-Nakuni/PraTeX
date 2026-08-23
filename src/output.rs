@@ -11,7 +11,7 @@ use crate::font_resources::named_cid::{
 use crate::input::token_source::TokenSourceType;
 use crate::input::Scanner;
 use crate::japanese_fonts::JapaneseFontIndex;
-use crate::logger::Logger;
+use crate::logger::{job_output_path, Logger};
 use crate::nodes::{
     show_box, CharNode, DimensionOrder, GlueNode, GlueSign, GlueType, HlistOrVlist, LeaderKind,
     LigatureNode, ListNode, Node, OpenNode, RuleNode, SpecialNode, WhatsitNode, WideCharNode,
@@ -80,9 +80,12 @@ const END_WRITE_TOKEN: Token = Token::CSToken {
 
 pub struct Output {
     output_format: OutputFormat,
+    /// `Some`ならDVI preambleへそのbyte列を置く。PDF modeでは使用しない。
+    output_comment: Option<Vec<u8>>,
     /// `None` のときは従来どおりCourierだけを使い、font資材を探索しない。
     pdf_font_map: Option<OsString>,
-    /// `None`なら和文PDF glyphを暗黙のtofuやviewer fontへfallbackさせない。
+    /// `None`なら既定upjisr-h内蔵profile、`Some`なら明示profileで上書きする。
+    /// どちらもprofile対象外のJFMを暗黙fallbackさせない。
     pdf_japanese_cid_profile: Option<OsString>,
     document: Option<OutputDocument>,
 
@@ -93,11 +96,13 @@ pub struct Output {
 impl Output {
     pub fn new(
         output_format: OutputFormat,
+        output_comment: Option<Vec<u8>>,
         pdf_font_map: Option<OsString>,
         pdf_japanese_cid_profile: Option<OsString>,
     ) -> Self {
         Self {
             output_format,
+            output_comment,
             pdf_font_map,
             pdf_japanese_cid_profile,
             document: None,
@@ -138,6 +143,7 @@ impl Output {
             let mut document = ensure_output_open(
                 self.document.take(),
                 self.output_format,
+                self.output_comment.as_deref(),
                 self.pdf_font_map.as_deref(),
                 self.pdf_japanese_cid_profile.as_deref(),
                 scanner,
@@ -277,6 +283,7 @@ fn check_page_dimensions(
 fn ensure_output_open(
     document: Option<OutputDocument>,
     output_format: OutputFormat,
+    output_comment: Option<&[u8]>,
     pdf_font_map: Option<&OsStr>,
     pdf_japanese_cid_profile: Option<&OsStr>,
     scanner: &mut Scanner,
@@ -296,7 +303,12 @@ fn ensure_output_open(
             eqtb.prepare_mag(scanner, logger);
             match output_format {
                 OutputFormat::Dvi => {
-                    OutputDocument::Dvi(Document::create_dvi(output_file_name, output_file, eqtb))
+                    OutputDocument::Dvi(Document::create_dvi(
+                        output_file_name,
+                        output_file,
+                        output_comment,
+                        eqtb,
+                    ))
                 }
                 OutputFormat::Pdf => {
                     match Document::create_pdf(
@@ -323,13 +335,10 @@ fn open_output_file(
     eqtb: &mut Eqtb,
     logger: &mut Logger,
 ) -> (OsString, BufWriter<File>) {
-    if logger.job_name.is_none() {
+    if logger.log_file.is_none() {
         logger.open_log_file(&scanner.input_stack, eqtb);
     }
-    let mut initial_name = logger.job_name.as_ref().unwrap().clone();
-    initial_name.push(".");
-    initial_name.push(extension);
-    let mut path = PathBuf::from(initial_name);
+    let mut path = job_output_path(logger.job_name.as_ref().unwrap(), extension);
     let output_file = loop {
         match open_out(&path) {
             Ok(file) => break BufWriter::new(file),
@@ -380,22 +389,30 @@ enum OutputFontSelection {
 }
 
 impl Document<DviFileBackend> {
-    fn create_dvi(output_file_name: OsString, dvi_file: BufWriter<File>, eqtb: &Eqtb) -> Self {
-        let comment = format!(
-            " PraTeX output {}.{:02}.{:02}:{:02}{:02}",
-            eqtb.integer(IntegerVariable::Year),
-            eqtb.integer(IntegerVariable::Month),
-            eqtb.integer(IntegerVariable::Day),
-            eqtb.integer(IntegerVariable::Time) / 60,
-            eqtb.integer(IntegerVariable::Time) % 60
-        );
+    fn create_dvi(
+        output_file_name: OsString,
+        dvi_file: BufWriter<File>,
+        output_comment: Option<&[u8]>,
+        eqtb: &Eqtb,
+    ) -> Self {
+        let default_comment;
+        let comment = match output_comment {
+            Some(comment) => comment,
+            None => {
+                default_comment = format!(
+                    " PraTeX output {}.{:02}.{:02}:{:02}{:02}",
+                    eqtb.integer(IntegerVariable::Year),
+                    eqtb.integer(IntegerVariable::Month),
+                    eqtb.integer(IntegerVariable::Day),
+                    eqtb.integer(IntegerVariable::Time) / 60,
+                    eqtb.integer(IntegerVariable::Time) % 60
+                );
+                default_comment.as_bytes()
+            }
+        };
 
-        let backend = DviBackend::new(
-            dvi_file,
-            eqtb.integer(IntegerVariable::Mag),
-            comment.as_bytes(),
-        )
-        .unwrap();
+        let backend = DviBackend::new(dvi_file, eqtb.integer(IntegerVariable::Mag), comment)
+            .expect("CLI parser and default DVI comment must fit in one byte length");
         Self::new(backend, output_file_name)
     }
 }
