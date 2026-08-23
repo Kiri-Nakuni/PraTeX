@@ -338,13 +338,13 @@ fn parse_next<'a, T: FromStr>(lines: &mut impl Iterator<Item = &'a str>) -> Resu
 // A small bounded reservation still removes the repeated growth of ordinary token lists while
 // keeping the eager allocation independent of an attacker-controlled count.
 const MAX_INITIAL_UNDUMP_ELEMENTS: usize = 4 * 1024;
-const MAX_INITIAL_UNDUMP_BYTES: usize = 64 * 1024;
+const MAX_INITIAL_UNDUMP_PAYLOAD_BYTES: usize = 64 * 1024;
 
 fn bounded_initial_capacity<T>(declared_len: usize) -> usize {
     let element_size = std::mem::size_of::<T>().max(1);
     declared_len
         .min(MAX_INITIAL_UNDUMP_ELEMENTS)
-        .min(MAX_INITIAL_UNDUMP_BYTES / element_size)
+        .min(MAX_INITIAL_UNDUMP_PAYLOAD_BYTES / element_size)
 }
 
 pub trait Dumpable {
@@ -594,7 +594,9 @@ impl Dumpable for GlueRatio {
 
 #[cfg(test)]
 mod bounded_reservation_tests {
-    use super::{bounded_initial_capacity, Dumpable, FormatError, MAX_INITIAL_UNDUMP_BYTES};
+    use super::{
+        bounded_initial_capacity, Dumpable, FormatError, MAX_INITIAL_UNDUMP_PAYLOAD_BYTES,
+    };
     use std::collections::HashMap;
 
     #[test]
@@ -616,10 +618,11 @@ mod bounded_reservation_tests {
     }
 
     #[test]
-    fn fmt予約は宣言長にかかわらずbyte上限内に収まる() {
+    fn fmt予約の要素payload見積りは宣言長にかかわらず上限内に収まる() {
         assert_eq!(bounded_initial_capacity::<u8>(usize::MAX), 4 * 1024);
         assert!(
-            bounded_initial_capacity::<[u8; 1024]>(usize::MAX) * 1024 <= MAX_INITIAL_UNDUMP_BYTES
+            bounded_initial_capacity::<[u8; 1024]>(usize::MAX) * 1024
+                <= MAX_INITIAL_UNDUMP_PAYLOAD_BYTES
         );
     }
 }

@@ -339,14 +339,16 @@ upTeX 3.15 sに対してPraTeX 9.14 sだった。この絶対値にはclass、pa
 事前の一回測定では、fmt全体468.8 msのうちfile読込み26.9 ms、Eqtb復元441.5 ms、
 hyphenation表0.4 ms未満だった。300段落の行分割301回は合計86.4 msであり、少なくとも
 このcache済みcaseではEqtb復元が最初のhotspotだった。一般の`Vec`と`HashMap`のfmt復元は
-宣言個数を知っているのに空collectionへ逐次pushしていたため、通常の短いtoken listでも
-growとcopyを繰り返していた。
+宣言個数を知っているのに空collectionへ逐次pushしていたため、初期capacityを越える
+token listやtableではgrowとcopyを繰り返していた。
 
-変更後は最初の予約を4,096要素か要素幅換算64 KiB相当の小さい方へ制限し、`try_reserve`を
+変更後は最初の予約を4,096要素か要素payload幅換算64 KiB相当の小さい方へ制限し、`try_reserve`を
 使う。fmtの宣言長はuntrustedなので、宣言値そのものを`with_capacity`へ渡さない。予約失敗後に
 逐次growへ戻すと、同じmemory pressure下でallocationを繰り返すため、typedな
 `AllocationFailed`として停止する。`usize::MAX`だけを書いたtruncated Vec/HashMapが巨大確保せず
-`IncompleteFile`になる試験と、要素幅を含む予約上限試験を置いた。
+`IncompleteFile`になる試験と、要素payload幅を含むcapacity hint上限試験を置いた。この64 KiBは
+要素payloadの見積り上限であり、`HashMap`のload factor、control byte、allocator metadataを含む
+実allocation byte数の上限ではない。
 
 表は中央値 ± 母標準偏差である。
 
@@ -365,6 +367,14 @@ formatだけと空文書はpageをshipoutしないのでDVI比較対象ではな
 Windowsの平坦化cacheを使った内部A/Bで、利用者のLinux TeX Live tree、`mainpra.tex`、
 `dvipdfmx`を再測定した値ではない。したがって9.14 s全体がこの比率だけ縮むとは扱わず、
 Linuxの同一corpusで改めてengine三回とdriver一回を分離する。
+
+A/Bのsource基点はともに`cc65f38`で、Aの実行file SHA-256は
+`ea5ecc821fd6416ea75c84dd0657f42d27c12508902c52cf9d8d86a39fded337`、Bは
+`56da8321f7fdf7fc9f235e532b537827d4c5b2d6c94bf50b059e5ae2ba31582a`である。48標本のraw値は
+[`benchmarks/fmt-bounded-reservation-20260824.csv`](benchmarks/fmt-bounded-reservation-20260824.csv)
+へ固定した。Windowsのprocess CPU timerはこの短いcaseに対して15.625 ms刻みと粗く、scheduler
+競合も分離できないため採否には使わず、交互実行のwall、process内`Instant`によるfmt区間、
+DVI/log一致を使った。
 
 ### WSL resolver失敗反復の診断
 
