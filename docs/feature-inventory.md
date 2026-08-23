@@ -41,8 +41,9 @@
 | 実装 | 保護macro `\protected` | `\edef`、`\message`、mark本文などの展開走査で保護し、通常実行では展開する。alignmentの`\noalign` / `\omit`先読みは通常macroだけを展開し、protected macroを欄・行の通常入力として残す。fmt往復と専用process試験を含む |
 | 実装 | token/展開操作 `\detokenize`、`\unexpanded` | 入れ子のgeneral-text走査を壊さず、外側のtoken蓄積を保つ |
 | 実装 | 条件 `\ifdefined`、`\ifcsname`、`\unless` | 未定義制御綴を副作用で作らない。`\unless`は対応する条件を反転する |
-| 部分 | 条件 `\iffontchar` | TFMの文字存在判定へ接続済み。専用のprocess-level回帰試験はまだない |
-| 部分 | 内省 `\currentgrouplevel`、`\currentgrouptype`、`\currentiflevel`、`\currentiftype`、`\currentifbranch` | e-TeX番号で現在のgroupと条件状態を返す基本経路はあるが、`\unless`で開始した条件の`\currentiftype`が負にならない |
+| 実装 | 条件 `\iffontchar` | 8-bit TFMの文字存在判定へ接続し、範囲外番号は中央scannerの診断後にcode 0へ回復する。存在するcode 0、欠落字、負数、256をprocess試験済み |
+| 実装 | font寸法 `\fontcharwd/ht/dp/ic` | font identifierと0--255の文字番号を既存scannerで読み、8-bit TFMの幅・高さ・深さ・italic correctionを共通typed queryから内部寸法として返す。欠落字・nullfontは0pt、範囲診断、`\the`/`\number`/式・fmtを自作TFMで試験済み |
+| 部分 | 内省 `\currentgrouplevel`、`\currentgrouptype`、`\currentiflevel`、`\currentiftype`、`\currentifbranch` | e-TeX番号で現在のgroupと条件状態を返し、`\unless`条件の負符号を入れ子から復元する。複雑なgroup/conditional組合せの網羅が残る |
 | 実装 | `\lastnodetype` | node種類の追跡と内部整数化に加え、page→nested list→pageの復帰を保持する。空list、基本node型、page状態のfocused testを持つ |
 | 実装 | `\eTeXversion`、`\eTeXrevision` | `\eTeXversion`は内部整数`2`、`\eTeXrevision`は展開可能なother文字`.6`を返す |
 | 実装 | `\everyeof` | 実fileと`\scantokens`疑似fileの自然EOFだけで一度挿入し、`\endinput`では挿入しない。自然EOF内の次論理行番号も試験済み |
@@ -55,7 +56,8 @@
 | 部分 | tracing register | `\tracingscantokens`は疑似fileの開始時に判定し、値が途中で変わっても対応する括弧を閉じる。他の`\tracingassigns`、`\tracinggroups`、`\tracingifs`、`\tracingnesting`は値の代入・group・fmtだけ |
 | 表面のみ | 組版制御register | `\predisplaydirection`、`\lastlinefit`、`\savingvdiscards`、`\savinghyphcodes`、`\TeXXeTstate`は値を保持するだけで、組版・discard保存・TeX--XeT動作は未接続。`\TeXXeTstate`だけはfmt読込時0へ戻す |
 | 未実装 | 拡張表示 | `\showtokens`、`\showgroups`、`\showifs` |
-| 未実装 | font・段落・math照会 | `\fontcharwd/ht/dp/ic`、`\parshapelength/indent/dimen`、`\middle` |
+| 実装 | parshape照会 `\parshapelength/indent/dimen` | 現在のpair数、各行のindent・length、奇偶interleaveを内部寸法として返す。非正index、最終pair反復、式・表示、fmtを含む |
+| 未実装 | math照会 | `\middle` |
 | 未実装 | penalty配列とdiscard | `\interlinepenalties`、`\clubpenalties`、`\widowpenalties`、`\displaywidowpenalties`、`\pagediscards`、`\splitdiscards` |
 | 未実装 | TeX--XeT組版 | `\beginL`/`\endL`/`\beginR`/`\endR`、LR node/stack、区間反転、line packing、DVI/PDF shipout |
 
@@ -66,6 +68,9 @@
 [mark試験](../tests/etex_marks.rs)、
 [糊成分試験](../tests/etex_glue.rs)、
 [糊変換試験](../tests/etex_glue_conversion.rs)、
+[font寸法試験](../tests/etex_fontchar.rs)、
+[条件照会試験](../tests/etex_condition_queries.rs)、
+[parshape照会試験](../tests/etex_parshape.rs)、
 [`\scantokens`試験](../tests/etex_scantokens.rs) である。仕様からの書き直し方は
 [e-TeX移植記録](etex-port-notes.md)、完全性とTeX--XeTの監査は
 [e-TeXとTeX--XeTの対応状況](etex-texxet-status.md) に記録している。
@@ -207,7 +212,7 @@ runtimeは別MIT projectを依存として使う。PraTeX側からMITのVaakへG
 | 状態 | 項目 | 現在地 |
 |---|---|---|
 | 設計のみ | run-local Vaak疑似callback | 特定のVaak実行が明示要求した時だけ有効にする方針だけ。常設callback表はない |
-| 設計のみ | version付きWASM ABI | 実験[ABI 0.0](wasm-provider-abi-v0.md)で四operation、固定mailbox、capability、fuel、atomic fallbackまで定義。ABI export、runtime、providerはない |
+| 部分的な内部基盤 | version付きWASM ABI | 実験[ABI 0.0](wasm-provider-abi-v0.md)で四operation、固定mailbox、capability、fuel、atomic fallbackを定義。0.0のversion・feature・capability・operation交渉に加え、固定64-byte envelope、section集合、reserved field、mailbox範囲、transport返値、lease上限のruntime非依存codecをsafe Rustで実装。module profile/export検査、runtime、affine lease、provider接続はない |
 | 部分 | PraTeX自身のWASI target | `wasm32-wasip1`へcheck・binary linkし、`pratex.wasm` / `rtex.wasm`を生成できる。現状はargs、stream、preopen filesystem、process exitを使うcommand moduleであり、runtime適合試験、子processなしresolver、host API/VFS、native DVI比較は未達。詳細は[WASM target監査](wasm-target-status.md) |
 | 設計中心 | script境界組版とregion R1〜R7 | 横組JFM wide glyphとBuiltIn最小spacing finalizerはproduction接続済み。汎用`ScriptClassId` dispatcher、RegionNode、Vaak table、WASM batchとR1〜R7はroadmap段階で、R0の`\pratexregion`以外は利用できない |
 | 設計のみ | IVS・外字・造字のidentity | inline Unicode scalarと`AtomRef`、namespaceつき外部文字、嘘字/TRON importer、variant graphの[設計](glyph-identity-roadmap.md)だけ。現在はIVS shapingも造字もない |
@@ -218,7 +223,7 @@ runtimeは別MIT projectを依存として使う。PraTeX側からMITのVaakへG
 | 未実装 | `^^^^hhhh`、`^^^^^^hhhhhh` | TeX82の`^^`だけ。XeTeX/LuaTeX型の4/6 caret Unicode入力はない |
 | 未実装 | Web2C TCX input translation | `--translate-file`、`%& -translate-file`、`-8bit`、TCXの`xord/xchr/xprn`三表はまだない。既定UTF-8と分けたlegacy input profileは[文字identity roadmap](glyph-identity-roadmap.md)で設計のみ |
 | 未実装 | OTF/TrueTypeとRustyBuzz | dependencyもbackendもない。JFM/TFM出力基線後にdefault-offで接続し、PraTeX側はsafe Rust、依存のlicense・unsafe利用・binary sizeを採用前に監査する |
-| 未実装 | 完全なe-TeX | `\showtokens`、`\showgroups`、`\showifs`、`\middle`、`\fontcharwd/ht/dp/ic`、`\parshapelength/indent/dimen`、各種penalty配列、`\pagediscards`、`\splitdiscards`、`\beginL/\endL/\beginR/\endR`などが残る |
+| 未実装 | 完全なe-TeX | `\showtokens`、`\showgroups`、`\showifs`、`\middle`、各種penalty配列、`\pagediscards`、`\splitdiscards`、`\beginL/\endL/\beginR/\endR`などが残る |
 | 部分 | 横組・縦組の日本語組版 | 横組JFM font、wide node、JFM pair、仮想K・material X、4文字禁則、box/line幅、DVI glyphまでのBuiltIn最小基線を実装。main-loop JFM、box/disc境界、完全JLReq、方向node、縦組が残る |
 | 部分 | class/package互換 | `article`、日本語`prjsarticle`、`pratex-japanese`を明示したKOMA-Script 3.49.2 `scrartcl`、`graphicx`、`xcolor`、`hyperref`、TikZ/PGF、`siunitx`の限定smokeをDVIまで実測。package全API、`jsarticle`、`jlreq`、`ltjsarticle`の実用互換を保証しない |
 

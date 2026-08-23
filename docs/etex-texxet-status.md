@@ -17,8 +17,8 @@ TeX--XeTは二つの整数parameterを保存できるだけで、**組版機能�
 |---|---|---|
 | `\numexpr`、`\dimexpr`、`\glueexpr`、`\muexpr` | 実装 | 優先順位、括弧、丸め、糊次数、fmtを試験済み |
 | `\protected`、`\detokenize`、`\unexpanded` | 実装 | 通常の`\edef`、`\message`、`\write`、mark走査とfmtへ接続済み。alignmentの`\noalign` / `\omit`先読みは通常macroだけを展開し、protected macroを通常入力として残す。専用4件と既存e-TeX 41件、plain DVI回帰を通した |
-| `\ifdefined`、`\ifcsname`、`\unless` | 部分 | 未定義制御綴を作らない条件処理は接続済み。`\unless`で開始した条件の`\currentiftype`が負値にならない |
-| group/if内省 | 部分 | `\currentgroup*`、`\currentif*`は基本動作する。unless符号、複雑な入れ子、`\showgroups`、`\showifs`が残る |
+| `\ifdefined`、`\ifcsname`、`\unless` | 実装 | 未定義制御綴を作らず、`\unless`は真偽と`\currentiftype`の符号をともに反転する。通常・反転条件の入れ子と復元をprocess試験済み |
+| group/if内省 | 部分 | `\currentgroup*`、`\currentif*`は基本動作し、`\unless`の負符号も入れ子から正しく復元する。複雑なgroup/conditional組合せの網羅、`\showgroups`、`\showifs`が残る |
 | 拡張register 0--32767 | 実装 | count/dimen/skip/muskip/toks/boxの局所・大域・別名・fmtを試験済み |
 | class別mark 0--32767 | 実装 | page遷移、`\vsplit`、class 0互換、fmtを試験済み |
 | `\readline`、`\everyeof` | 実装 | `\readline`は実streamへ接続済み。実fileと`\scantokens`疑似fileの`\everyeof`は自然EOFだけで一度挿入し、`\endinput`では挿入しない。自然EOF内の行番号も試験済み |
@@ -26,8 +26,9 @@ TeX--XeTは二つの整数parameterを保存できるだけで、**組版機能�
 | 糊成分の照会と型変換 | 実装 | `\gluestretch`等4種と`\mutoglue`、`\gluetomu`を内部量へ接続。係数・次数・単位不一致回復・式・fmtを試験済み |
 | `\eTeXversion`、`\eTeXrevision`、対話状態 | 実装 | `\eTeXversion`は内部整数`2`、`\eTeXrevision`はother文字`.6`へ展開。`\interactionmode`、`\errorcontextlines`も実経路へ接続 |
 | `\lastnodetype` | 実装 | 空list、基本node型、page→nested box→page復帰をprocess試験済み |
-| font照会 | 部分 | `\iffontchar`は8-bit TFMへ接続済みだが、範囲外入力を黙って偽にし公開8-bit numberのerror/recoveryを通らない。`\fontcharwd/ht/dp/ic`もない |
-| parshape拡張 | 未実装 | `\parshapelength`、`\parshapeindent`、`\parshapedimen`がない |
+| font寸法照会 | 実装 | `\fontcharwd`、`\fontcharht`、`\fontchardp`、`\fontcharic`はfont identifierと0--255の文字番号を読み、8-bit TFMの共通typed metric queryから内部寸法を返す。欠落字・範囲外glyph・nullfontは0pt、文字番号自体が範囲外なら既存8-bit scannerがcode 0へ診断回復する。寸法代入、`\dimexpr`、`\number`、`\the`のother文字token化、fmtを自作TFMで試験済み |
+| `\iffontchar` | 実装 | font identifierと0--255の文字番号を読み、8-bit TFMの存在判定へ接続する。範囲外文字番号は中央scannerで診断してcode 0へ回復し、欠落字とnullfontは偽を返す。code 0だけを持つ自作TFMでprocess試験済み |
+| parshape拡張 | 実装 | `\parshapelength`、`\parshapeindent`、`\parshapedimen`は現在の`\parshape`を内部寸法として照会する。非正index、最終pair反復、奇偶のinterleave、式・`\the`・`\number`、fmtを試験済み |
 | penalty配列 | 未実装 | `\interlinepenalties`、`\clubpenalties`、`\widowpenalties`、`\displaywidowpenalties`がない |
 | discard list | 未実装 | `\pagediscards`、`\splitdiscards`がない。`\savingvdiscards`は値だけを保存する |
 | math | 部分 | `\left`、`\right`はTeX82経路。e-TeXの`\middle`は未実装 |
@@ -58,14 +59,13 @@ left-to-right/right-to-left区間は公開意味論が異なるため、一つ�
 
 日本語組版を優先しつつ、後で同じ基盤を作り直さない順序を採る。
 
-1. `\currentiftype`のunless符号、`\iffontchar`回復、TeXXeT format既定offを直す。
-2. `\fontchar*`を8-bit TFM専用APIにせず、TFM、将来のJFM、Unicode font metricを同じ
-   typed query境界から参照する。
-3. parshape照会とpenalty配列を局所代入、fmt、line breakingまで実装する。JLReqの段落処理も
-   同じ保存・照会基盤を利用できるようにする。
-4. `\middle`を補う。
-5. discard保存、`\lastlinefit`、`\savinghyphcodes`、show/tracingを実処理へ接続する。
-6. TeX--XeTはrestricted hboxで方向node、LR stack、共通DVI/PDF shipoutまでを最初の縦sliceにし、
+1. 実装済みの`FontCharDimension` query種別を、将来JFM・Unicode font metricへ広げる。
+   e-TeX primitiveの公開文字番号は0--255のまま保ち、別の文字identityを暗黙に混ぜない。
+2. penalty配列を局所代入、fmt、line breakingまで実装する。JLReqの段落処理も
+   `\parshape`と同じ保存・照会基盤を利用できるようにする。
+3. `\middle`を補う。
+4. discard保存、`\lastlinefit`、`\savinghyphcodes`、show/tracingを実処理へ接続する。
+5. TeX--XeTはrestricted hboxで方向node、LR stack、共通DVI/PDF shipoutまでを最初の縦sliceにし、
    次にparagraph、display、mathへ広げる。parameterだけ先に「対応済み」へ格上げしない。
 
 完全対応の完了条件は、公開e-TeX manualの全primitiveを一覧照合し、通常実行、group、
@@ -84,3 +84,20 @@ error回復、fmt往復、DVI/PDFへの効果を該当機能ごとに試験し�
 `p4.1.2-u2.02`に対する自作black-boxの`.6`展開を照合した。実装sourceや上流testは
 参照していない。照合binaryはCTAN tlnet `uptex.windows` revision 78020、
 archive SHA-256 `c878983da002f32a24a507680ccf00261a3761089ed324892668ded589bf9c0d`。
+
+`\fontcharwd/ht/dp/ic`は同manual 3.4の公開契約に加え、公式CTAN配布のpdfTeX
+3.141592653-2.6-1.40.29（e-TeX extended mode）への
+自作入力で、内部寸法、0--255走査、code 0への範囲回復、欠落字とnullfontの0pt、
+`\the`のother文字列、`\number`のsp値、font-id・現在font・math family指定を照合した。
+probeはrepositoryの試験を上流testから写さず独立に作成している。照合archiveは
+TeX Live revision 78097、2026-08-24取得の`pdftex.windows.tar.xz`（874,164 bytes、SHA-256
+`6794c3c173d1c3e9add63ed3d631b07312c208ed7d60dbed7764f588ce09ee6e`）、取得URLは
+`https://mirrors.ctan.org/systems/texlive/tlnet/archive/pdftex.windows.tar.xz`である。
+`pdftex.exe` / `pdftex.dll`のSHA-256はそれぞれ
+`4b582d0be712b74ae5090aba2d7338f185082f6446cbee7b26115e8ab6e21184` /
+`199788b93da06b355cedc4bab1a3695e5c199413176020a708e7658eb2c835bf`。
+metricはTeX Live revision 57963、2026-08-23取得の`cm.tar.xz`（238,064 bytes、SHA-256
+`ebedd3dc7ece433d366d848ea8bd9cd2642a0f49c000c46a2ed1dde5b1cebc1c`、
+`https://mirrors.ctan.org/systems/texlive/tlnet/archive/cm.tar.xz`）に含まれる
+`cmr10.tfm`（1,296 bytes、SHA-256
+`87f2d8981927644cbecaf3d639e96e348ea4e7be49d8804468bd8ba9ff3f5244`）を用いた。

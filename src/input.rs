@@ -83,6 +83,8 @@ pub struct Scanner {
     cond_stack: Vec<ConditionState>,
     if_limit: IfLimit,
     cur_if: IfTest,
+    /// Whether the innermost active conditional was introduced by `\unless`.
+    cur_if_negated: bool,
     if_line: usize,
     /// See 493.
     skip_line: usize,
@@ -152,6 +154,7 @@ impl Scanner {
             cond_stack: Vec::new(),
             if_limit: IfLimit::Normal,
             cur_if: IfTest::IfChar,
+            cur_if_negated: false,
             if_line: 0,
             skip_line: 0,
 

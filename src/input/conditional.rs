@@ -32,6 +32,7 @@ pub enum IfLimit {
 pub struct ConditionState {
     pub if_limit: IfLimit,
     pub cur_if: IfTest,
+    pub cur_if_negated: bool,
     pub if_line: usize,
 }
 
@@ -50,7 +51,12 @@ impl Scanner {
         if self.cond_stack.is_empty() {
             return 0;
         }
-        self.cur_if.etex_code() + 1
+        let condition_type = self.cur_if.etex_code() + 1;
+        if self.cur_if_negated {
+            -condition_type
+        } else {
+            condition_type
+        }
     }
 
     /// `\currentifbranch`（e-TeX）。
@@ -96,14 +102,16 @@ impl Scanner {
     }
 
     /// See 495.
-    fn push_condition_stack(&mut self, if_test: IfTest, eqtb: &Eqtb) {
+    fn push_condition_stack(&mut self, if_test: IfTest, negated: bool, eqtb: &Eqtb) {
         self.cond_stack.push(ConditionState {
             if_limit: self.if_limit,
             cur_if: self.cur_if,
+            cur_if_negated: self.cur_if_negated,
             if_line: self.if_line,
         });
 
         self.cur_if = if_test;
+        self.cur_if_negated = negated;
         self.if_limit = IfLimit::If;
         self.if_line = eqtb.line_number();
     }
@@ -113,6 +121,7 @@ impl Scanner {
         let condition = self.cond_stack.pop().unwrap();
         self.if_limit = condition.if_limit;
         self.cur_if = condition.cur_if;
+        self.cur_if_negated = condition.cur_if_negated;
         self.if_line = condition.if_line;
     }
 
@@ -151,7 +160,7 @@ fn conditional_maybe_negated(
     eqtb: &mut Eqtb,
     logger: &mut Logger,
 ) {
-    scanner.push_condition_stack(if_test, eqtb);
+    scanner.push_condition_stack(if_test, negate, eqtb);
     let condition_level = scanner.cond_stack.len();
     let this_if = if_test;
     let finishing_fi_or_else = if this_if == IfTest::IfCase {
@@ -249,9 +258,10 @@ fn process_ifcase(
         IfTest::IfCsName => test_if_cs_name_is_defined(scanner, eqtb, logger),
         IfTest::IfFontChar => {
             let font = crate::fonts::scan_font_ident(scanner, eqtb, logger);
-            let n = i32::scan_int(scanner, eqtb, logger);
-            // **範囲外は「無い」。** 落とさない
-            (0..=255).contains(&n) && eqtb.fonts[font as usize].char_exists(n as u8)
+            // e-TeXの公開文字番号はTeXの8-bit走査と同じであり、範囲外は
+            // 診断してcode 0へ回復する。存在判定だけを黙って偽にしない。
+            let character = scanner.scan_char_num(eqtb, logger);
+            eqtb.fonts[font as usize].char_exists(character)
         }
         IfTest::IfCase => panic!("Impossible"),
     }
@@ -618,6 +628,7 @@ impl Scanner {
             logger.print_str(" was incomplete)");
             self.if_line = condition.if_line;
             self.cur_if = condition.cur_if;
+            self.cur_if_negated = condition.cur_if_negated;
         }
     }
 }
