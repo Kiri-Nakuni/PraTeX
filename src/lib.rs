@@ -61,8 +61,6 @@ mod vsplit;
 #[allow(dead_code)]
 mod wasm_provider_abi;
 #[allow(dead_code)]
-mod wasm_spacing_compiler_v0;
-#[allow(dead_code)]
 mod wasm_spacing_table_v0;
 #[allow(dead_code)]
 mod wasm_wire_v0;

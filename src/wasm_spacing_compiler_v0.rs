@@ -270,6 +270,63 @@ mod tests {
         validate_spacing_table_proposal_v0(config(), ALL_RECORD_BYTES, external_proposal()).unwrap()
     }
 
+    #[test]
+    fn provider_class上限も一始まりから零始まりへ一度だけ写す() {
+        let capacity = crate::script_spacing::MAX_SCRIPT_SPACING_CLASSES;
+        let config = SpacingTableConfigV0::new(
+            0,
+            capacity,
+            2,
+            1,
+            1,
+            VALID_LANGUAGE_REGION_MASK,
+            VALID_WRITING_MODE_MASK,
+        );
+        let proposal = SpacingTableProposalV0::new(
+            vec![
+                SpacingClassRangeProposalV0::new(u32::from('A'), u32::from('A'), 1, 1, 1),
+                SpacingClassRangeProposalV0::new(u32::from('Z'), u32::from('Z'), capacity, 1, 1),
+            ],
+            vec![SpacingPairRuleProposalV0::new(
+                capacity,
+                1,
+                1,
+                1,
+                length(0, 1, SpacingLengthBasisV0::AbsoluteScaledPoint as u16),
+                length(0, 1, SpacingLengthBasisV0::AbsoluteScaledPoint as u16),
+                length(0, 1, SpacingLengthBasisV0::AbsoluteScaledPoint as u16),
+                0,
+                0,
+                SpacingBreakRuleV0::UseBuiltIn as u16,
+                SpacingLineEdgeRuleV0::UseBuiltIn as u16,
+                0,
+                0,
+                0,
+            )],
+        );
+        let table = compile_spacing_table_candidate_v0(
+            validate_spacing_table_proposal_v0(config, ALL_RECORD_BYTES, proposal).unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(u32::from(table.class_count()), capacity);
+        let first = table
+            .classify_scalar('A', LanguageRegion::Und, WritingMode::Horizontal)
+            .unwrap();
+        let last = table
+            .classify_scalar('Z', LanguageRegion::Und, WritingMode::Horizontal)
+            .unwrap();
+        assert_eq!(first, ScriptClassId::from_validated_dense_index(0).unwrap());
+        assert_eq!(
+            last,
+            ScriptClassId::from_validated_dense_index(capacity - 1).unwrap()
+        );
+        assert!(matches!(
+            table.action_for(last, first, LanguageRegion::Und, WritingMode::Horizontal),
+            ScriptSpacingAction::BoundaryRule(_)
+        ));
+    }
+
     fn native_api_candidate() -> CanonicalScriptSpacingTableCandidate {
         let contexts = (1 << LanguageRegion::Ja.code()) | (1 << LanguageRegion::Ko.code());
         let class = |index| ScriptClassId::from_validated_dense_index(index).unwrap();

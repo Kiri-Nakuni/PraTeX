@@ -12,6 +12,11 @@ use std::num::NonZeroU32;
 
 pub(crate) mod finalizer;
 pub(crate) mod planner;
+// This adapter is deliberately a child module: only validated adapters may construct the
+// canonical native-table types whose compiler relies on release-build invariants.
+#[allow(dead_code)]
+#[path = "wasm_spacing_compiler_v0.rs"]
+pub(crate) mod wasm_compiler_v0;
 
 pub(crate) const MAX_SCRIPT_SPACING_CLASSES: u32 = 64;
 pub(crate) const MAX_SCRIPT_SPACING_RANGES: usize = 4_096;
@@ -46,7 +51,7 @@ impl ScriptClassId {
     }
 
     /// Constructs a dense ID obtained from the shared provider-class codec.
-    pub(crate) fn from_validated_dense_index(index: u32) -> Option<Self> {
+    fn from_validated_dense_index(index: u32) -> Option<Self> {
         u16::try_from(index).ok().map(Self)
     }
 }
@@ -159,7 +164,7 @@ impl ContextualSpacingLength {
     ///
     /// This constructor deliberately takes `NonZeroU32`; callers cannot accidentally reintroduce
     /// the raw wire denominator-zero state while crossing into the native table.
-    pub(crate) const fn from_canonical_parts(
+    const fn from_canonical_parts(
         numerator: i64,
         denominator: NonZeroU32,
         basis: ContextualSpacingLengthBasis,
@@ -318,7 +323,7 @@ pub(crate) struct ScriptSpacingBoundaryRule {
 
 impl ScriptSpacingBoundaryRule {
     #[allow(clippy::too_many_arguments)]
-    pub(crate) const fn from_canonical_parts(
+    const fn from_canonical_parts(
         natural: ContextualSpacingLength,
         shrink_limit: ContextualSpacingLength,
         stretch_limit: ContextualSpacingLength,
@@ -660,7 +665,7 @@ struct ValidatedRule {
 
 /// A scalar range whose Unicode, class and context domains were already validated.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct CanonicalScriptSpacingRange {
+struct CanonicalScriptSpacingRange {
     start: u32,
     end: u32,
     class: ScriptClassId,
@@ -669,7 +674,7 @@ pub(crate) struct CanonicalScriptSpacingRange {
 }
 
 impl CanonicalScriptSpacingRange {
-    pub(crate) const fn from_validated_parts(
+    const fn from_validated_parts(
         start: u32,
         end: u32,
         class: ScriptClassId,
@@ -688,7 +693,7 @@ impl CanonicalScriptSpacingRange {
 
 /// A class-pair rule whose class IDs and context masks were already validated as one table.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct CanonicalScriptSpacingRule {
+struct CanonicalScriptSpacingRule {
     left: ScriptClassId,
     right: ScriptClassId,
     region_mask: ProviderRegionMask,
@@ -697,7 +702,7 @@ pub(crate) struct CanonicalScriptSpacingRule {
 }
 
 impl CanonicalScriptSpacingRule {
-    pub(crate) const fn from_validated_parts(
+    const fn from_validated_parts(
         left: ScriptClassId,
         right: ScriptClassId,
         region_mask: ProviderRegionMask,
@@ -720,14 +725,14 @@ impl CanonicalScriptSpacingRule {
 /// proposal. The compiler below expands masks and allocates the dense table, but intentionally
 /// does not make the scalar/mask/overlap decisions a second time.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct CanonicalScriptSpacingTableCandidate {
+struct CanonicalScriptSpacingTableCandidate {
     class_capacity: u16,
     ranges: Vec<CanonicalScriptSpacingRange>,
     rules: Vec<CanonicalScriptSpacingRule>,
 }
 
 impl CanonicalScriptSpacingTableCandidate {
-    pub(crate) fn from_validated_parts(
+    fn from_validated_parts(
         class_capacity: u16,
         ranges: Vec<CanonicalScriptSpacingRange>,
         rules: Vec<CanonicalScriptSpacingRule>,
@@ -867,7 +872,7 @@ impl CompiledScriptSpacingTable {
     /// Domain validation deliberately stays outside this method. Both the native proposal adapter
     /// above and external adapters must produce this typed candidate before reaching the one
     /// allocation/expansion implementation.
-    pub(crate) fn compile_canonical(
+    fn compile_canonical(
         candidate: CanonicalScriptSpacingTableCandidate,
     ) -> Result<Self, ScriptSpacingTableError> {
         Self::compile_canonical_with_max_dense_slots(candidate, usize::MAX)
@@ -987,7 +992,7 @@ impl CompiledScriptSpacingTable {
     #[cfg(test)]
     /// Supplies a deterministic dense-allocation ceiling so atomic failure can be tested without
     /// relying on the process allocator to exhaust memory.
-    pub(crate) fn try_replace_canonical_with_max_dense_slots(
+    fn try_replace_canonical_with_max_dense_slots(
         &mut self,
         candidate: CanonicalScriptSpacingTableCandidate,
         max_dense_slots: usize,
