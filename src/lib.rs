@@ -37,6 +37,7 @@ mod page_breaking;
 pub mod md5;
 #[allow(dead_code)]
 mod pdf;
+mod pdf_cid_font;
 mod pdf_document;
 #[allow(dead_code)]
 mod pdf_font;
@@ -166,6 +167,7 @@ pub fn tex_main() -> Result<(), ()> {
     run_loaded_engine(
         arguments.output_format,
         arguments.pdf_font_map,
+        arguments.pdf_japanese_cid_profile,
         arguments.quiet,
         first_line,
         first_non_space_pos,
@@ -179,6 +181,7 @@ pub fn tex_main() -> Result<(), ()> {
 fn run_loaded_engine(
     output_format: OutputFormat,
     pdf_font_map: Option<OsString>,
+    pdf_japanese_cid_profile: Option<OsString>,
     quiet: bool,
     mut first_line: Vec<u8>,
     first_non_space_pos: usize,
@@ -199,7 +202,7 @@ fn run_loaded_engine(
         && eqtb.cat_code(first_line[first_non_space_pos]) != CatCode::Escape;
 
     // Initialize global variables and data structures.
-    let mut output = Output::new(output_format, pdf_font_map);
+    let mut output = Output::new(output_format, pdf_font_map, pdf_japanese_cid_profile);
     let mut page_builder = PageBuilder::new();
     let mut nest = SemanticState::new();
 

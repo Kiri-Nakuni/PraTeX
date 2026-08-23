@@ -5,6 +5,7 @@
 //! 解決はさらに上の backend の責務である。
 
 use crate::pdf::{PdfObjectId, PdfWriter, PdfWriterError};
+use crate::pdf_cid_font::{PdfNamedCidFont, PdfNamedCidFontError, PreparedPdfNamedCidFont};
 use crate::pdf_font::{PdfFontError, PdfType1Font, PreparedPdfType1Font};
 
 use std::collections::BTreeSet;
@@ -98,14 +99,49 @@ pub(crate) struct PdfCourierFont {
     document_identity: u64,
 }
 
+/// Courier以外のpage fontをfirst-use順で一つのresource番号domainへ置く。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum PdfPageFont {
+    Type1(PdfType1Font),
+    NamedCid(PdfNamedCidFont),
+}
+
+impl PdfPageFont {
+    pub(crate) fn object(self) -> PdfObjectId {
+        match self {
+            Self::Type1(font) => font.object(),
+            Self::NamedCid(font) => font.object(),
+        }
+    }
+
+    fn belongs_to(self, document_identity: u64) -> bool {
+        match self {
+            Self::Type1(font) => font.belongs_to(document_identity),
+            Self::NamedCid(font) => font.belongs_to(document_identity),
+        }
+    }
+}
+
+impl From<PdfType1Font> for PdfPageFont {
+    fn from(font: PdfType1Font) -> Self {
+        Self::Type1(font)
+    }
+}
+
+impl From<PdfNamedCidFont> for PdfPageFont {
+    fn from(font: PdfNamedCidFont) -> Self {
+        Self::NamedCid(font)
+    }
+}
+
 /// 一枚のページを構成するデータ。
 pub(crate) struct PdfPage<'a> {
     pub(crate) width: PdfCoordinate,
     pub(crate) height: PdfCoordinate,
     pub(crate) courier_font: Option<PdfCourierFont>,
-    /// 配列順に `/F1`、`/F2`、…へ割り当てる Type 1 font。
+    /// 配列順に `/F1`、`/F2`、…へ割り当てるtyped font。
     /// Courier があるページでは Courier が `/F1` を保ち、この配列は `/F2` から始まる。
-    pub(crate) type1_fonts: &'a [PdfType1Font],
+    pub(crate) fonts: &'a [PdfPageFont],
     /// 外側の `<< >>` を含まないresource dictionary entry。
     /// Font resource は型付きfieldだけで指定し、ここに `/Font` nameを書いてはならない。
     pub(crate) resource_entries: &'a [u8],
@@ -120,7 +156,7 @@ pub(crate) struct PdfDocument<W: Write> {
     page_ids: Vec<PdfObjectId>,
     document_identity: u64,
     courier_font: Option<PdfCourierFont>,
-    type1_fonts: Vec<PdfType1Font>,
+    fonts: Vec<PdfPageFont>,
 }
 
 impl<W: Write> PdfDocument<W> {
@@ -136,7 +172,7 @@ impl<W: Write> PdfDocument<W> {
             page_ids: Vec::new(),
             document_identity,
             courier_font: None,
-            type1_fonts: Vec::new(),
+            fonts: Vec::new(),
         })
     }
 
@@ -168,7 +204,19 @@ impl<W: Write> PdfDocument<W> {
         let font = prepared
             .write(&mut self.writer)?
             .bind_to_document(self.document_identity);
-        self.type1_fonts.push(font);
+        self.fonts.push(font.into());
+        Ok(font)
+    }
+
+    /// 検査済み非埋込みCID font object群をこの文書へ一度だけ書く。
+    pub(crate) fn add_named_cid_font(
+        &mut self,
+        prepared: PreparedPdfNamedCidFont,
+    ) -> Result<PdfNamedCidFont, PdfDocumentError> {
+        let font = prepared
+            .write(&mut self.writer)?
+            .bind_to_document(self.document_identity);
+        self.fonts.push(font.into());
         Ok(font)
     }
 
@@ -192,7 +240,7 @@ impl<W: Write> PdfDocument<W> {
             page.height,
         )
         .into_bytes();
-        append_font_resources(&mut body, page.courier_font, page.type1_fonts);
+        append_font_resources(&mut body, page.courier_font, page.fonts);
         if !page.resource_entries.is_empty() {
             body.push(b'\n');
             body.extend_from_slice(page.resource_entries);
@@ -210,7 +258,7 @@ impl<W: Write> PdfDocument<W> {
             return Err(PdfDocumentError::RawFontResourceCollision);
         }
         let font_count = page
-            .type1_fonts
+            .fonts
             .len()
             .checked_add(usize::from(page.courier_font.is_some()))
             .ok_or(PdfDocumentError::TooManyFontResources(usize::MAX))?;
@@ -226,12 +274,18 @@ impl<W: Write> PdfDocument<W> {
         }
 
         let mut seen = BTreeSet::new();
-        for &font in page.type1_fonts {
-            if !font.belongs_to(self.document_identity) || !self.type1_fonts.contains(&font) {
-                return Err(PdfDocumentError::UnknownType1Font(font));
+        for &font in page.fonts {
+            if !font.belongs_to(self.document_identity) || !self.fonts.contains(&font) {
+                return Err(match font {
+                    PdfPageFont::Type1(font) => PdfDocumentError::UnknownType1Font(font),
+                    PdfPageFont::NamedCid(font) => PdfDocumentError::UnknownNamedCidFont(font),
+                });
             }
             if !seen.insert(font.object().number()) {
-                return Err(PdfDocumentError::DuplicateType1Font(font));
+                return Err(match font {
+                    PdfPageFont::Type1(font) => PdfDocumentError::DuplicateType1Font(font),
+                    PdfPageFont::NamedCid(font) => PdfDocumentError::DuplicateNamedCidFont(font),
+                });
             }
         }
         Ok(())
@@ -265,9 +319,9 @@ impl<W: Write> PdfDocument<W> {
 fn append_font_resources(
     body: &mut Vec<u8>,
     courier: Option<PdfCourierFont>,
-    type1_fonts: &[PdfType1Font],
+    fonts: &[PdfPageFont],
 ) {
-    if courier.is_none() && type1_fonts.is_empty() {
+    if courier.is_none() && fonts.is_empty() {
         return;
     }
     body.extend_from_slice(b"\n/Font <<");
@@ -278,7 +332,7 @@ fn append_font_resources(
         );
         resource_number += 1;
     }
-    for font in type1_fonts {
+    for font in fonts {
         body.extend_from_slice(
             format!("\n/F{resource_number} {} 0 R", font.object().number()).as_bytes(),
         );
@@ -399,6 +453,7 @@ fn is_pdf_delimiter(byte: u8) -> bool {
 pub(crate) enum PdfDocumentError {
     Writer(PdfWriterError),
     Font(PdfFontError),
+    NamedCidFont(PdfNamedCidFontError),
     DocumentIdentityExhausted,
     CoordinateOverflow,
     InvalidPageSize {
@@ -408,6 +463,8 @@ pub(crate) enum PdfDocumentError {
     UnknownCourierFont(PdfCourierFont),
     UnknownType1Font(PdfType1Font),
     DuplicateType1Font(PdfType1Font),
+    UnknownNamedCidFont(PdfNamedCidFont),
+    DuplicateNamedCidFont(PdfNamedCidFont),
     TooManyFontResources(usize),
     RawFontResourceCollision,
 }
@@ -417,6 +474,7 @@ impl fmt::Display for PdfDocumentError {
         match self {
             Self::Writer(error) => error.fmt(formatter),
             Self::Font(error) => error.fmt(formatter),
+            Self::NamedCidFont(error) => error.fmt(formatter),
             Self::DocumentIdentityExhausted => {
                 formatter.write_str("PDF document identity space is exhausted")
             }
@@ -439,6 +497,16 @@ impl fmt::Display for PdfDocumentError {
                 "Type 1 font object {} occurs twice in one page resource",
                 font.object().number()
             ),
+            Self::UnknownNamedCidFont(font) => write!(
+                formatter,
+                "named CID font object {} does not belong to this PDF document",
+                font.object().number()
+            ),
+            Self::DuplicateNamedCidFont(font) => write!(
+                formatter,
+                "named CID font object {} occurs twice in one page resource",
+                font.object().number()
+            ),
             Self::TooManyFontResources(count) => {
                 write!(
                     formatter,
@@ -457,12 +525,15 @@ impl std::error::Error for PdfDocumentError {
         match self {
             Self::Writer(error) => Some(error),
             Self::Font(error) => Some(error),
+            Self::NamedCidFont(error) => Some(error),
             Self::DocumentIdentityExhausted
             | Self::CoordinateOverflow
             | Self::InvalidPageSize { .. }
             | Self::UnknownCourierFont(_)
             | Self::UnknownType1Font(_)
             | Self::DuplicateType1Font(_)
+            | Self::UnknownNamedCidFont(_)
+            | Self::DuplicateNamedCidFont(_)
             | Self::TooManyFontResources(_)
             | Self::RawFontResourceCollision => None,
         }
@@ -481,12 +552,20 @@ impl From<PdfFontError> for PdfDocumentError {
     }
 }
 
+impl From<PdfNamedCidFontError> for PdfDocumentError {
+    fn from(error: PdfNamedCidFontError) -> Self {
+        Self::NamedCidFont(error)
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{PdfCoordinate, PdfDocument, PdfDocumentError, PdfPage};
+    use super::{PdfCoordinate, PdfDocument, PdfDocumentError, PdfPage, PdfPageFont};
     use crate::font_resources::afm::{AfmDescriptor, AfmFont, AfmGlyphMetric, AfmNumber};
     use crate::font_resources::map::EmbedPolicy;
+    use crate::font_resources::named_cid::NamedCidFontProfile;
     use crate::font_resources::type1::Type1FontProgram;
+    use crate::pdf_cid_font::{prepare_named_cid_font, PdfNamedCidFont};
     use crate::pdf_font::{
         prepare_type1_font, MissingStemVPolicy, PdfType1Font, PdfType1FontRequest,
     };
@@ -548,6 +627,27 @@ mod tests {
         document.add_type1_font(prepared).unwrap()
     }
 
+    fn 合成named_cidを加える(document: &mut PdfDocument<Vec<u8>>) -> PdfNamedCidFont {
+        let profile = NamedCidFontProfile::parse(
+            b"PraTeX-Named-CID-Profile 1\n\
+JfmName min10\n\
+BaseFont HeiseiMin-W3\n\
+Flags 6\n\
+FontBBox -123 -257 1001 910\n\
+ItalicAngle 0\n\
+Ascent 880\n\
+Descent -120\n\
+CapHeight 700\n\
+StemV 80\n\
+DefaultWidth 1000\n\
+EndProfile\n",
+        )
+        .unwrap();
+        document
+            .add_named_cid_font(prepare_named_cid_font(&profile).unwrap())
+            .unwrap()
+    }
+
     #[test]
     fn scaled_pointを固定小数bpへ変換する() {
         let one_point = PdfCoordinate::from_scaled(65536, 1000).unwrap();
@@ -566,7 +666,7 @@ mod tests {
                 width: PdfCoordinate(612_000_000),
                 height: PdfCoordinate(792_000_000),
                 courier_font: None,
-                type1_fonts: &[],
+                fonts: &[],
                 resource_entries: b"",
                 content: b"0 0 10 20 re f\n",
             })
@@ -610,7 +710,7 @@ mod tests {
                     width: PdfCoordinate(10_000_000),
                     height: PdfCoordinate(20_000_000),
                     courier_font: None,
-                    type1_fonts: &[],
+                    fonts: &[],
                     resource_entries: b"/ProcSet [/PDF]",
                     content,
                 })
@@ -640,7 +740,7 @@ mod tests {
                 width: PdfCoordinate(0),
                 height: PdfCoordinate(10_000_000),
                 courier_font: None,
-                type1_fonts: &[],
+                fonts: &[],
                 resource_entries: b"",
                 content: b"",
             })
@@ -658,7 +758,7 @@ mod tests {
                 width: PdfCoordinate(10_000_000),
                 height: PdfCoordinate(20_000_000),
                 courier_font: Some(courier),
-                type1_fonts: &[],
+                fonts: &[],
                 resource_entries: b"",
                 content: b"BT /F1 10 Tf (A) Tj ET",
             })
@@ -688,13 +788,13 @@ mod tests {
         let courier = document.add_standard_courier_font().unwrap();
         let first = 合成type1を加える(&mut document, "FirstSynthetic");
         let second = 合成type1を加える(&mut document, "SecondSynthetic");
-        let fonts = [first, second];
+        let fonts = [PdfPageFont::Type1(first), PdfPageFont::Type1(second)];
         document
             .add_page(PdfPage {
                 width: PdfCoordinate(10_000_000),
                 height: PdfCoordinate(20_000_000),
                 courier_font: Some(courier),
-                type1_fonts: &fonts,
+                fonts: &fonts,
                 resource_entries: b"",
                 content: b"BT /F1 10 Tf (A) Tj /F2 10 Tf (A) Tj /F3 10 Tf (A) Tj ET",
             })
@@ -703,6 +803,29 @@ mod tests {
         assert!(pdf
             .windows(b"/Font <<\n/F1 3 0 R\n/F2 6 0 R\n/F3 9 0 R\n>>".len())
             .any(|window| window == b"/Font <<\n/F1 3 0 R\n/F2 6 0 R\n/F3 9 0 R\n>>"));
+    }
+
+    #[test]
+    fn courier_type1_named_cidを一つのf番号列へ割り当てる() {
+        let mut document = PdfDocument::new(Vec::new()).unwrap();
+        let courier = document.add_standard_courier_font().unwrap();
+        let type1 = 合成type1を加える(&mut document, "MixedSynthetic");
+        let named_cid = 合成named_cidを加える(&mut document);
+        let fonts = [PdfPageFont::Type1(type1), PdfPageFont::NamedCid(named_cid)];
+        document
+            .add_page(PdfPage {
+                width: PdfCoordinate(10_000_000),
+                height: PdfCoordinate(20_000_000),
+                courier_font: Some(courier),
+                fonts: &fonts,
+                resource_entries: b"",
+                content: b"BT /F1 10 Tf (A) Tj /F2 10 Tf <41> Tj /F3 10 Tf <3042> Tj ET",
+            })
+            .unwrap();
+        let pdf = document.finish().unwrap();
+        assert!(pdf
+            .windows(b"/Font <<\n/F1 3 0 R\n/F2 6 0 R\n/F3 9 0 R\n>>".len())
+            .any(|window| { window == b"/Font <<\n/F1 3 0 R\n/F2 6 0 R\n/F3 9 0 R\n>>" }));
     }
 
     #[test]
@@ -715,7 +838,7 @@ mod tests {
                     width: PdfCoordinate(10_000_000),
                     height: PdfCoordinate(20_000_000),
                     courier_font: None,
-                    type1_fonts: &[font],
+                    fonts: &[PdfPageFont::Type1(font)],
                     resource_entries: b"",
                     content,
                 })
@@ -751,7 +874,7 @@ mod tests {
                 width: PdfCoordinate(10_000_000),
                 height: PdfCoordinate(20_000_000),
                 courier_font: None,
-                type1_fonts: &[font, font],
+                fonts: &[PdfPageFont::Type1(font), PdfPageFont::Type1(font)],
                 resource_entries: b"",
                 content: b"",
             })
@@ -766,7 +889,7 @@ mod tests {
                 width: PdfCoordinate(10_000_000),
                 height: PdfCoordinate(20_000_000),
                 courier_font: None,
-                type1_fonts: &[],
+                fonts: &[],
                 resource_entries: b"/#46ont <<>>",
                 content: b"",
             })
@@ -782,7 +905,7 @@ mod tests {
                 width: PdfCoordinate(10_000_000),
                 height: PdfCoordinate(20_000_000),
                 courier_font: None,
-                type1_fonts: &[],
+                fonts: &[],
                 resource_entries: b"/Properties << /Note (escaped /Font is text) >>",
                 content: b"",
             })
@@ -802,7 +925,7 @@ mod tests {
                 width: PdfCoordinate(10_000_000),
                 height: PdfCoordinate(20_000_000),
                 courier_font: None,
-                type1_fonts: &[foreign],
+                fonts: &[PdfPageFont::Type1(foreign)],
                 resource_entries: b"",
                 content: b"",
             })
@@ -817,7 +940,7 @@ mod tests {
                 width: PdfCoordinate(10_000_000),
                 height: PdfCoordinate(20_000_000),
                 courier_font: None,
-                type1_fonts: &[local],
+                fonts: &[PdfPageFont::Type1(local)],
                 resource_entries: b"",
                 content: b"",
             })
@@ -837,7 +960,7 @@ mod tests {
                 width: PdfCoordinate(10_000_000),
                 height: PdfCoordinate(20_000_000),
                 courier_font: Some(foreign),
-                type1_fonts: &[],
+                fonts: &[],
                 resource_entries: b"",
                 content: b"",
             })

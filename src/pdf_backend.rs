@@ -1,6 +1,10 @@
 use super::output_backend::{OutputFontDefinition, OutputFontKind, ShipoutBackend};
 use crate::font_resources::loader::{FontResourceError, Type1ResourceLoader};
-use crate::pdf_document::{PdfCoordinate, PdfCourierFont, PdfDocument, PdfDocumentError, PdfPage};
+use crate::font_resources::named_cid::{NamedCidFontProfileLoader, NamedCidProfileError};
+use crate::pdf_cid_font::{prepare_named_cid_font, PdfNamedCidFont};
+use crate::pdf_document::{
+    PdfCoordinate, PdfCourierFont, PdfDocument, PdfDocumentError, PdfPage, PdfPageFont,
+};
 use crate::pdf_font::{
     prepare_type1_font, MissingStemVPolicy, PdfType1Font, PdfType1FontRequest, PreparedPdfType1Font,
 };
@@ -63,14 +67,20 @@ struct PageState {
     position: Position,
     position_stack: Vec<Position>,
     /// First-use order. PdfDocument assigns these `/F2`, `/F3`, ... after Courier `/F1`.
-    type1_fonts: Vec<PdfType1Font>,
+    fonts: Vec<PdfPageFont>,
     content: Vec<u8>,
 }
 
 #[derive(Clone, Copy)]
-struct PdfFontState {
-    at_size: Scaled,
-    type1: Option<PdfType1Font>,
+enum PdfFontState {
+    Byte {
+        at_size: Scaled,
+        type1: Option<PdfType1Font>,
+    },
+    Japanese {
+        at_size: Scaled,
+        named_cid: PdfNamedCidFont,
+    },
 }
 
 /// Shipoutの表示命令を、既定ではStandard 14 Courierだけで最小PDFへ写すbackend。
@@ -80,6 +90,7 @@ pub(crate) struct PdfBackend<W: Write> {
     courier_font: PdfCourierFont,
     magnification: Scaled,
     type1_loader: Option<Box<dyn Type1ResourceLoader>>,
+    named_cid_loader: Option<Box<dyn NamedCidFontProfileLoader>>,
     fonts: HashMap<u32, PdfFontState>,
     current_font: Option<u32>,
     page: Option<PageState>,
@@ -87,7 +98,7 @@ pub(crate) struct PdfBackend<W: Write> {
 
 impl<W: Write> PdfBackend<W> {
     pub(crate) fn new(target: W, magnification: Scaled) -> Result<Self, PdfBackendError> {
-        Self::with_optional_type1_loader(target, magnification, None)
+        Self::with_loaders(target, magnification, None, None)
     }
 
     /// Type 1 map/resource 解決を明示的に有効にする constructor。
@@ -101,13 +112,27 @@ impl<W: Write> PdfBackend<W> {
     where
         L: Type1ResourceLoader + 'static,
     {
-        Self::with_optional_type1_loader(target, magnification, Some(Box::new(loader)))
+        Self::with_loaders(target, magnification, Some(Box::new(loader)), None)
     }
 
-    fn with_optional_type1_loader(
+    /// Named CID profileを明示注入するconstructor。loaderはfont定義時だけ呼ぶ。
+    pub(crate) fn with_named_cid_loader<L>(
+        target: W,
+        magnification: Scaled,
+        loader: L,
+    ) -> Result<Self, PdfBackendError>
+    where
+        L: NamedCidFontProfileLoader + 'static,
+    {
+        Self::with_loaders(target, magnification, None, Some(Box::new(loader)))
+    }
+
+    /// CLI/hostがType 1とnamed CIDの独立loaderを同時に注入する境界。
+    pub(crate) fn with_loaders(
         target: W,
         magnification: Scaled,
         type1_loader: Option<Box<dyn Type1ResourceLoader>>,
+        named_cid_loader: Option<Box<dyn NamedCidFontProfileLoader>>,
     ) -> Result<Self, PdfBackendError> {
         if magnification <= 0 {
             return Err(PdfBackendError::InvalidMagnification(magnification));
@@ -119,6 +144,7 @@ impl<W: Write> PdfBackend<W> {
             courier_font,
             magnification,
             type1_loader,
+            named_cid_loader,
             fonts: HashMap::new(),
             current_font: None,
             page: None,
@@ -152,14 +178,25 @@ impl<W: Write> PdfBackend<W> {
             .fonts
             .get(&font_number)
             .ok_or(PdfBackendError::UndefinedFont(font_number))?;
-        if state.type1.is_some() {
+        let PdfFontState::Byte { type1, .. } = state else {
+            return Err(PdfBackendError::FontKindMismatch {
+                font_number,
+                operation: PdfGlyphOperation::AttachType1,
+                actual: OutputFontKind::Japanese,
+            });
+        };
+        if type1.is_some() {
             return Err(PdfBackendError::Type1FontAlreadyAttached(font_number));
         }
         let handle = self.document.add_type1_font(prepared)?;
-        self.fonts
+        let state = self
+            .fonts
             .get_mut(&font_number)
-            .ok_or(PdfBackendError::UndefinedFont(font_number))?
-            .type1 = Some(handle);
+            .ok_or(PdfBackendError::UndefinedFont(font_number))?;
+        let PdfFontState::Byte { type1, .. } = state else {
+            unreachable!("font kind was checked above");
+        };
+        *type1 = Some(handle);
         Ok(())
     }
 
@@ -237,6 +274,28 @@ impl<W: Write> PdfBackend<W> {
         );
         Ok(())
     }
+
+    fn named_cid_character_content(
+        page: &PageState,
+        magnification: Scaled,
+        character: u32,
+        at_size: Scaled,
+        resource_number: usize,
+    ) -> Result<Vec<u8>, PdfBackendError> {
+        let (x, y) = Self::page_position(page, magnification)?;
+        let font_size = PdfCoordinate::from_scaled(at_size, magnification)?;
+        Ok(format!(
+            "BT\n/F{resource_number} {font_size} Tf\n1 0 0 1 {x} {y} Tm\n<{character:04X}> Tj\nET\n"
+        )
+        .into_bytes())
+    }
+}
+
+fn logical_font_name(font_number: u32, name: &[u8]) -> Result<&str, PdfBackendError> {
+    std::str::from_utf8(name).map_err(|_| PdfBackendError::InvalidLogicalFontName {
+        font_number,
+        name: name.to_vec(),
+    })
 }
 
 impl<W: Write> ShipoutBackend for PdfBackend<W> {
@@ -278,7 +337,7 @@ impl<W: Write> ShipoutBackend for PdfBackend<W> {
                 vertical: 0,
             },
             position_stack: Vec::new(),
-            type1_fonts: Vec::new(),
+            fonts: Vec::new(),
             content: Vec::new(),
         });
         Ok(())
@@ -319,7 +378,7 @@ impl<W: Write> ShipoutBackend for PdfBackend<W> {
             width: media_width,
             height: media_height,
             courier_font: Some(self.courier_font),
-            type1_fonts: &page.type1_fonts,
+            fonts: &page.fonts,
             resource_entries: b"",
             content: &content,
         })?;
@@ -355,9 +414,6 @@ impl<W: Write> ShipoutBackend for PdfBackend<W> {
     }
 
     fn define_font(&mut self, font: OutputFontDefinition<'_>) -> Result<(), Self::Error> {
-        if font.kind == OutputFontKind::Japanese {
-            return Err(PdfBackendError::JapaneseGlyphUnsupported);
-        }
         if font.at_size <= 0 {
             return Err(PdfBackendError::InvalidFontSize {
                 font_number: font.font_number,
@@ -368,39 +424,61 @@ impl<W: Write> ShipoutBackend for PdfBackend<W> {
             return Err(PdfBackendError::FontAlreadyDefined(font.font_number));
         }
 
-        let type1 = if let Some(loader) = self.type1_loader.as_mut() {
-            let tfm_name = std::str::from_utf8(font.name).map_err(|_| {
-                PdfBackendError::InvalidLogicalFontName {
-                    font_number: font.font_number,
-                    name: font.name.to_vec(),
+        let state = match font.kind {
+            OutputFontKind::Byte => {
+                let type1 = if let Some(loader) = self.type1_loader.as_mut() {
+                    let tfm_name = logical_font_name(font.font_number, font.name)?;
+                    let loaded = loader.load(tfm_name)?;
+                    let missing_stem_v = loaded
+                        .private_std_vw
+                        .map_or(MissingStemVPolicy::Reject, MissingStemVPolicy::Use);
+                    let prepared = prepare_type1_font(PdfType1FontRequest {
+                        program: loaded.font_program.value(),
+                        afm: loaded.metrics.value(),
+                        encoding: loaded.encoding.as_ref().map(|encoding| encoding.value()),
+                        embedding: loaded.embedding,
+                        descriptor_flags: loaded.descriptor_flags,
+                        missing_stem_v,
+                        used_codes: font.existing_codes,
+                    })
+                    .map_err(PdfDocumentError::from)?;
+                    Some(self.document.add_type1_font(prepared)?)
+                } else {
+                    None
+                };
+                PdfFontState::Byte {
+                    at_size: font.at_size,
+                    type1,
                 }
-            })?;
-            let loaded = loader.load(tfm_name)?;
-            let missing_stem_v = loaded
-                .private_std_vw
-                .map_or(MissingStemVPolicy::Reject, MissingStemVPolicy::Use);
-            let prepared = prepare_type1_font(PdfType1FontRequest {
-                program: loaded.font_program.value(),
-                afm: loaded.metrics.value(),
-                encoding: loaded.encoding.as_ref().map(|encoding| encoding.value()),
-                embedding: loaded.embedding,
-                descriptor_flags: loaded.descriptor_flags,
-                missing_stem_v,
-                used_codes: font.existing_codes,
-            })
-            .map_err(PdfDocumentError::from)?;
-            Some(self.document.add_type1_font(prepared)?)
-        } else {
-            None
+            }
+            OutputFontKind::Japanese => {
+                let jfm_name = logical_font_name(font.font_number, font.name)?;
+                let loader = self.named_cid_loader.as_mut().ok_or_else(|| {
+                    PdfBackendError::MissingNamedCidProfile {
+                        font_number: font.font_number,
+                        jfm_name: jfm_name.to_owned(),
+                    }
+                })?;
+                let profile = loader.load(jfm_name)?;
+                if profile.jfm_name() != jfm_name {
+                    return Err(PdfBackendError::NamedCidProfile(
+                        NamedCidProfileError::JfmNameMismatch {
+                            path: None,
+                            profile_name: profile.jfm_name().to_owned(),
+                            requested_name: jfm_name.to_owned(),
+                        },
+                    ));
+                }
+                let prepared = prepare_named_cid_font(&profile).map_err(PdfDocumentError::from)?;
+                let named_cid = self.document.add_named_cid_font(prepared)?;
+                PdfFontState::Japanese {
+                    at_size: font.at_size,
+                    named_cid,
+                }
+            }
         };
 
-        self.fonts.insert(
-            font.font_number,
-            PdfFontState {
-                at_size: font.at_size,
-                type1,
-            },
-        );
+        self.fonts.insert(font.font_number, state);
         Ok(())
     }
 
@@ -424,10 +502,20 @@ impl<W: Write> ShipoutBackend for PdfBackend<W> {
             .fonts
             .get(&font_number)
             .ok_or(PdfBackendError::UndefinedFont(font_number))?;
+        let (at_size, type1) = match font {
+            PdfFontState::Byte { at_size, type1 } => (at_size, type1),
+            PdfFontState::Japanese { .. } => {
+                return Err(PdfBackendError::FontKindMismatch {
+                    font_number,
+                    operation: PdfGlyphOperation::ByteCharacter,
+                    actual: OutputFontKind::Japanese,
+                });
+            }
+        };
         let magnification = self.magnification;
         let page = self.current_page_mut()?;
         let next_horizontal = Self::checked_move(page.position.horizontal, width)?;
-        if let Some(type1) = font.type1 {
+        if let Some(type1) = type1 {
             if character < type1.first_char() || character > type1.last_char() {
                 return Err(PdfBackendError::CharacterOutsideEmbeddedFont {
                     font_number,
@@ -443,27 +531,21 @@ impl<W: Write> ShipoutBackend for PdfBackend<W> {
                 });
             }
             let resource_index = match page
-                .type1_fonts
+                .fonts
                 .iter()
-                .position(|&existing| existing == type1)
+                .position(|&existing| existing == PdfPageFont::Type1(type1))
             {
                 Some(index) => index,
                 None => {
-                    page.type1_fonts.push(type1);
-                    page.type1_fonts.len() - 1
+                    page.fonts.push(PdfPageFont::Type1(type1));
+                    page.fonts.len() - 1
                 }
             };
             // Courier remains `/F1`; typed embedded fonts start at `/F2`.
             let resource_number = resource_index + 2;
-            Self::append_type1_character(
-                page,
-                magnification,
-                character,
-                font.at_size,
-                resource_number,
-            )?;
+            Self::append_type1_character(page, magnification, character, at_size, resource_number)?;
         } else if (b' '..=b'~').contains(&character) {
-            Self::append_courier_character(page, magnification, character, font.at_size)?;
+            Self::append_courier_character(page, magnification, character, at_size)?;
         }
         Self::include_interval(
             &mut page.min_horizontal,
@@ -481,8 +563,70 @@ impl<W: Write> ShipoutBackend for PdfBackend<W> {
         Ok(())
     }
 
-    fn set_wide_char(&mut self, _character: u32, _width: Scaled) -> Result<(), Self::Error> {
-        Err(PdfBackendError::JapaneseGlyphUnsupported)
+    fn set_wide_char(&mut self, character: u32, width: Scaled) -> Result<(), Self::Error> {
+        let page = self.page.as_ref().ok_or(PdfBackendError::NoOpenPage)?;
+        let font_number = self.current_font.ok_or(PdfBackendError::NoCurrentFont)?;
+        let font = *self
+            .fonts
+            .get(&font_number)
+            .ok_or(PdfBackendError::UndefinedFont(font_number))?;
+        let (at_size, named_cid) = match font {
+            PdfFontState::Japanese { at_size, named_cid } => (at_size, named_cid),
+            PdfFontState::Byte { .. } => {
+                return Err(PdfBackendError::FontKindMismatch {
+                    font_number,
+                    operation: PdfGlyphOperation::WideCharacter,
+                    actual: OutputFontKind::Byte,
+                });
+            }
+        };
+        if character > 0xffff {
+            return Err(PdfBackendError::NonBmpCharacter {
+                font_number,
+                character,
+            });
+        }
+        if (0xd800..=0xdfff).contains(&character) {
+            return Err(PdfBackendError::InvalidBmpScalar {
+                font_number,
+                character,
+            });
+        }
+
+        // ここまでと以下の計算をすべて済ませてからpage stateを変更する。失敗した
+        // glyphがresource/content/位置のどれかだけを残すことはない。
+        let next_horizontal = Self::checked_move(page.position.horizontal, width)?;
+        let page_font = PdfPageFont::NamedCid(named_cid);
+        let existing_index = page.fonts.iter().position(|&font| font == page_font);
+        let resource_index = existing_index.unwrap_or(page.fonts.len());
+        let resource_number = resource_index + 2;
+        let content = Self::named_cid_character_content(
+            page,
+            self.magnification,
+            character,
+            at_size,
+            resource_number,
+        )?;
+
+        let page = self.current_page_mut()?;
+        if existing_index.is_none() {
+            page.fonts.push(page_font);
+        }
+        page.content.extend_from_slice(&content);
+        Self::include_interval(
+            &mut page.min_horizontal,
+            &mut page.max_horizontal,
+            page.position.horizontal,
+            next_horizontal,
+        );
+        Self::include_interval(
+            &mut page.min_vertical,
+            &mut page.max_vertical,
+            page.position.vertical,
+            page.position.vertical,
+        );
+        page.position.horizontal = next_horizontal;
+        Ok(())
     }
 
     fn set_rule(&mut self, height: Scaled, width: Scaled) -> Result<(), Self::Error> {
@@ -555,6 +699,7 @@ impl<W: Write> ShipoutBackend for PdfBackend<W> {
 pub(crate) enum PdfBackendError {
     Document(PdfDocumentError),
     FontResource(FontResourceError),
+    NamedCidProfile(NamedCidProfileError),
     InvalidMagnification(Scaled),
     InvalidPageSize {
         width: PdfCoordinate,
@@ -574,7 +719,23 @@ pub(crate) enum PdfBackendError {
     },
     UndefinedFont(u32),
     NoCurrentFont,
-    JapaneseGlyphUnsupported,
+    MissingNamedCidProfile {
+        font_number: u32,
+        jfm_name: String,
+    },
+    FontKindMismatch {
+        font_number: u32,
+        operation: PdfGlyphOperation,
+        actual: OutputFontKind,
+    },
+    NonBmpCharacter {
+        font_number: u32,
+        character: u32,
+    },
+    InvalidBmpScalar {
+        font_number: u32,
+        character: u32,
+    },
     CharacterOutsideEmbeddedFont {
         font_number: u32,
         character: u8,
@@ -592,11 +753,19 @@ pub(crate) enum PdfBackendError {
     OutputTooLarge(u64),
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum PdfGlyphOperation {
+    AttachType1,
+    ByteCharacter,
+    WideCharacter,
+}
+
 impl fmt::Display for PdfBackendError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Document(error) => error.fmt(formatter),
             Self::FontResource(error) => error.fmt(formatter),
+            Self::NamedCidProfile(error) => error.fmt(formatter),
             Self::InvalidMagnification(magnification) => {
                 write!(formatter, "invalid PDF magnification {magnification}")
             }
@@ -625,8 +794,34 @@ impl fmt::Display for PdfBackendError {
             ),
             Self::UndefinedFont(font) => write!(formatter, "undefined PDF font number {font}"),
             Self::NoCurrentFont => formatter.write_str("no current PDF font"),
-            Self::JapaneseGlyphUnsupported => formatter.write_str(
-                "Japanese wide glyph output is not connected to the PDF backend yet",
+            Self::MissingNamedCidProfile {
+                font_number,
+                jfm_name,
+            } => write!(
+                formatter,
+                "Japanese PDF font {font_number} (`{jfm_name}`) requires an explicit named CID profile"
+            ),
+            Self::FontKindMismatch {
+                font_number,
+                operation,
+                actual,
+            } => write!(
+                formatter,
+                "PDF {operation:?} cannot use {actual:?} font number {font_number}"
+            ),
+            Self::NonBmpCharacter {
+                font_number,
+                character,
+            } => write!(
+                formatter,
+                "Japanese PDF font {font_number} cannot encode non-BMP character U+{character:06X} with UniJIS-UCS2-H"
+            ),
+            Self::InvalidBmpScalar {
+                font_number,
+                character,
+            } => write!(
+                formatter,
+                "Japanese PDF font {font_number} cannot encode surrogate U+{character:04X}"
             ),
             Self::CharacterOutsideEmbeddedFont {
                 font_number,
@@ -664,6 +859,7 @@ impl std::error::Error for PdfBackendError {
         match self {
             Self::Document(error) => Some(error),
             Self::FontResource(error) => Some(error),
+            Self::NamedCidProfile(error) => Some(error),
             _ => None,
         }
     }
@@ -681,6 +877,12 @@ impl From<FontResourceError> for PdfBackendError {
     }
 }
 
+impl From<NamedCidProfileError> for PdfBackendError {
+    fn from(error: NamedCidProfileError) -> Self {
+        Self::NamedCidProfile(error)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{PdfBackend, PdfBackendError};
@@ -690,6 +892,9 @@ mod tests {
     use crate::font_resources::afm::{AfmDescriptor, AfmFont, AfmGlyphMetric, AfmNumber};
     use crate::font_resources::loader::FontResourceLoader;
     use crate::font_resources::map::EmbedPolicy;
+    use crate::font_resources::named_cid::{
+        NamedCidFontProfile, NamedCidFontProfileLoader, NamedCidProfileError,
+    };
     use crate::font_resources::type1::Type1FontProgram;
     use crate::output::output_backend::{OutputFontDefinition, OutputFontKind, ShipoutBackend};
     use crate::pdf_document::PdfDocumentError;
@@ -774,6 +979,37 @@ mod tests {
     }
 
     type SyntheticLoader = FontResourceLoader<KpsewhichResolver<SyntheticExecutor>>;
+
+    struct SyntheticNamedCidLoader {
+        profile: NamedCidFontProfile,
+    }
+
+    impl NamedCidFontProfileLoader for SyntheticNamedCidLoader {
+        fn load(&mut self, _jfm_name: &str) -> Result<NamedCidFontProfile, NamedCidProfileError> {
+            Ok(self.profile.clone())
+        }
+    }
+
+    fn named_cid_profile(jfm_name: &str) -> NamedCidFontProfile {
+        NamedCidFontProfile::parse(
+            format!(
+                "PraTeX-Named-CID-Profile 1\n\
+                 JfmName {jfm_name}\n\
+                 BaseFont HeiseiMin-W3\n\
+                 Flags 6\n\
+                 FontBBox -123 -257 1001 910\n\
+                 ItalicAngle 0\n\
+                 Ascent 880\n\
+                 Descent -120\n\
+                 CapHeight 700\n\
+                 StemV 80\n\
+                 DefaultWidth 1000\n\
+                 EndProfile\n"
+            )
+            .as_bytes(),
+        )
+        .unwrap()
+    }
 
     fn synthetic_pfb() -> Vec<u8> {
         fn segment(kind: u8, payload: &[u8]) -> Vec<u8> {
@@ -866,6 +1102,25 @@ EndFontMetrics\n"
             first_char: 0,
             last_char: 127,
             existing_codes: &[b'A'],
+        }
+    }
+
+    fn japanese_font_definition(
+        font_number: u32,
+        at_size: Scaled,
+        name: &'static [u8],
+    ) -> OutputFontDefinition<'static> {
+        OutputFontDefinition {
+            kind: OutputFontKind::Japanese,
+            font_number,
+            checksum: 0,
+            at_size,
+            design_size: at_size,
+            area: b"",
+            name,
+            first_char: 0,
+            last_char: 0,
+            existing_codes: &[],
         }
     }
 
@@ -981,6 +1236,130 @@ EndFontMetrics\n"
                 .count(),
             3
         );
+    }
+
+    #[test]
+    fn named_cidでwide文字をjfm幅の絶対位置へ書く() {
+        let loader = SyntheticNamedCidLoader {
+            profile: named_cid_profile("min10"),
+        };
+        let mut backend = PdfBackend::with_named_cid_loader(Vec::new(), 1000, loader).unwrap();
+        backend
+            .define_font(japanese_font_definition(257, 10 * 65536, b"min10"))
+            .unwrap();
+        backend
+            .start_page(&[0; 10], 20 * 65536, 20 * 65536)
+            .unwrap();
+        backend.set_font(257).unwrap();
+        backend.set_wide_char(0x3042, 5 * 65536).unwrap();
+        backend.set_wide_char(0x65e5, 7 * 65536).unwrap();
+        backend.end_page().unwrap();
+        let (pdf, _) = backend.finish_with_target().unwrap();
+        let text = String::from_utf8_lossy(&pdf);
+
+        for required in [
+            "/Subtype /Type0",
+            "/Subtype /CIDFontType0",
+            "/Encoding /UniJIS-UCS2-H",
+            "/CIDSystemInfo << /Registry (Adobe) /Ordering (Japan1) /Supplement 4 >>",
+            "/Font <<\n/F1 3 0 R\n/F2 6 0 R\n>>",
+            "/F2 9.96264 Tf\n1 0 0 1 72 91.92528 Tm\n<3042> Tj",
+            "/F2 9.96264 Tf\n1 0 0 1 76.98132 91.92528 Tm\n<65E5> Tj",
+        ] {
+            assert!(text.contains(required), "missing {required}");
+        }
+        assert_eq!(text.matches("/Subtype /Type0").count(), 1);
+        assert_eq!(text.matches("/DescendantFonts [").count(), 1);
+        assert!(!text.contains("/W ["));
+        assert!(!text.contains("/FontFile"));
+    }
+
+    #[test]
+    fn 和文profile欠損とjfm名不一致をfont定義時に拒む() {
+        let mut without_profile = PdfBackend::new(Vec::new(), 1000).unwrap();
+        assert!(matches!(
+            without_profile.define_font(japanese_font_definition(
+                257,
+                10 * 65536,
+                b"min10"
+            )),
+            Err(PdfBackendError::MissingNamedCidProfile {
+                font_number: 257,
+                ref jfm_name,
+            }) if jfm_name == "min10"
+        ));
+        assert!(!without_profile.fonts.contains_key(&257));
+
+        let loader = SyntheticNamedCidLoader {
+            profile: named_cid_profile("goth10"),
+        };
+        let mut mismatched = PdfBackend::with_named_cid_loader(Vec::new(), 1000, loader).unwrap();
+        assert!(matches!(
+            mismatched.define_font(japanese_font_definition(257, 10 * 65536, b"min10")),
+            Err(PdfBackendError::NamedCidProfile(
+                NamedCidProfileError::JfmNameMismatch {
+                    ref profile_name,
+                    ref requested_name,
+                    ..
+                }
+            )) if profile_name == "goth10" && requested_name == "min10"
+        ));
+        assert!(!mismatched.fonts.contains_key(&257));
+    }
+
+    #[test]
+    fn wide文字の範囲とfont種別errorはpageを部分更新しない() {
+        let loader = SyntheticNamedCidLoader {
+            profile: named_cid_profile("min10"),
+        };
+        let mut backend = PdfBackend::with_named_cid_loader(Vec::new(), 1000, loader).unwrap();
+        backend
+            .define_font(japanese_font_definition(257, 10 * 65536, b"min10"))
+            .unwrap();
+        backend.define_font(font_definition(3, 10 * 65536)).unwrap();
+        backend
+            .start_page(&[0; 10], 20 * 65536, 20 * 65536)
+            .unwrap();
+
+        backend.set_font(257).unwrap();
+        let before = backend.page.as_ref().unwrap();
+        let before_position = before.position.horizontal;
+        let before_content = before.content.clone();
+        let before_fonts = before.fonts.clone();
+        assert!(matches!(
+            backend.set_wide_char(0x1_0000, 5 * 65536),
+            Err(PdfBackendError::NonBmpCharacter {
+                font_number: 257,
+                character: 0x1_0000,
+            })
+        ));
+        assert!(matches!(
+            backend.set_char(b'A', 5 * 65536),
+            Err(PdfBackendError::FontKindMismatch {
+                font_number: 257,
+                operation: super::PdfGlyphOperation::ByteCharacter,
+                actual: OutputFontKind::Japanese,
+            })
+        ));
+        let after = backend.page.as_ref().unwrap();
+        assert_eq!(after.position.horizontal, before_position);
+        assert_eq!(after.content, before_content);
+        assert_eq!(after.fonts, before_fonts);
+
+        backend.set_font(3).unwrap();
+        let before_position = backend.page.as_ref().unwrap().position.horizontal;
+        assert!(matches!(
+            backend.set_wide_char(0x3042, 5 * 65536),
+            Err(PdfBackendError::FontKindMismatch {
+                font_number: 3,
+                operation: super::PdfGlyphOperation::WideCharacter,
+                actual: OutputFontKind::Byte,
+            })
+        ));
+        let after = backend.page.as_ref().unwrap();
+        assert_eq!(after.position.horizontal, before_position);
+        assert_eq!(after.content, before_content);
+        assert_eq!(after.fonts, before_fonts);
     }
 
     #[test]
