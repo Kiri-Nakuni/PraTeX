@@ -12,6 +12,7 @@ PraTeXは、tyti氏によるTeX82のRust再実装`rtex`を基礎に、現代的�
 
 - TeX82の中核、formatの生成・読込み、DVI出力
 - e-TeXおよびpdfTeXの原始命令の一部
+- 他engineの版番号へ偽装しないPraTeX固有の識別子 `\pratexversion=1`
 - `-output-format=pdf`による外部DVI driverを必要としないPDF直接出力
 - PDFへの暫定的なStandard 14 font出力と、明示したmapによるType 1 font全埋込み。実配布
   `pdftex.map`の複数resource構文、flags既定値、PFB Private `StdVW` fallbackまで読める
@@ -22,7 +23,13 @@ PraTeXは、tyti氏によるTeX82のRust再実装`rtex`を基礎に、現代的�
   まだ文字間隔やfont選択には影響しない
 - `ls-R`索引と`kpsewhich`の公開CLIを組み合わせたTeX入力、font、mapなどの部分的な探索
 - native `kpsewhich`がないWindowsから、resolver内でbackendを混ぜずに既定WSLを使うfallback
-- `\directvaak`、`\vaakdef`、`\vaakinput`によるVaakとの実験的な連携
+- `\directvaak`、`\vaakdef`、`\vaakinput`によるVaakとの実験的な連携。静的な失敗は
+  parse/check/type-checkの段階、行・桁、Vaak側の理由をTeXの診断へ残す
+
+plain formatでVaakを使う最小例は
+[examples/plain-vaak.tex](examples/plain-vaak.tex) にあります。`\vaakdef`と`\directvaak`、
+局所束縛の`let`/`var`、TeX registerをVaakのhost配列へ明示的に別名束縛する例を一つの
+文書で試せます。この配布例そのものを回帰試験から読み、説明と実装がずれないようにしています。
 
 TeX82から増えた機能、部分実装、PraTeX独自機能、既存仕様を独立して書き直した範囲は
 [docs/feature-inventory.md](docs/feature-inventory.md) に一覧化しています。
@@ -49,6 +56,10 @@ subset未実装中は意図的に拒否します。
 TRIPではDVIの全999 recordを復号した意味比較が公式結果と一致しています。ただし、
 banner、診断、容量、拡張された範囲などのlog差まで解消したという意味ではありません。
 比較の条件と残差は [docs/trip-testing.md](docs/trip-testing.md) に記録しています。
+
+plain formatの欧文DVIは、`origin/main`のrTeXとBOPからEOPまでのpage bodyをbyte単位で
+比較しています。現在の固定fixtureは183 bytesで差分0です。LaTeXについてはengine依存部分を
+PraTeX用に独立実装している途中なので、同じ完全回帰をまだ主張しません。
 
 ## 構築と実行
 
@@ -152,7 +163,9 @@ Vaakへコードを移すことはしません。
 
 実装と性能調整はsafe Rustだけを使います。頻出経路を測り、出力とTRIPの結果を固定したうえで
 最適化します。DVI modeでは同一入力・同一TeX tree・同等DVIでupLaTeXの実行時間の
-1.2倍未満をhard gateとし、探索・fmt復元・組版・出力も分けて追跡します。
+1.2倍未満を最終的なhard gateとし、探索・fmt復元・組版・出力も分けて追跡します。
+現在は日本語横組みの意味論と回帰試験を固めることを優先し、性能最適化そのものは後段へ
+送っています。この数値を現時点で達成済みという意味ではありません。
 
 e-TeX、pTeX、upTeX、pdfTeX由来の拡張は、上流の実装コードを移植せず、公開仕様と
 許可された黒箱観測から書き直します。特にpTeX／upTeX系は由来ごとにライセンスが異なる
