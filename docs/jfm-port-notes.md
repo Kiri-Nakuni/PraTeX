@@ -121,4 +121,11 @@ node・sp座標・DVI意味をe-upTeXと比較して初めてpTeX相当P0の一�
 - BMP U+3042の`set2`、補助面U+20000の`set3`、二glyph後のkern/rule座標をDVI decoderで照合
 - validなcurrent JFMを選んだ外部vertical modeのCJKがparagraphを開始し、捨てられないことを固定
 - `origin/main`と同じ欧文plain fixtureのBOPからEOPまで183 bytesを比較し、byte差分0
+- `cargo test --release --locked --no-fail-fast`: 594 passed、0 failed、6 ignored
+- 公式CTAN TRIPは両段exit 0、`tripos.tex`は最小正規化後一致。DVI SHA-256は既知正常値
+  `b20af20a1463c6846f0c4c1ce687cd6354ce1a5f65ee401507627570787ae9fe`を維持
+- TRIP archiveは`https://mirrors.ctan.org/systems/knuth/dist/tex.zip`から2026-08-23に取得し、
+  SHA-256 `1d419b1bd7efa575ead0174e47d542a0099a73e0e4deb5031980d109e8c3c645`を記録した。
+  このmachineにはPLtoTF/TFtoPL/DVItypeがないため、hash検証済み公式`trip.tfm`を使い、
+  DVItypeによる今回の意味比較は未実行
 - PraTeX通常sourceにunsafe Rustなし。他engineのsource・上流test・version偽装は使用していない

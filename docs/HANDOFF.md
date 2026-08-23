@@ -1,6 +1,6 @@
 # PraTeX 作業引継ぎ
 
-更新: 2026-08-23（`codex2/jlreq-script-spacing`）
+更新: 2026-08-23（`codex2/japanese-glyph-dvi`）
 
 この文書は、現在の Codex セッションから別のエージェントへ作業が移っても、
 検証済みの境界と未commitの作業を失わないための生きた引継ぎである。
@@ -9,7 +9,7 @@
 ## 最初に守ること
 
 1. リポジトリ直下の `AGENTS.md` を最初から最後まで読む。
-2. 現在の枝は `codex2/jlreq-script-spacing`。`main`と歴史的`full`を汚さない。
+2. 現在の枝は `codex2/japanese-glyph-dvi`。`main`と歴史的`full`を汚さない。
 3. 基点は統合checkpoint `6ce8315`。作業中のK/X、spacing、文書更新を無関係な差分として
    差し戻さない。
 4. 通常実装と性能調整はsafe Rustだけで行う。
@@ -20,11 +20,14 @@
 
 ## 枝と共有状態
 
-- 枝: `codex2/jlreq-script-spacing`
-- 基点: `6ce8315`
+- 枝: `codex2/japanese-glyph-dvi`
+- 統合済み基点: `codex2/jlreq-script-spacing`の`c9bd240`（歴史的基点は`6ce8315`）
 - 基点のrelease全suite: **564 passed、0 failed、6 ignored**（Vaak `89804b4`）
-- 現在の作業枝release全suite: **581 passed、0 failed、6 ignored**
+- 現在の作業枝release全suite: **594 passed、0 failed、6 ignored**
 - 直近の共有commit:
+  - `d2807f8`: 選択済み横組JFMの和文を段落開始時にも保持
+  - `41408dd`: `c9bd240`までのVaak・plain回帰を横組glyph枝へ統合
+  - `be719da`: 横組JFMをtyped current font、wide node、DVIまで接続
   - `9587e25`: `\mutoglue` / `\gluetomu`
   - `43cd6c9`: e-TeX機能一覧の同期
   - `eda7dd1`: `\scantokens` clean-room設計
@@ -304,7 +307,7 @@ pwsh -NoProfile -File tools/run-trip.ps1
 
 2026-08-23の現作業枝での既知正常値:
 
-- 現在release: 581 passed、0 failed、6 ignored
+- 現在release: 594 passed、0 failed、6 ignored
 - TRIP Stage1/Stage2 exit 0
 - `tripos.tex`正規化後一致
 - DVI SHA-256: `b20af20a1463c6846f0c4c1ce687cd6354ce1a5f65ee401507627570787ae9fe`

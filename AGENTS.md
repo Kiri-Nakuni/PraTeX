@@ -13,7 +13,8 @@ PraTeX側が必要とするAPIは `src/vaak.rs`、`docs/vaak-embedding-api-desig
 `for_CLAUDE.md` に契約として残し、Vaak側の変更はClaudeに伝える。
 
 通常作業の枝は **`codex2/<目的>`** とする。現在の統合枝は
-`codex2/jlreq-script-spacing`である。2026-08-23のpush済みroot checkpointは`aa48367`。
+`codex2/jlreq-script-spacing`であり、2026-08-23のpush済みroot checkpointは`c9bd240`。
+横組JFM glyphのfocused枝は`codex2/japanese-glyph-dvi`で、そのcheckpointを取り込み済みである。
 `main`は歴史的基点として触らない。`full`へ直接実装はせず、focused test、全release、必要な
 TRIP/DVI・PDF意味比較を通して十分に固まった機能checkpointを`codex2/*`から順次mergeする。
 設計文書だけ、production未接続、既知の意味退行があるsliceは`full`へ送らない。
@@ -162,8 +163,8 @@ cargo test --release --locked --no-fail-fast
 `6ce8315`を手元のVaak `89804b4`と組み合わせた基準は
 **564 passed、0 failed、6 ignored**。ignoredは実TeX Live、配布JFM、doctestの手動照合である。
 機能追加ではfocused testを先に通し、その後に全release、必要ならTRIPとDVI/PDF意味比較を行う。
-現在のK/X、script spacing、TeXXeT fmt sliceを含む作業枝は
-**581 passed、0 failed、6 ignored**（2026-08-23）である。
+現在のK/X、script spacing、TeXXeT fmt、横組JFM glyph sliceを含む作業枝は
+**594 passed、0 failed、6 ignored**（2026-08-23）である。
 同日の公式CTAN TRIPも両段exit 0、`tripos.tex`一致、DVI hashは既知正常値
 `b20af20a1463c6846f0c4c1ce687cd6354ce1a5f65ee401507627570787ae9fe`を維持した。
 このmachineにはDVItypeが無いため、今回のrecord意味比較はhash一致で代替している。
