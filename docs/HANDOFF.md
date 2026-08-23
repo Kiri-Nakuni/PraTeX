@@ -49,6 +49,12 @@ WASM module importとnamespaceの基本方針は
 [`wasm-module-import-v0.1.md`](wasm-module-import-v0.1.md)を一次資料とする。ABI 0.0は
 spacing/unit providerだけを扱い、任意control sequenceの実行ABIは未決定の別仕様である。
 
+PraTeX自身は`67cd4bf`のまま`wasm32-wasip1`へcheck・binary linkでき、`pratex.wasm`と
+`rtex.wasm`を生成した。実時刻slice `003c27c`も、WASI targetで`chrono/clock`を選ばずcheck・
+linkできる。ただしruntime、preopen filesystem、子processを使わないresolver、clock、終了status、
+nativeとのDVI適合試験は未完成である。compile成功をPraTeX 1のWASM gate達成とは数えない。
+実測と次の境界は[`wasm-target-status.md`](wasm-target-status.md)に記録した。
+
 ## 完了済み: upTeX `latin_ucs` とUnicode pattern
 
 状態: **`565c0d3`で実装・commit済み**。safe Rustのみ。
