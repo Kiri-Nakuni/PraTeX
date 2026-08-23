@@ -1,7 +1,7 @@
-//! `pratex-japanese` がNFSSのsizeを横組JFMへ渡す境界の回帰。
+//! `pratex-japanese` の和文NFSS属性・JFM cache・従属欧文を固定する回帰。
 //!
 //! LaTeX本体はblack boxのlive gateで別途確認する。この試験は公開JFM形式から作った
-//! metricと最小のLaTeX hook面だけを使い、package側のcache・群・DVI font定義を固定する。
+//! metricと最小のLaTeX hook面だけを使い、package固有の宣言・群・DVI font定義を測る。
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -72,10 +72,10 @@ fn synthetic_jfm() -> Vec<u8> {
     bytes
 }
 
-fn prepare_directory() -> PathBuf {
+fn prepare_directory(label: &str) -> PathBuf {
     let directory = std::env::temp_dir().join(format!(
-        "pratex-japanese-nfss-{}",
-        std::process::id()
+        "pratex-japanese-nfss-{}-{label}",
+        std::process::id(),
     ));
     std::fs::create_dir_all(&directory).unwrap();
     for name in [
@@ -83,14 +83,16 @@ fn prepare_directory() -> PathBuf {
         "t.log",
         "t.dvi",
         "upjisr-h.tfm",
+        "upjisg-h.tfm",
         "pratex-japanese.sty",
     ] {
         let _ = std::fs::remove_file(directory.join(name));
     }
-    std::fs::write(directory.join("upjisr-h.tfm"), synthetic_jfm()).unwrap();
+    let jfm = synthetic_jfm();
+    std::fs::write(directory.join("upjisr-h.tfm"), &jfm).unwrap();
+    std::fs::write(directory.join("upjisg-h.tfm"), &jfm).unwrap();
     std::fs::copy(
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("tex/latex/pratex/pratex-japanese.sty"),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tex/latex/pratex/pratex-japanese.sty"),
         directory.join("pratex-japanese.sty"),
     )
     .unwrap();
@@ -109,7 +111,7 @@ fn read_u32(bytes: &[u8], start: usize) -> u32 {
     u32::from_be_bytes(bytes[start..start + 4].try_into().unwrap())
 }
 
-fn japanese_font_scales(dvi: &[u8]) -> Vec<u32> {
+fn japanese_font_definitions(dvi: &[u8]) -> Vec<(String, u32)> {
     let id = dvi
         .iter()
         .rposition(|byte| *byte != 223)
@@ -120,7 +122,7 @@ fn japanese_font_scales(dvi: &[u8]) -> Vec<u32> {
     assert_eq!(dvi[post], 248, "postamble pointerがpostを指すこと");
 
     let mut position = post + 29;
-    let mut scales = Vec::new();
+    let mut definitions = Vec::new();
     while position < post_post {
         let opcode = dvi[position];
         position += 1;
@@ -136,33 +138,64 @@ fn japanese_font_scales(dvi: &[u8]) -> Vec<u32> {
                 position += 2;
                 let font_name = &dvi[position + area..position + area + name];
                 position += area + name;
-                if font_name == b"upjisr-h" {
-                    scales.push(scale);
+                if font_name.starts_with(b"upjis") {
+                    definitions.push((String::from_utf8(font_name.to_vec()).unwrap(), scale));
                 }
             }
             _ => panic!("postamble中の未対応opcode {opcode}"),
         }
     }
-    scales.sort_unstable();
-    scales
+    definitions.sort_unstable();
+    definitions
+}
+
+fn joined_log(directory: &Path) -> String {
+    std::fs::read_to_string(directory.join("t.log"))
+        .unwrap()
+        .replace('\n', "")
 }
 
 #[test]
-fn 同じnfss寸法はspのcache_keyを共有する() {
+fn 和文nfssと従属欧文はpratex固有の宣言面を持つ() {
     let package = std::fs::read_to_string(
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("tex/latex/pratex/pratex-japanese.sty"),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tex/latex/pratex/pratex-japanese.sty"),
     )
     .unwrap();
-    assert!(package.contains(r"\number\dimexpr\f@size pt\relax"));
-    assert!(package.contains(r"\ifcsname pratex@jfont@\pratex@jfontsizekey\endcsname"));
-    assert!(package.contains(r"\expandafter\global\expandafter\pratexjfont"));
-    assert!(package.contains(r"\AddToHook{cmd/selectfont/after}"));
+    for required in [
+        r"\DeclarePraTeXJapaneseFontShape",
+        r"\pratexjfontencoding",
+        r"\pratexjfontfamily",
+        r"\pratexjfontseries",
+        r"\pratexjfontshape",
+        r"\DeclarePraTeXRelationFont",
+        r"\SetPraTeXRelationFont",
+        r"\UsePraTeXRelationFont",
+        r"\AddToHook{cmd/selectfont/before}",
+        r"\AddToHook{cmd/selectfont/after}",
+        r"\number\dimexpr\f@size pt\relax",
+    ] {
+        assert!(package.contains(required), "宣言面が欠けている: {required}");
+    }
+    for forbidden in [
+        r"\DeclareRelationFont",
+        r"\SetRelationFont",
+        r"\userelfont",
+        r"\pdftexversion",
+        r"\luatexversion",
+        r"\XeTeXversion",
+        r"\pTeXversion",
+        r"\upTeXversion",
+    ] {
+        assert!(
+            !package.contains(forbidden),
+            "未契約の互換名または他engine identityを含む: {forbidden}"
+        );
+    }
 }
 
 #[test]
-fn nfssの大小と群復元をjfm寸法とdviへ渡す() {
-    let directory = prepare_directory();
+fn 和文属性の群復元とmetric別size_cacheをdviへ渡す() {
+    let directory = prepare_directory("attributes");
     std::fs::write(
         directory.join("t.tex"),
         r#"\catcode123=1
@@ -172,20 +205,36 @@ fn nfssの大小と群復元をjfm寸法とdviへ渡す() {
 \def\NeedsTeXFormat#1[#2]{}
 \def\ProvidesPackage#1[#2]{}
 \def\PackageError#1#2#3{\errmessage{#1: #2}}
-\long\def\newcommand#1#2{\long\def#1{#2}}
+\def\@empty{}
+\def\space{ }
 \long\def\AtBeginDocument#1{\gdef\pratexdocumenthook{#1}}
-\long\def\AddToHook#1#2{\gdef\pratexselectfonthook{#2}}
+\long\def\AddToHook#1#2{%
+  \expandafter\gdef\csname pratex@testhook:#1\endcsname{#2}}
+\def\fontencoding#1{\edef\f@encoding{#1}}
+\def\fontfamily#1{\edef\f@family{#1}}
+\def\fontseries#1{\edef\f@series{#1}}
+\def\fontshape#1{\edef\f@shape{#1}}
+\def\fontseriesforce#1{\edef\f@series{#1}}
+\def\fontshapeforce#1{\edef\f@shape{#1}}
+\def\selectfont{%
+  \csname pratex@testhook:cmd/selectfont/before\endcsname
+  \csname pratex@testhook:cmd/selectfont/after\endcsname}
 \def\f@size{10}
+\def\f@encoding{OT1}\def\f@family{cmr}\def\f@series{m}\def\f@shape{n}
 \input pratex-japanese.sty
+\DeclarePraTeXJapaneseFontShape{PJY1}{gt}{bx}{it}{upjisg-h}
 \pratexdocumenthook
 \kcatcode"3042=16
 \global\setbox0=\hbox{あ}
-{\def\f@size{9}\pratexselectfonthook
+{\def\f@size{9}%
+ \pratexjfontfamily{gt}\pratexjfontseries{bx}\pratexjfontshape{it}\selectfont
  \global\setbox1=\hbox{あ}
- \def\f@size{9.0}\pratexselectfonthook
- \global\setbox2=\hbox{あ}}
+ \def\f@size{9.0}\selectfont
+ \global\setbox2=\hbox{あ}%
+ \message{[JATTR-IN=\pratex@jfamily/\pratex@jseries/\pratex@jshape]}}
 \global\setbox3=\hbox{あ}
-{\def\f@size{14.4}\pratexselectfonthook
+\message{[JATTR-OUT=\pratex@jfamily/\pratex@jseries/\pratex@jshape]}
+{\def\f@size{14.4}\selectfont
  \global\setbox4=\hbox{あ}}
 \message{[JFM-NFSS=\the\wd0/\the\wd1/\the\wd2/\the\wd3/\the\wd4]}
 \shipout\vbox{\box0\box1\box2\box3\box4}
@@ -197,20 +246,105 @@ fn nfssの大小と群復元をjfm寸法とdviへ渡す() {
     let output = run_rtex(&directory);
     assert!(
         output.status.success(),
-        "NFSS/JFM試験を実行できない: {}{}",
+        "和文NFSS/JFM試験を実行できない: {}{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-    let log = std::fs::read_to_string(directory.join("t.log"))
-        .unwrap()
-        .replace('\n', "");
+    let log = joined_log(&directory);
+    assert!(
+        log.contains("[JATTR-IN=gt/bx/it]"),
+        "群内の和文属性が届かない: {log}"
+    );
+    assert!(
+        log.contains("[JATTR-OUT=mc/m/n]"),
+        "和文属性が群終了時に戻らない: {log}"
+    );
     assert!(
         log.contains("[JFM-NFSS=5.0pt/4.5pt/4.5pt/5.0pt/7.2pt]"),
         "NFSS sizeまたは群復元がJFMへ届かない: {log}"
     );
     assert_eq!(
-        japanese_font_scales(&std::fs::read(directory.join("t.dvi")).unwrap()),
-        [589_824, 655_360, 943_718],
-        "9と9.0は同じJFMを使い、10ptへ群復元し、14.4ptを一度だけ定義する"
+        japanese_font_definitions(&std::fs::read(directory.join("t.dvi")).unwrap()),
+        [
+            ("upjisg-h".to_owned(), 589_824),
+            ("upjisr-h".to_owned(), 655_360),
+            ("upjisr-h".to_owned(), 943_718),
+        ],
+        "metricとspの組をcacheし、9と9.0だけを共有しなければならない"
     );
+}
+
+#[test]
+fn 従属欧文は一回だけ適用し宣言の大域局所とshape_wildcardを守る() {
+    let directory = prepare_directory("relations");
+    std::fs::write(
+        directory.join("t.tex"),
+        r#"\catcode123=1
+\catcode125=2
+\catcode35=6
+\catcode`\@=11
+\def\NeedsTeXFormat#1[#2]{}
+\def\ProvidesPackage#1[#2]{}
+\def\PackageError#1#2#3{\message{[PACKAGE-ERROR=#2]}}
+\def\@empty{}
+\def\space{ }
+\long\def\AtBeginDocument#1{\gdef\pratexdocumenthook{#1}}
+\long\def\AddToHook#1#2{%
+  \expandafter\gdef\csname pratex@testhook:#1\endcsname{#2}}
+\def\fontencoding#1{\edef\f@encoding{#1}}
+\def\fontfamily#1{\edef\f@family{#1}}
+\def\fontseries#1{\edef\f@series{#1}}
+\def\fontshape#1{\edef\f@shape{#1}}
+\def\fontseriesforce#1{\edef\f@series{#1}}
+\def\fontshapeforce#1{\edef\f@shape{#1}}
+\def\selectfont{%
+  \csname pratex@testhook:cmd/selectfont/before\endcsname
+  \csname pratex@testhook:cmd/selectfont/after\endcsname}
+\def\f@size{10}
+\def\f@encoding{OT1}\def\f@family{cmr}\def\f@series{m}\def\f@shape{n}
+\input pratex-japanese.sty
+\DeclarePraTeXRelationFont{PJY1}{mc}{m}{n}{T1}{cmr}{bx}{it}
+{\SetPraTeXRelationFont{PJY1}{mc}{m}{n}{TS1}{cmss}{m}{sl}
+ \UsePraTeXRelationFont\selectfont
+ \message{[REL-LOCAL=\f@encoding/\f@family/\f@series/\f@shape]}}
+\fontencoding{OT1}\fontfamily{manual}\fontseries{m}\fontshape{n}
+\UsePraTeXRelationFont\selectfont
+\message{[REL-GLOBAL=\f@encoding/\f@family/\f@series/\f@shape]}
+\fontfamily{manual}\selectfont
+\message{[REL-ONESHOT=\f@encoding/\f@family/\f@series/\f@shape]}
+\DeclarePraTeXJapaneseFontShape{PJY1}{mc}{w}{it}{upjisr-h}
+\DeclarePraTeXRelationFont{PJY1}{mc}{w}{}{TU}{lmss}{sb}{n}
+\pratexjfontseries{w}\pratexjfontshape{it}\fontshape{sl}
+\UsePraTeXRelationFont\selectfont
+\message{[REL-WILDCARD=\f@encoding/\f@family/\f@series/\f@shape]}
+\pratexjfontfamily{missing}\fontencoding{OT1}\fontfamily{manual}%
+\fontseries{m}\fontshape{n}\UsePraTeXRelationFont\selectfont
+\message{[REL-MISSING=\f@encoding/\f@family/\f@series/\f@shape]}
+\end
+"#,
+    )
+    .unwrap();
+
+    let output = run_rtex(&directory);
+    assert!(
+        output.status.success(),
+        "従属欧文試験を実行できない: {}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let log = joined_log(&directory);
+    for expected in [
+        "[REL-LOCAL=TS1/cmss/m/sl]",
+        "[REL-GLOBAL=T1/cmr/bx/it]",
+        "[REL-ONESHOT=T1/manual/bx/it]",
+        "[REL-WILDCARD=TU/lmss/sb/sl]",
+        "[REL-MISSING=OT1/manual/m/n]",
+        "[PACKAGE-ERROR=No relation font for PJY1/missing/w/it]",
+        "[PACKAGE-ERROR=Japanese font shape PJY1/missing/w/it is not declared]",
+    ] {
+        assert!(
+            log.contains(expected),
+            "従属欧文契約が違う: {expected}\n{log}"
+        );
+    }
 }

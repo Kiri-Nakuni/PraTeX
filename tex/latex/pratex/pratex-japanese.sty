@@ -1,4 +1,4 @@
-%% pratex-japanese.sty -- explicit horizontal JFM initializer for PraTeX
+%% pratex-japanese.sty -- PraTeX-native Japanese NFSS bridge
 %%
 %% Copyright (C) 2026 PraTeX contributors
 %% SPDX-License-Identifier: GPL-3.0-only
@@ -8,7 +8,7 @@
 
 \NeedsTeXFormat{LaTeX2e}[2023-11-01]
 \ProvidesPackage{pratex-japanese}
-  [2026/08/24 v0.2 PraTeX horizontal Japanese JFM initializer]
+  [2026/08/24 v0.3 PraTeX-native Japanese NFSS bridge]
 
 \ifdefined\pratexversion\else
   \PackageError{pratex-japanese}
@@ -24,46 +24,146 @@
   \expandafter\endinput
 \fi
 
-% Keep the original 10pt selector as the compatibility baseline.  The NFSS
-% bridge below reuses it for every spelling of 10pt and creates one additional
-% JFM instance for each distinct scaled-point size.
+% Japanese font selection has four NFSS-like attributes of its own.  PJY1 is
+% a PraTeX package contract, not a claim to implement a pLaTeX encoding.  The
+% public setters are deliberately separate from the engine's \pratexjfont
+% primitive: like \fontfamily and friends, they only change the request.
+\def\pratex@jencoding{PJY1}
+\def\pratex@jfamily{mc}
+\def\pratex@jseries{m}
+\def\pratex@jshape{n}
+\def\pratexjfontencoding#1{\def\pratex@jencoding{#1}}
+\def\pratexjfontfamily#1{\def\pratex@jfamily{#1}}
+\def\pratexjfontseries#1{\def\pratex@jseries{#1}}
+\def\pratexjfontshape#1{\def\pratex@jshape{#1}}
+
+% A declaration maps an exact Japanese attribute tuple to one horizontal JFM
+% basename.  Size functions and substitution rules are intentionally outside
+% this first slice; an absent exact tuple is therefore a typed package error.
+\def\DeclarePraTeXJapaneseFontShape#1#2#3#4#5{%
+  \expandafter\gdef
+    \csname pratex@jshape@#1/#2/#3/#4\endcsname{#5}}
+
+\DeclarePraTeXJapaneseFontShape{PJY1}{mc}{m}{n}{upjisr-h}
+
+% Preserve the original 10pt selector as a stable public baseline.  The
+% general selector below shares it through a metric-name + exact-sp cache key,
+% so 10, 10.0, and equivalent dimension expressions use one font slot.
 \pratexjfont\pratexdefaultjapanesefont=upjisr-h at 10pt
 \pratexdefaultjapanesefont
-
 \edef\pratex@jfontsizekey{\number\dimexpr10pt\relax}
 \expandafter\global\expandafter\let
-  \csname pratex@jfont@\pratex@jfontsizekey\endcsname
+  \csname pratex@jfont/upjisr-h/\pratex@jfontsizekey\endcsname
   \pratexdefaultjapanesefont
 
-% NFSS exposes its selected size as a decimal point value in \f@size.  Use its
-% exact scaled-point value as the cache key so that 10, 10.0, and equivalent
-% dimension expressions cannot consume separate Japanese font slots.
-\newcommand\pratexselectdefaultjapanesefont{%
-  \edef\pratex@jfontsizekey{\number\dimexpr\f@size pt\relax}%
-  \ifcsname pratex@jfont@\pratex@jfontsizekey\endcsname
+\def\pratexselectjapanesefont{%
+  \edef\pratex@jshapekey{%
+    pratex@jshape@\pratex@jencoding/\pratex@jfamily/%
+    \pratex@jseries/\pratex@jshape}%
+  \ifcsname\pratex@jshapekey\endcsname
+    \edef\pratex@jmetric{\csname\pratex@jshapekey\endcsname}%
+    \edef\pratex@jfontsizekey{\number\dimexpr\f@size pt\relax}%
+    \edef\pratex@jfontkey{%
+      pratex@jfont/\pratex@jmetric/\pratex@jfontsizekey}%
+    \ifcsname\pratex@jfontkey\endcsname
+    \else
+      \expandafter\global\expandafter\pratexjfont
+        \csname\pratex@jfontkey\endcsname
+        =\pratex@jmetric\space at \dimexpr\f@size pt\relax
+    \fi
+    \csname\pratex@jfontkey\endcsname
   \else
-    \expandafter\global\expandafter\pratexjfont
-      \csname pratex@jfont@\pratex@jfontsizekey\endcsname
-      =upjisr-h at \dimexpr\f@size pt\relax
-  \fi
-  \csname pratex@jfont@\pratex@jfontsizekey\endcsname}
+    \PackageError{pratex-japanese}
+      {Japanese font shape
+       \pratex@jencoding/\pratex@jfamily/\pratex@jseries/\pratex@jshape
+       \space is not declared}
+      {Declare the exact tuple with
+       \string\DeclarePraTeXJapaneseFontShape.}%
+  \fi}
 
-% PraTeX-native classes may own their document-start font policy.  A general
-% LaTeX class gets the same selector directly through the public LaTeX hook.
+\def\pratexselectdefaultjapanesefont{%
+  \pratexjfontencoding{PJY1}%
+  \pratexjfontfamily{mc}%
+  \pratexjfontseries{m}%
+  \pratexjfontshape{n}%
+  \pratexselectjapanesefont}
+
+\def\pratexusejapanesefont#1#2#3#4{%
+  \pratexjfontencoding{#1}%
+  \pratexjfontfamily{#2}%
+  \pratexjfontseries{#3}%
+  \pratexjfontshape{#4}%
+  \selectfont}
+
+% A relation declaration maps the current Japanese tuple to a Latin NFSS
+% request.  The declaration form is global, while the Set form follows the
+% current TeX group.  An empty Japanese shape installs a wildcard; just as in
+% the documented pLaTeX relation model, that form preserves the Latin shape
+% requested at the moment \selectfont runs instead of imposing argument 8.
+\def\pratex@declarerelation#1#2#3#4#5#6#7#8#9{%
+  \def\pratex@relationsourceshape{#5}%
+  \ifx\pratex@relationsourceshape\@empty
+    #1\expandafter\def
+      \csname pratex@relation@#2/#3/#4/all\endcsname{%
+        \fontencoding{#6}\fontfamily{#7}\fontseriesforce{#8}}%
+  \else
+    #1\expandafter\def
+      \csname pratex@relation@#2/#3/#4/#5\endcsname{%
+        \fontencoding{#6}\fontfamily{#7}%
+        \fontseriesforce{#8}\fontshapeforce{#9}}%
+  \fi}
+
+\def\DeclarePraTeXRelationFont#1#2#3#4#5#6#7#8{%
+  \pratex@declarerelation\global
+    {#1}{#2}{#3}{#4}{#5}{#6}{#7}{#8}}
+\def\SetPraTeXRelationFont#1#2#3#4#5#6#7#8{%
+  \pratex@declarerelation\relax
+    {#1}{#2}{#3}{#4}{#5}{#6}{#7}{#8}}
+
+% Relation use is an explicit, group-scoped, one-shot request.  Resolve it in
+% the public before-hook so the ordinary NFSS \selectfont invocation sees all
+% four Latin attributes together.  Missing mappings never partly mutate NFSS.
+\def\pratex@relationpending{0}
+\protected\def\UsePraTeXRelationFont{\def\pratex@relationpending{1}}
+\def\pratex@applyrelation{%
+  \ifnum\pratex@relationpending=1\relax
+    \def\pratex@relationpending{0}%
+    \edef\pratex@relationkey{%
+      pratex@relation@\pratex@jencoding/\pratex@jfamily/%
+      \pratex@jseries/\pratex@jshape}%
+    \edef\pratex@relationallkey{%
+      pratex@relation@\pratex@jencoding/\pratex@jfamily/%
+      \pratex@jseries/all}%
+    \ifcsname\pratex@relationkey\endcsname
+      \csname\pratex@relationkey\endcsname
+    \else
+      \ifcsname\pratex@relationallkey\endcsname
+        \csname\pratex@relationallkey\endcsname
+      \else
+        \PackageError{pratex-japanese}
+          {No relation font for
+           \pratex@jencoding/\pratex@jfamily/%
+           \pratex@jseries/\pratex@jshape}
+          {Declare an exact or shape-wildcard mapping with
+           \string\DeclarePraTeXRelationFont.}%
+      \fi
+    \fi
+  \fi}
+
+\AddToHook{cmd/selectfont/before}{\pratex@applyrelation}
+
+% A PraTeX-native class may own its document-start adapter.  General classes
+% get the same selector through the public LaTeX hook without engine spoofing.
 \ifdefined\pratexsetjapanesefonthook
-  \pratexsetjapanesefonthook{\pratexselectdefaultjapanesefont}
+  \pratexsetjapanesefonthook{\pratexselectjapanesefont}
 \else
-  \AtBeginDocument{\pratexselectdefaultjapanesefont}
+  \AtBeginDocument{\pratexselectjapanesefont}
 \fi
-
-% Re-evaluate the Japanese size whenever NFSS changes the Latin font.  Resolve
-% the class hook at execution time so that an explicit document adapter still
-% wins over this package default without engine impersonation.
 \AddToHook{cmd/selectfont/after}{%
   \ifdefined\pratexjapanesefonthook
     \pratexjapanesefonthook
   \else
-    \pratexselectdefaultjapanesefont
+    \pratexselectjapanesefont
   \fi}
 
 \endinput

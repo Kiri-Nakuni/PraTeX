@@ -8,7 +8,7 @@
 
 \NeedsTeXFormat{LaTeX2e}[2023-11-01]
 \ProvidesClass{prjsarticle}
-  [2026/08/24 v0.2 PraTeX native horizontal Japanese article]
+  [2026/08/24 v0.3 PraTeX native horizontal Japanese article]
 
 % Do not impersonate another engine to enter its package branches.
 % PraTeX owns this identity primitive.  Presence identifies the engine;
@@ -40,9 +40,10 @@
   \expandafter\endinput
 \fi
 
-% Format or engine adapters replace these hooks without making the class
-% pretend to be pTeX, upTeX, pdfTeX, XeTeX, or LuaTeX.
-\newcommand\pratexlatinfonthook{\rmfamily}
+% Format or engine adapters may still replace these hooks without making the
+% class pretend to be another engine.  Normal class roles use the declarative
+% Japanese NFSS and relation-font API below; hooks are an explicit escape hatch.
+\newcommand\pratexlatinfonthook{}
 \newcommand\pratexjapanesefonthook{}
 \newcommand\pratexsetlatinfonthook[1]{%
   \gdef\pratexlatinfonthook{#1}}
@@ -52,16 +53,34 @@
 % after the hook definition lets the package register without engine
 % impersonation.  A document adapter may still replace the hook afterwards.
 \RequirePackage{pratex-japanese}
-\newcommand\pratexbodyfont{%
-  \pratexlatinfonthook\pratexjapanesefonthook}
-\newcommand\pratexheadingfont{%
-  \sffamily\bfseries\pratexjapanesefonthook}
+
+% The body, emphasis/title, and heading roles are Japanese NFSS declarations,
+% not ordered calls to two unrelated font hooks.  Relation mappings select the
+% corresponding Latin NFSS tuple once, immediately before \selectfont.
+\DeclarePraTeXJapaneseFontShape{PJY1}{mc}{bx}{n}{upjisr-h}
+\DeclarePraTeXJapaneseFontShape{PJY1}{gt}{m}{n}{upjisg-h}
+\DeclarePraTeXRelationFont{PJY1}{mc}{m}{n}%
+  {\encodingdefault}{\rmdefault}{\mddefault}{\updefault}
+\DeclarePraTeXRelationFont{PJY1}{mc}{bx}{n}%
+  {\encodingdefault}{\rmdefault}{\bfdefault}{\updefault}
+\DeclarePraTeXRelationFont{PJY1}{gt}{m}{n}%
+  {\encodingdefault}{\sfdefault}{\bfdefault}{\updefault}
+
+\newcommand\pratex@selectfontrole[3]{%
+  \pratexjfontfamily{#1}%
+  \pratexjfontseries{#2}%
+  \pratexjfontshape{#3}%
+  \UsePraTeXRelationFont
+  \selectfont
+  \pratexlatinfonthook}
+\newcommand\pratexbodyfont{\pratex@selectfontrole{mc}{m}{n}}
+\newcommand\pratexheadingfont{\pratex@selectfontrole{gt}{m}{n}}
 \newcommand\pratextitlefont{%
-  \LARGE\bfseries\pratexlatinfonthook\pratexjapanesefonthook}
+  \LARGE\pratex@selectfontrole{mc}{bx}{n}}
 \newcommand\pratexauthorfont{%
-  \large\pratexlatinfonthook\pratexjapanesefonthook}
+  \large\pratex@selectfontrole{mc}{m}{n}}
 \newcommand\pratexdatefont{%
-  \normalsize\pratexlatinfonthook\pratexjapanesefonthook}
+  \normalsize\pratex@selectfontrole{mc}{m}{n}}
 
 % Horizontal Japanese baseline.  JFM-aware zw is resolved by the engine at
 % document start, after a format has installed its Japanese font hook.

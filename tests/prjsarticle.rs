@@ -7,7 +7,7 @@ fn 読む(path: &str) -> String {
 }
 
 #[test]
-fn 既定日本語packageは十pt基線とnfss_sizeをpratex固有hookへ接続する() {
+fn 既定日本語packageは和文nfssと従属欧文をpratex固有面へ接続する() {
     let package = 読む("tex/latex/pratex/pratex-japanese.sty");
     for required in [
         r"\ifdefined\pratexversion",
@@ -15,11 +15,16 @@ fn 既定日本語packageは十pt基線とnfss_sizeをpratex固有hookへ接続�
         r"\pratexjfont\pratexdefaultjapanesefont=upjisr-h at 10pt",
         r"\pratexdefaultjapanesefont",
         r"\number\dimexpr\f@size pt\relax",
-        r"\newcommand\pratexselectdefaultjapanesefont",
+        r"\DeclarePraTeXJapaneseFontShape",
+        r"\DeclarePraTeXRelationFont",
+        r"\SetPraTeXRelationFont",
+        r"\UsePraTeXRelationFont",
+        r"\def\pratexselectjapanesefont",
+        r"\AddToHook{cmd/selectfont/before}",
         r"\AddToHook{cmd/selectfont/after}",
         r"\ifdefined\pratexsetjapanesefonthook",
-        r"\pratexsetjapanesefonthook{\pratexselectdefaultjapanesefont}",
-        r"\AtBeginDocument{\pratexselectdefaultjapanesefont}",
+        r"\pratexsetjapanesefonthook{\pratexselectjapanesefont}",
+        r"\AtBeginDocument{\pratexselectjapanesefont}",
     ] {
         assert!(
             package.contains(required),
@@ -65,6 +70,9 @@ fn 既定日本語packageは十pt基線とnfss_sizeをpratex固有hookへ接続�
     for contract in [
         "10pt selector",
         "NFSS",
+        "PJY1",
+        "DeclarePraTeXRelationFont",
+        "one-shot",
         "20.0pt/20.0pt/20.0pt",
         "JFM file was not found",
     ] {
@@ -98,7 +106,7 @@ fn classは明示的なpratex_identityだけを要求する() {
 }
 
 #[test]
-fn classは横組articleの公開面とfont_hookを持つ() {
+fn classは横組articleの公開面と宣言的なfont_roleを持つ() {
     let class = 読む("tex/latex/pratex/prjsarticle.cls");
     for required in [
         r"\LoadClass{article}",
@@ -108,6 +116,11 @@ fn classは横組articleの公開面とfont_hookを持つ() {
         r"\renewcommand\paragraph",
         r"\pratexsetjapanesefonthook",
         r"\pratexsetlatinfonthook",
+        r"\DeclarePraTeXJapaneseFontShape{PJY1}{gt}{m}{n}{upjisg-h}",
+        r"\DeclarePraTeXRelationFont{PJY1}{mc}{m}{n}",
+        r"\DeclarePraTeXRelationFont{PJY1}{gt}{m}{n}",
+        r"\newcommand\pratex@selectfontrole[3]",
+        r"\UsePraTeXRelationFont",
         r"\kanjiskip=0zw",
         r"\xkanjiskip=.25zw",
         r"\setlength\parindent{1em}",
@@ -118,6 +131,10 @@ fn classは横組articleの公開面とfont_hookを持つ() {
             "class契約が欠けている: {required}"
         );
     }
+    assert!(
+        !class.contains(r"\pratexlatinfonthook\pratexjapanesefonthook"),
+        "classの通常font roleを手続き的な和欧hook列へ戻してはならない"
+    );
 }
 
 #[test]

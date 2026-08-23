@@ -19,7 +19,9 @@ package分岐を偽装しない。初版engine identityとして次をPraTeX cor
 classは次のPraTeX固有hookを定義した後、公式LaTeX互換track用の
 `pratex-japanese` packageを読み込む。このpackageはTeX Liveの`upjisr-h at 10pt`を
 既定の10pt selectorとして登録し、NFSSが選んだ現在sizeごとのJFMへ接続する。
-formatへJFMを埋め込まず、LaPraTeXを名乗らない。
+formatへJFMを埋め込まず、LaPraTeXを名乗らない。hookは任意adapter用のescape hatchとして
+残すが、class自身のbody、title、headingはhookを順に手で呼ばず、後述の宣言的な和文NFSS
+属性とrelation mappingを使う。
 
 - `\pratexsetjapanesefonthook{...}`
 - `\pratexsetlatinfonthook{...}`
@@ -28,11 +30,60 @@ formatへJFMを埋め込まず、LaPraTeXを名乗らない。
 これらはengine identityを作るAPIではない。pTeX互換名をclass側で補うadapterも置かない。
 文書が後から`\pratexsetjapanesefonthook`を呼べば、その明示adapterが既定hookへ後勝ちする。
 
-packageはNFSSの`\f@size`をspへ正規化し、同じsizeの綴りを一つのglobal JFM cacheへ
-まとめる。font選択自体は現在groupに従うので、`{\small ...}`の終了後は外側の和文sizeへ
-戻る。初期sliceでは`\normalsize`、`\small`、`\Large`の「日本」が
+## 和文NFSS属性と従属欧文
+
+標準LaTeX NFSSが欧文fontをencoding、family、series、shape、sizeの直交属性で選ぶのに合わせ、
+packageは和文側に独立した4属性を持つ。既定tupleは`PJY1/mc/m/n`である。`PJY1`は
+PraTeX package内の横組JFM契約であり、pLaTeXの`JY1`やupLaTeXの`JY2`を名乗るものではない。
+
+- `\pratexjfontencoding{...}`
+- `\pratexjfontfamily{...}`
+- `\pratexjfontseries{...}`
+- `\pratexjfontshape{...}`
+- `\DeclarePraTeXJapaneseFontShape{encoding}{family}{series}{shape}{jfm}`
+- `\pratexusejapanesefont{encoding}{family}{series}{shape}`
+
+四つのsetterは通常のNFSS setterと同じく現在groupだけのrequestを変え、実選択は次の
+`\selectfont`で行う。shape宣言はglobalであり、exact tupleとJFM basenameを対応させる。
+同じJFMとexact sp sizeの組はglobal cacheを共有するため、`10`と`10.0`は別font slotを
+消費しない。現sliceはhorizontal JFM basenameのexact宣言だけを受け、NFSSのsize function、
+shape substitution、縦組方向は未実装である。tupleが無ければ以前のfontへ黙ってfallbackせず、
+`Japanese font shape ... is not declared`を出す。
+
+pLaTeX文書にいう「従属書体」は標準LaTeX NFSS本体の用語ではなく、和文tupleから欧文NFSS
+tupleを選ぶpLaTeX側の拡張である。pLaTeXの公開`pldoc` 7.2.4では、宣言はglobal、設定はlocal、
+利用要求は次回一度の`\selectfont`だけに効く。またsource側shapeを空にした宣言はshape wildcard
+となり、その時点の欧文shapeを保つ。PraTeXはこの意味を、他formatのcommand名を先に生やさず、
+次の固有APIで実装する。
+
+- `\DeclarePraTeXRelationFont{jenc}{jfam}{jseries}{jshape}{enc}{fam}{series}{shape}`:
+  global mapping。
+- `\SetPraTeXRelationFont{...}`: 現在groupだけのmapping。
+- `\UsePraTeXRelationFont`: group-scopedなone-shot request。次の`\selectfont`のbefore hookで
+  relation全体を一度に適用し、直後に解除する。
+
+exact source shapeを先に探し、無ければshape wildcardを探す。wildcard宣言では第8引数で
+欧文shapeを上書きせず、`\selectfont`時の欧文shapeを保つ。mapping欠落時は欧文属性を部分更新
+しない。series/shapeは現NFSSのchange ruleと合成せず、mappingが指定したexact値を
+`\fontseriesforce` / `\fontshapeforce`で選ぶ。pLaTeX互換名`\DeclareRelationFont`、
+`\SetRelationFont`、`\userelfont`は未定義である。
+将来、PraTeX固有APIとerror・group・wildcard・one-shotの意味が一致した後に限り、同じ決定点へ
+compatibility aliasを置ける。
+
+`prjsarticle`は`PJY1/mc/m/n`を本文、`PJY1/mc/bx/n`をtitle、`PJY1/gt/m/n`を見出しrole
+として宣言する。前二者は`upjisr-h`、見出しは`upjisg-h`へ対応し、従属欧文はそれぞれ
+roman regular、roman bold、sans boldを選ぶ。jsclassesがこの機構をclass policyに使うかどうかとは
+独立したPraTeX-nativeの選択であり、jsclassesのmacro実装を取り込んだものではない。
+
+設計根拠は、2026-08-24に確認した
+[pLaTeX `pldoc` 7.2.4](https://tug.ctan.org/macros/jptex/latex/platex/pldoc.pdf)と
+[LaTeX2e font selection guide](https://www.latex-project.org/help/documentation/fntguide.pdf)である。
+前者からは従属書体の公開意味だけを読み、pLaTeX sourceやtestは移植していない。
+
+packageはNFSSの`\f@size`をspへ正規化する。font選択自体と和文4属性は現在groupに従うので、
+`{\small ...}`や局所的なheading roleの終了後は外側のsize・family・series・shapeへ戻る。
+初期sliceでは`\normalsize`、`\small`、`\Large`の「日本」が
 `20.0pt/20.0pt/20.0pt`に固定されていたが、現在はLatin側のNFSS sizeと同じ比率で変化する。
-family/series、任意JFMを含む一般の和文NFSS modelと縦組は後続sliceである。
 
 `upjisr-h.tfm`を置かない隔離runtimeでは、package読込み位置で先に
 `Japanese font ...=upjisr-h at 10.0pt not loaded: JFM file was not found`と診断することも
@@ -47,9 +98,9 @@ family/series、任意JFMを含む一般の和文NFSS modelと縦組は後続sli
 `set2` / `set3`、明示profileによる非埋込みnamed CID PDFまで接続済みである。classを通常の
 和欧混植文書として使うには、現在は次の境界が残る。
 
-1. 現在のNFSS size接続をfamily/seriesと任意JFMへ一般化すること。
+1. 和文NFSSへsize function、substitution、縦組directionを追加すること。
 2. box/disc境界とmain-loop早期spacingを完成すること。
-3. 4文字subsetを越えるJLReq禁則、和文widow処理、縦組を加えること。
+3. 現在のsubsetを越えるJLReq禁則、和文widow処理、縦組を加えること。
 4. PDFへ和文字形を埋め、ToUnicodeとfont subsetを持つportableな出力にすること。
 
 標準日本語組版をVaak/WASM callbackへ逃がさない。classのfont hookは組版判断を行わず、
@@ -119,11 +170,13 @@ pwsh -File tools/test-prjsarticle.ps1 `
 場合だけhookを後勝ちで置き換える。通常利用者がTeX Liveで試す手順は
 [README](../README.md)にある。
 
-2026-08-23に上の自己完結経路を公式CTAN資材だけで再実行し、format、title oracle、実時刻date、
-代表和欧混植sampleの全logがerror 0になった。title DVIは352 bytes、代表sample DVIは
-2356 bytesで、sampleのSHA-256は
-`df5b9ff7f1510777f52a15fb5cc6b068e46441475b9ac75c47382a4c02920dce`である。runnerは終了codeだけで
-成功扱いせず、各logの`!`行と空のfmt/DVIも拒否する。
+2026-08-24に宣言的和文NFSS/relation sliceを入れた状態で上の自己完結経路を公式CTAN資材だけで
+再実行し、format、title oracle、実時刻date、代表和欧混植sampleの全logがerror 0になった。
+title DVIは352 bytes、実時刻date DVIは452 bytes、代表sample DVIは2636 bytesで、sampleの
+SHA-256は`112cc36111479242bdbcbd093e549dd8224fd12c654f9a4c3ec9813737523ea8`である。
+sampleがbody/title/headingで複数の宣言済み和文font roleを使うため、単一JFM hook時の2356 bytesを
+新しいoracleとして固定しない。runnerは終了codeだけで成功扱いせず、各logの`!`行と空のfmt/DVIも
+拒否する。
 
 固定資材は次のとおり。archiveそのものはrepositoryへ入れない。
 
