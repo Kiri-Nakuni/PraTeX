@@ -190,6 +190,13 @@ impl Logger {
         self.tally += bytes.len();
     }
 
+    /// 生文字列診断の一atomを、`newlinechar`解釈もatom内折返しもせず表示する。
+    ///
+    /// callerはcanonical UTF-8一文字または完全な`^^hh` escapeだけを渡す。
+    pub(crate) fn print_raw_diagnostic_atom(&mut self, atom: &[u8]) {
+        self.print_raw_uptex_char(atom);
+    }
+
     /// Prints a newline if we are not at the beginning of a new line already.
     fn ensure_newline(&mut self) {
         if ((self.term_offset > 0) && (self.terminal_logging))

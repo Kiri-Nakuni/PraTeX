@@ -3,6 +3,7 @@ use super::box_dimension::BoxDimension;
 use super::def::DefCommand;
 use super::page_dimension::PageDimension;
 use super::prefix::Prefix;
+use super::raw_string::RawStringCommand;
 use super::shorthand_def::ShorthandDef;
 use super::{
     Command, ExpandableCommand, InternalCommand, MacroCall, MathCommand, ToksCommand,
@@ -58,6 +59,7 @@ const MAX_KCAT_CODE: i32 = 20;
 pub enum PrefixableCommand {
     TokenListRegister,
     TokenList(TokenListVariable),
+    RawString(RawStringCommand),
     Integer(IntegerVariable),
     LanguageRegion,
     Dimension(DimensionVariable),
@@ -116,6 +118,7 @@ impl PrefixableCommand {
             &Self::TokenList(toks_var) => {
                 Some(InternalCommand::Toks(ToksCommand::TokenList(toks_var)))
             }
+            &Self::RawString(command) => Some(InternalCommand::RawString(command)),
             &Self::Integer(int_var) => Some(InternalCommand::Integer(int_var)),
             Self::LanguageRegion => Some(InternalCommand::LanguageRegion),
             &Self::Dimension(dim_var) => Some(InternalCommand::Dimension(dim_var)),
@@ -171,6 +174,7 @@ impl PrefixableCommand {
         match self {
             Self::TokenListRegister => printer.print_esc_str(b"toks"),
             Self::TokenList(toks_var) => printer.print_esc_str(&toks_var.to_string()),
+            Self::RawString(command) => command.display(printer),
             Self::Integer(int_var) => printer.print_esc_str(&int_var.to_string()),
             Self::LanguageRegion => printer.print_esc_str(b"pratexregion"),
             Self::Dimension(dim_var) => printer.print_esc_str(&dim_var.to_string()),
@@ -251,6 +255,10 @@ impl Dumpable for PrefixableCommand {
             Self::TokenList(toks_var) => {
                 writeln!(target, "TokenList")?;
                 toks_var.dump(target)?;
+            }
+            Self::RawString(command) => {
+                writeln!(target, "RawString")?;
+                command.dump(target)?;
             }
             Self::Integer(int_var) => {
                 writeln!(target, "Integer")?;
@@ -379,6 +387,7 @@ impl Dumpable for PrefixableCommand {
                 let toks_var = TokenListVariable::undump(lines)?;
                 Ok(Self::TokenList(toks_var))
             }
+            "RawString" => Ok(Self::RawString(RawStringCommand::undump(lines)?)),
             "Integer" => {
                 let int_var = IntegerVariable::undump(lines)?;
                 Ok(Self::Integer(int_var))
@@ -533,6 +542,9 @@ pub fn prefixed_command(
         }
         PrefixableCommand::TokenList(toks_var) => {
             assign_to_token_list(toks_var, token, global, scanner, eqtb, logger)
+        }
+        PrefixableCommand::RawString(command) => {
+            assign_to_raw_string(command, global, scanner, eqtb, logger)
         }
         PrefixableCommand::Integer(int_var) => {
             scanner.scan_optional_equals(eqtb, logger);
@@ -853,6 +865,15 @@ pub fn prefixed_command(
                             )),
                             global,
                         ),
+                        ShorthandDef::RawStringDef => eqtb.cs_define(
+                            cs,
+                            Command::Unexpandable(UnexpandableCommand::Prefixable(
+                                PrefixableCommand::RawString(RawStringCommand::Variable(
+                                    crate::eqtb::RawStringVariable::new(register),
+                                )),
+                            )),
+                            global,
+                        ),
                         _ => panic!("Impossible"),
                     }
                 }
@@ -1094,6 +1115,45 @@ fn assign_to_token_list(
         }
         let new_value = Some(std::rc::Rc::new(token_list));
         eqtb.token_list_define(lhs, new_value, global);
+    }
+}
+
+/// 生文字列register間のO(1)値copy。
+///
+/// raw literal/file producerの構文は別途決定するため、ここでbrace token列をdetokenizeして
+/// raw値に偽装しない。未決定のsourceは現在値を変えず診断する。
+fn assign_to_raw_string(
+    lhs_command: RawStringCommand,
+    global: bool,
+    scanner: &mut Scanner,
+    eqtb: &mut Eqtb,
+    logger: &mut Logger,
+) {
+    let lhs = lhs_command.scan_variable(scanner, eqtb, logger);
+    scanner.scan_optional_equals(eqtb, logger);
+    let (command, token) = scanner.get_next_non_blank_non_relax_non_call_token(eqtb, logger);
+    let UnexpandableCommand::Prefixable(PrefixableCommand::RawString(rhs_command)) = command else {
+        logger.print_err("Missing raw string register source");
+        let help = &[
+            "A raw string register assignment currently copies another raw string register.",
+            "I'm going to keep the previous value.",
+        ];
+        scanner.back_error(token, help, eqtb, logger);
+        return;
+    };
+    let rhs = rhs_command.scan_variable(scanner, eqtb, logger);
+    let value = eqtb.raw_string(rhs).clone();
+    if let Err(error) = eqtb.raw_string_define(lhs, value, global) {
+        match error {
+            crate::eqtb::RawStringStorageError::ValueTooLarge => {
+                logger.print_err("Raw string value is too large");
+            }
+            crate::eqtb::RawStringStorageError::StorageTooLarge => {
+                logger.print_err("Raw string register storage is full");
+            }
+        }
+        let help = &["I'm going to keep the previous raw string value."];
+        logger.error(help, scanner, eqtb);
     }
 }
 
@@ -1709,5 +1769,110 @@ fn scan_namespace_name(scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Logg
                 return name;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod raw_string_assignment_tests {
+    use super::*;
+    use crate::eqtb::save_stack::GroupType;
+    use crate::eqtb::RawStringVariable;
+    use crate::run_options::OutputFormat;
+
+    struct AssignmentContext {
+        hyphenator: Hyphenator,
+        page_builder: PageBuilder,
+        output: Output,
+        nest: SemanticState,
+        logger: Logger,
+    }
+
+    impl AssignmentContext {
+        fn new() -> Self {
+            Self {
+                hyphenator: Hyphenator::new(),
+                page_builder: PageBuilder::new(),
+                output: Output::new(OutputFormat::Dvi, None, None),
+                nest: SemanticState::new(),
+                logger: Logger::new(String::new(), InteractionMode::Batch),
+            }
+        }
+
+        fn assign(&mut self, input: &[u8], eqtb: &mut Eqtb) -> Scanner {
+            let mut scanner = Scanner::new(input.to_vec(), 0);
+            let cs = eqtb.lookup(b"rawstring").unwrap();
+            prefixed_command(
+                PrefixableCommand::RawString(RawStringCommand::Register),
+                Token::CSToken { cs },
+                &mut self.hyphenator,
+                &mut self.page_builder,
+                &mut self.output,
+                &mut self.nest,
+                &mut scanner,
+                eqtb,
+                &mut self.logger,
+            );
+            scanner
+        }
+    }
+
+    #[test]
+    fn 公開assignment_parserは非空rcをcopyしlocalとglobaldefsを分ける() {
+        let mut eqtb = Eqtb::new();
+        eqtb.put_primitives_into_hash_table();
+        eqtb.fix_date_and_time(crate::runtime_clock::RunDateTime::capture().unwrap());
+        let mut context = AssignmentContext::new();
+        let base = Rc::new(b"base".to_vec());
+        let eight = Rc::new(vec![0, b'8', b'\n', 0xFF]);
+        let nine = Rc::new(b"nine".to_vec());
+        let ten = Rc::new(b"ten".to_vec());
+        for (register, value) in [
+            (7, base.clone()),
+            (8, eight.clone()),
+            (9, nine.clone()),
+            (10, ten.clone()),
+        ] {
+            eqtb.raw_string_define(RawStringVariable::new(register), value, true)
+                .unwrap();
+        }
+
+        let _ = context.assign(b"7=\\rawstring8 ", &mut eqtb);
+        assert!(Rc::ptr_eq(eqtb.raw_string(RawStringVariable::new(7)), &eight));
+
+        let mut scanner = Scanner::new(b"7=\\rawstring9 ".to_vec(), 0);
+        eqtb.new_save_level(GroupType::Simple, &scanner.input_stack, &mut context.logger);
+        let cs = eqtb.lookup(b"rawstring").unwrap();
+        prefixed_command(
+            PrefixableCommand::RawString(RawStringCommand::Register),
+            Token::CSToken { cs },
+            &mut context.hyphenator,
+            &mut context.page_builder,
+            &mut context.output,
+            &mut context.nest,
+            &mut scanner,
+            &mut eqtb,
+            &mut context.logger,
+        );
+        assert!(Rc::ptr_eq(eqtb.raw_string(RawStringVariable::new(7)), &nine));
+        eqtb.unsave(&mut scanner, &mut context.logger);
+        assert!(Rc::ptr_eq(eqtb.raw_string(RawStringVariable::new(7)), &eight));
+
+        let mut scanner = Scanner::new(b"7=\\rawstring10 ".to_vec(), 0);
+        eqtb.new_save_level(GroupType::Simple, &scanner.input_stack, &mut context.logger);
+        eqtb.int_define(IntegerVariable::GlobalDefs, 1, false, &mut context.logger);
+        prefixed_command(
+            PrefixableCommand::RawString(RawStringCommand::Register),
+            Token::CSToken { cs },
+            &mut context.hyphenator,
+            &mut context.page_builder,
+            &mut context.output,
+            &mut context.nest,
+            &mut scanner,
+            &mut eqtb,
+            &mut context.logger,
+        );
+        eqtb.unsave(&mut scanner, &mut context.logger);
+        assert!(Rc::ptr_eq(eqtb.raw_string(RawStringVariable::new(7)), &ten));
+        assert_eq!(eqtb.integer(IntegerVariable::GlobalDefs), 0);
     }
 }

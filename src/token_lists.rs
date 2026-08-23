@@ -190,22 +190,53 @@ fn printed_str_toks_with_latin_catcode(
 
 /// See 465.
 pub fn the_toks(scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Logger) -> Vec<Token> {
+    let value = scan_the_value(scanner, eqtb, logger);
+    match value_to_the_toks(value, eqtb) {
+        Ok(tokens) => tokens,
+        Err(_) => {
+            // LF/CRLFのsnapshot境界規則が決まるまで、公開の`\the`経路へ仮の意味を
+            // 入れない。値は変更せず、この展開だけを空にする。
+            logger.print_err("Raw string snapshot tokenization is not specified yet");
+            let help = &[
+                "Use \\therawstring for exact byte tokens.",
+                "I'm expanding this \\the operation to nothing.",
+            ];
+            logger.error(help, scanner, eqtb);
+            Vec::new()
+        }
+    }
+}
+
+pub(crate) fn scan_the_value(
+    scanner: &mut Scanner,
+    eqtb: &mut Eqtb,
+    logger: &mut Logger,
+) -> InternalValue {
     let (unexpandable_command, token) = get_x_token(scanner, eqtb, logger);
-    let value = if let Some(internal_command) = unexpandable_command.try_to_internal() {
+    if let Some(internal_command) = unexpandable_command.try_to_internal() {
         scan_internal_toks(internal_command, token, scanner, eqtb, logger)
     } else {
         complain_that_the_cant_do_this(unexpandable_command, scanner, eqtb, logger);
         InternalValue::Int(0)
-    };
+    }
+}
+
+pub(crate) fn value_to_the_toks(
+    value: InternalValue,
+    eqtb: &Eqtb,
+) -> Result<Vec<Token>, crate::eqtb::RcRawString> {
     let mut string_printer = StringPrinter::new(eqtb.get_current_escape_character());
     match value {
         InternalValue::TokenList(token_list) => {
-            return token_list;
+            return Ok(token_list);
         }
         InternalValue::Ident(font_index) => {
-            return vec![Token::CSToken {
+            return Ok(vec![Token::CSToken {
                 cs: ControlSequence::FontId(font_index),
-            }];
+            }]);
+        }
+        InternalValue::RawString(value) => {
+            return Err(value);
         }
         InternalValue::MuGlue(glue_spec) => {
             glue_spec.print_spec(Some("mu"), &mut string_printer);
@@ -222,7 +253,24 @@ pub fn the_toks(scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Logger) -> 
         }
     }
     let s = string_printer.into_string();
-    printed_str_toks(&s, eqtb)
+    Ok(printed_str_toks(&s, eqtb))
+}
+
+/// `\therawstring`専用。catcode・comment・改行を一切解釈しない。
+pub(crate) fn the_raw_string_toks(
+    scanner: &mut Scanner,
+    eqtb: &mut Eqtb,
+    logger: &mut Logger,
+) -> Vec<Token> {
+    match scan_the_value(scanner, eqtb, logger) {
+        InternalValue::RawString(value) => crate::eqtb::raw_bytes_as_other_tokens(&value),
+        _ => {
+            logger.print_err("A raw string register was expected after \\therawstring");
+            let help = &["I'm expanding this operation to nothing."];
+            logger.error(help, scanner, eqtb);
+            Vec::new()
+        }
+    }
 }
 
 /// See 467.
@@ -471,7 +519,9 @@ pub(crate) fn scan_general_text_as_string(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::eqtb::RawStringVariable;
     use crate::logger::{InteractionMode, Logger};
+    use std::rc::Rc;
 
     fn cjk(code_point: u32, category: CjkCategory) -> Token {
         Token::CjkChar(CjkToken::new(code_point, category).unwrap())
@@ -483,6 +533,26 @@ mod tests {
             Eqtb::new(),
             Logger::new(String::new(), InteractionMode::Batch),
         )
+    }
+
+    #[test]
+    fn therawstringは登録値を分類せずother_byteへする() {
+        let (_, mut eqtb, mut logger) = 入力器を作る();
+        eqtb.put_primitives_into_hash_table();
+        eqtb.fix_date_and_time(crate::runtime_clock::RunDateTime::capture().unwrap());
+        let bytes = vec![b' ', 0, b'\n', b'\\', b'%', 0xE3, 0x81, 0x82, 0xFF];
+        eqtb.raw_string_define(
+            RawStringVariable::new(7),
+            Rc::new(bytes.clone()),
+            true,
+        )
+        .unwrap();
+        let mut scanner = Scanner::new(b"\\rawstring7 ".to_vec(), 0);
+
+        assert_eq!(
+            the_raw_string_toks(&mut scanner, &mut eqtb, &mut logger),
+            bytes.into_iter().map(Token::OtherChar).collect::<Vec<_>>()
+        );
     }
 
     #[test]

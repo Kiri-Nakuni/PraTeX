@@ -502,6 +502,9 @@ impl Dumpable for ExpandableCommand {
             Self::The => {
                 writeln!(target, "The")?;
             }
+            Self::TheRawString => {
+                writeln!(target, "TheRawString")?;
+            }
             Self::Mark(mark_command) => {
                 writeln!(target, "Mark")?;
                 mark_command.dump(target)?;
@@ -588,6 +591,7 @@ impl Dumpable for ExpandableCommand {
                 Ok(Self::Convert(convert_command))
             }
             "The" => Ok(Self::The),
+            "TheRawString" => Ok(Self::TheRawString),
             "Mark" => {
                 let mark_command = MarkCommand::undump(lines)?;
                 Ok(Self::Mark(mark_command))

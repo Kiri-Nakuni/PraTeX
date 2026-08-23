@@ -3,7 +3,7 @@ use crate::format::{Dumpable, FormatError};
 use std::collections::HashMap;
 use std::io::Write;
 
-const DENSE_REGISTER_COUNT: usize = 256;
+pub(super) const DENSE_REGISTER_COUNT: usize = 256;
 pub(super) const MAX_EXTENDED_REGISTER_INDEX: u16 = 32_767;
 
 /// e-TeX の拡張レジスタを、TeX82 と共通な低位だけ密に保持する。
@@ -44,6 +44,27 @@ impl<T: Clone> ExtendedRegisterStorage<T> {
     }
 }
 
+impl<T: Clone + PartialEq> ExtendedRegisterStorage<T> {
+    /// 高位slotへ既定値を戻す時は疎entry自体を除く。
+    ///
+    /// 値としては通常の`set`と同じだが、空値の代入だけでfmtが膨らむことを防ぐ。
+    pub(super) fn set_compact(&mut self, index: u16, value: T) -> T {
+        Self::assert_valid_index(index);
+        if (index as usize) < DENSE_REGISTER_COUNT {
+            return std::mem::replace(&mut self.dense[index as usize], value);
+        }
+        if value == self.default {
+            self.sparse
+                .remove(&index)
+                .unwrap_or_else(|| self.default.clone())
+        } else {
+            self.sparse
+                .insert(index, value)
+                .unwrap_or_else(|| self.default.clone())
+        }
+    }
+}
+
 impl<T> ExtendedRegisterStorage<T> {
     pub(super) fn get(&self, index: u16) -> &T {
         Self::assert_valid_index(index);
@@ -59,6 +80,31 @@ impl<T> ExtendedRegisterStorage<T> {
             index <= MAX_EXTENDED_REGISTER_INDEX,
             "extended register index must be in 0..={MAX_EXTENDED_REGISTER_INDEX}"
         );
+    }
+
+    /// 専用codecが共通のdense/sparse配置を保ったまま検証するためのview。
+    pub(super) fn parts(&self) -> (&T, &[T], &HashMap<u16, T>) {
+        (&self.default, &self.dense, &self.sparse)
+    }
+
+    /// 専用codecで検証済みのpartsからstorageを組み立てる。
+    pub(super) fn from_validated_parts(
+        default: T,
+        dense: Vec<T>,
+        sparse: HashMap<u16, T>,
+    ) -> Result<Self, FormatError> {
+        if dense.len() != DENSE_REGISTER_COUNT
+            || sparse.keys().any(|&index| {
+                (index as usize) < DENSE_REGISTER_COUNT || index > MAX_EXTENDED_REGISTER_INDEX
+            })
+        {
+            return Err(FormatError::ParseError);
+        }
+        Ok(Self {
+            default,
+            dense,
+            sparse,
+        })
     }
 }
 
@@ -149,6 +195,18 @@ mod tests {
         assert_eq!(registers.get(256), "空でない");
         assert_eq!(registers.get(MAX_EXTENDED_REGISTER_INDEX), "末尾");
         assert_eq!(registers.sparse.len(), 2);
+    }
+
+    #[test]
+    fn 高位へ既定値を戻すと疎entryを除く() {
+        let mut registers = ExtendedRegisterStorage::new(0_i32);
+        assert_eq!(registers.set_compact(1_000, 7), 0);
+        assert_eq!(registers.sparse.len(), 1);
+        assert_eq!(registers.set_compact(1_000, 0), 7);
+        assert!(registers.sparse.is_empty());
+
+        assert_eq!(registers.set_compact(2_000, 0), 0);
+        assert!(registers.sparse.is_empty());
     }
 
     #[test]

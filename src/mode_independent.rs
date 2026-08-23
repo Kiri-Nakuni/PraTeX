@@ -14,7 +14,7 @@ use crate::print::string::StringPrinter;
 use crate::print::{MAX_PRINT_LINE, Printer};
 use crate::semantic_nest::{RichMode, SemanticState};
 use crate::token::Token;
-use crate::token_lists::{print_meaning, the_toks, token_show};
+use crate::token_lists::{print_meaning, scan_the_value, token_show, value_to_the_toks};
 
 use std::io::BufReader;
 use std::path::PathBuf;
@@ -363,9 +363,45 @@ fn show_current_value_of_some_parameter_or_register(
     eqtb: &mut Eqtb,
     logger: &mut Logger,
 ) {
-    let token_list = the_toks(scanner, eqtb, logger);
+    let value = scan_the_value(scanner, eqtb, logger);
     logger.print_nl_str("> ");
-    token_show(&token_list, logger, eqtb);
+    match value_to_the_toks(value, eqtb) {
+        Ok(token_list) => token_show(&token_list, logger, eqtb),
+        Err(raw) => crate::eqtb::print_raw_diagnostic(&raw, logger),
+    }
+}
+
+#[cfg(test)]
+mod raw_string_show_tests {
+    use super::*;
+    use crate::eqtb::RawStringVariable;
+    use std::rc::Rc;
+
+    #[test]
+    fn showtheは格納した制御綴や代入を実行せずcs表も増やさない() {
+        let mut eqtb = Eqtb::new();
+        eqtb.put_primitives_into_hash_table();
+        eqtb.fix_date_and_time(crate::runtime_clock::RunDateTime::capture().unwrap());
+        eqtb.raw_string_define(
+            RawStringVariable::new(7),
+            Rc::new(b"\\global\\count0=9\\rawpayload%\n{}\0\xff".to_vec()),
+            true,
+        )
+        .unwrap();
+        let mut scanner = Scanner::new(b"\\rawstring7 ".to_vec(), 0);
+        let mut logger = Logger::new(String::new(), InteractionMode::Batch);
+        logger.terminal_logging = false;
+
+        assert!(eqtb.lookup(b"rawpayload").is_none());
+        assert_eq!(eqtb.integer(crate::eqtb::IntegerVariable::Count(0)), 0);
+        show_current_value_of_some_parameter_or_register(
+            &mut scanner,
+            &mut eqtb,
+            &mut logger,
+        );
+        assert!(eqtb.lookup(b"rawpayload").is_none());
+        assert_eq!(eqtb.integer(crate::eqtb::IntegerVariable::Count(0)), 0);
+    }
 }
 
 /// See 1298.

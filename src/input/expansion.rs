@@ -133,6 +133,10 @@ pub fn expand(
             conv_toks(convert_command, scanner, eqtb, logger)
         }
         ExpandableCommand::The => ins_the_toks(scanner, eqtb, logger),
+        ExpandableCommand::TheRawString => {
+            let tokens = crate::token_lists::the_raw_string_toks(scanner, eqtb, logger);
+            scanner.ins_list(tokens, eqtb, logger);
+        }
         ExpandableCommand::Mark(mark_command) => {
             insert_appropriate_mark_text_into_scanner(mark_command, scanner, eqtb, logger)
         }

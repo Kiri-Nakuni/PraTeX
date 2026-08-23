@@ -15,6 +15,7 @@ mod math_command;
 mod page_dimension;
 mod prefix;
 pub(crate) mod prefixable;
+mod raw_string;
 mod remove_item;
 mod shorthand_def;
 mod show;
@@ -37,6 +38,7 @@ pub use math_command::MathCommand;
 pub use page_dimension::PageDimension;
 pub use prefix::Prefix;
 pub use prefixable::{prefixed_command, PrefixableCommand};
+pub use raw_string::RawStringCommand;
 pub use remove_item::RemoveItem;
 pub use shorthand_def::ShorthandDef;
 pub use show::ShowCommand;
@@ -477,6 +479,8 @@ pub enum ExpandableCommand {
     CsName,
     Convert(ConvertCommand),
     The,
+    /// 生文字列を分類せず、各byteをOtherCharとして返す。
+    TheRawString,
     Mark(MarkCommand),
     Macro(MacroCall),
     EndTemplate,
@@ -551,6 +555,7 @@ impl ExpandableCommand {
             Self::CsName => printer.print_esc_str(b"csname"),
             Self::Convert(convert_command) => convert_command.display(printer),
             Self::The => printer.print_esc_str(b"the"),
+            Self::TheRawString => printer.print_esc_str(b"therawstring"),
             Self::DirectVaak => printer.print_esc_str(b"directvaak"),
             Self::VaakInput => printer.print_esc_str(b"vaakinput"),
             Self::Namespace => printer.print_esc_str(b"namespace"),

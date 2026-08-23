@@ -12,6 +12,7 @@ mod language_region;
 mod levels;
 mod parshape;
 mod primitives;
+mod raw_strings;
 pub mod save_stack;
 mod skips;
 mod tokenlists;
@@ -71,13 +72,20 @@ pub use language_region::LanguageRegion;
 use levels::{Level, VariableLevels};
 use parshape::ParShapeParameter;
 pub use parshape::{ParShapeVariable, ParagraphShape};
+use raw_strings::RawStringRegisters;
+pub use raw_strings::RawStringVariable;
+pub(crate) use raw_strings::{
+    print_raw_diagnostic, raw_bytes_as_other_tokens, RcRawString, RawStringStorageError,
+};
+#[cfg(test)]
+use raw_strings::MAX_RAW_STRING_BYTES;
 pub use skips::SkipVariable;
 use skips::{Skip, SkipParameters};
 use tokenlists::TokenListParameters;
 pub use tokenlists::TokenListVariable;
 
 use std::convert::TryFrom;
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::io::Write;
 use std::rc::Rc;
 
@@ -161,6 +169,7 @@ pub struct Eqtb {
     /// 13 罰点 / 14 未設定
     pub last_node_type: i32,
     pub token_lists: TokenListParameters,
+    raw_strings: RawStringRegisters,
     pub boxes: BoxParameters,
     pub font_params: FontParameters,
     cur_japanese_font: Option<JapaneseFontIndex>,
@@ -244,6 +253,7 @@ impl Eqtb {
             using_namespaces: Vec::new(),
             last_node_type: -1,
             token_lists: TokenListParameters::new(),
+            raw_strings: RawStringRegisters::new(),
             boxes: BoxParameters::new(),
             font_params: FontParameters::new(),
             cur_japanese_font: None,
@@ -537,6 +547,90 @@ impl Eqtb {
         self.define(Definition::TokenList(tok_list_var, value), global);
     }
 
+    pub(crate) fn raw_string(&self, variable: RawStringVariable) -> &RcRawString {
+        self.raw_strings.get(variable)
+    }
+
+    /// 生文字列を既存のsave stackへ載せる。容量違反時は現在値を一切変えない。
+    pub(crate) fn raw_string_define(
+        &mut self,
+        variable: RawStringVariable,
+        value: RcRawString,
+        global: bool,
+    ) -> Result<(), RawStringStorageError> {
+        let (other_restore_bytes, existing_target_restore_len) =
+            self.raw_string_restore_budget_excluding(variable)?;
+        let previous_level = self.variable_levels.get(Variable::RawString(variable));
+        let target_restore_len = if global {
+            // level 0にするので、同じslotの古いsave entryはすべてretainedになる。
+            0
+        } else if previous_level != self.cur_level {
+            // このlevelで初めての局所代入は現在値もsaveする。
+            existing_target_restore_len.max(self.raw_string(variable).len())
+        } else {
+            // 同じlevelでの再代入は現在値を新しくsaveしない。
+            existing_target_restore_len
+        };
+        self.raw_strings.can_set_with_restore_budget(
+            variable,
+            &value,
+            other_restore_bytes,
+            target_restore_len,
+        )?;
+        self.define(Definition::RawString(variable, value), global);
+        Ok(())
+    }
+
+    /// 対象外slotのrestore余白の和と、対象slot自身の最大restore長を返す。
+    ///
+    /// save entryを単純に全加算すると、途中のglobal定義でlevel 0になり実際には捨てられる
+    /// 古いentryまで予約してしまう。`unsave`と同じ内側→外側、各groupの逆順でlevelを
+    /// simulationし、実際に復元され得る値だけを数える。
+    fn raw_string_restore_budget_excluding(
+        &self,
+        target: RawStringVariable,
+    ) -> Result<(usize, usize), RawStringStorageError> {
+        #[derive(Clone, Copy)]
+        struct RestoreState {
+            simulated_level: Level,
+            maximum_len: usize,
+        }
+
+        let mut states = HashMap::<RawStringVariable, RestoreState>::new();
+        for group in std::iter::once(&self.cur_group).chain(self.save_stack.iter().rev()) {
+            for entry in group.saved_definitions.iter().rev() {
+                let Definition::RawString(variable, ref value) = entry.definition else {
+                    continue;
+                };
+                let state = states.entry(variable).or_insert_with(|| RestoreState {
+                    simulated_level: self.variable_levels.get(Variable::RawString(variable)),
+                    maximum_len: 0,
+                });
+                if state.simulated_level != 0 {
+                    state.maximum_len = state.maximum_len.max(value.len());
+                    state.simulated_level = entry.level;
+                }
+            }
+        }
+
+        let target_restore_len = states
+            .get(&target)
+            .map_or(0, |state| state.maximum_len);
+        let mut other_restore_bytes = 0_usize;
+        for (variable, state) in states {
+            if variable == target {
+                continue;
+            }
+            let extra = state
+                .maximum_len
+                .saturating_sub(self.raw_string(variable).len());
+            other_restore_bytes = other_restore_bytes
+                .checked_add(extra)
+                .ok_or(RawStringStorageError::StorageTooLarge)?;
+        }
+        Ok((other_restore_bytes, target_restore_len))
+    }
+
     /// A box version of `define`.
     /// See 1214., 277., and 279.
     pub fn box_define(&mut self, register: RegisterIndex, value: Option<ListNode>, global: bool) {
@@ -745,6 +839,10 @@ impl Eqtb {
             Definition::TokenList(token_list_variable, token_list) => {
                 let prev_token_list = self.token_lists.set(token_list_variable, token_list);
                 Definition::TokenList(token_list_variable, prev_token_list)
+            }
+            Definition::RawString(variable, value) => {
+                let previous = self.raw_strings.replace_reserved(variable, value);
+                Definition::RawString(variable, previous)
             }
             Definition::BoxRegister(box_variable, list_node) => {
                 let prev_list_node = self.boxes.set(box_variable, list_node);
@@ -960,6 +1058,8 @@ impl Eqtb {
             Variable::TokenList(token_list_var) => {
                 self.show_equivalent_of_token_list_variable(token_list_var, logger)
             }
+            // 内容を表示・字句化しない。raw値の診断は`\showthe`だけが担う。
+            Variable::RawString(variable) => logger.print_esc_str(&variable.to_string()),
             Variable::BoxRegister(box_var) => self.show_equivalent_of_box_variable(box_var, logger),
             Variable::Font(font_var) => self.show_equivalent_of_font_variable(font_var, logger),
             Variable::JapaneseFont => {
@@ -1732,6 +1832,7 @@ pub enum Variable {
     LanguageRegion,
     UsingNamespaces,
     TokenList(TokenListVariable),
+    RawString(RawStringVariable),
     BoxRegister(BoxVariable),
     Font(FontVariable),
     JapaneseFont,
@@ -1754,6 +1855,7 @@ pub enum Definition {
     LanguageRegion(LanguageRegion),
     UsingNamespaces(Vec<NamespaceId>),
     TokenList(TokenListVariable, Option<RcTokenList>),
+    RawString(RawStringVariable, RcRawString),
     BoxRegister(BoxVariable, Option<ListNode>),
     Font(FontVariable, FontIndex),
     JapaneseFont(Option<JapaneseFontIndex>),
@@ -1778,6 +1880,7 @@ impl Definition {
             Self::LanguageRegion(_) => Variable::LanguageRegion,
             Self::UsingNamespaces(_) => Variable::UsingNamespaces,
             Self::TokenList(token_list_variable, _) => Variable::TokenList(token_list_variable),
+            Self::RawString(variable, _) => Variable::RawString(variable),
             Self::BoxRegister(box_variable, _) => Variable::BoxRegister(box_variable),
             Self::Font(font_variable, _) => Variable::Font(font_variable),
             Self::JapaneseFont(_) => Variable::JapaneseFont,
@@ -1825,6 +1928,10 @@ impl Dumpable for Variable {
             Self::TokenList(token_list_variable) => {
                 writeln!(target, "TokenList")?;
                 token_list_variable.dump(target)?;
+            }
+            Self::RawString(variable) => {
+                writeln!(target, "RawString")?;
+                variable.dump(target)?;
             }
             Self::BoxRegister(box_variable) => {
                 writeln!(target, "BoxRegister")?;
@@ -1898,6 +2005,7 @@ impl Dumpable for Variable {
                 let token_list_variable = TokenListVariable::undump(lines)?;
                 Ok(Self::TokenList(token_list_variable))
             }
+            "RawString" => Ok(Self::RawString(RawStringVariable::undump(lines)?)),
             "BoxRegister" => {
                 let box_variable = BoxVariable::undump(lines)?;
                 Ok(Self::BoxRegister(box_variable))
@@ -1949,6 +2057,7 @@ impl Dumpable for Eqtb {
         self.language_region.dump(target)?;
         self.using_namespaces.dump(target)?;
         self.token_lists.dump(target)?;
+        self.raw_strings.dump(target)?;
         self.boxes.dump(target)?;
         self.font_params.dump(target)?;
         self.cur_japanese_font.dump(target)?;
@@ -1980,6 +2089,7 @@ impl Dumpable for Eqtb {
         let language_region = LanguageRegion::undump(lines)?;
         let using_namespaces: Vec<NamespaceId> = Vec::undump(lines)?;
         let token_lists = TokenListParameters::undump(lines)?;
+        let raw_strings = RawStringRegisters::undump(lines)?;
         let boxes = BoxParameters::undump(lines)?;
         let font_params = FontParameters::undump(lines)?;
         let cur_japanese_font = Option::<JapaneseFontIndex>::undump(lines)?;
@@ -2026,6 +2136,7 @@ impl Dumpable for Eqtb {
             using_namespaces,
             last_node_type: -1,
             token_lists,
+            raw_strings,
             boxes,
             font_params,
             cur_japanese_font,
@@ -2107,5 +2218,184 @@ mod register_index_tests {
             undump_mark_class_index(&mut invalid),
             Err(FormatError::ParseError)
         ));
+    }
+}
+
+#[cfg(test)]
+mod raw_string_group_tests {
+    use super::*;
+    use crate::logger::InteractionMode;
+
+    fn 試験環境() -> (Eqtb, Scanner, Logger) {
+        (
+            Eqtb::new(),
+            Scanner::new(Vec::new(), 0),
+            Logger::new(String::new(), InteractionMode::Batch),
+        )
+    }
+
+    fn 群を開く(eqtb: &mut Eqtb, scanner: &Scanner, logger: &mut Logger) {
+        eqtb.new_save_level(GroupType::Simple, &scanner.input_stack, logger);
+    }
+
+    #[test]
+    fn 局所的に隠した値の復元予約を他slotが消費しない() {
+        let (mut eqtb, mut scanner, mut logger) = 試験環境();
+        let full_slot = Rc::new(vec![b'x'; MAX_RAW_STRING_BYTES]);
+        for register in 0..4 {
+            eqtb.raw_string_define(
+                RawStringVariable::new(register),
+                full_slot.clone(),
+                true,
+            )
+            .unwrap();
+        }
+
+        群を開く(&mut eqtb, &scanner, &mut logger);
+        eqtb.raw_string_define(RawStringVariable::new(0), Rc::new(Vec::new()), false)
+            .unwrap();
+        assert_eq!(
+            eqtb.raw_string_define(RawStringVariable::new(4), full_slot.clone(), true),
+            Err(RawStringStorageError::StorageTooLarge)
+        );
+
+        // 拒否されたglobal追加が復元余白を壊していないので、群終了は失敗経路を持たない。
+        eqtb.unsave(&mut scanner, &mut logger);
+        assert!(Rc::ptr_eq(
+            eqtb.raw_string(RawStringVariable::new(0)),
+            &full_slot
+        ));
+    }
+
+    #[test]
+    fn global再定義は対象slotの復元予約を解消する() {
+        let (mut eqtb, mut scanner, mut logger) = 試験環境();
+        let full_slot = Rc::new(vec![b'x'; MAX_RAW_STRING_BYTES]);
+        for register in 0..4 {
+            eqtb.raw_string_define(
+                RawStringVariable::new(register),
+                full_slot.clone(),
+                true,
+            )
+            .unwrap();
+        }
+
+        群を開く(&mut eqtb, &scanner, &mut logger);
+        eqtb.raw_string_define(RawStringVariable::new(0), Rc::new(Vec::new()), false)
+            .unwrap();
+        eqtb.raw_string_define(RawStringVariable::new(0), Rc::new(Vec::new()), true)
+            .unwrap();
+        eqtb.raw_string_define(RawStringVariable::new(4), full_slot.clone(), true)
+            .unwrap();
+        eqtb.unsave(&mut scanner, &mut logger);
+
+        assert!(eqtb.raw_string(RawStringVariable::new(0)).is_empty());
+        assert!(Rc::ptr_eq(
+            eqtb.raw_string(RawStringVariable::new(4)),
+            &full_slot
+        ));
+    }
+
+    #[test]
+    fn 同level再代入は復元されない現在値を予約し続けない() {
+        let (mut eqtb, mut scanner, mut logger) = 試験環境();
+        let full_slot = Rc::new(vec![b'x'; MAX_RAW_STRING_BYTES]);
+        群を開く(&mut eqtb, &scanner, &mut logger);
+
+        eqtb.raw_string_define(
+            RawStringVariable::new(0),
+            full_slot.clone(),
+            false,
+        )
+        .unwrap();
+        eqtb.raw_string_define(RawStringVariable::new(0), Rc::new(Vec::new()), false)
+            .unwrap();
+        for register in 1..=4 {
+            eqtb.raw_string_define(
+                RawStringVariable::new(register),
+                full_slot.clone(),
+                true,
+            )
+            .unwrap();
+        }
+
+        eqtb.unsave(&mut scanner, &mut logger);
+        assert!(eqtb.raw_string(RawStringVariable::new(0)).is_empty());
+    }
+
+    #[test]
+    fn 入れ子の復元予約は同slotの最大値と他slotの和を取る() {
+        let (mut eqtb, mut scanner, mut logger) = 試験環境();
+        let half_slot = Rc::new(vec![b'h'; MAX_RAW_STRING_BYTES / 2]);
+        let full_slot = Rc::new(vec![b'x'; MAX_RAW_STRING_BYTES]);
+        let target = RawStringVariable::new(0);
+        eqtb.raw_string_define(target, half_slot.clone(), true)
+            .unwrap();
+        群を開く(&mut eqtb, &scanner, &mut logger);
+        eqtb.raw_string_define(target, full_slot.clone(), false)
+            .unwrap();
+        群を開く(&mut eqtb, &scanner, &mut logger);
+        eqtb.raw_string_define(target, Rc::new(Vec::new()), false)
+            .unwrap();
+
+        let (other, target_maximum) = eqtb.raw_string_restore_budget_excluding(target).unwrap();
+        assert_eq!(other, 0);
+        assert_eq!(target_maximum, MAX_RAW_STRING_BYTES);
+        for register in 1..=3 {
+            eqtb.raw_string_define(
+                RawStringVariable::new(register),
+                full_slot.clone(),
+                true,
+            )
+            .unwrap();
+        }
+        assert_eq!(
+            eqtb.raw_string_define(RawStringVariable::new(4), full_slot, true),
+            Err(RawStringStorageError::StorageTooLarge)
+        );
+
+        eqtb.unsave(&mut scanner, &mut logger);
+        assert_eq!(eqtb.raw_string(target).len(), MAX_RAW_STRING_BYTES);
+        eqtb.unsave(&mut scanner, &mut logger);
+        assert!(Rc::ptr_eq(eqtb.raw_string(target), &half_slot));
+    }
+
+    #[test]
+    fn eqtb_fmt往復は高位raw値と固定slot_commandを同じsection順で戻す() {
+        let mut before = Eqtb::new();
+        before.put_primitives_into_hash_table();
+        let variable = RawStringVariable::new(32_767);
+        let bytes = Rc::new(vec![0, b'\n', b'\r', 0xE3, 0x81, 0xFF]);
+        before
+            .raw_string_define(variable, bytes.clone(), true)
+            .unwrap();
+        let cs = before.lookup_or_create(b"rawalias").unwrap();
+        before.cs_define(
+            cs,
+            Command::Unexpandable(UnexpandableCommand::Prefixable(
+                crate::command::PrefixableCommand::RawString(
+                    crate::command::RawStringCommand::Variable(variable),
+                ),
+            )),
+            true,
+        );
+
+        let mut dumped = Vec::new();
+        before.dump(&mut dumped).unwrap();
+        let text = String::from_utf8(dumped).unwrap();
+        let mut lines = text.lines();
+        let after = Eqtb::undump(&mut lines).unwrap();
+
+        assert_eq!(after.raw_string(variable).as_slice(), bytes.as_slice());
+        let after_cs = after.lookup(b"rawalias").unwrap();
+        assert_eq!(
+            after.control_sequences.get(after_cs),
+            &Command::Unexpandable(UnexpandableCommand::Prefixable(
+                crate::command::PrefixableCommand::RawString(
+                    crate::command::RawStringCommand::Variable(variable),
+                ),
+            ))
+        );
+        assert_eq!(lines.next(), None);
     }
 }

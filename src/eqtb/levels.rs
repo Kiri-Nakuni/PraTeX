@@ -1,6 +1,7 @@
 use super::extended_registers::ExtendedRegisterStorage;
 use super::codes::{LATIN_UCS_TABLE_LEN, MAX_LATIN_UCS_CODE};
 use super::kcatcodes::KCAT_CODE_BLOCK_COUNT;
+use super::raw_strings::RawStringLevels;
 use super::{
     BoxVariable, CodeVariable, ControlSequence, DimensionVariable, FontIndex, FontVariable,
     IntegerVariable, MathFontSize, SkipVariable, TokenListVariable, Variable,
@@ -274,6 +275,9 @@ pub struct VariableLevels {
     every_eof: Level,
     err_help: Level,
     toks: ExtendedRegisterStorage<Level>,
+
+    // Raw string registers
+    raw_strings: RawStringLevels,
 }
 
 impl VariableLevels {
@@ -458,6 +462,9 @@ impl VariableLevels {
             every_eof: 0,
             err_help: 0,
             toks: ExtendedRegisterStorage::new(0),
+
+            // Raw string registers
+            raw_strings: RawStringLevels::new(),
         }
     }
 
@@ -655,6 +662,7 @@ impl VariableLevels {
                 TokenListVariable::ErrHelp => self.err_help,
                 TokenListVariable::Toks(register_index) => *self.toks.get(register_index),
             },
+            Variable::RawString(variable) => self.raw_strings.get(variable),
         }
     }
 
@@ -670,6 +678,9 @@ impl VariableLevels {
         }
         if let Variable::InhibitXspCode(character) = variable {
             return self.inhibit_xsp_code.set(character, new_level);
+        }
+        if let Variable::RawString(variable) = variable {
+            return self.raw_strings.set(variable, new_level);
         }
         let target = match variable {
             Variable::BoxRegister(BoxVariable(n)) => self.boxes.get_mut(n),
@@ -850,6 +861,7 @@ impl VariableLevels {
                 TokenListVariable::ErrHelp => &mut self.err_help,
                 TokenListVariable::Toks(register_index) => self.toks.get_mut(register_index),
             },
+            Variable::RawString(_) => unreachable!("raw string levels use their bounded storage"),
         };
         let old_level = *target;
         *target = new_level;
@@ -1048,6 +1060,9 @@ impl Dumpable for VariableLevels {
         self.err_help.dump(target)?;
         self.toks.dump(target)?;
 
+        // Raw string registers
+        self.raw_strings.dump(target)?;
+
         Ok(())
     }
 
@@ -1235,6 +1250,9 @@ impl Dumpable for VariableLevels {
         let err_help = Dumpable::undump(lines)?;
         let toks = Dumpable::undump(lines)?;
 
+        // Raw string registers
+        let raw_strings = RawStringLevels::undump(lines)?;
+
         Ok(Self {
             boxes,
             cat_code,
@@ -1396,6 +1414,7 @@ impl Dumpable for VariableLevels {
             every_eof,
             err_help,
             toks,
+            raw_strings,
         })
     }
 }

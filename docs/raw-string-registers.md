@@ -6,6 +6,19 @@
 初期実装は `Rc<Vec<u8>>` とし、0..32767の低位dense・高位sparse storageを既存の
 e-TeX拡張レジスタと同じ規則で持つ。NUL、改行、不正UTF-8を失ってはならない。
 
+resource上限は一値 **16 MiB**、全slotの論理長合計 **64 MiB** とする。register間copyは
+`Rc`を共有するため実行時のbyte列copyを行わないが、fmtはslotごとの値を保存するので、全体上限は
+共有後の実memory量でなく各slot長の合計で数える。undumpは各長をallocation前に検査し、全体長を
+overflow検査付きで逐次加算する。高位slotへ空値を代入した時は既定値と同じ疎entryを残さない。
+局所代入で隠された値もgroup終了時に復元できなければならないため、64 MiBは現在値だけでなく、
+各slotについて現在値と実際に将来復元され得る値の最大長を取った **active/future slot
+envelope** に適用する。同じslotの復元値は時系列に一つずつ現れるので加算せず最大長を予約し、
+別slotの予約は合算する。global代入はそのslotの古いsave entryを復元しないため、予約を解消する。
+
+この64 MiBはsave stackが保持する`Rc`の物理heap総量を直接制限するgateではない。run全体の
+物理memory制限はtoken list等にも共通する課題なので、将来`InputLimits`またはrun-wide resource
+limitsへ統合する。
+
 代入・別名の規則は次のとおり。
 
 - `\rawstringdef\a=7` のような別名はslot 7を指し、`\let`した別名も同じslotを指す。
@@ -16,6 +29,10 @@ e-TeX拡張レジスタと同じ規則で持つ。NUL、改行、不正UTF-8を�
 真のraw値をbrace内のtoken列から復元することはできない。最初のproducerは明示delimiterを
 TextSourceから直接読む入力、file、Vaak/WASMの長さ付きbyte bufferとする。token列を
 detokenizeして格納する便利機能を足す場合は、raw source captureとは別名・別契約にする。
+
+現checkpointで公開するproducerは **別の生文字列registerからのO(1) copyだけ** である。
+literal delimiterとexact-byte file producerの名前・失敗時回復は未決定なので、仮の構文を
+productionへ入れない。内部storageを直接使う試験だけが非空・不正UTF-8値を作る。
 
 ## 三つのconsumer
 
@@ -28,6 +45,10 @@ detokenizeして格納する便利機能を足す場合は、raw source capture�
 もう一度 `\the` した時だけ新しい分類が効く。保存中のLF/CRLFはsynthetic line boundary
 として扱い、通常入力と同じspace/comment/control-sequence/CJK規則を各行へ適用する。
 暗黙のendlinecharは追加しない。
+
+LF/CRLF境界と現在の`\endlinechar`の関係はなお仕様決定待ちである。このconsumerは候補helperと
+unit testだけを持ち、決定まではproductionで「未指定」と診断して空へ展開する。PraTeXが
+勝手に一案を既定化しないための一時的な明示失敗であり、対応済みとは数えない。
 
 `\edef`、`\message`、`\write`などの展開走査では、通常の`\the`と同じく生成tokenを結果へ
 直接追加し、もう一度展開しない。途中のtoken実行で同じrawの後半の分類が変わるlive

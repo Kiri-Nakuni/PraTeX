@@ -6,8 +6,8 @@ use super::{
 use crate::command::{
     ArithCommand, BoxDimension, Command, ConvertCommand, DefCommand, ExpandableCommand, FiOrElse,
     FractionCommand, FractionType, GlueComponent, GlueConversion, Hskip, IfTest, LimitType, MakeBox,
-    MarkClassOperand, MarkCommand, MarkQuery, MathCommand,
-    PageDimension, Prefix, PrefixableCommand, RemoveItem, ShorthandDef, ShowCommand,
+    MarkClassOperand, MarkCommand, MarkQuery, MathCommand, PageDimension, Prefix,
+    PrefixableCommand, RawStringCommand, RemoveItem, ShorthandDef, ShowCommand,
     UnexpandableCommand, Vskip,
 };
 use crate::logger::InteractionMode;
@@ -788,6 +788,7 @@ impl Eqtb {
             UnexpandableCommand::Prefixable(PrefixableCommand::SetBox),
         );
         self.primitive_expandable(b"the", ExpandableCommand::The);
+        self.primitive_expandable(b"therawstring", ExpandableCommand::TheRawString);
         // Vaak を走らせる。See docs/vaak-integration.md.
         // e-TeX の式。**内部量として振る舞う**
         for (name, kind) in [
@@ -824,6 +825,12 @@ impl Eqtb {
         self.primitive_unexpandable(
             b"toks",
             UnexpandableCommand::Prefixable(PrefixableCommand::TokenListRegister),
+        );
+        self.primitive_unexpandable(
+            b"rawstring",
+            UnexpandableCommand::Prefixable(PrefixableCommand::RawString(
+                RawStringCommand::Register,
+            )),
         );
         self.primitive_unexpandable(b"vadjust", UnexpandableCommand::Vadjust);
         self.primitive_unexpandable(b"valign", UnexpandableCommand::Valign);
@@ -1402,6 +1409,12 @@ impl Eqtb {
         self.primitive_unexpandable(
             b"toksdef",
             UnexpandableCommand::Prefixable(PrefixableCommand::ShorthandDef(ShorthandDef::ToksDef)),
+        );
+        self.primitive_unexpandable(
+            b"rawstringdef",
+            UnexpandableCommand::Prefixable(PrefixableCommand::ShorthandDef(
+                ShorthandDef::RawStringDef,
+            )),
         );
 
         // See 1230.

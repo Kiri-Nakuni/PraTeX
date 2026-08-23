@@ -12,6 +12,7 @@ pub enum ShorthandDef {
     SkipDef,
     MuSkipDef,
     ToksDef,
+    RawStringDef,
 }
 
 impl ShorthandDef {
@@ -24,6 +25,7 @@ impl ShorthandDef {
             Self::SkipDef => b"skipdef",
             Self::MuSkipDef => b"muskipdef",
             Self::ToksDef => b"toksdef",
+            Self::RawStringDef => b"rawstringdef",
         };
         printer.print_esc_str(s);
     }
@@ -39,6 +41,7 @@ impl Dumpable for ShorthandDef {
             Self::SkipDef => writeln!(target, "SkipDef")?,
             Self::MuSkipDef => writeln!(target, "MuSkipDef")?,
             Self::ToksDef => writeln!(target, "ToksDef")?,
+            Self::RawStringDef => writeln!(target, "RawStringDef")?,
         }
         Ok(())
     }
@@ -53,6 +56,7 @@ impl Dumpable for ShorthandDef {
             "SkipDef" => Ok(Self::SkipDef),
             "MuSkipDef" => Ok(Self::MuSkipDef),
             "ToksDef" => Ok(Self::ToksDef),
+            "RawStringDef" => Ok(Self::RawStringDef),
             _ => Err(FormatError::ParseError),
         }
     }

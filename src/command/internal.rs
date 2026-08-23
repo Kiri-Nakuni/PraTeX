@@ -2,6 +2,7 @@ use super::box_dimension::BoxDimension;
 use super::glue_component::GlueComponent;
 use super::glue_conversion::GlueConversion;
 use super::page_dimension::PageDimension;
+use super::raw_string::RawStringCommand;
 use crate::eqtb::{
     CodeType, DimensionVariable, FontIndex, IntegerVariable, MathFontSize, SkipVariable,
     TokenListVariable,
@@ -16,6 +17,7 @@ pub enum InternalCommand {
     LastKern,
     LastSkip,
     Toks(ToksCommand),
+    RawString(RawStringCommand),
     Badness,
     // ==== e-TeX / pdfTeX の問い合わせ ====
     /// `\eTeXversion`

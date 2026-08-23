@@ -5,7 +5,7 @@ use crate::dimension::{Dimension, MAX_DIMEN};
 use crate::eqtb::Eqtb;
 use crate::eqtb::{
     CodeType, DimensionVariable, FontIndex, IntegerVariable, LastNodeInfo, ParShapeVariable,
-    SkipVariable, TokenListVariable,
+    RcRawString, SkipVariable, TokenListVariable,
 };
 use crate::error::mu_error;
 use crate::fonts::{find_font_dimen, scan_font_ident};
@@ -39,6 +39,7 @@ pub enum InternalValue {
     MuGlue(Rc<GlueSpec>),
     Ident(FontIndex),
     TokenList(Vec<Token>),
+    RawString(RcRawString),
 }
 
 /// See 413.
@@ -70,7 +71,9 @@ pub fn scan_internal_integer(
         InternalValue::Glue(glue_spec) => glue_spec.width,
         InternalValue::Dimen(dimen) => dimen,
         InternalValue::Int(integer) => integer,
-        InternalValue::Ident(_) | InternalValue::TokenList(_) => panic!("Should not be possible"),
+        InternalValue::Ident(_)
+        | InternalValue::TokenList(_)
+        | InternalValue::RawString(_) => panic!("Should not be possible"),
     }
 }
 
@@ -172,6 +175,9 @@ fn scan_something_internal(
             eqtb,
             logger,
         ),
+        InternalCommand::RawString(command) => {
+            fetch_raw_string(command, toks_allowed, token, scanner, eqtb, logger)
+        }
         InternalCommand::Expr(kind) => scan_expr(kind, scanner, eqtb, logger),
         InternalCommand::Integer(int_var) => InternalValue::Int(eqtb.integer(int_var)),
         InternalCommand::LanguageRegion => {
@@ -230,6 +236,28 @@ fn scan_something_internal(
         InternalCommand::Register(value_type) => fetch_register(value_type, scanner, eqtb, logger),
     };
     value
+}
+
+fn fetch_raw_string(
+    command: crate::command::RawStringCommand,
+    toks_allowed: bool,
+    token: Token,
+    scanner: &mut Scanner,
+    eqtb: &mut Eqtb,
+    logger: &mut Logger,
+) -> InternalValue {
+    if toks_allowed {
+        let variable = command.scan_variable(scanner, eqtb, logger);
+        InternalValue::RawString(eqtb.raw_string(variable).clone())
+    } else {
+        logger.print_err("Missing number, treated as zero");
+        let help = &[
+            "A number should have been here; I inserted `0'.",
+            "A raw string register is only valid in a raw-string consumer.",
+        ];
+        scanner.back_error(token, help, eqtb, logger);
+        InternalValue::Dimen(0)
+    }
 }
 
 /// 公式 e-TeX manual 3.5, 5.1 の糊成分問い合わせ。
