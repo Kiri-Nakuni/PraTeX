@@ -692,7 +692,10 @@ const POST_POST: u8 = 249;
 
 #[cfg(test)]
 mod test {
-    use super::{DviWriter, YZOption, DOWN1};
+    use super::{DviWriter, YZOption, DOWN1, FNT_DEF1};
+    use crate::fonts::logical_font_name_and_area;
+    use crate::os_str_to_bytes;
+    use std::path::Path;
 
     #[test]
     fn write_big_endian_number() {
@@ -740,6 +743,38 @@ mod test {
         writer.set_wide_char(0x01f600).unwrap();
         writer.flush().unwrap();
         assert_eq!(target, [129, 0x30, 0x42, 130, 0x01, 0xf6, 0x00]);
+    }
+
+    #[test]
+    fn dvi_font定義のareaとnameを連結すると論理pathへ戻る() {
+        let mut logical_paths = vec![
+            Path::new("upjisr-h"),
+            Path::new("./upjisr-h"),
+            Path::new("metrics/upjisr-h"),
+        ];
+        #[cfg(windows)]
+        logical_paths.extend([Path::new(r".\upjisr-h"), Path::new(r"metrics\upjisr-h")]);
+
+        for logical_path in logical_paths {
+            let (name, area) = logical_font_name_and_area(logical_path).unwrap();
+            let mut target = Vec::new();
+            {
+                let mut writer = DviWriter::new_with_bufsize(&mut target, 8);
+                writer
+                    .dvi_font_def(7, 0, 10 * 65_536, 10 * 65_536, &area, &name)
+                    .unwrap();
+                writer.flush().unwrap();
+            }
+
+            assert_eq!(target[0], FNT_DEF1);
+            assert_eq!(target[1], 7);
+            assert_eq!(usize::from(target[14]), area.len());
+            assert_eq!(usize::from(target[15]), name.len());
+            assert_eq!(
+                &target[16..],
+                os_str_to_bytes(logical_path.as_os_str()).as_slice()
+            );
+        }
     }
 }
 

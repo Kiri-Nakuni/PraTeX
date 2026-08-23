@@ -34,6 +34,22 @@ const TEX_FONT_AREA: &str = if cfg!(feature = "trip") {
     "fonts/"
 };
 
+/// DVIのfont definitionへ渡す論理pathを、`area || name`で元へ戻る形に分ける。
+///
+/// `Path::parent`だけでは末尾の区切りが失われるため、`./cmr10`が`.cmr10`、
+/// `metrics/cmr10`が`metricscmr10`になってしまう。OSがpath区切りとして認識した
+/// 表記を論理path自身から残し、bare nameだけは空の`area`にする。
+pub(crate) fn logical_font_name_and_area(logical_path: &Path) -> Option<(Vec<u8>, Vec<u8>)> {
+    let name = os_str_to_bytes(logical_path.file_name()?);
+    let mut area = os_str_to_bytes(logical_path.as_os_str());
+    let area_len = area.len().checked_sub(name.len())?;
+    if area.get(area_len..) != Some(name.as_slice()) {
+        return None;
+    }
+    area.truncate(area_len);
+    Some((name, area))
+}
+
 /// Contains all the information needed from a font.
 /// See 541.
 #[derive(Debug)]
@@ -129,8 +145,8 @@ impl FontInfo {
             _ => bchar,
         };
 
-        let name = os_str_to_bytes(logical_path.file_name().ok_or(TfmError::FileNotFound)?);
-        let area = os_str_to_bytes(logical_path.parent().unwrap_or(Path::new("")).as_os_str());
+        let (name, area) =
+            logical_font_name_and_area(logical_path).ok_or(TfmError::FileNotFound)?;
 
         Ok(Self {
             check: font_check,

@@ -271,10 +271,9 @@ fn 解決したtfmの物理pathを論理font名とareaへ漏らさない() {
     };
 
     assert_eq!(font.name, b"cmr10");
-    assert_eq!(
-        font.area,
-        os_str_to_bytes(Path::new("logical-area").as_os_str())
-    );
+    let mut expected_area = os_str_to_bytes(Path::new("logical-area").as_os_str());
+    expected_area.push(std::path::MAIN_SEPARATOR as u8);
+    assert_eq!(font.area, expected_area,);
     assert_ne!(font.area, os_str_to_bytes(directory.as_os_str()));
     assert_eq!(calls.get(), 1);
 
@@ -315,9 +314,11 @@ fn 欧文tfmとjfmは拡張子を補って同じrun_resolverを使う() {
             panic!("resolver上の欧文TFMを読めなかった");
         };
         assert_eq!(latin.name, b"cmr10");
+        let mut latin_path_from_dvi = latin.area.clone();
+        latin_path_from_dvi.extend_from_slice(&latin.name);
         assert_eq!(
-            latin.area,
-            os_str_to_bytes(latin_logical_path.parent().unwrap().as_os_str())
+            latin_path_from_dvi,
+            os_str_to_bytes(latin_logical_path.as_os_str())
         );
 
         let japanese = load_japanese_font_info(
@@ -327,9 +328,11 @@ fn 欧文tfmとjfmは拡張子を補って同じrun_resolverを使う() {
         )
         .expect("resolver上のJFMを読む");
         assert_eq!(japanese.name, b"upjisr-h");
+        let mut japanese_path_from_dvi = japanese.area.clone();
+        japanese_path_from_dvi.extend_from_slice(&japanese.name);
         assert_eq!(
-            japanese.area,
-            os_str_to_bytes(japanese_logical_path.parent().unwrap().as_os_str())
+            japanese_path_from_dvi,
+            os_str_to_bytes(japanese_logical_path.as_os_str())
         );
     }
 
@@ -355,6 +358,78 @@ fn 欧文tfmとjfmは拡張子を補って同じrun_resolverを使う() {
             argument.as_os_str() == latin_physical_path.as_os_str()
                 || argument.as_os_str() == japanese_physical_path.as_os_str()
         })));
+
+    fs::remove_file(latin_physical_path).unwrap();
+    fs::remove_file(japanese_physical_path).unwrap();
+    fs::remove_dir(directory).unwrap();
+}
+
+#[test]
+fn 欧文和文fontのdvi用areaは論理pathの区切りを失わない() {
+    let directory = temporary_directory("font-area-separator");
+    let latin_physical_path = directory.join("物理欧文.tfm");
+    let japanese_physical_path = directory.join("物理和文.tfm");
+    fs::write(&latin_physical_path, minimal_tfm()).unwrap();
+    fs::write(&japanese_physical_path, minimal_jfm()).unwrap();
+
+    let mut logical_pairs = vec![
+        (
+            PathBuf::from(format!("./{}", unique_name("latin-dot"))),
+            PathBuf::from(format!("./{}", unique_name("japanese-dot"))),
+        ),
+        (
+            PathBuf::from(format!("metrics/{}", unique_name("latin-area"))),
+            PathBuf::from(format!("metrics/{}", unique_name("japanese-area"))),
+        ),
+        (
+            PathBuf::from(unique_name("latin-bare")),
+            PathBuf::from(unique_name("japanese-bare")),
+        ),
+    ];
+    #[cfg(windows)]
+    logical_pairs.push((
+        PathBuf::from(format!(r"metrics\{}", unique_name("latin-backslash"))),
+        PathBuf::from(format!(r"metrics\{}", unique_name("japanese-backslash"))),
+    ));
+
+    let mut responses = Vec::new();
+    for _ in &logical_pairs {
+        responses.push(success(&latin_physical_path));
+        responses.push(success(&japanese_physical_path));
+    }
+    let (mut scanner, calls) = scanner_with_responses(responses);
+
+    for (latin_logical_path, japanese_logical_path) in &logical_pairs {
+        let Ok(latin) = load_font_info(
+            latin_logical_path,
+            SizeIndicator::Factor(1000),
+            b'-' as i32,
+            -1,
+            &mut scanner,
+        ) else {
+            panic!("resolver上の欧文TFMを読めなかった");
+        };
+        let mut latin_path_from_dvi = latin.area.clone();
+        latin_path_from_dvi.extend_from_slice(&latin.name);
+        assert_eq!(
+            latin_path_from_dvi,
+            os_str_to_bytes(latin_logical_path.as_os_str())
+        );
+
+        let japanese = load_japanese_font_info(
+            japanese_logical_path,
+            SizeIndicator::Factor(1000),
+            &mut scanner,
+        )
+        .expect("resolver上のJFMを読む");
+        let mut japanese_path_from_dvi = japanese.area.clone();
+        japanese_path_from_dvi.extend_from_slice(&japanese.name);
+        assert_eq!(
+            japanese_path_from_dvi,
+            os_str_to_bytes(japanese_logical_path.as_os_str())
+        );
+    }
+    assert_eq!(calls.get(), logical_pairs.len() * 2);
 
     fs::remove_file(latin_physical_path).unwrap();
     fs::remove_file(japanese_physical_path).unwrap();

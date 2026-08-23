@@ -1,12 +1,11 @@
 //! 横組用JFMを、欧文8-bit TFMと別domainのfontとして保持する。
 
 use crate::file_search::FileKind;
-use crate::fonts::{scale_fix_word, SizeIndicator};
+use crate::fonts::{logical_font_name_and_area, scale_fix_word, SizeIndicator};
 use crate::format::{Dumpable, FormatError};
 use crate::input::Scanner;
 use crate::jfm::{Jfm, JfmAdjustment, JfmClassId, JfmDirection, JfmFixWord};
 use crate::nodes::{DimensionOrder, HigherOrderDimension};
-use crate::os_str_to_bytes;
 use crate::scaled::{xn_over_d, Scaled};
 use crate::script_spacing::planner::{
     CompiledJfmPairSpacingTable, JfmMetricId, JfmPairSpacing, JfmPairSpacingRule, PlannerJfmClassId,
@@ -114,12 +113,8 @@ impl JapaneseFontInfo {
         size: SizeIndicator,
     ) -> Result<Self, JapaneseFontError> {
         let bytes = read_bounded_jfm(physical_path)?;
-        let name = os_str_to_bytes(
-            logical_path
-                .file_name()
-                .ok_or(JapaneseFontError::FileNotFound)?,
-        );
-        let area = os_str_to_bytes(logical_path.parent().unwrap_or(Path::new("")).as_os_str());
+        let (name, area) =
+            logical_font_name_and_area(logical_path).ok_or(JapaneseFontError::FileNotFound)?;
         Self::from_bytes(bytes, size, name, area, JapaneseFontEncoding::Unicode)
     }
 
