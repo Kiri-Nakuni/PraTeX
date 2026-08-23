@@ -2,7 +2,8 @@
 
 更新: 2026-08-23
 
-状態: **実験設計。ABI 0.0、runtime・export・providerは未実装**
+状態: **実験実装。ABI 0.0のversion・feature・capability・operation交渉だけ実装済み。
+runtime・module profile検査・wire codec・provider接続は未実装**
 
 ## 1. 結論
 
@@ -1079,8 +1080,15 @@ fuzz corpusへpTeX、upTeX、LuaTeX等の上流source/testを移植しない。A
 
 ## 21. 実装順
 
+`src/wasm_provider_abi.rs`には、immutable export globalをruntime非依存の宣言へ移した後に使う
+ABI 0.0交渉を実装した。`0.0`とのversion range交差、未知required feature/capability、policyに
+拒否されたrequired capability、optional capabilityの積、operationとcapabilityの対応を、
+instantiate前に一度だけ検査する。これはmodule parser、policy grant、lease、runtime、provider
+registrationを実装したことを意味しない。標準日本語経路はこの交渉を呼ばずcallback 0回である。
+
 | 段 | 内容 | 完了条件 |
 |---|---|---|
+| W0-P | version・feature・capability・operation交渉 | **完了**。ABI 0.0だけを選び、未知required bitとpolicy不一致を構造化errorにする |
 | W0-A | host-owned proposal型とspacing/unit validator | Vaak/WASM/試験adapterが同じvalidatorを使い、部分登録0 |
 | W0-B | 0.0 byte codecとgolden/property test | Rust layout非依存、malformed inputでpanic 0 |
 | W0-C | optional runtime adapter、module profile、fixed mailbox | default build不変、import/start/memory/fuel境界を検査 |

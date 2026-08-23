@@ -8,9 +8,9 @@ mod eqtb;
 mod error;
 #[allow(dead_code)]
 mod file_search;
-mod fonts;
 #[allow(dead_code)]
 mod font_resources;
+mod fonts;
 mod format;
 mod glue;
 mod horizontal_mode;
@@ -53,9 +53,11 @@ mod semantic_nest;
 mod token;
 mod token_lists;
 pub mod vaak;
-mod vertical_mode;
 mod version;
+mod vertical_mode;
 mod vsplit;
+#[allow(dead_code)]
+mod wasm_provider_abi;
 mod write_streams;
 
 use alignment::AlignState;
