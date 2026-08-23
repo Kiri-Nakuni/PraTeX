@@ -452,3 +452,124 @@ fn fmtから戻したkとjfm対表がproduction_finalizerへ届く() {
     let log = joined_log(&directory, "use");
     assert!(log.contains("[fmt=13.0pt/14.0pt/17.5pt]"), "{log}");
 }
+
+#[test]
+fn 自動間隔switchと許可表はhbox終端の現在値を使い群ごとに戻る() {
+    let directory = prepare_directory("auto switchと許可表");
+    let source = format!(
+        "{}\\kanjiskip=1pt \\xkanjiskip=2pt
+         \\setbox0=\\hbox{{ああ}} \\setbox1=\\hbox{{あA}}
+         \\setbox2=\\hbox{{\\noautospacing ああ}}
+         \\setbox3=\\hbox{{\\noautoxspacing あA}}
+         \\setbox4=\\hbox{{\\xspcode65=0 あA}}
+         \\setbox5=\\hbox{{\\inhibitxspcode\"3042=0 あA}}
+         \\message{{[values=\\the\\xspcode65/\\the\\inhibitxspcode\"3042]}}
+         \\message{{[controlled=\\the\\wd0/\\the\\wd1/\\the\\wd2/\\the\\wd3/\\the\\wd4/\\the\\wd5]}}
+         \\end\n",
+        common_prefix()
+    );
+    std::fs::write(directory.join("t.tex"), source).unwrap();
+    let output = run_rtex(&directory, &["t.tex"]);
+    assert_success(&output, "自動間隔switchと許可表のhbox試験を実行できなかった");
+    let log = joined_log(&directory, "t");
+    assert!(log.contains("[values=3/3]"), "{log}");
+    assert!(
+        log.contains("[controlled=11.0pt/17.0pt/10.0pt/15.0pt/15.0pt/15.0pt]"),
+        "{log}"
+    );
+}
+
+#[test]
+fn xspcodeとinhibitxspcodeとswitchは独立にglobaldefsへ従う() {
+    let directory = prepare_directory("spacing stateのsave stack");
+    let source = format!(
+        "{}\\kanjiskip=1pt \\xkanjiskip=2pt
+         \\xspcode65=3 \\xspcode66=3
+         \\inhibitxspcode\"3042=3 \\inhibitxspcode\"3044=3
+         {{\\xspcode65=0 \\inhibitxspcode\"3042=0
+           \\global\\xspcode66=1 \\global\\inhibitxspcode\"3044=1}}
+         \\message{{[tables=\\the\\xspcode65/\\the\\xspcode66/\\the\\inhibitxspcode\"3042/\\the\\inhibitxspcode\"3044]}}
+         {{\\noautospacing \\global\\noautoxspacing}}
+         \\setbox0=\\hbox{{ああ}} \\setbox1=\\hbox{{あA}}
+         \\autoxspacing
+         {{\\globaldefs=-1 \\global\\xspcode65=0 \\global\\inhibitxspcode\"3042=0
+           \\message{{[inside=\\the\\xspcode65/\\the\\inhibitxspcode\"3042]}}}}
+         \\message{{[outside=\\the\\xspcode65/\\the\\inhibitxspcode\"3042]}}
+         \\message{{[switches=\\the\\wd0/\\the\\wd1]}}
+         \\end\n",
+        common_prefix()
+    );
+    std::fs::write(directory.join("t.tex"), source).unwrap();
+    let output = run_rtex(&directory, &["t.tex"]);
+    assert_success(&output, "spacing stateのsave stack試験を実行できなかった");
+    let log = joined_log(&directory, "t");
+    assert!(log.contains("[tables=3/1/3/1]"), "{log}");
+    assert!(log.contains("[inside=0/0]"), "{log}");
+    assert!(log.contains("[outside=3/3]"), "{log}");
+    assert!(log.contains("[switches=11.0pt/15.0pt]"), "{log}");
+}
+
+#[test]
+fn 自動間隔switchと許可表はfmtからproduction_finalizerへ戻る() {
+    let directory = prepare_directory("spacing controls fmt");
+    let make = format!(
+        "{}\\kanjiskip=1pt \\xkanjiskip=2pt
+         \\noautospacing \\noautoxspacing
+         \\xspcode65=0 \\inhibitxspcode\"3042=1
+         \\dump\n",
+        common_prefix()
+    );
+    std::fs::write(directory.join("mk.tex"), make).unwrap();
+    let output = run_rtex(&directory, &["mk.tex"]);
+    assert_success(&output, "自動間隔制御入りfmtを生成できなかった");
+
+    std::fs::write(
+        directory.join("use.tex"),
+        "\\batchmode
+         \\setbox0=\\hbox{ああ} \\setbox1=\\hbox{あA}
+         \\autospacing \\autoxspacing
+         \\setbox2=\\hbox{ああ} \\setbox3=\\hbox{あA}
+         \\xspcode65=3 \\setbox4=\\hbox{あA}
+         \\message{[fmt-values=\\the\\xspcode65/\\the\\inhibitxspcode\"3042]}
+         \\message{[fmt-controls=\\the\\wd0/\\the\\wd1/\\the\\wd2/\\the\\wd3/\\the\\wd4]}
+         \\end\n",
+    )
+    .unwrap();
+    let output = run_rtex(&directory, &["&mk", "use.tex"]);
+    assert_success(&output, "自動間隔制御入りfmtを読み戻せなかった");
+    let log = joined_log(&directory, "use");
+    assert!(log.contains("[fmt-values=3/1]"), "{log}");
+    assert!(
+        log.contains("[fmt-controls=10.0pt/15.0pt/11.0pt/15.0pt/17.0pt]"),
+        "{log}"
+    );
+}
+
+#[test]
+fn inhibitxspcodeの局所消去は復元枠を予約しglobal追加に消費させない() {
+    let directory = prepare_directory("inhibit restore reservation");
+    let mut source = format!(
+        "{}\\inhibitxspcode\"3042=0
+         {{\\inhibitxspcode\"3042=3\n",
+        common_prefix()
+    );
+    for code_point in 0x4000_u32..0x4400 {
+        source.push_str(&format!(
+            "\\global\\inhibitxspcode\"{code_point:X}=0\n"
+        ));
+    }
+    source.push_str(
+        "}\\message{[reservation=\\the\\inhibitxspcode\"3042/\\the\\inhibitxspcode\"4000/\\the\\inhibitxspcode\"43FF]}
+         {\\inhibitxspcode\"3042=3 \\global\\inhibitxspcode\"3042=1}
+         \\message{[reserved-target=\\the\\inhibitxspcode\"3042]}\\end\n",
+    );
+    std::fs::write(directory.join("t.tex"), source).unwrap();
+    let output = run_rtex(&directory, &["t.tex"]);
+    assert_success(&output, "容量超過を回復して復元予約を守れなかった");
+    let log = joined_log(&directory, "t");
+    assert!(log.contains("Too many inhibitxspcode entries"), "{log}");
+    assert!(log.contains("[reservation=0/0/3]"), "{log}");
+    assert!(log.contains("[reserved-target=1]"), "{log}");
+    assert_eq!(log.matches("Too many inhibitxspcode entries").count(), 1, "{log}");
+    assert!(!log.contains("panicked at"), "{log}");
+}

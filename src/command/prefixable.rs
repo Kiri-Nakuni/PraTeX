@@ -38,6 +38,9 @@ use crate::print::Printer;
 use crate::scaled::{xn_over_d, Scaled, UNITY};
 use crate::scan_boxes::scan_box;
 use crate::scan_internal::ValueType;
+use crate::script_spacing::planner::{
+    AutoSpacingVariable, LayoutCharacterCode, SpacingStateError, XspCode,
+};
 use crate::semantic_nest::{RichMode, SemanticState};
 use crate::token::Token;
 use crate::{os_string_from_bytes, INIT};
@@ -73,6 +76,12 @@ pub enum PrefixableCommand {
     ParShape,
     CatCode,
     KCatCode,
+    SetAutoSpacing {
+        variable: AutoSpacingVariable,
+        enabled: bool,
+    },
+    XspCode,
+    InhibitXspCode,
     Code(CodeType),
     DefFamily(MathFontSize),
     SetFont(FontIndex),
@@ -125,6 +134,8 @@ impl PrefixableCommand {
             &Self::ParShape => Some(InternalCommand::ParShape),
             &Self::CatCode => Some(InternalCommand::CatCode),
             &Self::KCatCode => Some(InternalCommand::KCatCode),
+            Self::XspCode => Some(InternalCommand::XspCode),
+            Self::InhibitXspCode => Some(InternalCommand::InhibitXspCode),
             &Self::Code(code) => Some(InternalCommand::Code(code)),
             &Self::DefFamily(math_font_size) => Some(InternalCommand::Toks(
                 ToksCommand::DefFamily(math_font_size),
@@ -135,7 +146,10 @@ impl PrefixableCommand {
             &Self::DefFont => Some(InternalCommand::Toks(ToksCommand::DefFont)),
             &Self::Register(value_type) => Some(InternalCommand::Register(value_type)),
             Self::InteractionMode => Some(InternalCommand::InteractionMode),
-            Self::SetJapaneseFont(_) | Self::DefJapaneseFont | Self::Arith(_)
+            Self::SetAutoSpacing { .. }
+            | Self::SetJapaneseFont(_)
+            | Self::DefJapaneseFont
+            | Self::Arith(_)
             | Self::Prefix(_)
             | Self::Let
             | Self::FutureLet
@@ -175,6 +189,17 @@ impl PrefixableCommand {
             Self::ParShape => printer.print_esc_str(b"parshape"),
             Self::CatCode => printer.print_esc_str(b"catcode"),
             Self::KCatCode => printer.print_esc_str(b"kcatcode"),
+            Self::SetAutoSpacing { variable, enabled } => {
+                let name: &[u8] = match (variable, enabled) {
+                    (AutoSpacingVariable::Kanji, true) => b"autospacing",
+                    (AutoSpacingVariable::Kanji, false) => b"noautospacing",
+                    (AutoSpacingVariable::XKanji, true) => b"autoxspacing",
+                    (AutoSpacingVariable::XKanji, false) => b"noautoxspacing",
+                };
+                printer.print_esc_str(name);
+            }
+            Self::XspCode => printer.print_esc_str(b"xspcode"),
+            Self::InhibitXspCode => printer.print_esc_str(b"inhibitxspcode"),
             Self::Code(code) => printer.print_esc_str(code.as_str()),
             &Self::DefFamily(math_font_size) => {
                 printer.print_esc_str(math_font_size.as_str().as_bytes())
@@ -263,6 +288,13 @@ impl Dumpable for PrefixableCommand {
             Self::ParShape => writeln!(target, "ParShape")?,
             Self::CatCode => writeln!(target, "CatCode")?,
             Self::KCatCode => writeln!(target, "KCatCode")?,
+            Self::SetAutoSpacing { variable, enabled } => {
+                writeln!(target, "SetAutoSpacing")?;
+                variable.dump(target)?;
+                enabled.dump(target)?;
+            }
+            Self::XspCode => writeln!(target, "XspCode")?,
+            Self::InhibitXspCode => writeln!(target, "InhibitXspCode")?,
             Self::Code(code) => {
                 writeln!(target, "Code")?;
                 code.dump(target)?;
@@ -383,6 +415,12 @@ impl Dumpable for PrefixableCommand {
             "ParShape" => Ok(Self::ParShape),
             "CatCode" => Ok(Self::CatCode),
             "KCatCode" => Ok(Self::KCatCode),
+            "SetAutoSpacing" => Ok(Self::SetAutoSpacing {
+                variable: AutoSpacingVariable::undump(lines)?,
+                enabled: bool::undump(lines)?,
+            }),
+            "XspCode" => Ok(Self::XspCode),
+            "InhibitXspCode" => Ok(Self::InhibitXspCode),
             "Code" => {
                 let code = CodeType::undump(lines)?;
                 Ok(Self::Code(code))
@@ -617,6 +655,61 @@ pub fn prefixed_command(
                 }
             };
             eqtb.kcat_code_define(code_point, kcat_code, global);
+        }
+        PrefixableCommand::SetAutoSpacing { variable, enabled } => {
+            eqtb.auto_spacing_define(variable, enabled, global);
+        }
+        PrefixableCommand::XspCode => {
+            let character = scanner.scan_char_num(eqtb, logger);
+            scanner.scan_optional_equals(eqtb, logger);
+            let value = Integer::scan_int(scanner, eqtb, logger);
+            let value = match XspCode::from_public_integer(value) {
+                Ok(value) => value,
+                Err(_) => {
+                    logger.print_err("Invalid xspcode (");
+                    logger.print_int(value);
+                    logger.print_str("), should be in the range 0..3");
+                    let help = &["I'm going to use 0 instead of that illegal code value."];
+                    logger.error(help, scanner, eqtb);
+                    XspCode::NONE
+                }
+            };
+            eqtb.xsp_code_define(character, value, global);
+        }
+        PrefixableCommand::InhibitXspCode => {
+            let code_point = scanner.scan_unicode_code_point(eqtb, logger);
+            scanner.scan_optional_equals(eqtb, logger);
+            let value = Integer::scan_int(scanner, eqtb, logger);
+            let value = match XspCode::from_public_integer(value) {
+                Ok(value) => value,
+                Err(_) => {
+                    logger.print_err("Invalid inhibitxspcode (");
+                    logger.print_int(value);
+                    logger.print_str("), should be in the range 0..3");
+                    let help = &["I'm going to use 0 instead of that illegal code value."];
+                    logger.error(help, scanner, eqtb);
+                    XspCode::NONE
+                }
+            };
+            match LayoutCharacterCode::from_public_integer(code_point) {
+                Ok(character) => {
+                    if let Err(SpacingStateError::InhibitXspCodeTableFull) =
+                        eqtb.inhibit_xsp_code_define(character, value, global)
+                    {
+                        logger.print_err("Too many inhibitxspcode entries");
+                        let help = &["I'm going to keep the previous code value."];
+                        logger.error(help, scanner, eqtb);
+                    }
+                }
+                Err(_) => {
+                    logger.print_err("Bad Unicode scalar value");
+                    let help = &[
+                        "An inhibitxspcode character must be a Unicode scalar value.",
+                        "I'm going to keep the previous code value.",
+                    ];
+                    logger.error(help, scanner, eqtb);
+                }
+            }
         }
         PrefixableCommand::Code(code) => {
             let n = match code {

@@ -34,9 +34,12 @@ pub(crate) fn finalize_horizontal_list_if_needed(
 }
 
 fn finalize_horizontal_list(list: &mut Vec<Node>, eqtb: &Eqtb) {
-    let state = PtexSpacingState::built_in_minimal(
+    let state = PtexSpacingState::built_in_minimal_with_controls(
         FixedGlue::snapshot(eqtb.skips.get(SkipVariable::KanjiSkip)),
         FixedGlue::snapshot(eqtb.skips.get(SkipVariable::XKanjiSkip)),
+        eqtb.auto_spacing_state(),
+        eqtb.xsp_codes(),
+        eqtb.inhibit_xsp_codes(),
     );
     let planner = JapaneseSpacingPlanner::built_in_ptex();
     let original = std::mem::take(list);

@@ -16,6 +16,7 @@ use crate::nodes::{DimensionOrder, GlueSpec, HigherOrderDimension};
 use crate::page_breaking::PageContents;
 use crate::print::Printer;
 use crate::semantic_nest::Mode;
+use crate::script_spacing::planner::LayoutCharacterCode;
 use crate::token::Token;
 
 use std::io::Write;
@@ -204,6 +205,27 @@ fn scan_something_internal(
         InternalCommand::ParShape => fetch_par_shape_size(eqtb),
         InternalCommand::CatCode => fetch_category_code(scanner, eqtb, logger),
         InternalCommand::KCatCode => fetch_kcat_code(scanner, eqtb, logger),
+        InternalCommand::XspCode => {
+            let character = scanner.scan_char_num(eqtb, logger);
+            InternalValue::Int(eqtb.xsp_code(character).to_public_integer())
+        }
+        InternalCommand::InhibitXspCode => {
+            let code_point = scanner.scan_unicode_code_point(eqtb, logger);
+            match LayoutCharacterCode::from_public_integer(code_point) {
+                Ok(character) => {
+                    InternalValue::Int(eqtb.inhibit_xsp_code(character).to_public_integer())
+                }
+                Err(_) => {
+                    logger.print_err("Bad Unicode scalar value");
+                    let help = &[
+                        "An inhibitxspcode character must be a Unicode scalar value.",
+                        "I changed this one to zero.",
+                    ];
+                    logger.error(help, scanner, eqtb);
+                    InternalValue::Int(0)
+                }
+            }
+        }
         InternalCommand::Code(code) => fetch_character_code(code, scanner, eqtb, logger),
         InternalCommand::Register(value_type) => fetch_register(value_type, scanner, eqtb, logger),
     };

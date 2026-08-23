@@ -15,6 +15,7 @@ use crate::math::MathStyle;
 use crate::nodes::noads::NoadType;
 use crate::nodes::LeaderKind;
 use crate::scan_internal::ValueType;
+use crate::script_spacing::planner::AutoSpacingVariable;
 
 pub struct PermanentPrimitiveAddresses {
     pub par_cs: ControlSequence,
@@ -1411,6 +1412,40 @@ impl Eqtb {
         self.primitive_unexpandable(
             b"kcatcode",
             UnexpandableCommand::Prefixable(PrefixableCommand::KCatCode),
+        );
+        for (name, variable, enabled) in [
+            (b"autospacing".as_slice(), AutoSpacingVariable::Kanji, true),
+            (
+                b"noautospacing".as_slice(),
+                AutoSpacingVariable::Kanji,
+                false,
+            ),
+            (
+                b"autoxspacing".as_slice(),
+                AutoSpacingVariable::XKanji,
+                true,
+            ),
+            (
+                b"noautoxspacing".as_slice(),
+                AutoSpacingVariable::XKanji,
+                false,
+            ),
+        ] {
+            self.primitive_unexpandable(
+                name,
+                UnexpandableCommand::Prefixable(PrefixableCommand::SetAutoSpacing {
+                    variable,
+                    enabled,
+                }),
+            );
+        }
+        self.primitive_unexpandable(
+            b"xspcode",
+            UnexpandableCommand::Prefixable(PrefixableCommand::XspCode),
+        );
+        self.primitive_unexpandable(
+            b"inhibitxspcode",
+            UnexpandableCommand::Prefixable(PrefixableCommand::InhibitXspCode),
         );
         self.primitive_unexpandable(
             b"mathcode",

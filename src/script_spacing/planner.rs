@@ -45,7 +45,7 @@ pub(crate) enum PtexSpacingCodecError {
 /// pTeX 公開数値 0--3 を、生の整数のまま hot path へ流さないための型。
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(crate) struct XspCode(u8);
+pub struct XspCode(u8);
 
 impl XspCode {
     pub(crate) const NONE: Self = Self(0);
@@ -72,8 +72,8 @@ impl XspCode {
 
 /// 文字 identity。入力 catcode、script class、JFM class のいずれでもない。
 #[repr(transparent)]
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub(crate) struct LayoutCharacterCode(u32);
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct LayoutCharacterCode(u32);
 
 impl LayoutCharacterCode {
     pub(crate) const fn from_scalar(value: char) -> Self {
@@ -204,6 +204,28 @@ impl InhibitXspCodeTable {
                 Ok(XspCode::BOTH)
             }
         }
+    }
+
+    /// `Eqtb` の save stack へ渡す前に、失敗し得る疎表の増加だけを検査する。
+    ///
+    /// 実際の書換えは `Eqtb::apply_definition` の一箇所で行うため、ここでは現在値を
+    /// 変更しない。既存entryの更新と既定値3への復帰は容量を増やさない。
+    pub(crate) fn can_set(
+        &self,
+        character: LayoutCharacterCode,
+        value: XspCode,
+        other_restore_reservations: usize,
+    ) -> bool {
+        value == XspCode::BOTH
+            || self
+                .entries
+                .binary_search_by_key(&character, |entry| entry.character)
+                .is_ok()
+            || self
+                .entries
+                .len()
+                .saturating_add(other_restore_reservations)
+                < MAX_INHIBIT_XSP_CODES
     }
 
     pub(crate) fn len(&self) -> usize {
@@ -354,6 +376,25 @@ pub(crate) struct AutoSpacingState {
     xkanji: bool,
 }
 
+/// pTeX の二つの自動間隔switchを、save stack上で互いに独立させる添字。
+///
+/// 状態全体を一変数として保存すると、一方への大域代入が他方の局所値まで大域化する。
+/// 公開commandは別でも保存単位を誤って結合しないため、明示的な二要素domainにする。
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum AutoSpacingVariable {
+    Kanji,
+    XKanji,
+}
+
+impl AutoSpacingVariable {
+    pub(crate) const fn index(self) -> usize {
+        match self {
+            Self::Kanji => 0,
+            Self::XKanji => 1,
+        }
+    }
+}
+
 impl AutoSpacingState {
     pub(crate) const ENABLED: Self = Self {
         kanji: true,
@@ -378,6 +419,20 @@ impl AutoSpacingState {
 
     pub(crate) fn set_xkanji(&mut self, value: bool) {
         self.xkanji = value;
+    }
+
+    pub(crate) const fn get(self, variable: AutoSpacingVariable) -> bool {
+        match variable {
+            AutoSpacingVariable::Kanji => self.kanji,
+            AutoSpacingVariable::XKanji => self.xkanji,
+        }
+    }
+
+    pub(crate) fn set(&mut self, variable: AutoSpacingVariable, value: bool) -> bool {
+        match variable {
+            AutoSpacingVariable::Kanji => std::mem::replace(&mut self.kanji, value),
+            AutoSpacingVariable::XKanji => std::mem::replace(&mut self.xkanji, value),
+        }
     }
 }
 
@@ -434,6 +489,23 @@ impl PtexSpacingState {
                 .set_post(LayoutCharacterCode::from_scalar(character), 10_000)
                 .expect("the fixed BuiltIn subset is below the bounded kinsoku table limit");
         }
+        state
+    }
+
+    /// production `Eqtb` が所有するswitchと許可表を、list終端時のK/Xと一緒にsnapshotする。
+    ///
+    /// 禁則subsetの決定箇所は `built_in_minimal` に保ち、consumer側で文字表を複製しない。
+    pub(crate) fn built_in_minimal_with_controls(
+        kanji_skip: FixedGlue,
+        xkanji_skip: FixedGlue,
+        auto: AutoSpacingState,
+        xsp_codes: &XspCodeTable,
+        inhibit_xsp_codes: &InhibitXspCodeTable,
+    ) -> Self {
+        let mut state = Self::built_in_minimal(kanji_skip, xkanji_skip);
+        state.auto = auto;
+        state.xsp_codes.clone_from(xsp_codes);
+        state.inhibit_xsp_codes.clone_from(inhibit_xsp_codes);
         state
     }
 
@@ -673,6 +745,27 @@ impl Dumpable for AutoSpacingState {
             kanji: bool::undump(lines)?,
             xkanji: bool::undump(lines)?,
         })
+    }
+}
+
+impl Dumpable for AutoSpacingVariable {
+    fn dump(&self, target: &mut impl Write) -> Result<(), std::io::Error> {
+        writeln!(
+            target,
+            "{}",
+            match self {
+                Self::Kanji => "Kanji",
+                Self::XKanji => "XKanji",
+            }
+        )
+    }
+
+    fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
+        match lines.next().ok_or(FormatError::IncompleteFile)? {
+            "Kanji" => Ok(Self::Kanji),
+            "XKanji" => Ok(Self::XKanji),
+            _ => Err(FormatError::ParseError),
+        }
     }
 }
 

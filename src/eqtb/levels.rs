@@ -6,11 +6,90 @@ use super::{
     IntegerVariable, MathFontSize, SkipVariable, TokenListVariable, Variable,
 };
 use crate::format::{Dumpable, FormatError};
+use crate::script_spacing::planner::{LayoutCharacterCode, MAX_INHIBIT_XSP_CODES};
 
 use std::io::Write;
 
 pub type Level = usize;
 const KCAT_CODE_LEVELS_DUMP_HEADER: &str = "KCatCodeLevels/upTeX-2.02/Unicode-17.0.0";
+const INHIBIT_XSP_CODE_LEVELS_DUMP_HEADER: &str = "InhibitXspCodeLevels/v1";
+
+/// Unicode全域のうち、現在groupで実際に変更された文字だけを持つsave level表。
+/// level 0はentryを持たないため、通常のfmtへrun中の疎な状態を持ち越さない。
+#[derive(Debug, Default)]
+struct SparseUnicodeLevels {
+    entries: Vec<(LayoutCharacterCode, Level)>,
+}
+
+impl SparseUnicodeLevels {
+    fn get(&self, character: LayoutCharacterCode) -> Level {
+        self.entries
+            .binary_search_by_key(&character, |(character, _)| *character)
+            .ok()
+            .map(|index| self.entries[index].1)
+            .unwrap_or(0)
+    }
+
+    fn set(&mut self, character: LayoutCharacterCode, level: Level) -> Level {
+        match self
+            .entries
+            .binary_search_by_key(&character, |(character, _)| *character)
+        {
+            Ok(index) => {
+                let old = self.entries[index].1;
+                if level == 0 {
+                    self.entries.remove(index);
+                } else {
+                    self.entries[index].1 = level;
+                }
+                old
+            }
+            Err(_) if level == 0 => 0,
+            Err(index) => {
+                self.entries.insert(index, (character, level));
+                0
+            }
+        }
+    }
+}
+
+impl Dumpable for SparseUnicodeLevels {
+    fn dump(&self, target: &mut impl Write) -> Result<(), std::io::Error> {
+        writeln!(target, "{INHIBIT_XSP_CODE_LEVELS_DUMP_HEADER}")?;
+        self.entries.len().dump(target)?;
+        for (character, level) in &self.entries {
+            character.dump(target)?;
+            level.dump(target)?;
+        }
+        Ok(())
+    }
+
+    fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
+        if lines.next().ok_or(FormatError::IncompleteFile)?
+            != INHIBIT_XSP_CODE_LEVELS_DUMP_HEADER
+        {
+            return Err(FormatError::ParseError);
+        }
+        let len = usize::undump(lines)?;
+        if len > MAX_INHIBIT_XSP_CODES {
+            return Err(FormatError::ParseError);
+        }
+        let mut entries = Vec::with_capacity(len);
+        for _ in 0..len {
+            let character = LayoutCharacterCode::undump(lines)?;
+            let level = Level::undump(lines)?;
+            if level == 0
+                || entries
+                    .last()
+                    .is_some_and(|(previous, _)| *previous >= character)
+            {
+                return Err(FormatError::ParseError);
+            }
+            entries.push((character, level));
+        }
+        Ok(Self { entries })
+    }
+}
 
 #[derive(Debug)]
 pub struct VariableLevels {
@@ -21,6 +100,9 @@ pub struct VariableLevels {
     cat_code: [Level; 256],
     latin_ucs_cat_code: Box<[Level]>,
     kcat_code: [Level; KCAT_CODE_BLOCK_COUNT],
+    auto_spacing: [Level; 2],
+    xsp_code: [Level; 256],
+    inhibit_xsp_code: SparseUnicodeLevels,
 
     // Codes
     lc_code: [Level; 256],
@@ -204,6 +286,9 @@ impl VariableLevels {
             cat_code: [0; 256],
             latin_ucs_cat_code: vec![0; LATIN_UCS_TABLE_LEN].into_boxed_slice(),
             kcat_code: [0; KCAT_CODE_BLOCK_COUNT],
+            auto_spacing: [0; 2],
+            xsp_code: [0; 256],
+            inhibit_xsp_code: SparseUnicodeLevels::default(),
             lc_code: [0; 256],
             uc_code: [0; 256],
             sf_code: [0; 256],
@@ -396,6 +481,9 @@ impl VariableLevels {
             Variable::CatCode(chr) if chr >= 256 => self.latin_ucs_cat_code[chr - 256],
             Variable::CatCode(chr) => self.cat_code[chr],
             Variable::KCatCode(block) => self.kcat_code[block.index()],
+            Variable::AutoSpacing(variable) => self.auto_spacing[variable.index()],
+            Variable::XspCode(character) => self.xsp_code[character as usize],
+            Variable::InhibitXspCode(character) => self.inhibit_xsp_code.get(character),
             Variable::Code(code_variable) => match code_variable {
                 CodeVariable::LcCode(n) if n >= 256 => self.latin_ucs_lc_code[n - 256],
                 CodeVariable::UcCode(n) if n >= 256 => self.latin_ucs_uc_code[n - 256],
@@ -580,11 +668,17 @@ impl VariableLevels {
         if let Variable::Code(code) = variable {
             assert!(code.is_valid(), "code level index is out of range");
         }
+        if let Variable::InhibitXspCode(character) = variable {
+            return self.inhibit_xsp_code.set(character, new_level);
+        }
         let target = match variable {
             Variable::BoxRegister(BoxVariable(n)) => self.boxes.get_mut(n),
             Variable::CatCode(chr) if chr >= 256 => &mut self.latin_ucs_cat_code[chr - 256],
             Variable::CatCode(chr) => &mut self.cat_code[chr],
             Variable::KCatCode(block) => &mut self.kcat_code[block.index()],
+            Variable::AutoSpacing(variable) => &mut self.auto_spacing[variable.index()],
+            Variable::XspCode(character) => &mut self.xsp_code[character as usize],
+            Variable::InhibitXspCode(_) => unreachable!("handled above"),
             Variable::Code(code_variable) => match code_variable {
                 CodeVariable::LcCode(n) if n >= 256 => &mut self.latin_ucs_lc_code[n - 256],
                 CodeVariable::UcCode(n) if n >= 256 => &mut self.latin_ucs_uc_code[n - 256],
@@ -775,6 +869,9 @@ impl Dumpable for VariableLevels {
             level.dump(target)?;
         }
         dump_kcat_code_levels(&self.kcat_code, target)?;
+        self.auto_spacing.dump(target)?;
+        self.xsp_code.dump(target)?;
+        self.inhibit_xsp_code.dump(target)?;
         self.lc_code.dump(target)?;
         self.uc_code.dump(target)?;
         self.sf_code.dump(target)?;
@@ -965,6 +1062,9 @@ impl Dumpable for VariableLevels {
         }
         let latin_ucs_cat_code = undump_latin_ucs_levels(lines)?;
         let kcat_code = undump_kcat_code_levels(lines)?;
+        let auto_spacing = Dumpable::undump(lines)?;
+        let xsp_code = Dumpable::undump(lines)?;
+        let inhibit_xsp_code = SparseUnicodeLevels::undump(lines)?;
         let lc_code = Dumpable::undump(lines)?;
         let uc_code = Dumpable::undump(lines)?;
         let sf_code = Dumpable::undump(lines)?;
@@ -1140,6 +1240,9 @@ impl Dumpable for VariableLevels {
             cat_code,
             latin_ucs_cat_code,
             kcat_code,
+            auto_spacing,
+            xsp_code,
+            inhibit_xsp_code,
             lc_code,
             uc_code,
             sf_code,

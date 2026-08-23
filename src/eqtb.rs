@@ -30,6 +30,10 @@ use crate::nodes::{show_list_node, GlueSpec, GlueType, ListNode, Node};
 use crate::page_breaking::{Marks, PageContents, PageDimensions};
 use crate::print::Printer;
 use crate::runtime_clock::RunDateTime;
+use crate::script_spacing::planner::{
+    AutoSpacingState, AutoSpacingVariable, InhibitXspCodeTable, LayoutCharacterCode,
+    SpacingStateError, XspCode, XspCodeTable,
+};
 use crate::semantic_nest::Mode;
 use crate::token::Token;
 use crate::token_lists::{show_token_list, RcTokenList};
@@ -73,6 +77,7 @@ use tokenlists::TokenListParameters;
 pub use tokenlists::TokenListVariable;
 
 use std::convert::TryFrom;
+use std::collections::BTreeSet;
 use std::io::Write;
 use std::rc::Rc;
 
@@ -161,6 +166,9 @@ pub struct Eqtb {
     cur_japanese_font: Option<JapaneseFontIndex>,
     pub cat_codes: CatCodes,
     kcat_codes: KCatCodes,
+    auto_spacing: AutoSpacingState,
+    xsp_codes: XspCodeTable,
+    inhibit_xsp_codes: InhibitXspCodeTable,
     pub codes: CodeParameters,
 
     // Region 5
@@ -241,6 +249,9 @@ impl Eqtb {
             cur_japanese_font: None,
             cat_codes: CatCodes::new(),
             kcat_codes: KCatCodes::new(),
+            auto_spacing: AutoSpacingState::ENABLED,
+            xsp_codes: XspCodeTable::ptex_initex(),
+            inhibit_xsp_codes: InhibitXspCodeTable::default(),
             codes: CodeParameters::new(),
             integers: IntegerParameters::new(),
             dimensions: DimensionParameters::new(),
@@ -395,6 +406,29 @@ impl Eqtb {
         self.kcat_codes.get(code_point)
     }
 
+    pub(crate) const fn auto_spacing_state(&self) -> AutoSpacingState {
+        self.auto_spacing
+    }
+
+    pub(crate) fn xsp_code(&self, character: u8) -> XspCode {
+        self.xsp_codes.get(
+            LayoutCharacterCode::from_public_integer(u32::from(character))
+                .expect("an eight-bit character is a Unicode scalar"),
+        )
+    }
+
+    pub(crate) const fn xsp_codes(&self) -> &XspCodeTable {
+        &self.xsp_codes
+    }
+
+    pub(crate) fn inhibit_xsp_code(&self, character: LayoutCharacterCode) -> XspCode {
+        self.inhibit_xsp_codes.get(character)
+    }
+
+    pub(crate) const fn inhibit_xsp_codes(&self) -> &InhibitXspCodeTable {
+        &self.inhibit_xsp_codes
+    }
+
     pub fn lc_code(&self, c: usize) -> i32 {
         *self.codes.get(CodeVariable::LcCode(c))
     }
@@ -547,6 +581,76 @@ impl Eqtb {
         self.define(Definition::KCatCode(block, kcat_code), global);
     }
 
+    pub(crate) fn auto_spacing_define(
+        &mut self,
+        variable: AutoSpacingVariable,
+        enabled: bool,
+        global: bool,
+    ) {
+        if self.auto_spacing.get(variable) != enabled || global {
+            self.define(Definition::AutoSpacing(variable, enabled), global);
+        }
+    }
+
+    pub(crate) fn xsp_code_define(&mut self, character: u8, value: XspCode, global: bool) {
+        if self.xsp_code(character) != value || global {
+            self.define(Definition::XspCode(character, value), global);
+        }
+    }
+
+    pub(crate) fn inhibit_xsp_code_define(
+        &mut self,
+        character: LayoutCharacterCode,
+        value: XspCode,
+        global: bool,
+    ) -> Result<(), SpacingStateError> {
+        if self.inhibit_xsp_code(character) == value && !global {
+            return Ok(());
+        }
+        let other_restore_reservations =
+            self.inhibit_xsp_restore_reservations_excluding(character);
+        if !self
+            .inhibit_xsp_codes
+            .can_set(character, value, other_restore_reservations)
+        {
+            return Err(SpacingStateError::InhibitXspCodeTableFull);
+        }
+        self.define(Definition::InhibitXspCode(character, value), global);
+        Ok(())
+    }
+
+    /// 局所的に既定値3へ戻されているentryも、group終了時には一枠を必要とする。
+    ///
+    /// この復元義務を現在の疎表長とは別に数え、group内のglobal追加が予約済み枠を
+    /// 消費しないようにする。同じ文字の入れ子保存は一枠だけを予約する。
+    fn inhibit_xsp_restore_reservations_excluding(
+        &self,
+        target: LayoutCharacterCode,
+    ) -> usize {
+        let mut characters = BTreeSet::new();
+        for group in self
+            .save_stack
+            .iter()
+            .chain(std::iter::once(&self.cur_group))
+        {
+            for entry in &group.saved_definitions {
+                let Definition::InhibitXspCode(character, old_value) = entry.definition else {
+                    continue;
+                };
+                let variable = Variable::InhibitXspCode(character);
+                if old_value != XspCode::BOTH
+                    && self.variable_levels.get(variable) != 0
+                    && self.inhibit_xsp_code(character) == XspCode::BOTH
+                {
+                    if character != target {
+                        characters.insert(character);
+                    }
+                }
+            }
+        }
+        characters.len()
+    }
+
     /// A code version of `define`.
     /// See 1214., 277., and 279.
     pub fn code_define(&mut self, code_var: CodeVariable, value: i32, global: bool) {
@@ -661,6 +765,24 @@ impl Eqtb {
             Definition::KCatCode(block, kcat_code) => {
                 let previous = self.kcat_codes.set_block(block, kcat_code);
                 Definition::KCatCode(block, previous)
+            }
+            Definition::AutoSpacing(variable, enabled) => {
+                let previous = self.auto_spacing.set(variable, enabled);
+                Definition::AutoSpacing(variable, previous)
+            }
+            Definition::XspCode(character, value) => {
+                let previous = self
+                    .xsp_codes
+                    .set(u32::from(character), value)
+                    .expect("an eight-bit xspcode index is valid");
+                Definition::XspCode(character, previous)
+            }
+            Definition::InhibitXspCode(character, value) => {
+                let previous = self
+                    .inhibit_xsp_codes
+                    .set(character, value)
+                    .expect("inhibitxspcode capacity was checked before definition");
+                Definition::InhibitXspCode(character, previous)
             }
             Definition::Code(code_variable, val) => {
                 let prev_val = self.codes.set(code_variable, val);
@@ -855,6 +977,26 @@ impl Eqtb {
                 logger.print_int(block.index() as i32);
                 logger.print_char(b'=');
                 logger.print_int(self.kcat_codes.get_block(block).public_number());
+            }
+            Variable::AutoSpacing(variable) => {
+                logger.print_esc_str(match variable {
+                    AutoSpacingVariable::Kanji => b"autospacing",
+                    AutoSpacingVariable::XKanji => b"autoxspacing",
+                });
+                logger.print_char(b'=');
+                logger.print_int(i32::from(self.auto_spacing.get(variable)));
+            }
+            Variable::XspCode(character) => {
+                logger.print_esc_str(b"xspcode");
+                logger.print_int(i32::from(character));
+                logger.print_char(b'=');
+                logger.print_int(self.xsp_code(character).to_public_integer());
+            }
+            Variable::InhibitXspCode(character) => {
+                logger.print_esc_str(b"inhibitxspcode");
+                logger.print_int(character.to_public_integer() as i32);
+                logger.print_char(b'=');
+                logger.print_int(self.inhibit_xsp_code(character).to_public_integer());
             }
             Variable::Code(code_var) => self.show_equivalent_of_code_variable(code_var, logger),
             Variable::Integer(int_var) => self.show_equivalent_of_integer_variable(int_var, logger),
@@ -1595,6 +1737,9 @@ pub enum Variable {
     JapaneseFont,
     CatCode(usize),
     KCatCode(KCatCodeBlock),
+    AutoSpacing(AutoSpacingVariable),
+    XspCode(u8),
+    InhibitXspCode(LayoutCharacterCode),
     Code(CodeVariable),
     Integer(IntegerVariable),
     Dimen(DimensionVariable),
@@ -1614,6 +1759,9 @@ pub enum Definition {
     JapaneseFont(Option<JapaneseFontIndex>),
     CatCode(usize, CatCode),
     KCatCode(KCatCodeBlock, KCatCode),
+    AutoSpacing(AutoSpacingVariable, bool),
+    XspCode(u8, XspCode),
+    InhibitXspCode(LayoutCharacterCode, XspCode),
     Code(CodeVariable, i32),
     Integer(IntegerVariable, Integer),
     Dimen(DimensionVariable, Dimension),
@@ -1635,6 +1783,9 @@ impl Definition {
             Self::JapaneseFont(_) => Variable::JapaneseFont,
             Self::CatCode(chr, _) => Variable::CatCode(chr),
             Self::KCatCode(block, _) => Variable::KCatCode(block),
+            Self::AutoSpacing(variable, _) => Variable::AutoSpacing(variable),
+            Self::XspCode(character, _) => Variable::XspCode(character),
+            Self::InhibitXspCode(character, _) => Variable::InhibitXspCode(character),
             Self::Code(code_variable, _) => Variable::Code(code_variable),
             Self::Integer(integer_variable, _) => Variable::Integer(integer_variable),
             Self::Dimen(dimension_variable, _) => Variable::Dimen(dimension_variable),
@@ -1700,6 +1851,18 @@ impl Dumpable for Variable {
                 writeln!(target, "KCatCode")?;
                 block.dump(target)?;
             }
+            Self::AutoSpacing(variable) => {
+                writeln!(target, "AutoSpacing")?;
+                variable.dump(target)?;
+            }
+            Self::XspCode(character) => {
+                writeln!(target, "XspCode")?;
+                character.dump(target)?;
+            }
+            Self::InhibitXspCode(character) => {
+                writeln!(target, "InhibitXspCode")?;
+                character.dump(target)?;
+            }
             Self::Code(code_variable) => {
                 writeln!(target, "Code")?;
                 code_variable.dump(target)?;
@@ -1756,6 +1919,9 @@ impl Dumpable for Variable {
                 let block = KCatCodeBlock::undump(lines)?;
                 Ok(Self::KCatCode(block))
             }
+            "AutoSpacing" => Ok(Self::AutoSpacing(AutoSpacingVariable::undump(lines)?)),
+            "XspCode" => Ok(Self::XspCode(u8::undump(lines)?)),
+            "InhibitXspCode" => Ok(Self::InhibitXspCode(LayoutCharacterCode::undump(lines)?)),
             "Code" => {
                 let code_variable = CodeVariable::undump(lines)?;
                 Ok(Self::Code(code_variable))
@@ -1788,6 +1954,9 @@ impl Dumpable for Eqtb {
         self.cur_japanese_font.dump(target)?;
         self.cat_codes.dump(target)?;
         self.kcat_codes.dump(target)?;
+        self.auto_spacing.dump(target)?;
+        self.xsp_codes.dump(target)?;
+        self.inhibit_xsp_codes.dump(target)?;
         self.codes.dump(target)?;
         self.integers.dump(target)?;
         self.dimensions.dump(target)?;
@@ -1816,6 +1985,9 @@ impl Dumpable for Eqtb {
         let cur_japanese_font = Option::<JapaneseFontIndex>::undump(lines)?;
         let cat_codes = CatCodes::undump(lines)?;
         let kcat_codes = KCatCodes::undump(lines)?;
+        let auto_spacing = AutoSpacingState::undump(lines)?;
+        let xsp_codes = XspCodeTable::undump(lines)?;
+        let inhibit_xsp_codes = InhibitXspCodeTable::undump(lines)?;
         let codes = CodeParameters::undump(lines)?;
         let integers = IntegerParameters::undump(lines)?;
         let dimensions = DimensionParameters::undump(lines)?;
@@ -1859,6 +2031,9 @@ impl Dumpable for Eqtb {
             cur_japanese_font,
             cat_codes,
             kcat_codes,
+            auto_spacing,
+            xsp_codes,
+            inhibit_xsp_codes,
             codes,
             integers,
             dimensions,

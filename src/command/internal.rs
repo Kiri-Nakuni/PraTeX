@@ -61,6 +61,8 @@ pub enum InternalCommand {
     ParShape,
     CatCode,
     KCatCode,
+    XspCode,
+    InhibitXspCode,
     Code(CodeType),
     Register(ValueType),
     /// e-TeX の `\numexpr` `\dimexpr` `\glueexpr` `\muexpr`。
