@@ -206,8 +206,9 @@ cold/warmとhit/missを同じfixtureで測る。
 
 - e-TeX/pdfTeX primitiveを追加し、`expl3-code.tex`の未定義primitive段階は通過済み。
 - 限定fixtureでは公式`latex.ltx`からfmtをdumpし、最小articleをDVI/PDFまで処理済み。
-- 通常のLaTeX資材では、従来`\kanjiskip`がないためnative UTF-8分岐へ入り、kcatcode 18の
-  U+2019を含むhyphenation patternで停止した。K/X追加後の公式CTAN資材での再測定は未実施。
+- 2026-08-23の追測では、通常の`hyphen.cfg`を含むCTAN fixtureで無改変の
+  LaTeX2e 2026-06-01と`expl3-code.tex`を完走し、`latex.fmt`をerror 0でdumpした。
+  これは一般のclass/package互換性やLaTeX DVIの完全回帰を保証しない。
 - `\kanjiskip` / `\xkanjiskip`の通常glue parameter面と、検証済みscript class対tableは実装済み。
   自動挿入、xsp/inhibit、JFM class対調整のspacing接続は未実装。
 - `\readline`、`\interactionmode`、mark class、糊成分・型変換は実装済み。`\everyeof`は

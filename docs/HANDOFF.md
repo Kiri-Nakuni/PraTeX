@@ -146,6 +146,13 @@ Stage 4c単体の完了条件は満たした:
 通常resolverの無改変`latex.ltx`は、Stage 4cのLatin初期値を偽装して越えない。
 本物の`\kanjiskip`を追加しpTeX branchへ入れる次段で再測定する。
 
+2026-08-23の追測では、K/X追加後のrelease binaryへ通常の`hyphen.cfg`を含むCTAN fixtureを
+与え、無改変のLaTeX2e 2026-06-01と`expl3-code.tex`を最後まで読み、`latex.fmt`を
+error 0でdumpした。28,640個の複数文字control sequenceを保存し、process exitは0だった。
+したがって上の記述はStage 4c当時の履歴であり、「再測定が未実施」という現在状態ではない。
+ただし、これは一般のclass/package互換性、pTeX互換の日本語format、LaTeX DVIの完全回帰を
+意味しない。
+
 最終実測:
 
 - debug全suite: 563 passed、0 failed、6 ignored（最終二修正前。二修正は個別回帰済み）
