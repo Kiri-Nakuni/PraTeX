@@ -22,6 +22,7 @@ pub enum Noad {
     Accent(AccentNoad),
     Vcenter(VcenterNoad),
     Left(LeftNoad),
+    Middle(MiddleNoad),
     Right(RightNoad),
 }
 
@@ -65,6 +66,7 @@ impl Noad {
                 vcenter_noad.display(indent_str, depth_max, breadth_max, eqtb, logger)
             }
             Self::Left(left_noad) => left_noad.display(logger),
+            Self::Middle(middle_noad) => middle_noad.display(logger),
             Self::Right(right_noad) => right_noad.display(logger),
         }
     }
@@ -594,6 +596,19 @@ impl LeftNoad {
     /// See 696.
     fn display(&self, logger: &mut Logger) {
         logger.print_esc_str(b"left");
+        self.delimiter.display(logger);
+    }
+}
+
+/// e-TeX manual 3.9 and 5.4.
+#[derive(Debug, PartialEq, Eq)]
+pub struct MiddleNoad {
+    pub delimiter: DelimiterField,
+}
+
+impl MiddleNoad {
+    fn display(&self, logger: &mut Logger) {
+        logger.print_esc_str(b"middle");
         self.delimiter.display(logger);
     }
 }

@@ -57,7 +57,7 @@
 | 表面のみ | 組版制御register | `\predisplaydirection`、`\lastlinefit`、`\savingvdiscards`、`\savinghyphcodes`、`\TeXXeTstate`は値を保持するだけで、組版・discard保存・TeX--XeT動作は未接続。`\TeXXeTstate`だけはfmt読込時0へ戻す |
 | 未実装 | 拡張表示 | `\showtokens`、`\showgroups`、`\showifs` |
 | 実装 | parshape照会 `\parshapelength/indent/dimen` | 現在のpair数、各行のindent・length、奇偶interleaveを内部寸法として返す。非正index、最終pair反復、式・表示、fmtを含む |
-| 未実装 | math照会 | `\middle` |
+| 実装 | 可変delimiter列 `\middle` | `\left`--`\right`内をsegmentごとのsave groupに分け、局所状態を復元して元のmath styleから次のlistを始める。全segmentの最大height/depthを全delimiterへ共有する。境界の左はRight、右はLeft相当のspacingとし、文字・数値delimiter走査、欠落・不対応時の回復、表示、fmtをprocess試験する |
 | 未実装 | penalty配列とdiscard | `\interlinepenalties`、`\clubpenalties`、`\widowpenalties`、`\displaywidowpenalties`、`\pagediscards`、`\splitdiscards` |
 | 未実装 | TeX--XeT組版 | `\beginL`/`\endL`/`\beginR`/`\endR`、LR node/stack、区間反転、line packing、DVI/PDF shipout |
 
@@ -71,6 +71,7 @@
 [font寸法試験](../tests/etex_fontchar.rs)、
 [条件照会試験](../tests/etex_condition_queries.rs)、
 [parshape照会試験](../tests/etex_parshape.rs)、
+[`\middle`試験](../tests/etex_middle.rs)、
 [`\scantokens`試験](../tests/etex_scantokens.rs) である。仕様からの書き直し方は
 [e-TeX移植記録](etex-port-notes.md)、完全性とTeX--XeTの監査は
 [e-TeXとTeX--XeTの対応状況](etex-texxet-status.md) に記録している。
@@ -223,7 +224,7 @@ runtimeは別MIT projectを依存として使う。PraTeX側からMITのVaakへG
 | 未実装 | `^^^^hhhh`、`^^^^^^hhhhhh` | TeX82の`^^`だけ。XeTeX/LuaTeX型の4/6 caret Unicode入力はない |
 | 未実装 | Web2C TCX input translation | `--translate-file`、`%& -translate-file`、`-8bit`、TCXの`xord/xchr/xprn`三表はまだない。既定UTF-8と分けたlegacy input profileは[文字identity roadmap](glyph-identity-roadmap.md)で設計のみ |
 | 未実装 | OTF/TrueTypeとRustyBuzz | dependencyもbackendもない。JFM/TFM出力基線後にdefault-offで接続し、PraTeX側はsafe Rust、依存のlicense・unsafe利用・binary sizeを採用前に監査する |
-| 未実装 | 完全なe-TeX | `\showtokens`、`\showgroups`、`\showifs`、`\middle`、各種penalty配列、`\pagediscards`、`\splitdiscards`、`\beginL/\endL/\beginR/\endR`などが残る |
+| 未実装 | 完全なe-TeX | `\showtokens`、`\showgroups`、`\showifs`、各種penalty配列、`\pagediscards`、`\splitdiscards`、`\beginL/\endL/\beginR/\endR`などが残る |
 | 部分 | 横組・縦組の日本語組版 | 横組JFM font、wide node、JFM pair、仮想K・material X、4文字禁則、box/line幅、DVI glyphまでのBuiltIn最小基線を実装。main-loop JFM、box/disc境界、完全JLReq、方向node、縦組が残る |
 | 部分 | class/package互換 | `article`、日本語`prjsarticle`、`pratex-japanese`を明示したKOMA-Script 3.49.2 `scrartcl`、`graphicx`、`xcolor`、`hyperref`、TikZ/PGF、`siunitx`の限定smokeをDVIまで実測。package全API、`jsarticle`、`jlreq`、`ltjsarticle`の実用互換を保証しない |
 

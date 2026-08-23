@@ -2,8 +2,8 @@ use super::{Dumpable, FormatError};
 use crate::dimension::Dimension;
 use crate::math::MathStyle;
 use crate::nodes::noads::{
-    AccentNoad, ChoiceNode, DelimiterField, FractionNoad, LeftNoad, Noad, NoadField, NoadType,
-    NormalNoad, OverNoad, RadicalNoad, RightNoad, StyleNode, UnderNoad, VcenterNoad,
+    AccentNoad, ChoiceNode, DelimiterField, FractionNoad, LeftNoad, MiddleNoad, Noad, NoadField,
+    NoadType, NormalNoad, OverNoad, RadicalNoad, RightNoad, StyleNode, UnderNoad, VcenterNoad,
 };
 use crate::nodes::ListNode;
 
@@ -43,6 +43,10 @@ impl Dumpable for Noad {
             Self::Left(left_noad) => {
                 writeln!(target, "Left")?;
                 left_noad.dump(target)?;
+            }
+            Self::Middle(middle_noad) => {
+                writeln!(target, "Middle")?;
+                middle_noad.dump(target)?;
             }
             Self::Right(right_noad) => {
                 writeln!(target, "Right")?;
@@ -86,6 +90,10 @@ impl Dumpable for Noad {
             "Left" => {
                 let left_noad = LeftNoad::undump(lines)?;
                 Ok(Self::Left(left_noad))
+            }
+            "Middle" => {
+                let middle_noad = MiddleNoad::undump(lines)?;
+                Ok(Self::Middle(middle_noad))
             }
             "Right" => {
                 let right_noad = RightNoad::undump(lines)?;
@@ -255,6 +263,18 @@ impl Dumpable for VcenterNoad {
 }
 
 impl Dumpable for LeftNoad {
+    fn dump(&self, target: &mut impl Write) -> Result<(), std::io::Error> {
+        self.delimiter.dump(target)?;
+        Ok(())
+    }
+
+    fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
+        let delimiter = DelimiterField::undump(lines)?;
+        Ok(Self { delimiter })
+    }
+}
+
+impl Dumpable for MiddleNoad {
     fn dump(&self, target: &mut impl Write) -> Result<(), std::io::Error> {
         self.delimiter.dump(target)?;
         Ok(())
@@ -505,6 +525,14 @@ mod tests {
                 large_char: 4,
             },
         });
+        let middle = Noad::Middle(MiddleNoad {
+            delimiter: DelimiterField {
+                small_fam: 1,
+                small_char: 2,
+                large_fam: 3,
+                large_char: 4,
+            },
+        });
         let right = Noad::Right(RightNoad {
             delimiter: DelimiterField {
                 small_fam: 1,
@@ -522,6 +550,7 @@ mod tests {
         accent.dump(&mut file).unwrap();
         vcenter.dump(&mut file).unwrap();
         left.dump(&mut file).unwrap();
+        middle.dump(&mut file).unwrap();
         right.dump(&mut file).unwrap();
 
         let input = String::from_utf8(file).unwrap();
@@ -534,6 +563,7 @@ mod tests {
         let accent_undumped = Noad::undump(&mut lines).unwrap();
         let vcenter_undumped = Noad::undump(&mut lines).unwrap();
         let left_undumped = Noad::undump(&mut lines).unwrap();
+        let middle_undumped = Noad::undump(&mut lines).unwrap();
         let right_undumped = Noad::undump(&mut lines).unwrap();
         assert_eq!(normal, normal_undumped);
         assert_eq!(radical, radical_undumped);
@@ -543,6 +573,7 @@ mod tests {
         assert_eq!(accent, accent_undumped);
         assert_eq!(vcenter, vcenter_undumped);
         assert_eq!(left, left_undumped);
+        assert_eq!(middle, middle_undumped);
         assert_eq!(right, right_undumped);
     }
 
@@ -764,6 +795,25 @@ mod tests {
         let mut lines = input.lines();
         let left_noad_undumped = LeftNoad::undump(&mut lines).unwrap();
         assert_eq!(left_noad, left_noad_undumped);
+    }
+
+    #[test]
+    fn middle_noadをdumpできる() {
+        let middle_noad = MiddleNoad {
+            delimiter: DelimiterField {
+                small_fam: 1,
+                small_char: 2,
+                large_fam: 3,
+                large_char: 4,
+            },
+        };
+        let mut file = Vec::new();
+        middle_noad.dump(&mut file).unwrap();
+
+        let input = String::from_utf8(file).unwrap();
+        let mut lines = input.lines();
+        let middle_noad_undumped = MiddleNoad::undump(&mut lines).unwrap();
+        assert_eq!(middle_noad, middle_noad_undumped);
     }
 
     #[test]

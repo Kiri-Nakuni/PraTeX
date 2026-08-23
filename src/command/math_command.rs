@@ -13,6 +13,7 @@ pub enum MathCommand {
     Superscript(u8),
     Subscript(u8),
     Left,
+    Middle,
     Right,
     MSkip,
     MKern,
@@ -39,6 +40,7 @@ impl MathCommand {
             Self::Superscript(c) => chr_cmd("superscript character ", *c, printer),
             Self::Subscript(c) => chr_cmd("subscript character ", *c, printer),
             Self::Left => printer.print_esc_str(b"left"),
+            Self::Middle => printer.print_esc_str(b"middle"),
             Self::Right => printer.print_esc_str(b"right"),
             Self::MSkip => printer.print_esc_str(b"mskip"),
             Self::MKern => printer.print_esc_str(b"mkern"),
@@ -92,6 +94,7 @@ impl Dumpable for MathCommand {
                 c.dump(target)?;
             }
             Self::Left => writeln!(target, "Left")?,
+            Self::Middle => writeln!(target, "Middle")?,
             Self::Right => writeln!(target, "Right")?,
             Self::MSkip => writeln!(target, "MSkip")?,
             Self::MKern => writeln!(target, "MKern")?,
@@ -140,6 +143,7 @@ impl Dumpable for MathCommand {
                 Ok(Self::Subscript(c))
             }
             "Left" => Ok(Self::Left),
+            "Middle" => Ok(Self::Middle),
             "Right" => Ok(Self::Right),
             "MSkip" => Ok(Self::MSkip),
             "MKern" => Ok(Self::MKern),

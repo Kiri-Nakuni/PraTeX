@@ -20,10 +20,11 @@ use crate::input::Scanner;
 use crate::integer::{Integer, IntegerExt};
 use crate::line_breaking::{line_break, INF_PENALTY};
 use crate::logger::Logger;
-use crate::math_mode::MathMode;
+use crate::math_mode::{MathBoundary, MathMode};
 use crate::nodes::noads::{
-    AccentNoad, ChoiceNode, DelimiterField, FractionNoad, LeftNoad, Noad, NoadField, NoadType,
-    NormalNoad, OverNoad, RadicalNoad, RightNoad, StyleNode, UnderNoad, VcenterNoad, DEFAULT_CODE,
+    AccentNoad, ChoiceNode, DelimiterField, FractionNoad, LeftNoad, MiddleNoad, Noad, NoadField,
+    NoadType, NormalNoad, OverNoad, RadicalNoad, RightNoad, StyleNode, UnderNoad, VcenterNoad,
+    DEFAULT_CODE,
 };
 use crate::nodes::{
     CharNode, DimensionOrder, GlueNode, GlueSign, GlueSpec, GlueType, HlistOrVlist, KernNode,
@@ -617,6 +618,7 @@ fn mlist_to_hlist(
             &mut prev_noad,
             &mut max_h,
             &mut max_d,
+            style,
             &mut cur_style,
             scanner,
             eqtb,
@@ -633,6 +635,8 @@ fn mlist_to_hlist(
 enum FirstPassNode {
     /// A LeftNoad. It's final size is determined in the second pass.
     Left(LeftNoad),
+    /// A MiddleNoad. Its final size is determined in the second pass.
+    Middle(MiddleNoad),
     /// A RightNoad. It's final size is determined in the second pass.
     Right(RightNoad),
     /// A node that is only used to change the style. It will not be passed to the hlist.
@@ -653,6 +657,7 @@ fn process_node_or_noad_as_much_as_possible(
     prev_noad: &mut Option<(usize, NoadType)>,
     max_h: &mut Scaled,
     max_d: &mut Scaled,
+    orig_style: MathStyle,
     cur_style: &mut MathStyle,
     scanner: &mut Scanner,
     eqtb: &mut Eqtb,
@@ -686,6 +691,12 @@ fn process_node_or_noad_as_much_as_possible(
         FirstPassNode::Left(_) => {
             // done_with_noad:
             *prev_noad = Some((first_pass_list.len(), NoadType::Open));
+        }
+        FirstPassNode::Middle(_) => {
+            // A middle delimiter closes the preceding segment and opens the next one.
+            *prev_noad = Some((first_pass_list.len(), NoadType::Open));
+            // e-TeX starts every segment in the style in which the \left list began.
+            *cur_style = orig_style;
         }
         FirstPassNode::Right(_) => {
             // done_with_noad:
@@ -777,6 +788,10 @@ fn do_first_pass_processing(
                 FirstPassNode::DoneNoad(hlist, noad_type)
             }
             Noad::Left(left_noad) => FirstPassNode::Left(left_noad),
+            Noad::Middle(middle_noad) => {
+                convert_final_bin_noad_to_ord_noad(first_pass_list, prev_noad);
+                FirstPassNode::Middle(middle_noad)
+            }
             Noad::Right(right_noad) => {
                 convert_final_bin_noad_to_ord_noad(first_pass_list, prev_noad);
                 FirstPassNode::Right(right_noad)
@@ -2190,6 +2205,15 @@ fn make_second_pass_over_mlist(
                 hlist.push(Node::List(left));
                 r_type = Some(noad_type);
             }
+            FirstPassNode::Middle(middle_noad) => {
+                append_inter_element_spacing(r_type, NoadType::Close, &mut hlist, cur_style, eqtb);
+                let middle = make_left_right(middle_noad.delimiter, orig_style, max_d, max_h, eqtb);
+                hlist.push(Node::List(middle));
+                r_type = Some(NoadType::Open);
+                // The following segment starts in the original style, independently of
+                // style nodes in the segment that just ended.
+                cur_style = orig_style;
+            }
             FirstPassNode::Right(right_noad) => {
                 let noad_type = NoadType::Close;
                 append_inter_element_spacing(r_type, noad_type, &mut hlist, cur_style, eqtb);
@@ -3140,6 +3164,41 @@ pub fn math_left(
     nest.tail_push(Node::Noad(Noad::Left(left_noad)), eqtb);
 }
 
+pub fn math_middle(
+    token: Token,
+    nest: &mut SemanticState,
+    scanner: &mut Scanner,
+    eqtb: &mut Eqtb,
+    logger: &mut Logger,
+) {
+    if let GroupType::MathLeft = eqtb.cur_group.typ {
+        let delimiter = scan_delimiter(scanner, eqtb, logger);
+        let middle_noad = MiddleNoad { delimiter };
+        let old_level = nest.pop_nest(eqtb);
+        let RichMode::Math(mmode) = old_level.mode else {
+            panic!("We must be in math mode here");
+        };
+        let mlist = mmode.fin_mlist(Some(MathBoundary::Middle(middle_noad)));
+        eqtb.unsave(scanner, logger);
+        push_math(
+            GroupType::MathLeft,
+            nest,
+            &scanner.input_stack,
+            eqtb,
+            logger,
+        );
+        nest.tail_append(mlist, eqtb);
+    } else {
+        try_to_recover_from_mismatched_math_boundary(
+            MathCommand::Middle,
+            token,
+            scanner,
+            eqtb,
+            logger,
+        );
+    }
+}
+
 /// See 1191.
 pub fn math_right(
     token: Token,
@@ -3155,19 +3214,26 @@ pub fn math_right(
         let RichMode::Math(mmode) = old_level.mode else {
             panic!("We must be in math mode here");
         };
-        let mlist = mmode.fin_mlist(Some(right_noad));
+        let mlist = mmode.fin_mlist(Some(MathBoundary::Right(right_noad)));
         eqtb.unsave(scanner, logger);
         let mut inner_noad = NormalNoad::new();
         inner_noad.noad_type = NoadType::Inner;
         inner_noad.nucleus = Some(Box::new(NoadField::SubMlist { list: mlist }));
         nest.tail_push(Node::Noad(Noad::Normal(inner_noad)), eqtb);
     } else {
-        try_to_recover_from_mismatched_right(token, scanner, eqtb, logger);
+        try_to_recover_from_mismatched_math_boundary(
+            MathCommand::Right,
+            token,
+            scanner,
+            eqtb,
+            logger,
+        );
     }
 }
 
 /// See 1192.
-fn try_to_recover_from_mismatched_right(
+fn try_to_recover_from_mismatched_math_boundary(
+    command: MathCommand,
     token: Token,
     scanner: &mut Scanner,
     eqtb: &mut Eqtb,
@@ -3177,12 +3243,16 @@ fn try_to_recover_from_mismatched_right(
         // Scan and discard delimiter.
         scan_delimiter(scanner, eqtb, logger);
         logger.print_err("Extra ");
-        logger.print_esc_str(b"right");
-        let help = &["I'm ignoring a \\right that had no matching \\left."];
+        command.display(logger);
+        let help = match command {
+            MathCommand::Middle => &["I'm ignoring a \\middle that had no matching \\left."][..],
+            MathCommand::Right => &["I'm ignoring a \\right that had no matching \\left."][..],
+            _ => unreachable!("only math boundaries use this recovery"),
+        };
         logger.error(help, scanner, eqtb);
     } else {
         off_save(
-            UnexpandableCommand::Math(MathCommand::Right),
+            UnexpandableCommand::Math(command),
             token,
             scanner,
             eqtb,

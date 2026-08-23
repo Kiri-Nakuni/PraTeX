@@ -31,7 +31,7 @@ TeX--XeTは二つの整数parameterを保存できるだけで、**組版機能�
 | parshape拡張 | 実装 | `\parshapelength`、`\parshapeindent`、`\parshapedimen`は現在の`\parshape`を内部寸法として照会する。非正index、最終pair反復、奇偶のinterleave、式・`\the`・`\number`、fmtを試験済み |
 | penalty配列 | 未実装 | `\interlinepenalties`、`\clubpenalties`、`\widowpenalties`、`\displaywidowpenalties`がない |
 | discard list | 未実装 | `\pagediscards`、`\splitdiscards`がない。`\savingvdiscards`は値だけを保存する |
-| math | 部分 | `\left`、`\right`はTeX82経路。e-TeXの`\middle`は未実装 |
+| math | 実装 | `\middle`は`\left`--`\right`内部をsegmentごとのsave groupへ分け、各境界で局所代入を復元して元のmath styleから次のlistを始める。全delimiterを全segmentの最大height/depthから同じ大きさにし、左右のspacingをそれぞれClose/Openとして扱う。文字・`\delimiter`走査、delimiter欠落と対応しない境界の回復、表示、fmtを独立process試験済み |
 | tracing/show | 部分／未実装 | `\tracingscantokens`は実出力へ接続済み。他のtracing parameterは値だけで、`\showtokens`、`\showgroups`、`\showifs`と対応trace出力がない |
 | その他の組版制御 | 表面のみ | `\lastlinefit`、`\savinghyphcodes`は処理本体へ未接続 |
 
@@ -63,9 +63,8 @@ left-to-right/right-to-left区間は公開意味論が異なるため、一つ�
    e-TeX primitiveの公開文字番号は0--255のまま保ち、別の文字identityを暗黙に混ぜない。
 2. penalty配列を局所代入、fmt、line breakingまで実装する。JLReqの段落処理も
    `\parshape`と同じ保存・照会基盤を利用できるようにする。
-3. `\middle`を補う。
-4. discard保存、`\lastlinefit`、`\savinghyphcodes`、show/tracingを実処理へ接続する。
-5. TeX--XeTはrestricted hboxで方向node、LR stack、共通DVI/PDF shipoutまでを最初の縦sliceにし、
+3. discard保存、`\lastlinefit`、`\savinghyphcodes`、show/tracingを実処理へ接続する。
+4. TeX--XeTはrestricted hboxで方向node、LR stack、共通DVI/PDF shipoutまでを最初の縦sliceにし、
    次にparagraph、display、mathへ広げる。parameterだけ先に「対応済み」へ格上げしない。
 
 完全対応の完了条件は、公開e-TeX manualの全primitiveを一覧照合し、通常実行、group、
@@ -79,6 +78,11 @@ error回復、fmt往復、DVI/PDFへの効果を該当機能ごとに試験し�
 - [The e-TeX Short Reference Manual](https://mirrors.ctan.org/systems/doc/etex/etex_man.pdf)
 - [e-TeX移植記録](etex-port-notes.md)
 - [TeXにない機能の実装一覧](feature-inventory.md)
+
+`\middle`は同manual 3.9と5.4の公開契約から、segmentごとに元のstyleの新しいgroup/math listを始め、
+完成済みの内部listを次segmentのleft boundaryとして引き継ぐ形で独立実装した。全delimiterの
+共通寸法、Close/Open spacing、文字・数値delimiter、診断回復、fmt/表示は自作TFMを生成する
+[process試験](../tests/etex_middle.rs)で固定し、原実装sourceや上流testは参照していない。
 
 `\eTeXrevision`は公開manualの文字列契約と、TeX Live 2026のe-upTeX
 `p4.1.2-u2.02`に対する自作black-boxの`.6`展開を照合した。実装sourceや上流testは

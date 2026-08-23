@@ -20,9 +20,9 @@ use crate::logger::Logger;
 use crate::main_loop::{main_loop, WordScanner};
 use crate::math::{
     after_math, append_choices, complain_that_user_should_have_said_mathaccent, init_math, math_ac,
-    math_fraction, math_left, math_limit_switch, math_radical, math_right, scan_math_char,
-    scan_subformula_enclosed_in_braces, set_math_char, start_eq_no, subscript, superscript,
-    treat_cur_chr_as_active_character,
+    math_fraction, math_left, math_limit_switch, math_middle, math_radical, math_right,
+    scan_math_char, scan_subformula_enclosed_in_braces, set_math_char, start_eq_no, subscript,
+    superscript, treat_cur_chr_as_active_character,
 };
 use crate::mode_independent::{
     close_read_file, do_special, issue_message, open_read_file, set_language, shift_to_lower_case,
@@ -930,6 +930,9 @@ pub fn main_control(
                     MathCommand::Subscript(_) => subscript(nest, scanner, eqtb, logger),
                     MathCommand::Left => {
                         math_left(nest, scanner, eqtb, logger);
+                    }
+                    MathCommand::Middle => {
+                        math_middle(token, nest, scanner, eqtb, logger);
                     }
                     MathCommand::Right => {
                         math_right(token, nest, scanner, eqtb, logger);

@@ -1330,6 +1330,7 @@ impl Eqtb {
 
         // See 1188.
         self.primitive_unexpandable(b"left", UnexpandableCommand::Math(MathCommand::Left));
+        self.primitive_unexpandable(b"middle", UnexpandableCommand::Math(MathCommand::Middle));
         self.primitive_unexpandable(b"right", UnexpandableCommand::Math(MathCommand::Right));
         self.control_sequences.set(
             ControlSequence::FrozenRight,

@@ -1,6 +1,6 @@
 use crate::eqtb::Eqtb;
 use crate::logger::Logger;
-use crate::nodes::noads::{FractionNoad, Noad, RightNoad};
+use crate::nodes::noads::{FractionNoad, MiddleNoad, Noad, RightNoad};
 use crate::nodes::Node;
 use crate::print::Printer;
 
@@ -9,6 +9,20 @@ pub struct MathMode {
     pub list: Vec<Node>,
     pub display: bool,
     pub incompleat_noad: Option<FractionNoad>,
+}
+
+pub enum MathBoundary {
+    Middle(MiddleNoad),
+    Right(RightNoad),
+}
+
+impl MathBoundary {
+    fn into_node(self) -> Node {
+        match self {
+            Self::Middle(noad) => Node::Noad(Noad::Middle(noad)),
+            Self::Right(noad) => Node::Noad(Noad::Right(noad)),
+        }
+    }
 }
 
 impl MathMode {
@@ -26,12 +40,12 @@ impl MathMode {
     }
 
     /// See 1184.
-    pub fn fin_mlist(self, right_noad: Option<RightNoad>) -> Vec<Node> {
+    pub fn fin_mlist(self, boundary: Option<MathBoundary>) -> Vec<Node> {
         let mut cur_list = self.list;
         if let Some(fraction_noad) = self.incompleat_noad {
-            cur_list = MathMode::compleat_incompleat_noad(fraction_noad, cur_list, right_noad)
-        } else if let Some(right_noad) = right_noad {
-            cur_list.push(Node::Noad(Noad::Right(right_noad)));
+            cur_list = MathMode::compleat_incompleat_noad(fraction_noad, cur_list, boundary)
+        } else if let Some(boundary) = boundary {
+            cur_list.push(boundary.into_node());
         };
         cur_list
     }
@@ -40,22 +54,22 @@ impl MathMode {
     fn compleat_incompleat_noad(
         mut fraction_noad: FractionNoad,
         cur_list: Vec<Node>,
-        right_noad: Option<RightNoad>,
+        boundary: Option<MathBoundary>,
     ) -> Vec<Node> {
         fraction_noad.denominator = cur_list;
-        if let Some(right_noad) = right_noad {
+        if let Some(boundary) = boundary {
             if fraction_noad.numerator.is_empty() {
-                panic!("right");
+                panic!("math boundary");
             }
             let inner_list = fraction_noad.numerator.split_off(1);
             let Node::Noad(Noad::Left(left_noad)) = fraction_noad.numerator.remove(0) else {
-                panic!("right");
+                panic!("math boundary");
             };
             fraction_noad.numerator = inner_list;
             vec![
                 Node::Noad(Noad::Left(left_noad)),
                 Node::Noad(Noad::Fraction(fraction_noad)),
-                Node::Noad(Noad::Right(right_noad)),
+                boundary.into_node(),
             ]
         } else {
             vec![Node::Noad(Noad::Fraction(fraction_noad))]
