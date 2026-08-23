@@ -25,8 +25,8 @@
 - push済み`\scantokens` code checkpoint: `d90e98f`（歴史的基点は`6ce8315`）
 - 日本語CID PDFの検証済み元commit: `8035d1c`
 - 基点のrelease全suite: **564 passed、0 failed、6 ignored**（Vaak `89804b4`）
-- 最新の記録済みrelease全suite: `161e2d0`で**808 passed、0 failed、9 ignored**。
-  それ以後のNFSS・fmt予約checkpointを含む全releaseは引継ぎ時に改めて実行する。
+- 最新の記録済みrelease全suite: `3a4aaaf`で**830 passed、0 failed、9 ignored**。
+  NFSS・fmt予約checkpointを含み、同一結果をcache後の再実行でも確認した。
 - 直近の共有commit:
   - `3a4aaaf`: fmt予約A/Bを再検証できるraw標本と予約上限を固定
   - `22a8bdd`: fmt復元collectionの再確保をboundedな初期予約で削減
@@ -431,7 +431,8 @@ LTO、17,446,628 byteの同一`latex.fmt`を使ったwarm交互A/B各8回では�
 
 ## 検証
 
-`00dc469` / `3a4aaaf`のcheckpoint後、次はまず現状確認から始める。
+`00dc469` / `3a4aaaf`のcheckpoint後にfocused testと全release gateを通した。再開時は
+変更対象のfocused testを先に走らせ、全release gateへ戻る。
 
 ```powershell
 cargo test --release --locked --test kanjiskip
@@ -446,7 +447,7 @@ pwsh -NoProfile -File tools/run-trip.ps1
 
 2026-08-24の既知正常値（TRIPは統合したspacing元枝で実測）:
 
-- `161e2d0`の統合枝release: 808 passed、0 failed、9 ignored
+- `3a4aaaf`の統合枝release: 830 passed、0 failed、9 ignored
 - TRIP Stage1/Stage2 exit 0
 - `tripos.tex`正規化後一致
 - DVI SHA-256: `b20af20a1463c6846f0c4c1ce687cd6354ce1a5f65ee401507627570787ae9fe`

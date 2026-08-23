@@ -174,11 +174,10 @@ cargo test --release --locked --no-fail-fast
 ```
 
 機能追加ではfocused testを先に通し、その後に全release、必要ならTRIPとDVI/PDF意味比較を行う。
-`161e2d0`で実行した`cargo test --release --locked --no-fail-fast`は
-**808 passed、0 failed、9 ignored**（2026-08-24）。内部unitは509 passed / 6 ignoredで、
-続く全integration suiteにplain DVI byte回帰、e-TeX `\middle`、日本語spacing、
-PDF、Vaak連携を含む。ignoredは実TeX Live、配布JFM、公式dvipdfmx、
-pinned CTAN、doctestの明示手動gateである。
+`3a4aaaf`で実行した`cargo test --release --locked --no-fail-fast`は
+**830 passed、0 failed、9 ignored**（2026-08-24）。全integration suiteにplain DVI byte回帰、
+e-TeX `\middle`とpenalty配列、日本語spacingと和文NFSS relation、PDF、Vaak連携を含む。
+ignoredは実TeX Live、配布JFM、公式dvipdfmx、pinned CTAN、doctestの明示手動gateである。
 `\scantokens` code checkpoint前に同日実施した公式CTAN TRIPは両段exit 0、`tripos.tex`一致、
 DVI hashは既知正常値
 `b20af20a1463c6846f0c4c1ce687cd6354ce1a5f65ee401507627570787ae9fe`を維持した。
