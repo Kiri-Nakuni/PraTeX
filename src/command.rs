@@ -14,6 +14,7 @@ mod make_box;
 mod mark;
 mod math_command;
 mod page_dimension;
+mod par_shape_dimension;
 mod prefix;
 pub(crate) mod prefixable;
 mod raw_string;
@@ -38,6 +39,7 @@ pub use make_box::MakeBox;
 pub use mark::{MarkClassOperand, MarkCommand, MarkQuery};
 pub use math_command::MathCommand;
 pub use page_dimension::PageDimension;
+pub use par_shape_dimension::ParShapeDimension;
 pub use prefix::Prefix;
 pub use prefixable::{prefixed_command, PrefixableCommand};
 pub use raw_string::RawStringCommand;
@@ -157,6 +159,8 @@ pub enum UnexpandableCommand {
     Badness,
     /// e-TeX の 8-bit TFM 文字寸法問い合わせ。
     FontCharDimension(FontCharDimension),
+    /// e-TeX の現在の `\parshape` 寸法問い合わせ。
+    ParShapeDimension(ParShapeDimension),
     // ==== e-TeX / pdfTeX の問い合わせ ====
     ETeXVersion,
     PraTeXVersion,
@@ -273,6 +277,9 @@ impl UnexpandableCommand {
             Self::Badness => Some(InternalCommand::Badness),
             Self::FontCharDimension(dimension) => {
                 Some(InternalCommand::FontCharDimension(*dimension))
+            }
+            Self::ParShapeDimension(dimension) => {
+                Some(InternalCommand::ParShapeDimension(*dimension))
             }
             Self::ETeXVersion => Some(InternalCommand::ETeXVersion),
             Self::PraTeXVersion => Some(InternalCommand::PraTeXVersion),
@@ -443,6 +450,7 @@ impl UnexpandableCommand {
             Self::LastSkip => printer.print_esc_str(b"lastskip"),
             Self::Badness => printer.print_esc_str(b"badness"),
             Self::FontCharDimension(dimension) => dimension.display(printer),
+            Self::ParShapeDimension(dimension) => dimension.display(printer),
             Self::ETeXVersion => printer.print_esc_str(b"eTeXversion"),
             Self::PraTeXVersion => printer.print_esc_str(b"pratexversion"),
             Self::PdfShellEscape => printer.print_esc_str(b"pdfshellescape"),

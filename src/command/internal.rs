@@ -3,6 +3,7 @@ use super::glue_component::GlueComponent;
 use super::glue_conversion::GlueConversion;
 use super::font_char_dimension::FontCharDimension;
 use super::page_dimension::PageDimension;
+use super::par_shape_dimension::ParShapeDimension;
 use super::raw_string::RawStringCommand;
 use crate::eqtb::{
     CodeType, DimensionVariable, FontIndex, IntegerVariable, MathFontSize, SkipVariable,
@@ -22,6 +23,8 @@ pub enum InternalCommand {
     Badness,
     /// e-TeX の `\fontcharwd`、`\fontcharht`、`\fontchardp`、`\fontcharic`。
     FontCharDimension(FontCharDimension),
+    /// e-TeX の `\parshapeindent`、`\parshapelength`、`\parshapedimen`。
+    ParShapeDimension(ParShapeDimension),
     // ==== e-TeX / pdfTeX の問い合わせ ====
     /// `\eTeXversion`
     ETeXVersion,

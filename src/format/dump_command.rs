@@ -2,7 +2,8 @@ use super::{Dumpable, FormatError};
 use crate::command::{
     Command, ConvertCommand, ExpandableCommand, FiOrElse, FontCharDimension, GlueComponent,
     GlueConversion, Hskip, IfTest, MacroCall, MakeBox, MarkClassOperand, MarkCommand, MarkQuery,
-    MathCommand, PrefixableCommand, RemoveItem, ShowCommand, UnexpandableCommand, Vskip,
+    MathCommand, ParShapeDimension, PrefixableCommand, RemoveItem, ShowCommand,
+    UnexpandableCommand, Vskip,
 };
 use crate::eqtb::CatCode;
 use crate::nodes::LeaderKind;
@@ -236,6 +237,10 @@ impl Dumpable for UnexpandableCommand {
                 writeln!(target, "FontCharDimension")?;
                 dimension.dump(target)?;
             }
+            Self::ParShapeDimension(dimension) => {
+                writeln!(target, "ParShapeDimension")?;
+                dimension.dump(target)?;
+            }
             Self::ETeXVersion => writeln!(target, "ETeXVersion")?,
             Self::PraTeXVersion => writeln!(target, "PraTeXVersion")?,
             Self::PdfShellEscape => writeln!(target, "PdfShellEscape")?,
@@ -442,6 +447,7 @@ impl Dumpable for UnexpandableCommand {
             "LastSkip" => Ok(Self::LastSkip),
             "Badness" => Ok(Self::Badness),
             "FontCharDimension" => Ok(Self::FontCharDimension(FontCharDimension::undump(lines)?)),
+            "ParShapeDimension" => Ok(Self::ParShapeDimension(ParShapeDimension::undump(lines)?)),
             "ETeXVersion" => Ok(Self::ETeXVersion),
             "PraTeXVersion" => Ok(Self::PraTeXVersion),
             "PdfShellEscape" => Ok(Self::PdfShellEscape),
@@ -935,6 +941,20 @@ mod tests {
     fn fontchar寸法命令のformatを往復する() {
         for dimension in FontCharDimension::ALL {
             let command = UnexpandableCommand::FontCharDimension(dimension);
+            let mut file = Vec::new();
+            command.dump(&mut file).unwrap();
+            let input = String::from_utf8(file).unwrap();
+            assert_eq!(
+                UnexpandableCommand::undump(&mut input.lines()).unwrap(),
+                command
+            );
+        }
+    }
+
+    #[test]
+    fn parshape寸法命令のformatを往復する() {
+        for dimension in ParShapeDimension::ALL {
+            let command = UnexpandableCommand::ParShapeDimension(dimension);
             let mut file = Vec::new();
             command.dump(&mut file).unwrap();
             let input = String::from_utf8(file).unwrap();

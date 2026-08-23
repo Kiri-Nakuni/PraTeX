@@ -1,6 +1,6 @@
 use crate::command::{
     BoxDimension, FontCharDimension, GlueComponent, GlueConversion, InternalCommand,
-    PageDimension, ToksCommand,
+    PageDimension, ParShapeDimension, ToksCommand,
 };
 use crate::dimension::{Dimension, MAX_DIMEN};
 use crate::eqtb::Eqtb;
@@ -146,6 +146,9 @@ fn scan_something_internal(
         InternalCommand::FontCharDimension(dimension) => {
             fetch_font_char_dimension(dimension, scanner, eqtb, logger)
         }
+        InternalCommand::ParShapeDimension(dimension) => {
+            fetch_par_shape_dimension(dimension, scanner, eqtb, logger)
+        }
         // ==== e-TeX / pdfTeX の問い合わせ ====
         InternalCommand::ETeXVersion => InternalValue::Int(2),
         InternalCommand::PraTeXVersion => InternalValue::Int(crate::version::PRATEX_VERSION_MAJOR),
@@ -249,6 +252,35 @@ fn fetch_font_char_dimension(
     let font_index = scan_font_ident(scanner, eqtb, logger);
     let character = scanner.scan_char_num(eqtb, logger);
     InternalValue::Dimen(eqtb.fonts[font_index as usize].char_dimension(character, dimension))
+}
+
+/// 公式 e-TeX manual 3.4 の現在 `\parshape` 寸法問い合わせ。
+///
+/// 行指定は最後のpairを反復し、`\parshapedimen` だけが奇数をindent、
+/// 偶数をlengthとする。空のshapeと非正の番号はどの問い合わせも0ptである。
+fn fetch_par_shape_dimension(
+    dimension: ParShapeDimension,
+    scanner: &mut Scanner,
+    eqtb: &mut Eqtb,
+    logger: &mut Logger,
+) -> InternalValue {
+    let number = <i32 as crate::integer::IntegerExt>::scan_int(scanner, eqtb, logger);
+    let par_shape = eqtb.par_shape.get(ParShapeVariable);
+    if number <= 0 || par_shape.is_empty() {
+        return InternalValue::Dimen(0);
+    }
+
+    let zero_based = number - 1;
+    let (line_index, use_length) = match dimension {
+        ParShapeDimension::Indent => (zero_based, false),
+        ParShapeDimension::Length => (zero_based, true),
+        ParShapeDimension::Interleaved => (zero_based / 2, zero_based % 2 == 1),
+    };
+    let pair = usize::try_from(line_index)
+        .ok()
+        .and_then(|line_index| par_shape.get(line_index))
+        .unwrap_or_else(|| par_shape.last().expect("non-empty parshape"));
+    InternalValue::Dimen(if use_length { pair.1 } else { pair.0 })
 }
 
 fn fetch_raw_string(

@@ -7,8 +7,8 @@ use crate::command::{
     ArithCommand, BoxDimension, Command, ConvertCommand, DefCommand, ExpandableCommand, FiOrElse,
     FontCharDimension, FractionCommand, FractionType, GlueComponent, GlueConversion, Hskip, IfTest,
     LimitType, MakeBox, MarkClassOperand, MarkCommand, MarkQuery, MathCommand, PageDimension,
-    Prefix, PrefixableCommand, RawStringCommand, RemoveItem, ShorthandDef, ShowCommand,
-    UnexpandableCommand, Vskip,
+    ParShapeDimension, Prefix, PrefixableCommand, RawStringCommand, RemoveItem, ShorthandDef,
+    ShowCommand, UnexpandableCommand, Vskip,
 };
 use crate::logger::InteractionMode;
 use crate::math::MathStyle;
@@ -939,6 +939,12 @@ impl Eqtb {
             self.primitive_unexpandable(
                 dimension.primitive_name(),
                 UnexpandableCommand::FontCharDimension(dimension),
+            );
+        }
+        for dimension in ParShapeDimension::ALL {
+            self.primitive_unexpandable(
+                dimension.primitive_name(),
+                UnexpandableCommand::ParShapeDimension(dimension),
             );
         }
         // ==== e-TeX / pdfTeX の問い合わせ ====

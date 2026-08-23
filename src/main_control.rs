@@ -364,6 +364,7 @@ pub fn main_control(
                 | UnexpandableCommand::LastSkip
                 | UnexpandableCommand::Badness
                 | UnexpandableCommand::FontCharDimension(_)
+                | UnexpandableCommand::ParShapeDimension(_)
                 | UnexpandableCommand::ETeXVersion
                 | UnexpandableCommand::PraTeXVersion
                 | UnexpandableCommand::PdfShellEscape
@@ -671,6 +672,7 @@ pub fn main_control(
                 | UnexpandableCommand::LastSkip
                 | UnexpandableCommand::Badness
                 | UnexpandableCommand::FontCharDimension(_)
+                | UnexpandableCommand::ParShapeDimension(_)
                 | UnexpandableCommand::ETeXVersion
                 | UnexpandableCommand::PraTeXVersion
                 | UnexpandableCommand::PdfShellEscape
@@ -1097,6 +1099,7 @@ pub fn main_control(
                 | UnexpandableCommand::LastSkip
                 | UnexpandableCommand::Badness
                 | UnexpandableCommand::FontCharDimension(_)
+                | UnexpandableCommand::ParShapeDimension(_)
                 | UnexpandableCommand::ETeXVersion
                 | UnexpandableCommand::PraTeXVersion
                 | UnexpandableCommand::PdfShellEscape
