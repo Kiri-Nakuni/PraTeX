@@ -495,7 +495,23 @@ pub fn main_control(
                     delete_last(remove_item, nest, scanner, eqtb, logger)
                 }
                 UnexpandableCommand::CjkChar(c) => {
-                    report_cjk_typesetting_unavailable(c, scanner, eqtb, logger)
+                    if eqtb.cur_japanese_font().is_none() {
+                        report_cjk_typesetting_unavailable(c, scanner, eqtb, logger);
+                    } else {
+                        // 横組fontを選んだ和文は、欧文文字と同じく外部vertical modeから
+                        // paragraphを開始し、horizontal main loopでWideCharへする。
+                        scanner.back_input(token, eqtb, logger);
+                        new_graf(
+                            true,
+                            hyphenator,
+                            page_builder,
+                            output,
+                            nest,
+                            scanner,
+                            eqtb,
+                            logger,
+                        );
+                    }
                 }
                 UnexpandableCommand::LatinUcsChar(c) => {
                     report_latin_ucs_typesetting_unavailable(c, scanner, eqtb, logger)

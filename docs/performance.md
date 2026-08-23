@@ -52,6 +52,23 @@ TeX tree探索を省いた非対称条件なので合格標本にせず、233 ms
 等価DVIで再測定する。JFM、K/X、縦組等を加えるたびにこの余裕を再計上し、完成間際まで借金を
 隠さない。
 
+## 横組JFM glyph sliceの欧文DVI gate（2026-08-23）
+
+`origin/main`のrTeXと横組JFM glyph枝へ、同じ`cmr10.tfm`と次のbyte-only plain入力を与えた。
+engine comment長が違うpreambleを除き、最初のBOP (139) からEOP (140) までをbyte列として比較した。
+
+```tex
+\catcode`\{=1 \catcode`\}=2
+\font\f=cmr10 \f \hsize=200pt \parindent=0pt \tolerance=10000
+\shipout\vbox{The quick brown fox jumps over the lazy dog. The quick brown fox jumps.\par}
+\end
+```
+
+mainはBOP offset 43、glyph枝は45だったが、page bodyは双方183 bytesでbyte差分0だった。
+従ってwide node、font selection enum、DVI `set2`/`set3`追加は、このfixtureのbyte glyph opcodeと
+sp座標を変えていない。この検査は意味退行gateであり、upLaTeX 1.2倍未満の性能合格を示す値ではない。
+横組JFMを含む同等DVI corpusと同一TeX treeが揃った時点でwall timeを別に再測定する。
+
 ## 過去のWSL e-upTeX診断値
 
 次の値は、同じPC、同じWSL、同じCPU scheduler上でPraTeXとTeX Live 2026 e-upTeXを

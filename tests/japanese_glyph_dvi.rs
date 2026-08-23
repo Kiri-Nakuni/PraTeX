@@ -295,6 +295,7 @@ fn 横組jfmの寸法とwide_dvi命令と座標を一続きで保つ() {
          \\dimen0=1zw \\dimen1=1zh\n\
          \\setbox0=\\hbox{あ𠀀\\kern1pt\\vrule width1pt height1pt depth0pt}\n\
          \\message{[metric=\\the\\dimen0/\\the\\dimen1][box=\\the\\wd0/\\the\\ht0/\\the\\dp0]}\n\
+         \\showboxbreadth=10 \\showboxdepth=10 \\showbox0\n\
          \\shipout\\box0\n\\end\n",
     )
     .unwrap();
@@ -306,6 +307,8 @@ fn 横組jfmの寸法とwide_dvi命令と座標を一続きで保つ() {
         .replace('\n', "");
     assert!(log.contains("[metric=10.0pt/7.5pt]"), "{log}");
     assert!(log.contains("[box=17.0pt/5.0pt/2.5pt]"), "{log}");
+    assert!(log.contains("\\pratexwideglyph あ class 1"), "{log}");
+    assert!(log.contains("\\pratexwideglyph 𠀀 class 2"), "{log}");
 
     let dvi = std::fs::read(directory.join("t.dvi")).unwrap();
     let events = parse_first_page(&dvi);
@@ -394,6 +397,29 @@ fn 和文fontと選択はfmtを往復してwide_dviを出せる() {
     let events = parse_first_page(&std::fs::read(directory.join("use.dvi")).unwrap());
     assert_eq!(events.wide.len(), 1);
     assert_eq!(events.wide[0].opcode, 129);
+    assert_eq!(events.wide[0].character, 0x3042);
+    assert_eq!(events.wide[0].font, Some(256));
+}
+
+#[test]
+fn 外部vertical_modeの和文は選択済みjfmで段落を開始する() {
+    let directory = prepare_directory("外部vertical mode");
+    std::fs::write(
+        directory.join("t.tex"),
+        "\\catcode123=1\n\\catcode125=2\n\\batchmode\n\
+         \\pratexjfont\\J=synthetic at 10pt\n\\J\n\\kcatcode\"3042=16\n\
+         あ\\par\n\\end\n",
+    )
+    .unwrap();
+    let output = run_rtex(&directory, &["t.tex"]);
+    assert_success(&output, "外部vertical modeから和文段落を開始できなかった");
+    let log = std::fs::read_to_string(directory.join("t.log")).unwrap();
+    assert!(
+        !log.contains("CJK typesetting needs a Japanese font metric"),
+        "{log}"
+    );
+    let events = parse_first_page(&std::fs::read(directory.join("t.dvi")).unwrap());
+    assert_eq!(events.wide.len(), 1);
     assert_eq!(events.wide[0].character, 0x3042);
     assert_eq!(events.wide[0].font, Some(256));
 }

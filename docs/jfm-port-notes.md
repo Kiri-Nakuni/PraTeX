@@ -1,6 +1,6 @@
 # JFM clean-room実装記録
 
-更新: 2026-08-22
+更新: 2026-08-23
 
 ## 境界
 
@@ -13,8 +13,8 @@ engine source、change file、上流回帰試験は参照・移植しない。20
 `a95051b22b8454e41568d300e9c4adb5c3c923ebc8884ed10f1057014626be80`だった。
 
 JFMは`.tfm`を名乗るが、欧文TFMへ条件分岐を散らさず、`src/jfm.rs`の純粋な
-`parse(&[u8])`で全長と全参照を検査する。I/O、font選択、指定sizeへのscale、node生成は後段に
-置く。壊れたfileを読んでもpanicせず、未検査indexを組版経路へ渡さない。
+`parse(&[u8])`で全長と全参照を検査する。I/O、font選択、指定sizeへのscale、node生成は別moduleに
+置き、parserへ実行状態を混ぜない。壊れたfileを読んでもpanicせず、未検査indexを組版経路へ渡さない。
 
 ## 実装済みのbinary意味
 
@@ -45,6 +45,26 @@ raw fix wordと指定sizeへscale済みの値は別層にする。特に`zh`はr
 scaleせず、各成分をTeX互換にscaleしてからspで加える。slant parameterも寸法と同じ変換へ
 混ぜない。
 
+## 横組glyphへの接続
+
+横組ID 11だけを`src/japanese_fonts.rs`のbounded loaderへ通す。JFMの`lf < 2^15`からfile読取に
+上限を置き、論理font名とresolverが返した物理pathを分離する。12.20 fix wordは欧文TFMと共有する
+中央scale関数で一度だけspへ変換する。縦組ID 9は横組fontへ黙って転用せず、現在は明示診断する。
+
+- PraTeX nativeの正規名は`\pratexjfont`。`\jfont`は同じ横組JFM定義・選択の決定箇所へ結ぶ
+  compatibility aliasであり、pTeX/upTeXのversion primitiveは捏造しない。
+- current和文fontは欧文`FontIndex`と別の`JapaneseFontIndex`で持ち、選択はgroup、`\globaldefs`、
+  fmtの既存保存経路を通す。fmtにはraw JFMと論理名・指定sizeを保存し、machine-local pathや
+  run-local handleを保存しない。
+- `zw`はscale済みclass 0 width、`zh`はscale済みclass 0 height+depth。未選択時だけ従来の
+  欧文`em` fallbackを保つ。
+- 横組CJK tokenはUnicode scalar、JFM class、width/height/depth/italicを保持する`WideCharNode`
+  になる。外部vertical modeのliteral CJKも、validなcurrent横組JFMがあればparagraphを開始する。
+- DVI font numberは欧文8-bit fontの増加に依存しない256始まりの別namespaceとし、BMP scalarを
+  unsigned big-endian `set2`、補助面scalarを`set3`で出す。byte glyphの命令経路は変えない。
+- PDF backendは和文glyph対応を偽らず型付きerrorにする。OTF shaping、縦組、JFM pair
+  adjustment、K/X自動空白、禁則はこのsliceに含めない。
+
 ## TeX Live 2026黒箱オラクル
 
 WSLのTeX Live 2026（upTFtoPL 3.3-p240427、Kpathsea 6.4.2）に配布された`uptex-fonts`と
@@ -74,16 +94,15 @@ $env:PRATEX_JFM_ORACLE_DIR = 'C:\path\to\copied-tfm-root'
 cargo test --release 'jfm::tests::配布jfm九十六件をすべて読む' --lib -- --ignored --exact
 ```
 
-## 未接続
+## 残る接続
 
-- 先頭28 bytesから宣言長だけを読むbounded file loader
-- `SizeIndicator`と共有するTeX互換fix-word scaler
-- raw code encodingを明示する和文font定義、`\jfont`、`\tfont`、current和文font
-- scaled JFM metrics、wide glyph node、`zw`/`zh`
-- spacing finalizer、禁則、横組・縦組、DVI/PDF backend
+- `\tfont`、縦組JFMのmetric解釈、方向つきwide nodeとDVI/PDF出力
+- class対へcompile済みのJFM glue/kern programをspacing finalizerへ接続する処理
+- K/X自動空白、xsp/inhibit、禁則、行分割のJLReq規則
+- PDFの日本語font resource、OTF/TrueType、default-off RustyBuzz
 
-readerが通ることは日本語組版対応を意味しない。上記を横・縦とも接続し、black-boxのnode・
-sp座標・DVI意味をe-upTeXと比較して初めてpTeX相当P0の一部になる。
+横組glyphが一頁出ることも日本語組版対応を意味しない。上記を横・縦とも接続し、black-boxの
+node・sp座標・DVI意味をe-upTeXと比較して初めてpTeX相当P0の一部になる。
 
 ## この段階の検証
 
@@ -94,3 +113,12 @@ sp座標・DVI意味をe-upTeXと比較して初めてpTeX相当P0の一部に�
 - TRIP二段ともexit 0、`tripos.tex`は最小正規化後一致。DVI SHA-256は変更前と同じ
   `b20af20a1463c6846f0c4c1ce687cd6354ce1a5f65ee401507627570787ae9fe`
 - `src/jfm.rs`にunsafe Rustなし、`git diff --check`通過
+
+## 2026-08-23の横組glyph checkpoint
+
+- 合成JFMでclass 0/1/2のscale、`zw`/`zh`、box width/height/depth、node表示のUnicodeとclassを固定
+- `\pratexjfont`と`\jfont` alias、current選択のgroup復元、fmt往復、縦JFM拒否をprocess試験で固定
+- BMP U+3042の`set2`、補助面U+20000の`set3`、二glyph後のkern/rule座標をDVI decoderで照合
+- validなcurrent JFMを選んだ外部vertical modeのCJKがparagraphを開始し、捨てられないことを固定
+- `origin/main`と同じ欧文plain fixtureのBOPからEOPまで183 bytesを比較し、byte差分0
+- PraTeX通常sourceにunsafe Rustなし。他engineのsource・上流test・version偽装は使用していない

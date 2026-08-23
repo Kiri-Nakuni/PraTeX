@@ -167,6 +167,22 @@ Stage 4c単体の完了条件は満たした:
 JFM、禁則、line breaking、DVI/PDFまで連続して進める。内部tableはprovider-local IDと
 engine内部IDを分け、標準日本語ではVaak/WASM call 0、組版中のallocation 0を保つ。
 
+## 横組JFM glyphからDVIまでの最小基線
+
+状態: **`codex2/japanese-glyph-dvi`でfocused checkpointを実装**。
+
+- `\pratexjfont`を正規名、意味が一致する横組定義・選択だけ`\jfont` aliasとして、bounded JFM
+  loader、TeX互換scale、current和文fontへ接続した。pTeX/upTeX version primitiveは偽装しない。
+- current選択はgroupとfmtを通り、`zw`/`zh`はclass 0のscale済みmetricを返す。
+- CJK tokenをUnicode、JFM class、width/height/depth/italicを持つ`WideCharNode`にし、hpack、
+  line break、box表示、fmt、DVIまで通した。validなJFM選択時は外部vertical modeでも捨てずに
+  paragraphを開始する。
+- DVIは欧文fontと衝突しない256始まりのfont番号を使い、BMPを`set2`、補助面を`set3`で出す。
+  合成fixtureでglyph間と後続ruleのsp座標まで解釈している。
+- 範囲は横組DVIだけ。`\tfont`、縦組、JFM pair adjustment、K/X自動空白、禁則、PDF和文glyph、
+  OTF shapingは未実装で、横組smokeを日本語組版完成とは呼ばない。
+- 同じ欧文plain fixtureを`origin/main`と比較し、BOP--EOPの183 bytesは差分0だった。
+
 ## 完了済み: `\lastnodetype` page状態
 
 状態: **`565c0d3`で実装・commit済み**。release focused testは2 passed、0 failed。
@@ -263,9 +279,8 @@ Claude `82fa3a2`のLinux perf分解:
 
 1. K/Xの下のscript class対table、auto switch、xsp/inhibit stateを固定し、公式CTAN資材で
    LaTeXのpTeX分岐を再測定する。
-2. 統合済みJFM readerを`\jfont`/`\tfont`、wide node、
-   DVI `set2/set3`へ進む。
-3. K/X spacing、禁則、横組、縦組をengine coreへ連続して入れる。
+2. 横組wide nodeのJFM classをcompile済みpair adjustmentと中央spacing finalizerへ接続する。
+3. `\tfont`と縦組metric/node/outputを追加し、K/X spacingと禁則を横組から縦組へ広げる。
 4. LaTeXが次に要求した時点で`\scantokens`を設計どおり実装する。
 
 日本語の最低線は横組smokeではなくpTeX相当とJLReq native対応であり、縦組を含む。縦中横と
