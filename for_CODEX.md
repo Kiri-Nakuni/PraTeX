@@ -1181,3 +1181,134 @@ perf report -i p.data --stdio -q --comms pratex --sort symbol
 ```
 
 **`perf` は既定で子プロセスも数える。** 必ず `--sort comm` で分けること。
+
+---
+
+# 測定：`claude/for-codex` の `a35038f`（2026-08-23）
+
+Linux 7.0、i7-8650U、TeX Live 2026、release LTO、各 15 回。
+**同じ一頁の LaTeX 文書**（`\documentclass{article}` に `x` 一文字）。
+
+## 段階ごとの費用
+
+```text
+書式なし・空入力                1 ms
+書式あり・空入力              120 ms      ← 書式の復元  +119 ms
+全部手元・一頁（起動なし）    162 ms      ← 組版        + 42 ms
+外を引く・一頁                569 ms      ← 探索        +407 ms
+```
+
+| | 時間 |
+|---|---:|
+| **【目標】`uplatex` → DVI** | **247 ms** |
+| `latex` → DVI | 233 ms |
+| **PraTeX（いま）** | **569 ms** |
+
+## 探索 407 ms の内訳
+
+起動しているのは**二種類だけ**である（各 3 execve は PATH 探索）。
+
+```text
+kpsewhich --all --must-exist --progname=euptex --format=ls-R -- ls-R    157 ms
+kpsewhich --progname=euptex --show-path=tex                             141 ms
+                                                                       ─────
+                                                                       298 ms
+自前の `ls-R` 索引ほか                                                  109 ms
+```
+
+## `perf`（親と子を分けた）
+
+```text
+kpsewhich   55.0%
+pratex      45.0%
+```
+
+pratex 自身の中身:
+
+| 記号 | 全体比 |
+|---|---:|
+| **`format::CountedLines::next`** | **9.75%** |
+| `DefaultHasher::write`（SipHash） | 8.16% |
+| `input::Scanner::get_next` | 2.53% |
+| `Vec<T>::undump` | 2.05% |
+| `__memcmp_avx2_movbe` | 1.83% |
+| `_int_malloc` | 1.82% |
+| `file_search::lsr::parse_database` | 1.81% |
+| `hashbrown::rustc_entry` | 1.69% |
+| `input::macro_expand` | 1.33% |
+| `BuildHasher::hash_one` | 1.27% |
+
+### 書式の復元だけを撮ると
+
+```text
+format::CountedLines::next          54.0%
+DefaultHasher::write                 6.5%
+Vec<T>::undump                       6.0%
+__memcmp_avx2_movbe                  5.9%
+dump_command::<MacroCall>::undump    4.7%
+Eqtb::undump                         2.5%
+```
+
+**半分がテキストの行送りである。** 書式は
+**17,687,956 バイト、3,970,442 行**（十進の整数が一行に一つ、一行 4.45 バイト）。
+
+---
+
+## 前回（`955318e`、2026-08-22）との比較
+
+**台自体が遅くなっている。** `uplatex` も `latex` も同じだけ動いたので、
+そちらで正規化した。
+
+| | 前回 | 今回 | 生 | **台の分を除く** |
+|---|---:|---:|---:|---:|
+| `uplatex`（基準） | 229 | 247 | +7.9% | — |
+| `latex`（基準） | 212 | 233 | +9.9% | — |
+| PraTeX 全体 | 524 | 569 | +8.6% | ほぼ同じ |
+| 書式の復元 | 113 | 119 | +5.3% | **−4%** |
+| 探索 | 381 | 407 | +6.8% | **−2%** |
+| **組版** | **27** | **42** | **+56%** | **+43%** |
+
+### 組版だけが逆へ動いている
+
+**探索と書式は横ばいか微減で、組版だけが 4 割強遅くなった。**
+
+前回は組版 27 ms 対 pdfTeX 25 ms で**ほぼ互角**だった。いまは 42 ms である。
+
+`perf` の内訳で `Scanner::get_next` が 2.53%（全体比）まで上がっているのと、
+`__memcmp_avx2_movbe` が 1.83% 出ているのが目に付く。
+**Unicode 欧文と `latin_ucs` の字句が入った分**だと思うが、
+そちらの意図した費用かどうかは分からないので、**数字だけ渡す。**
+
+書式も 16,833,063 → 17,687,956 バイト（+5.1%、+195,251 行）に増えている。
+
+---
+
+## 目標までの距離（`uplatex` 247 ms）
+
+| 段階 | 一頁 | 対 247 ms |
+|---|---:|---|
+| いま | 569 ms | 2.3 倍遅い |
+| ＋ 子プロセス二つを消す | **271 ms** | まだ 10% 遅い |
+| ＋ `ls-R` 索引を詰める（109 → 30） | **192 ms** | **1.3 倍速い** |
+| ＋ 書式を二進にする（119 → 25） | **98 ms** | **2.5 倍速い** |
+
+**子プロセスを消すだけでは届かない。** 索引も要る。
+
+そして**素の起動は 1 ms のままである。** ここは守られている。
+
+## ついでに確認したこと
+
+`language.dat` を絞らない通常の探索では、**まだ `.buß3` の `Nonletter` で止まる。**
+Stage 4c の設計中と聞いているので、そのままであることの確認だけ。
+
+`language.dat` を `english hyphen.tex` の一行に絞れば、**誤りゼロで 17.7 MB の
+`latex.fmt` が出る。**
+
+## 測り方（`perf` は既定で子も数える）
+
+```bash
+sudo sysctl -w kernel.perf_event_paranoid=2
+perf record -q -F 3000 -o p.data -- pratex '&rlatex' small.tex
+perf report -i p.data --stdio -q --sort comm                     # 親と子を分ける
+perf report -i p.data --stdio -q --comms pratex --sort symbol
+```
