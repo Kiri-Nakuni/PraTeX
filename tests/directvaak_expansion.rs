@@ -81,3 +81,25 @@ fn 別名引数から触るレジスタを空集合と見なさない() {
     );
     assert!(log.contains("[count=77]"), "{log}");
 }
+
+#[test]
+fn 静的誤りは検査段階と位置と本文を記録して零へ展開する() {
+    let log = run_tex(
+        "静的診断",
+        "\\count0=\\directvaak{
+           let value : i32 := missing;
+           value
+         }
+         \\message{[result=\\the\\count0]}",
+    );
+    // TeXの記録は79桁で折れる。Vaakの識別子の途中でも改行されうる。
+    let joined = log.replace('\n', "");
+    assert!(
+        joined.contains("Vaak interpreter error [\\directvaak]:"),
+        "{log}"
+    );
+    assert!(joined.contains("check error at 1:"), "{log}");
+    assert!(joined.contains("知らない名前 `missing`"), "{log}");
+    assert!(!joined.contains("static error(s) before running"), "{log}");
+    assert!(joined.contains("[result=0]"), "{log}");
+}
