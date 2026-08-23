@@ -13,10 +13,10 @@ PraTeX側が必要とするAPIは `src/vaak.rs`、`docs/vaak-embedding-api-desig
 `for_CLAUDE.md` に契約として残し、Vaak側の変更はClaudeに伝える。
 
 通常作業の枝は **`codex2/<目的>`** とする。現在の統合枝は
-`codex2/jlreq-script-spacing`であり、2026-08-23のpush済み`\scantokens` code checkpointは
-`d90e98f`。
-横組JFM glyphのfocused枝は`codex2/japanese-glyph-dvi`で、そのcheckpointを取り込み済みである。
-横組JFM/K/X/最小禁則のproduction finalizerも`9118097`で取り込み済みである。
+`codex2/jlreq-script-spacing`であり、2026-08-24のpush済みHEADは`161e2d0`。
+`\detokenize`から`\scantokens`、横組JFM glyph、K/X/finalizer、JLReqの最小禁則、
+直接PDFのnamed CIDと限定`/ToUnicode`、WASM ABI 0.0のwire/domain境界、
+e-TeX `\middle`まで取り込み済みである。
 `main`は歴史的基点として触らない。`full`へ直接実装はせず、focused test、全release、必要な
 TRIP/DVI・PDF意味比較を通して十分に固まった機能checkpointを`codex2/*`から順次mergeする。
 設計文書だけ、production未接続、既知の意味退行があるsliceは`full`へ送らない。
@@ -172,12 +172,12 @@ import/namespace仕様から推測して補わない。
 cargo test --release --locked --no-fail-fast
 ```
 
-`6ce8315`を手元のVaak `89804b4`と組み合わせた基準は
-**564 passed、0 failed、6 ignored**。ignoredは実TeX Live、配布JFM、doctestの手動照合である。
 機能追加ではfocused testを先に通し、その後に全release、必要ならTRIPとDVI/PDF意味比較を行う。
-現在のK/X、script spacing、TeXXeT fmt、横組JFM glyph、開発版識別、`prjsarticle` slice、
-BuiltIn最小spacing finalizer、named CID PDF、実時刻、WASI target監査、`\scantokens`と
-追加回帰を含む統合枝は **665 passed、0 failed、7 ignored**（2026-08-23）である。
+`161e2d0`で実行した`cargo test --release --locked --no-fail-fast`は
+**808 passed、0 failed、9 ignored**（2026-08-24）。内部unitは509 passed / 6 ignoredで、
+続く全integration suiteにplain DVI byte回帰、e-TeX `\middle`、日本語spacing、
+PDF、Vaak連携を含む。ignoredは実TeX Live、配布JFM、公式dvipdfmx、
+pinned CTAN、doctestの明示手動gateである。
 `\scantokens` code checkpoint前に同日実施した公式CTAN TRIPは両段exit 0、`tripos.tex`一致、
 DVI hashは既知正常値
 `b20af20a1463c6846f0c4c1ce687cd6354ce1a5f65ee401507627570787ae9fe`を維持した。
@@ -218,19 +218,24 @@ cold/warmとhit/missを同じfixtureで測る。
   LaTeX2e 2026-06-01と`expl3-code.tex`を完走し、`latex.fmt`をerror 0でdumpした。
   これは一般のclass/package互換性やLaTeX DVIの完全回帰を保証しない。
 - `\kanjiskip` / `\xkanjiskip`の通常glue parameter面と、検証済みscript class対tableは実装済み。
-  横組BuiltIn最小finalizerはJFM pair、K/X、`、。）（`の4文字禁則を由来付き実nodeとして
+  横組BuiltIn最小finalizerはJFM pair、K/X、`、。）（「」`の6文字禁則を由来付き実nodeとして
   hbox、段落、alignment、line break、DVIへ接続する。auto switch、`xspcode`、
   `inhibitxspcode`はtyped eqtb、群・`globaldefs`、fmt、中央finalizerへ接続済み。直結和文glyph間の
   Kは公式e-upTeXのblack-box結果に合わせた仮想nodeとなり、寸法・改行・DVIには効く一方、
   `\showbox`、`\lastskip`、`\lastnodetype`、`\unskip`からは隠れる。箱境界のmaterial Kとdisc境界は
   まだ未実装であり、この仮想K型へ混ぜない。
-- `\readline`、`\interactionmode`、mark class、糊成分・型変換は実装済み。`\scantokens`は
-  boundedなtyped疑似fileとして接続済みで、実file・疑似fileとも`\everyeof`は自然EOFだけで
+- `\readline`、`\interactionmode`、mark class、糊成分・型変換、
+  `\currentiftype`の`\unless`符号、font照会、`\middle`は実装済み。`\middle`は
+  segmentごとのsave group復元、元のmath styleでのnew list、全delimiter共通寸法、
+  Close/Open spacing、fmt/error回復をprocess試験する。`\scantokens`はboundedな
+  typed疑似fileとして接続済みで、実file・疑似fileとも`\everyeof`は自然EOFだけで
   一度発火し、`\endinput`では発火しない。fmtとKOMA-Scriptの動的catcode経路も試験済み。
 - `\TeXXeTstate`はfmt読込時0へ戻るが、LR組版自体は未実装。
 - 外向きWASM provider ABI 0.0は、version range、required/optional feature、capability、
   operationのruntime非依存交渉を`src/wasm_provider_abi.rs`へ、固定envelope、section集合、
   mailbox範囲、transport返値、lease上限のbyte codecを`src/wasm_wire_v0.rs`へ実装した。
+  `SpacingTableUpload`はscalar/mask/class/context重複の共通domain validator、有理数長さ、
+  tier/break/edge/penalty/reason、atomic candidate交換の最初のsliceを持つ。
   module profile、export検査、affine lease、runtime、provider registrationは未実装であり、
   TeX sourceから自己承認する経路はない。標準日本語はこの境界を通らずcallback 0回を維持する。
 - 生文字列registerは`\rawstring`、`\rawstringdef`、`\therawstring`、専用`\showthe`、
@@ -239,13 +244,15 @@ cold/warmとhit/missを同じfixtureで測る。
   literal/file producerと`\the\rawstring`のLF/CRLF契約は未実装なので、`\therawstring`と混同しない。
 - 横組JFMはbounded loader、TeX互換scale、current和文font、`\pratexjfont`と意味が一致する
   範囲の`\jfont` alias、`zw`/`zh`、wide node、class pair、DVI `set2`/`set3`まで接続済み。
+  `pratex-japanese`はNFSSの`\f@size`をexact spでJFM at-sizeへ渡し、群復元とsize cacheを持つ。
   `\tfont`、縦組、main-loop JFM/完全禁則は未接続。PDF和文glyphは明示named CID profileを
   使う非埋込みBMP最小経路だけ接続済みで、portableな字形表示ではない。
 - plain formatで`\directvaak`、`\vaakdef`、`let` / `var`、host aliasを使う実行例は
   `examples/plain-vaak.tex`。静的失敗はprepare段階・行・桁・診断本文を表示して0へ展開する。
 - `\pdfmdfivesum file{...}`はresolver経由の実file byte列をincremental MD5へ流し、最小
   `hyperref`文書はDVIまで到達済み。PDF直接出力、Type 1全埋込み、`ls-R`/`kpsewhich` resolverは
-  なお部分実装である。
+  なお部分実装である。named CIDのBMP content codeには限定`/ToUnicode`があり、
+  copy/searchは改善したが、FontFileはなく字形表示はviewer側fontに依存する。
 - 現resolverは曖昧・stale・未対応pathでone-shot `kpsewhich`へ戻る。これは移行実装であり、
   通常lookupの最終設計ではない。
 - 名前空間はPhase 0--7済み。Phase 8のTRIPとalignment再利用検証が残る。
@@ -256,8 +263,8 @@ cold/warmとhit/missを同じfixtureで測る。
 2. compile済み汎用script class対tableをlist単位dispatcherと中央finalizerへ接続する。
 3. `\tfont`と縦組metric/node/outputを追加し、JFM/K/X/禁則を横組から縦組へ広げる。
 4. kpathsea互換resolverをrun-global化し、native path解決を広げて通常の子process呼出しをなくす。
-5. `\currentiftype`のunless符号、font照会、penalty/discard/showなどの
-   e-TeX残件を公開仕様どおり実装する。
+5. penalty配列、discard保存、show/tracing、`\lastlinefit`、`\savinghyphcodes`、
+   TeX--XeTのLR node・反転・DVI/PDF出力といったe-TeX残件を公開仕様どおり実装する。
 6. PraTeX-native package adapterを順に通し、PDF直接出力をOTFより先に完成する。
 7. Vaak table uploadとversion付きWASM ABIは、内部表現を固定した段階から並行して適合試験を作る。
 8. WASM target自体のcompile実験と性能調整は、横組みcheckpoint後に行う。
