@@ -357,6 +357,60 @@ fn everyeofはファイルを閉じる前に一度だけ入る() {
 }
 
 #[test]
+fn endinputによる強制終了ではeveryeofを入れない() {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    "everyeof-endinput".hash(&mut h);
+    let dir = std::env::temp_dir().join(format!("etex-{}-{:x}", std::process::id(), h.finish()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("child.tex"),
+        "\\message{[child]}\\endinput\n\\message{[unseen]}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("t.tex"),
+        "\\catcode`\\{=1\n\\catcode`\\}=2\n\\batchmode\n\
+         \\count0=0 \\everyeof{\\advance\\count0 by1 \\message{[eof]}}\n\
+         \\input child.tex\n\\message{[after=\\the\\count0]}\n\\end\n",
+    )
+    .unwrap();
+    Command::new(env!("CARGO_BIN_EXE_rtex"))
+        .arg("t.tex")
+        .current_dir(&dir)
+        .output()
+        .unwrap();
+    let log = join_log(&dir.join("t.log"));
+    assert!(log.contains("[child]) [after=0]"), "{log}");
+    assert!(!log.contains("[eof]"), "{log}");
+    assert!(!log.contains("[unseen]"), "{log}");
+}
+
+#[test]
+fn everyeof内のinputlinenoは自然eofの次の論理行を指す() {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    "everyeof-inputlineno".hash(&mut h);
+    let dir = std::env::temp_dir().join(format!("etex-{}-{:x}", std::process::id(), h.finish()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("child.tex"), "\\message{[child]}\n").unwrap();
+    std::fs::write(
+        dir.join("t.tex"),
+        "\\catcode`\\{=1\n\\catcode`\\}=2\n\\batchmode\n\
+         \\everyeof{\\message{[eof-line=\\the\\inputlineno]}}\n\
+         \\input child.tex\n\\end\n",
+    )
+    .unwrap();
+    Command::new(env!("CARGO_BIN_EXE_rtex"))
+        .arg("t.tex")
+        .current_dir(&dir)
+        .output()
+        .unwrap();
+    let log = join_log(&dir.join("t.log"));
+    assert!(log.contains("[child] [eof-line=2])"), "{log}");
+}
+
+#[test]
 fn readlineは現在の分類符号を無視して一行を読む() {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();

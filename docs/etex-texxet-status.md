@@ -21,7 +21,7 @@ TeX--XeTは二つの整数parameterを保存できるだけで、**組版機能�
 | group/if内省 | 部分 | `\currentgroup*`、`\currentif*`は基本動作する。unless符号、複雑な入れ子、`\showgroups`、`\showifs`が残る |
 | 拡張register 0--32767 | 実装 | count/dimen/skip/muskip/toks/boxの局所・大域・別名・fmtを試験済み |
 | class別mark 0--32767 | 実装 | page遷移、`\vsplit`、class 0互換、fmtを試験済み |
-| `\readline`、`\everyeof` | 部分 | `\readline`は実streamへ接続済み。`\everyeof`は自然EOFと`\endinput`を区別せず、force EOFでも挿入する不具合がある。疑似fileと行番号も未達 |
+| `\readline`、`\everyeof` | 部分 | `\readline`は実streamへ接続済み。実fileの`\everyeof`は自然EOFだけで一度挿入し、`\endinput`では挿入しない。自然EOF内の行番号も試験済み。`\scantokens`疑似fileは未達 |
 | 糊成分の照会と型変換 | 実装 | `\gluestretch`等4種と`\mutoglue`、`\gluetomu`を内部量へ接続。係数・次数・単位不一致回復・式・fmtを試験済み |
 | `\eTeXversion`、対話状態 | 部分 | `\eTeXversion=2`、`\interactionmode`、`\errorcontextlines`は動く。`\eTeXrevision`はない |
 | `\lastnodetype` | 実装 | 空list、基本node型、page→nested box→page復帰をprocess試験済み |
@@ -58,7 +58,7 @@ left-to-right/right-to-left区間は公開意味論が異なるため、一つ�
 日本語組版を優先しつつ、後で同じ基盤を作り直さない順序を採る。
 
 1. `\currentiftype`のunless符号、protected alignment、`\iffontchar`回復、TeXXeT format既定offを直す。
-2. 自然EOF、`\endinput`、shutdownをtyped終了理由として分けてから、
+2. 実fileで分離済みの自然EOFと`\endinput`をtyped疑似入力へ広げ、
    [`\scantokens`をboundedなvirtual input sourceとして実装](scantokens-design.md)し、
    `\everyeof`、`\tracingscantokens`、nested token走査を一箇所へ接続する。
 3. `\fontchar*`を8-bit TFM専用APIにせず、TFM、将来のJFM、Unicode font metricを同じ

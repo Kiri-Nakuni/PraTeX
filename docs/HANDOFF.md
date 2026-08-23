@@ -230,7 +230,8 @@ Unicode差分も`src/eqtb.rs`を触るため、安全なcheckpointを優先し�
 
 次のcodeは三段に分ける。
 
-1. 実fileの自然EOFと`\endinput`を分離し、自然EOF行番号と外側context行番号を直す。
+1. **済み:** 実fileの自然EOFと`\endinput`を分離し、自然EOF内の行番号を次の論理行へ進める。
+   外側context行番号の複雑な入れ子診断は疑似input接続時にも再検査する。
 2. raw byte 10/13と論理改行を分けたtyped疑似inputを既存input stackへ統合する。
 3. clean-room観測、資源上限、機能一覧を同期する。
 

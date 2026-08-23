@@ -177,13 +177,11 @@ shutdown のいずれでも一度だけ破棄する。実 file を疑似 source 
 `\tracingscantokens` は生成開始時の状態を source に保存する。
 
 `\endinput` は現在行を最後の行にする強制終了であり、自然 EOF の先を読む操作ではない。
-黒箱では実 file、疑似 file のどちらでも `\everyeof` は実行されなかった。現行 PraTeX の
-実 file 経路は `force_eof` 時にも `\everyeof` を入れるため、疑似 source と共有する前に
-この意味を分離する。
+黒箱では実 file、疑似 file のどちらでも `\everyeof` は実行されなかった。PraTeXの
+実file経路は自然EOFと`force_eof`を分離済みである。疑似sourceも同じ終了理由を持たせる。
 
 一行の実 file が自然 EOF へ達した黒箱では、`\everyeof` 内の `\inputlineno` は2だった。
-現行 PraTeX は成功した read の時だけ行番号を増やすので1になる。自然 EOF の読取試行で
-次の論理行番号へ進む規則も、実 file と疑似 file の共通 EOF 状態へ置く。
+実file経路は自然EOFの読取試行で次の論理行番号へ進める。疑似fileにも同じ規則を置く。
 
 疑似 source から、第一行に `\endinput` を含む実 file を `\input` した黒箱は次の順だった。
 

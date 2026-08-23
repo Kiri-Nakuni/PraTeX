@@ -45,7 +45,7 @@
 | 部分 | 内省 `\currentgrouplevel`、`\currentgrouptype`、`\currentiflevel`、`\currentiftype`、`\currentifbranch` | e-TeX番号で現在のgroupと条件状態を返す基本経路はあるが、`\unless`で開始した条件の`\currentiftype`が負にならない |
 | 実装 | `\lastnodetype` | node種類の追跡と内部整数化に加え、page→nested list→pageの復帰を保持する。空list、基本node型、page状態のfocused testを持つ |
 | 実装 | `\eTeXversion` | 内部整数として`2`を返す |
-| 部分 | `\everyeof` | 一つの実file入力源につき挿入する経路はあるが、自然EOFと`\endinput`を区別せずforce EOFにも挿入する。`\scantokens`疑似fileと行番号も未達 |
+| 部分 | `\everyeof` | 実fileの自然EOFだけで一度挿入し、`\endinput`では挿入しない。自然EOF内の次論理行番号も試験済み。`\scantokens`疑似fileは未達 |
 | 実装 | `\readline` | `\read`と同じstreamから一行を読み、空白だけcatcode 10、その他をcatcode 12としてmacroへ定義する |
 | 実装 | `\interactionmode` | 0〜3を読み書きし、batch/nonstop/scroll/errorstopを実際のlogger状態へ反映する |
 | 実装 | register 0〜32767 | `count`、`dimen`、`skip`、`muskip`、`toks`、`box`の6種。0〜255は密、上位は使用分だけの疎storage。`\insert`は0〜254、box 255は別用途のまま |

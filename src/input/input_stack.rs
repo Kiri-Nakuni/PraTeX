@@ -294,10 +294,13 @@ impl InputStack {
                                         return NextResult::LineEnded;
                                     }
                                 }
-                                // e-TeX: EOF を閉じる前に `\everyeof` を一度だけ読む。
-                                // 先に印を付けるので、そのトークン列が空でも再挿入しない。
-                                if !*every_eof_seen {
+                                // e-TeX: 自然 EOF を閉じる前に `\everyeof` を一度だけ読む。
+                                // `\endinput` による強制終了では挿入しない。先に印を付けるので、
+                                // そのトークン列が空でも EOF の行番号を二度進めず、再挿入もしない。
+                                if !force_eof && !*every_eof_seen {
                                     *every_eof_seen = true;
+                                    self.line_number += 1;
+                                    eqtb.line_number = self.line_number;
                                     if let Some(tokens) =
                                         eqtb.token_lists.get(TokenListVariable::EveryEof).clone()
                                     {

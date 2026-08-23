@@ -212,7 +212,7 @@ cold/warmとhit/missを同じfixtureで測る。
 - `\kanjiskip` / `\xkanjiskip`の通常glue parameter面と、検証済みscript class対tableは実装済み。
   自動挿入、xsp/inhibit、JFM class対調整のspacing接続は未実装。
 - `\readline`、`\interactionmode`、mark class、糊成分・型変換は実装済み。`\everyeof`は
-  `\endinput`との区別が未修正で部分実装。
+  実fileの自然EOFだけで一度発火し、`\endinput`では発火しない。`\scantokens`疑似fileは未接続。
 - `\TeXXeTstate`はfmt読込時0へ戻るが、LR組版自体は未実装。
 - 生文字列registerは`docs/raw-string-registers.md`に契約があるだけで、`\rawstring`、
   `\rawstringdef`、`\therawstring`、専用`\showthe`、storage、fmt、production testは未実装。
