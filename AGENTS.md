@@ -175,8 +175,8 @@ cargo test --release --locked --no-fail-fast
 **564 passed、0 failed、6 ignored**。ignoredは実TeX Live、配布JFM、doctestの手動照合である。
 機能追加ではfocused testを先に通し、その後に全release、必要ならTRIPとDVI/PDF意味比較を行う。
 現在のK/X、script spacing、TeXXeT fmt、横組JFM glyph、開発版識別、`prjsarticle` slice、
-BuiltIn最小spacing finalizerを含む。spacing枝単体の統合直前gateは
-**627 passed、0 failed、7 ignored**（2026-08-23）である。
+BuiltIn最小spacing finalizer、named CID PDF、実時刻、WASI target監査を含む統合枝は
+**652 passed、0 failed、7 ignored**（2026-08-23）である。
 同日の公式CTAN TRIPも両段exit 0、`tripos.tex`一致、DVI hashは既知正常値
 `b20af20a1463c6846f0c4c1ce687cd6354ce1a5f65ee401507627570787ae9fe`を維持した。
 このmachineにはDVItypeが無いため、今回のrecord意味比較はhash一致で代替している。

@@ -24,8 +24,12 @@
 - 日本語CID PDF統合前のpush済みcheckpoint: `0f3c51e`（歴史的基点は`6ce8315`）
 - 日本語CID PDFの検証済み元commit: `8035d1c`
 - 基点のrelease全suite: **564 passed、0 failed、6 ignored**（Vaak `89804b4`）
-- 現在の統合枝release全suite: **618 passed、0 failed、7 ignored**
+- 現在の統合枝release全suite: **652 passed、0 failed、7 ignored**
 - 直近の共有commit:
+  - `9118097`: JFM/K/X/最小禁則finalizerを実hlistへ統合
+  - `801784a`: PraTeX自身のWASI target生成結果と未達ABI境界を統合
+  - `51b1e95`: 横組JFM glyphのnamed CID PDF基線を統合
+  - `0f3c51e`: run単位の実時刻をTeX/DVI/PDFへ統合
   - `4f832b1`: 横組JFMからwide glyphとDVIまでを統合
   - `6d4ff82`: 完成前の版1を避け、`0.1.0-dev`とrelease gateを分離
   - `e57a4f6`: `prjsarticle`と`\maketitle`の実DVI基準を統合
@@ -234,8 +238,8 @@ engine内部IDを分け、標準日本語ではVaak/WASM call 0、組版中のal
 
 ## 横組JFM/K/X/禁則finalizerの最小production slice
 
-状態: **`codex2/japanese-spacing-finalizer`の`a29cb22`、`8fe0e412`をpush済み。
-全releaseとDVI/TRIP gate成功**。
+状態: **`codex2/japanese-spacing-finalizer`の`a29cb22`、`8fe0e412`を`9118097`で統合済み。
+統合枝の全releaseは652 passed、0 failed、7 ignored**。
 
 - font load時にJFM class対glue/kernを選択sizeへscaleしたdense表へcompileし、wide nodeが持つ
   Unicode、font/metric ID、JFM classだけで中央plannerを引く。同一fontのpair調整をKより優先し、
@@ -251,8 +255,9 @@ engine内部IDを分け、標準日本語ではVaak/WASM call 0、組版中のal
   標準日本語でもVaak/WASM registryを引かない。
 - 既知限界は、JFM/禁則もlist-close materializeで`\unskip` / `\lastnodesubtype`のpTeX意味が
   未完成、Kが仮想eventでなく可視実glue、xsp/inhibit/auto switch・box edge・disc・縦組未接続。
-- `cargo test --release --locked --no-fail-fast`は627 passed、0 failed、7 ignored。
-  spacing process試験6件、glyph 5件、K/X parameter 3件もreleaseで全緑。
+- spacing元枝の`cargo test --release --locked --no-fail-fast`は627 passed、0 failed、7 ignored。
+  統合後は652 passed、0 failed、7 ignoredで、spacing process試験6件、glyph 5件、
+  K/X parameter 3件もreleaseで全緑。
 - origin/main固定fixtureとのplain DVI BOP--EOPは双方183 bytesでbyte差分0、body SHA-256
   `980ceaa638dd272dac0b46ec0870ac166715db10655b004917de96615396337a`。
 - CTAN TRIPは両段exit 0、`tripos.tex`最小正規化後一致、DVIは既知正常hash
@@ -378,9 +383,9 @@ cargo test --release --locked --no-fail-fast
 pwsh -NoProfile -File tools/run-trip.ps1
 ```
 
-2026-08-23の現作業枝での既知正常値:
+2026-08-23の既知正常値（TRIPは統合したspacing元枝で実測）:
 
-- 現在release: 627 passed、0 failed、7 ignored
+- 現在の統合枝release: 652 passed、0 failed、7 ignored
 - TRIP Stage1/Stage2 exit 0
 - `tripos.tex`正規化後一致
 - DVI SHA-256: `b20af20a1463c6846f0c4c1ce687cd6354ce1a5f65ee401507627570787ae9fe`
