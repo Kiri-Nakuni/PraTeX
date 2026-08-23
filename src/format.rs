@@ -297,6 +297,7 @@ pub enum FormatError {
     IncompleteFile,
     ParseError,
     WrongConstant,
+    AllocationFailed,
 }
 
 /// A wrapper around `Lines` that counts how many lines have been consumed.
@@ -330,6 +331,20 @@ fn parse_next<'a, T: FromStr>(lines: &mut impl Iterator<Item = &'a str>) -> Resu
         .ok_or(FormatError::IncompleteFile)?
         .parse()
         .map_err(|_| FormatError::ParseError)
+}
+
+// A fmt file is untrusted input. Reserving its declared collection length without a bound lets a
+// short, truncated file force an arbitrarily large allocation before any element is validated.
+// A small bounded reservation still removes the repeated growth of ordinary token lists while
+// keeping the eager allocation independent of an attacker-controlled count.
+const MAX_INITIAL_UNDUMP_ELEMENTS: usize = 4 * 1024;
+const MAX_INITIAL_UNDUMP_BYTES: usize = 64 * 1024;
+
+fn bounded_initial_capacity<T>(declared_len: usize) -> usize {
+    let element_size = std::mem::size_of::<T>().max(1);
+    declared_len
+        .min(MAX_INITIAL_UNDUMP_ELEMENTS)
+        .min(MAX_INITIAL_UNDUMP_BYTES / element_size)
 }
 
 pub trait Dumpable {
@@ -510,6 +525,8 @@ impl<T: Dumpable> Dumpable for Vec<T> {
     fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
         let n = parse_next(lines)?;
         let mut vec = Vec::new();
+        vec.try_reserve(bounded_initial_capacity::<T>(n))
+            .map_err(|_| FormatError::AllocationFailed)?;
         for _ in 0..n {
             let x = T::undump(lines)?;
             vec.push(x);
@@ -531,6 +548,8 @@ impl<T: Dumpable + Eq + Hash, U: Dumpable> Dumpable for HashMap<T, U> {
     fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
         let n = parse_next(lines)?;
         let mut map = HashMap::new();
+        map.try_reserve(bounded_initial_capacity::<(T, U)>(n))
+            .map_err(|_| FormatError::AllocationFailed)?;
         for _ in 0..n {
             let key = T::undump(lines)?;
             let val = U::undump(lines)?;
@@ -570,5 +589,37 @@ impl Dumpable for GlueRatio {
 
     fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
         parse_next(lines)
+    }
+}
+
+#[cfg(test)]
+mod bounded_reservation_tests {
+    use super::{bounded_initial_capacity, Dumpable, FormatError, MAX_INITIAL_UNDUMP_BYTES};
+    use std::collections::HashMap;
+
+    #[test]
+    fn 巨大な宣言長だけのvecは巨大確保より先に不完全fmtとして止まる() {
+        let source = format!("{}\n", usize::MAX);
+        assert!(matches!(
+            Vec::<u8>::undump(&mut source.lines()),
+            Err(FormatError::IncompleteFile)
+        ));
+    }
+
+    #[test]
+    fn 巨大な宣言長だけのmapは巨大確保より先に不完全fmtとして止まる() {
+        let source = format!("{}\n", usize::MAX);
+        assert!(matches!(
+            HashMap::<u8, u8>::undump(&mut source.lines()),
+            Err(FormatError::IncompleteFile)
+        ));
+    }
+
+    #[test]
+    fn fmt予約は宣言長にかかわらずbyte上限内に収まる() {
+        assert_eq!(bounded_initial_capacity::<u8>(usize::MAX), 4 * 1024);
+        assert!(
+            bounded_initial_capacity::<[u8; 1024]>(usize::MAX) * 1024 <= MAX_INITIAL_UNDUMP_BYTES
+        );
     }
 }

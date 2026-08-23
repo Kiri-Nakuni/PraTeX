@@ -323,6 +323,62 @@ PraTeXの組版部分は約27 ms対約25 msでほぼ同じであり、少なく�
 公開`kpsewhich`へ戻す。1.3 msの探索不要起動、ASCII fast path、TRIP意味一致をhard boundaryにし、
 数値は同じcommit、TeX tree、language設定、親processのみの計測で取り直してから採否を決める。
 
+## fmt collectionのbounded予約（2026-08-24）
+
+利用者のLinux測定では、ほぼ同じ長文を三回処理してからDVI driverまで通した列が
+upTeX 3.15 sに対してPraTeX 9.14 sだった。この絶対値にはclass、package、TeX tree、
+`dvipdfmx`が含まれるため、まずWindows上の隔離CTAN cacheでengine内部を三段に分けた。
+
+- rustc 1.91.0、Windows x86_64、release LTO
+- 同じ17,446,628 byteの`latex.fmt`
+- formatを読んで直ちに終わるcase、空の`article`、和文を含むLatin 300段落のcase
+- 変更前Aと変更後Bを一回ずつwarm-upし、順序を反転しながら各8回
+- `PRATEX_PERF_PHASES`を一時的に入れた測定binaryだけでfmt読込みと行分割を計時し、
+  計測後にinstrumentationとprobe sourceを版方から除いた
+
+事前の一回測定では、fmt全体468.8 msのうちfile読込み26.9 ms、Eqtb復元441.5 ms、
+hyphenation表0.4 ms未満だった。300段落の行分割301回は合計86.4 msであり、少なくとも
+このcache済みcaseではEqtb復元が最初のhotspotだった。一般の`Vec`と`HashMap`のfmt復元は
+宣言個数を知っているのに空collectionへ逐次pushしていたため、通常の短いtoken listでも
+growとcopyを繰り返していた。
+
+変更後は最初の予約を4,096要素か要素幅換算64 KiB相当の小さい方へ制限し、`try_reserve`を
+使う。fmtの宣言長はuntrustedなので、宣言値そのものを`with_capacity`へ渡さない。予約失敗後に
+逐次growへ戻すと、同じmemory pressure下でallocationを繰り返すため、typedな
+`AllocationFailed`として停止する。`usize::MAX`だけを書いたtruncated Vec/HashMapが巨大確保せず
+`IncompleteFile`になる試験と、要素幅を含む予約上限試験を置いた。
+
+表は中央値 ± 母標準偏差である。
+
+| case | wall A | wall B | 変化 | Eqtb A | Eqtb B | 変化 | peak RSS A | peak RSS B |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| formatだけ | 595.56 ± 51.08 ms | 526.68 ± 56.60 ms | -11.56% | 403.78 ± 39.04 ms | 338.92 ± 51.39 ms | -16.06% | 37.90 ± 0.65 MiB | 35.72 ± 0.69 MiB |
+| 空`article` | 807.81 ± 56.24 ms | 684.58 ± 72.81 ms | -15.26% | 422.07 ± 37.39 ms | 342.10 ± 31.65 ms | -18.95% | 38.12 ± 0.87 MiB | 36.65 ± 0.64 MiB |
+| 300段落 | 1,412.37 ± 83.09 ms | 1,309.17 ± 82.87 ms | -7.31% | 451.87 ± 23.93 ms | 387.32 ± 53.75 ms | -14.28% | 39.02 ± 0.82 MiB | 36.10 ± 0.98 MiB |
+
+`SOURCE_DATE_EPOCH=1709210096`でA/Bを別々に再実行し、300段落DVIは双方166,940 byte、
+SHA-256 `441889a18b75e3aac97c3e7c11e98978a6c6eb3a8399002c6f828acc5edb467c`、logは双方
+SHA-256 `54df4ea04fb7133c0514857298561b4123ad35c2aea178b2783d262792df564a`だった。
+formatだけと空文書はpageをshipoutしないのでDVI比較対象ではない。
+
+これはOS cacheを明示purgeしていないwarm測定であり、cold filesystem値ではない。また
+Windowsの平坦化cacheを使った内部A/Bで、利用者のLinux TeX Live tree、`mainpra.tex`、
+`dvipdfmx`を再測定した値ではない。したがって9.14 s全体がこの比率だけ縮むとは扱わず、
+Linuxの同一corpusで改めてengine三回とdriver一回を分離する。
+
+### WSL resolver失敗反復の診断
+
+同じ日に、`hyperref`、`graphicx`、`siunitx`、`pxrubrica`を含む平坦化package probeを
+Windows上で走らせた。`graphics.cfg`不足で停止するまで7.59 sかかり、外部processは13回、
+合計3.645 sだった。13回すべてが失敗後に繰り返された
+`wsl.exe --cd / --exec wslpath -w /`である。backend discoveryの失敗がrun中に記録されず、
+別のoptional file lookupごとに同じ発見処理へ戻ることを実測した。
+
+これはLinuxの利用者benchmarkには存在しないWindows固有の列なので、上の190%差の説明には
+使わない。将来の最小修正ではfailureをrun-localに保持し、resolver cacheを明示clearした時だけ
+再発見する。ただしstale DB、alias、拡張子補完、casefold、非`!!`利用者treeを
+「証明済み不在」へ潰さず、通常のnative kpathsea統合とは別checkpointで測る。
+
 ## 次の候補
 
 測定済みの次候補は、探索外部processの削減、fmt内訳の計測、`ls-R`索引の確保削減、
