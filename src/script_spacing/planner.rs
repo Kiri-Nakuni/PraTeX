@@ -471,8 +471,8 @@ impl PtexSpacingState {
     /// production経路を固定する代表subsetだけである。公開primitiveを生やす前に、
     /// code point表をconsumerへ散らさないためplanner所有の一箇所で構築する。
     pub(crate) fn built_in_minimal(kanji_skip: FixedGlue, xkanji_skip: FixedGlue) -> Self {
-        const LINE_START_PROHIBITED: [char; 3] = ['、', '。', '）'];
-        const LINE_END_PROHIBITED: [char; 1] = ['（'];
+        const LINE_START_PROHIBITED: [char; 4] = ['、', '。', '」', '）'];
+        const LINE_END_PROHIBITED: [char; 2] = ['「', '（'];
 
         let mut state = Self::initex();
         state.set_kanji_skip(kanji_skip);
@@ -1344,7 +1344,7 @@ mod tests {
     }
 
     #[test]
-    fn built_in最小禁則は句読点の行頭と始め括弧の行末だけを固定する() {
+    fn built_in最小禁則は句読点と代表的な括弧の分離を防ぐ() {
         let planner = JapaneseSpacingPlanner::built_in_ptex();
         let state = PtexSpacingState::built_in_minimal(glue(10), glue(20));
         assert_eq!(
@@ -1367,6 +1367,26 @@ mod tests {
             actions(planner.plan_boundary(
                 japanese('（', 1, 1, 0),
                 japanese('あ', 1, 1, 0),
+                BoundaryContext::DEFAULT,
+                &state,
+                None,
+            ))[0],
+            PlannedSpacingAction::KinsokuPenalty { value: 10_000 }
+        );
+        assert_eq!(
+            actions(planner.plan_boundary(
+                japanese('「', 1, 1, 0),
+                japanese('あ', 1, 1, 0),
+                BoundaryContext::DEFAULT,
+                &state,
+                None,
+            ))[0],
+            PlannedSpacingAction::KinsokuPenalty { value: 10_000 }
+        );
+        assert_eq!(
+            actions(planner.plan_boundary(
+                japanese('あ', 1, 1, 0),
+                japanese('」', 1, 1, 0),
                 BoundaryContext::DEFAULT,
                 &state,
                 None,

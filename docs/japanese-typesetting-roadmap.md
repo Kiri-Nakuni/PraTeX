@@ -1,6 +1,6 @@
 # pTeX相当からJLReq一級対応へ進む日本語組版roadmap
 
-更新: 2026-08-23
+更新: 2026-08-24
 
 ## 方針
 
@@ -21,8 +21,14 @@ DVI `set2` / `set3`まで一続きに接続したため、選択済み横組JFM�
 横組DVIへ出せる。JFM readerは横11／縦9、24-bit raw文字code、u8 class、skip、再配置、
 256超glue/kern indexを検査し、class対programをload時に直接表へcompileする。
 
-まだ未接続なのはJFM pair adjustment、K/X自動空白、禁則、`\tfont`と縦組、PDF和文glyphである。
-したがって現状はP0aの横組DVI最小sliceであり、P0全体や「日本語組版対応」の完了ではない。
+JFM pair adjustment、K/X自動空白、BuiltIn最小禁則は横組の実hlist・行分割・DVIへ
+接続済みである。最小禁則は句読点と丸括弧に加え、`U+300C 「`を行末、`U+300D 」`を
+行頭に分離しない。この二文字は[W3C InternationalのJLReq Table 2](https://www.w3.org/International/jlreq/tables/table_en3.pdf)
+でそれぞれopening brackets (cl-01)、closing brackets (cl-02)に分類されることを根拠とする。
+
+これはcl-01/cl-02全文字ではなく、代表的な和文鍵括弧をproduction経路に固定するbounded
+checkpointである。main-loopでの早期挿入、box/discretionary境界の完成、禁則class全体、
+`\tfont`と縦組は未完了であり、P0全体や「日本語組版対応」の完了ではない。
 
 `\kanjiskip` / `\xkanjiskip`の実spacing、JFMとのhybrid、暗黙K、
 script-pair拡張のclean-room設計は

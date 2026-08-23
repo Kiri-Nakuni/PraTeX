@@ -35,6 +35,8 @@ fn spacing_jfm() -> Vec<u8> {
         char_type(0, 0),
         char_type(0x003001, 3),
         char_type(0x003002, 3),
+        char_type(0x00300c, 4),
+        char_type(0x00300d, 5),
         char_type(0x003042, 1),
         char_type(0x003044, 2),
         char_type(0x00ff08, 4),
@@ -192,6 +194,7 @@ fn common_prefix() -> &'static str {
      \\font\\L=latin at 10pt \\L\n\
      \\pratexjfont\\J=spacing at 10pt \\J\n\
      \\kcatcode\"3001=16 \\kcatcode\"3002=16\n\
+     \\kcatcode\"300C=16 \\kcatcode\"300D=16\n\
      \\kcatcode\"3042=16 \\kcatcode\"3044=16\n\
      \\kcatcode\"FF08=16 \\kcatcode\"FF09=16\n"
 }
@@ -405,13 +408,17 @@ fn alignment_cellも局所kをunsave前にsnapshotする() {
 }
 
 #[test]
-fn k境界は改行候補になりbuilt_in最小禁則は句点前を禁止する() {
+fn k境界は改行候補になりbuilt_in最小禁則は鍵括弧の分離を防ぐ() {
     let directory = prepare_directory("改行と最小禁則");
     let source = format!(
-        "{}\\hsize=5pt \\parindent=0pt \\tolerance=10000 \\pretolerance=-1
+        "{}\\setbox0=\\hbox{{「あ」\\kern1pt\\vrule width1pt height1pt depth0pt}}
+         \\shipout\\box0
+         \\hsize=5pt \\parindent=0pt \\tolerance=10000 \\pretolerance=-1
          \\kanjiskip=1pt
          ああ\\par \\message{{[kanji-lines=\\the\\prevgraf]}}
          あ。\\par \\message{{[kinsoku-lines=\\the\\prevgraf]}}
+         「あ\\par \\message{{[open-bracket-lines=\\the\\prevgraf]}}
+         あ」\\par \\message{{[close-bracket-lines=\\the\\prevgraf]}}
          \\end\n",
         common_prefix()
     );
@@ -421,6 +428,17 @@ fn k境界は改行候補になりbuilt_in最小禁則は句点前を禁止す�
     let log = joined_log(&directory, "t");
     assert!(log.contains("[kanji-lines=2]"), "{log}");
     assert!(log.contains("[kinsoku-lines=1]"), "{log}");
+    assert!(log.contains("[open-bracket-lines=1]"), "{log}");
+    assert!(log.contains("[close-bracket-lines=1]"), "{log}");
+    let (wide, rules) = first_page_events(&std::fs::read(directory.join("t.dvi")).unwrap());
+    assert_eq!(
+        wide.iter().map(|event| event.character).collect::<Vec<_>>(),
+        [0x300c, 0x3042, 0x300d]
+    );
+    assert_eq!(wide[1].h, wide[0].h + 5 * 65_536);
+    assert_eq!(wide[2].h, wide[0].h + 10 * 65_536);
+    assert_eq!(rules.len(), 1);
+    assert_eq!(rules[0].h, wide[0].h + 16 * 65_536);
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -473,7 +491,7 @@ fn first_page_events(bytes: &[u8]) -> (Vec<WideEvent>, Vec<RuleEvent>) {
                 let character = read_unsigned(bytes, &mut position, usize::from(opcode - 127));
                 wide.push(WideEvent { character, h });
                 h += match character {
-                    0x3042 => 5 * 65_536,
+                    0x300c | 0x300d | 0x3042 => 5 * 65_536,
                     0x3044 => 10 * 65_536,
                     _ => panic!("fixture外のwide glyph U+{character:04X}"),
                 };
