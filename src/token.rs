@@ -213,7 +213,7 @@ impl LatinUcsToken {
         // for the same character code.
         if code_point >= 0x80 && code_point <= MAX_LATIN_UCS_CODE {
             Some(Self(
-                code_point | ((cat_code as u32) << LATIN_UCS_CAT_CODE_SHIFT),
+                code_point | ((cat_code.public_number() as u32) << LATIN_UCS_CAT_CODE_SHIFT),
             ))
         } else {
             None
@@ -225,7 +225,7 @@ impl LatinUcsToken {
     }
 
     pub(crate) fn cat_code(self) -> CatCode {
-        CatCode::try_from((self.0 >> LATIN_UCS_CAT_CODE_SHIFT) as i32)
+        CatCode::from_public_number((self.0 >> LATIN_UCS_CAT_CODE_SHIFT) as i32)
             .expect("private latin_ucs token invariant")
     }
 

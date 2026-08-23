@@ -19,12 +19,11 @@ Unicode scriptでもTeXのhyphenation番号でもなく、句読点、禁則、f
 language systemなどを選ぶ**layout locale**である。本書では利用者の呼び方に合わせて
 `LanguageRegion`と呼ぶが、地理だけを表す値ではない。
 
-## 混ぜてはいけない六つのdomain
+## 混ぜてはいけない五つのdomainと二つの入力view
 
 | domain | 例 | 決めるもの | 決めないもの |
 |---|---|---|---|
-| TeX `catcode` | escape、letter、other | byte字句化 | Unicode script、組版locale |
-| upTeX互換`kcatcode` / lexical `CharClassId` | kanji、kana、hangul、latin_ucs | UTF-8入力をどのtokenにするか | 境界glue、font language |
+| canonical `InputCategory` | TeX `CatCode`、wide、raw-byte route | byte/UTF-8入力をどのtokenにするか | Unicode script、組版locale |
 | layout `ScriptClassId` | Latin、Han、Hiragana、Katakana、Hangul、Common、Inherited | glyph間のscript境界 | 日本語か中国語か |
 | `LanguageRegion` | und、ja、zh-Hans、zh-Hant、ko、vi | 組版locale、句読点規則、fallback/shaping context | TeX hyphenation table |
 | `TexLanguage` | 0..255 | `\patterns`、`\hyphenation`、hyphen minima | CJKVの地域差 |
@@ -33,6 +32,10 @@ language systemなどを選ぶ**layout locale**である。本書では利用者
 Han一字だけからja/zh-Hans/zh-Hantを推定できない。ベトナム語の通常scriptはLatinである。
 したがって、どのdomainからも別domainを暗黙推定しない。有効な組合せには
 `(Han, zh-Hant, TeX language 0)`、`(Latin, vi, TeX language 37)`がある。
+
+`\catcode`とupTeX互換`\kcatcode`は別domainではなく、上の`InputCategory`へ入る二つの
+数値viewである。たとえば双方の公開値14/16は別の意味なので、それぞれのcodecで意味へ
+写してから統合する。保存表は互換性とASCII fast pathのため当面別の粒度を保つ。
 
 UnicodeのScript propertyはprimary associationであり、Common、Inherited、Unknownも持つ。
 Script_Extensionsは複数scriptとの関係を表すが、layout localeの代用にはならない。PraTeXの

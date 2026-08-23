@@ -1,6 +1,6 @@
 # 枝の地図
 
-更新: 2026-08-22
+更新: 2026-08-23
 
 **`main` は触らない。** tyti氏のTeX82実装を保存する歴史的な基点である。
 
@@ -18,11 +18,14 @@ main (f174f44)                         素のTeX82
                             └─ codex/pdf-texlive-type1
                                 └─ codex/ptex-jfm-core
                                     └─ codex/perf-wsl-euptex-safe
-                                        └─ codex/euptex-integration-resume  現在の作業枝
+                                        └─ codex/euptex-integration-resume
+                                            └─ codex2/jlreq-script-spacing  現在の作業枝
 ```
 
-`full`を現在の「全部入り」とは呼ばない。以後のe-TeX、PDF、resolver、PraTeX CLI、
-互換性試験は`etex-latex`以降で積み上がっている。
+`full`は長く歴史的baselineで止まっていたが、2026-08-23以後は**検証済み機能の統合先**として
+再び進める。作業を`full`上で直接行わず、`codex2/*`で意味と試験を固定してから順次mergeする。
+現在はe-TeX、PDF、resolver、PraTeX CLI、互換性試験が65 commit先に積まれているため、最初の
+更新は小さなcherry-pickを重ねず、全releaseとTRIPを通した統合checkpointへのfast-forwardを使う。
 
 ## 現在地
 
@@ -33,7 +36,8 @@ main (f174f44)                         素のTeX82
 | `codex/pdf-texlive-type1` | push済み `bb7235f` | TeX Live mapの複数resource、flags既定値、PFB Private `StdVW`。全release失敗0、4 ignored、TRIP 999 recordsで意味差0 |
 | `codex/ptex-jfm-core` | push済み `4745f3c` | 公開仕様だけによるbounded JFM reader/model。release 503通過、失敗0、6 ignored。配布JFM 96件とTRIPを通過 |
 | `codex/perf-wsl-euptex-safe` | 検証済み `9bb6023` | WSL同士の1.2倍gateを固定。keyword成功経路と最上位整数代入をsafe Rustで短縮。release 507通過、TRIP意味差0 |
-| `codex/euptex-integration-resume` | 現在 `7a47ec8` | unsafe最適化は機能完成後へ保留。Vaak S-22のC-2書戻しへ追随し、e-TeX/pdfTeX、LaTeX、日本語組版へ戻る |
+| `codex/euptex-integration-resume` | 統合基線 `6ce8315` | e-TeX/pdfTeX、LaTeX、日本語組版、resolver、PDF/Type 1を統合した基線 |
+| `codex2/jlreq-script-spacing` | 現在の作業枝 | K/X parameterと、JLReqへ広げられるscript class対spacingの内部境界を実装する |
 
 R0は組版localeの状態、group/global/fmt、表示だけであり、まだJFM、文字間隔、禁則、
 font選択、DVI/PDF出力を変えない。R1以降は
@@ -57,8 +61,11 @@ font選択、DVI/PDF出力を変えない。R1以降は
 
 ## 枝とcommitの規律
 
-- safe Rustの通常作業は目的ごとの`codex/*`枝で行い、意味を固定する試験と一緒にcommitする。
-- `unsafe`を試す場合は、safe Rust枝へ混ぜず、名前で判別できる専用枝を先に切る。
+- safe Rustの通常作業は目的ごとの`codex2/*`枝で行い、意味を固定する試験と一緒にcommitする。
+- 十分に固まったcheckpointは`full`へ順次mergeしてpushする。最低条件はfocused test、全release、
+  必要なTRIP/DVI・PDF意味比較、`git diff --check`であり、production未接続の設計だけを完成機能と
+  してmergeしない。
+- 性能調整を含めPraTeXの通常sourceはsafe Rustだけにする。
 - commit messageは日本語で、変更内容の列挙より「なぜその境界が必要か」を書く。
 - commit/push前後に`origin/claude/for-codex`を確認し、連絡は`for_CLAUDE.md`へ残す。
 - 壊れた名前を含む利用者fileや無関係なworking tree変更は、整理を理由に移動・削除しない。

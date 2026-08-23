@@ -2,7 +2,7 @@
 use crate::eqtb::{CallbackClassifier, KCatCode};
 use crate::eqtb::{
     CatCode, CharacterClassifier, ClassificationContext, ControlSequence, ControlSequenceNameUnit,
-    Eqtb, UnicodeDisposition,
+    Eqtb, InputCategory,
 };
 use crate::token::{
     decode_uptex_input_code_point, CjkCategory, CjkToken, LatinUcsToken, Token,
@@ -329,18 +329,18 @@ impl LineLexer {
                 self.pos + len,
             ));
         }
-        let token = match classifier.unicode_disposition(code_point, context) {
-            UnicodeDisposition::Wide { category, .. } => DecodedUnicodeInput::Cjk(
+        let token = match classifier.unicode_category(code_point, context) {
+            InputCategory::Wide(category) => DecodedUnicodeInput::Cjk(
                 CjkToken::new(code_point, category)
                     .expect("the decoder only returns code points accepted by CjkToken"),
             ),
-            UnicodeDisposition::LatinUcs { cat_code, .. } => {
+            InputCategory::CatCode(cat_code) => {
                 DecodedUnicodeInput::LatinUcs(
                     LatinUcsToken::new(code_point, cat_code)
                         .expect("latin_ucs classification enforces U+0080..=U+2E7F"),
                 )
             }
-            UnicodeDisposition::RawBytes { .. } => return None,
+            InputCategory::RawBytes => return None,
         };
         Some((token, self.pos + len))
     }

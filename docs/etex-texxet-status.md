@@ -1,6 +1,6 @@
 # e-TeXとTeX--XeTの対応状況
 
-更新: 2026-08-22
+更新: 2026-08-23
 
 ## 結論
 
@@ -16,16 +16,16 @@ TeX--XeTは二つの整数parameterを保存できるだけで、**組版機能�
 | 機能群 | 判定 | 現在の範囲と残件 |
 |---|---|---|
 | `\numexpr`、`\dimexpr`、`\glueexpr`、`\muexpr` | 実装 | 優先順位、括弧、丸め、糊次数、fmtを試験済み |
-| `\protected`、`\detokenize`、`\unexpanded` | ほぼ実装 | `\edef`、`\message`、`\write`、mark走査とfmtへ接続済み |
-| `\ifdefined`、`\ifcsname`、`\unless` | 実装 | 未定義制御綴を作らない条件処理まで接続済み |
-| group/if内省 | 部分 | `\currentgroup*`、`\currentif*`は動くが、複雑な入れ子の試験と`\showgroups`、`\showifs`がない |
+| `\protected`、`\detokenize`、`\unexpanded` | 部分 | 通常の`\edef`、`\message`、`\write`、mark走査とfmtへ接続済み。ただしalignmentの`\noalign` / `\omit`先読みがprotected macroを展開してしまう |
+| `\ifdefined`、`\ifcsname`、`\unless` | 部分 | 未定義制御綴を作らない条件処理は接続済み。`\unless`で開始した条件の`\currentiftype`が負値にならない |
+| group/if内省 | 部分 | `\currentgroup*`、`\currentif*`は基本動作する。unless符号、複雑な入れ子、`\showgroups`、`\showifs`が残る |
 | 拡張register 0--32767 | 実装 | count/dimen/skip/muskip/toks/boxの局所・大域・別名・fmtを試験済み |
 | class別mark 0--32767 | 実装 | page遷移、`\vsplit`、class 0互換、fmtを試験済み |
-| `\readline`、`\everyeof` | 部分 | 実fileでは動く。`\scantokens`疑似fileがないため、そのEOF契約は未達。自然EOFと`\endinput`、typed行境界は[疑似入力設計](scantokens-design.md)で固定済み |
+| `\readline`、`\everyeof` | 部分 | `\readline`は実streamへ接続済み。`\everyeof`は自然EOFと`\endinput`を区別せず、force EOFでも挿入する不具合がある。疑似fileと行番号も未達 |
 | 糊成分の照会と型変換 | 実装 | `\gluestretch`等4種と`\mutoglue`、`\gluetomu`を内部量へ接続。係数・次数・単位不一致回復・式・fmtを試験済み |
 | `\eTeXversion`、対話状態 | 部分 | `\eTeXversion=2`、`\interactionmode`、`\errorcontextlines`は動く。`\eTeXrevision`はない |
-| `\lastnodetype` | 部分 | node追跡はあるが専用試験がなく、base pageへ移す経路で型を同期しない可能性がある |
-| font照会 | 部分 | `\iffontchar`は8-bit TFMへ接続済み。process試験と`\fontcharwd/ht/dp/ic`がない |
+| `\lastnodetype` | 実装 | 空list、基本node型、page→nested box→page復帰をprocess試験済み |
+| font照会 | 部分 | `\iffontchar`は8-bit TFMへ接続済みだが、範囲外入力を黙って偽にし公開8-bit numberのerror/recoveryを通らない。`\fontcharwd/ht/dp/ic`もない |
 | parshape拡張 | 未実装 | `\parshapelength`、`\parshapeindent`、`\parshapedimen`がない |
 | penalty配列 | 未実装 | `\interlinepenalties`、`\clubpenalties`、`\widowpenalties`、`\displaywidowpenalties`がない |
 | discard list | 未実装 | `\pagediscards`、`\splitdiscards`がない。`\savingvdiscards`は値だけを保存する |
@@ -38,8 +38,9 @@ process-level fmt往復試験はregister、mark、糊成分を中心とし、全
 
 ## TeX--XeT
 
-現状の`\TeXXeTstate`と`\predisplaydirection`は、整数の登録、代入、group復元、fmt保存だけで
-ある。次の意味論は一つも実装していない。
+現状の`\TeXXeTstate`と`\predisplaydirection`は整数の登録、代入、group復元だけであり、
+`\TeXXeTstate`はformatへ非零値を持ち越さず既定offに戻す。`\predisplaydirection`は自動計算を
+まだ行わない。次の意味論は一つも実装していない。
 
 - `\beginL`、`\endL`、`\beginR`、`\endR`
 - LR方向nodeと対応するstackの整合性検査
@@ -56,8 +57,9 @@ left-to-right/right-to-left区間は公開意味論が異なるため、一つ�
 
 日本語組版を優先しつつ、後で同じ基盤を作り直さない順序を採る。
 
-1. `\lastnodetype`のpage遷移を直し、全node種・空list・page builder移動を試験する。
-2. [`\scantokens`をboundedなvirtual input sourceとして実装](scantokens-design.md)し、
+1. `\currentiftype`のunless符号、protected alignment、`\iffontchar`回復、TeXXeT format既定offを直す。
+2. 自然EOF、`\endinput`、shutdownをtyped終了理由として分けてから、
+   [`\scantokens`をboundedなvirtual input sourceとして実装](scantokens-design.md)し、
    `\everyeof`、`\tracingscantokens`、nested token走査を一箇所へ接続する。
 3. `\fontchar*`を8-bit TFM専用APIにせず、TFM、将来のJFM、Unicode font metricを同じ
    typed query境界から参照する。
@@ -65,8 +67,8 @@ left-to-right/right-to-left区間は公開意味論が異なるため、一つ�
    同じ保存・照会基盤を利用できるようにする。
 5. `\eTeXrevision`と`\middle`を補う。
 6. discard保存、`\lastlinefit`、`\savinghyphcodes`、show/tracingを実処理へ接続する。
-7. TeX--XeTは方向node、LR stack、line packing、DVI/PDF shipoutまでを一つの独立機能枝で
-   実装する。parameterだけ先に「対応済み」へ格上げしない。
+7. TeX--XeTはrestricted hboxで方向node、LR stack、共通DVI/PDF shipoutまでを最初の縦sliceにし、
+   次にparagraph、display、mathへ広げる。parameterだけ先に「対応済み」へ格上げしない。
 
 完全対応の完了条件は、公開e-TeX manualの全primitiveを一覧照合し、通常実行、group、
 error回復、fmt往復、DVI/PDFへの効果を該当機能ごとに試験した状態である。LaTeXが通ることだけを

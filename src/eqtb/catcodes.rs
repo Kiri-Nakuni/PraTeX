@@ -29,15 +29,38 @@ pub enum CatCode {
     InvalidChar = 15,
     /// 名前空間の印。**この文字で始まる制御綴は名前空間に入る。**
     ///
-    /// TeX82 には無い。番号は 16——`kcatcode` を吸収する構想から
-    /// 19 を逆算していたが、順序が逆になったので撤回した。
+    /// TeX82 には無い。`\catcode` view の公開番号は 16。
+    /// `\kcatcode` view の公開番号 16 は別codecで kanji へ写す。
     Namespace = 16,
 }
 
-impl TryFrom<i32> for CatCode {
-    type Error = ();
+impl CatCode {
+    /// `\catcode` が読み書きする公開番号。
+    ///
+    /// 内部表現や `\kcatcode` の公開番号をこの値への cast で代用しない。
+    pub const fn public_number(self) -> i32 {
+        match self {
+            Self::Escape => 0,
+            Self::LeftBrace => 1,
+            Self::RightBrace => 2,
+            Self::MathShift => 3,
+            Self::TabMark => 4,
+            Self::CarRet => 5,
+            Self::MacParam => 6,
+            Self::SupMark => 7,
+            Self::SubMark => 8,
+            Self::Ignore => 9,
+            Self::Spacer => 10,
+            Self::Letter => 11,
+            Self::OtherChar => 12,
+            Self::ActiveChar => 13,
+            Self::Comment => 14,
+            Self::InvalidChar => 15,
+            Self::Namespace => 16,
+        }
+    }
 
-    fn try_from(value: i32) -> Result<Self, Self::Error> {
+    pub fn from_public_number(value: i32) -> Result<Self, ()> {
         let cat_code = match value {
             0 => Self::Escape,
             1 => Self::LeftBrace,
@@ -59,6 +82,14 @@ impl TryFrom<i32> for CatCode {
             _ => return Err(()),
         };
         Ok(cat_code)
+    }
+}
+
+impl TryFrom<i32> for CatCode {
+    type Error = ();
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        Self::from_public_number(value)
     }
 }
 

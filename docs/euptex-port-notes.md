@@ -150,7 +150,7 @@ U+2E7F 以下でも `15..20` と表示される。この回復も回帰試験へ
 | 4c | **Unicode欧文 token とpattern alphabet**（`14`を一文字一token、cat/lc/uc/sf・case・active・fmt・hyphen trieまで） | **済**（U+0080〜U+2E7F。wide font nodeとnamespaced Unicode active生成は後段） |
 | 5 | **JFM**（和文フォントの寸法表）と `\jfont` | **進行中**（公開仕様だけによるbounded reader、横/縦・24-bit code・現行glue/kern拡張・直接class対表まで。font選択とscale接続は未） |
 | 6 | **Unicode 文字 node と DVI `set2` / `set3`** | 未 |
-| 7 | **`\kanjiskip` / `\xkanjiskip`** を主ループに差し込む | 未 |
+| 7 | **`\kanjiskip` / `\xkanjiskip`** とscript class対spacing | **着手**（通常glue parameter面とfmtまで。自動挿入、xsp/inhibit、JFM接続は未） |
 | 8 | **禁則**（`\prebreakpenalty` / `\postbreakpenalty` / `\inhibitxspcode`） | 未 |
 | 9 | **縦組**（dir ノード） | 未。**ここが一番遠い** |
 
@@ -158,9 +158,9 @@ U+2E7F 以下でも `15..20` と表示される。この回復も回帰試験へ
 未定義primitiveなしで通過した。最初のhard errorはGerman hyphenation pattern
 `dehypht-x-2024-02-28.pat`の`.buß3`に対する`Nonletter`である。一時的な空`hyphen.cfg`で
 pattern読込みだけを隔離すると、無改変`latex.ltx`はerror 0で`latex.fmt`をdumpした。
-段4cでこの`.buß3`自体は解消した。ただし通常のLaTeX wrapperはPraTeXに`\kanjiskip`が無いため
-非pTeXのnative UTF-8 engine分岐へ入り、kcatcode 18のU+2019を含む後続patternで止まる。
-現在の次段は初期分類の偽装ではなく、一級の`\kanjiskip` / `\xkanjiskip`実装である。
+段4cでこの`.buß3`自体は解消した。通常のLaTeX wrapperが参照する`\kanjiskip`は、一級の
+glue parameterとして追加したためpTeX分岐へ入る検出面は整った。TeX Liveを持たない現在環境で
+公式資材を用いた再測定と、script class対の実spacing、JFM接続は次段である。
 ASCIIの`ushyph1.tex`だけでformatを作れた過去の測定と、通常TeX Live探索でUnicode patternを
 読めない現状を混同しない。
 

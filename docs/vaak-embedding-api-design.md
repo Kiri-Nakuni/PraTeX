@@ -1,7 +1,10 @@
 # PraTeX における Vaak 埋め込み内部 API 設計
 
-更新: 2026-08-22
+更新: 2026-08-23
 状態: **設計案。phase registry、node API、WASM bridge は未実装**
+
+外向きWASM境界の固定mailbox、wire schema、capability、fuel、atomic fallbackは
+[WASM provider ABI 0.0](wasm-provider-abi-v0.md)で別version domainとして定義する。
 
 ## 1. 結論と適用範囲
 
@@ -1242,9 +1245,10 @@ embedding変更前後を同じ基線で比較する。少なくとも「すで�
 provider 無効の engine corpus は変更前後 paired 測定で幾何平均 0.5% 超の退行を認めない。有意差を
 分離できない短い fixture では反復数を増やし、stdout/log/DVI/PDF hash を固定する。
 
-PraTeX 全体の production gate は、同じ PC の WSL e-upTeX に対して同一意味の engine workload が
-**1.2 倍未満**であるという既存目標を維持する。拡張 API を無効にしただけでこの headroom を
-消費してはならない。
+PraTeX 全体の production gate は、DVI modeの同一入力、同一TeX tree、同等DVIについて
+end-to-end wall timeがupLaTeXの **1.2倍未満**であることとする。上記e-upTeX micro benchmarkは
+hot pathの診断値であって合否標本ではない。拡張APIを無効にしただけでこのheadroomを消費しては
+ならず、spacing/JFM、provider registry、resolver等の主要sliceごとに再測定する。
 
 ### 17.3 enabled path の段階 gate
 
@@ -1256,15 +1260,15 @@ PraTeX 全体の production gate は、同じ PC の WSL e-upTeX に対して同
 4. WASM: cold instantiate、warm invoke、marshal、validate、commit を分離し、engine benchmark に
    module download/compile cache miss を混ぜない。
 
-最適化のために PraTeX source へ `unsafe` を足さない。どうしても試す場合は、利用者指定どおり
-明示した別 branch で行い、safe-Rust baseline、同一意味、TRIP、全 regression と比較する。
+最適化のために PraTeX source へ `unsafe` を足さない。このembedding計画の性能改善はsafe Rustの
+範囲だけで行う。
 
 ### 17.4 safe-Rust CI contract
 
 実装を始める時は embedding module とその全 in-tree target を compiler の `unsafe_code` forbid で
 buildする。文字列検索だけを安全性検査にしない。CI は少なくとも release の library、binary、test、
 example を同じ forbid 条件で compile/testし、通常の全回帰と TRIP を通す。`unsafe` を含む変更は
-safe branch の CI を通らない契約にし、試すなら明示した専用 branch だけに置く。
+CI を通らない契約にする。
 
 この lint は依存 crate 内部の `unsafe` までは禁止しない。WASM runtime 等の新依存は lockfile、license、
 公開 safe API、memory/fuel 境界を別に reviewし、「PraTeX source が safe Rust」であることと

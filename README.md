@@ -15,7 +15,9 @@ PraTeXは、tyti氏によるTeX82のRust再実装`rtex`を基礎に、現代的�
 - `-output-format=pdf`による外部DVI driverを必要としないPDF直接出力
 - PDFへの暫定的なStandard 14 font出力と、明示したmapによるType 1 font全埋込み。実配布
   `pdftex.map`の複数resource構文、flags既定値、PFB Private `StdVW` fallbackまで読める
-- UTF-8入力からのCJK一文字token、`catcode`と`kcatcode`を分離した文字分類基盤
+- UTF-8入力からのCJK一文字token。`catcode`側をカノンとし、`kcatcode`の公開番号を
+  互換viewとして意味へ写す文字分類基盤
+- `\kanjiskip` / `\xkanjiskip`の通常glue parameter面。自動挿入、JFM font、和文nodeは未接続
 - `\pratexregion=0..5`によるCJKV組版locale状態。group/global/fmt/表示は対応済みだが、
   まだ文字間隔やfont選択には影響しない
 - `ls-R`索引と`kpsewhich`の公開CLIを組み合わせたTeX入力、font、mapなどの部分的な探索
@@ -28,7 +30,7 @@ e-TeX／TeX--XeTの完全性監査は
 [docs/etex-texxet-status.md](docs/etex-texxet-status.md)、pTeX相当とJLReqの実装順は
 [docs/japanese-typesetting-roadmap.md](docs/japanese-typesetting-roadmap.md) にあります。
 Vaak/WASMを明示登録時だけ有効にする内部境界は
-[docs/vaak-embedding-api-design.md](docs/vaak-embedding-api-design.md)、WSL e-upTeXとの比較条件は
+[docs/vaak-embedding-api-design.md](docs/vaak-embedding-api-design.md)、upLaTeXとのDVI性能gateは
 [docs/performance.md](docs/performance.md) にあります。どちらも未実装部分を含む設計・測定記録です。
 担当やセッションを交代する場合の現在枝、未commit差分、検証手順は
 [docs/HANDOFF.md](docs/HANDOFF.md) にまとめています。
@@ -111,7 +113,7 @@ packageは実装の資料として写さず、互換性を測る外部入力と�
 ## 未完成の領域
 
 - e-TeXおよびpdfTeX原始命令の残りと、広範なclass/packageを処理するLaTeX2e互換性
-- upTeXの`latin_ucs`、JFM、Unicode文字node、和文glue・禁則・縦組
+- JFM font、Unicode文字node、K/X自動空白、和文glue・禁則・縦組
 - OTF／TrueType、CID font、ToUnicode、font subsetを含むPDF font処理
 - `texmf.cnf`、全path expression、alias、`mktex*`を含むkpathseaの完全な互換性
 - `jsarticle`、`jlreq`、`ltjsarticle`、`hyperref`を実用的に動かすための互換層
@@ -128,7 +130,9 @@ packageは実装の資料として写さず、互換性を測る外部入力と�
 - [script境界組版とCJKV region](docs/extensible-layout-roadmap.md)
 - [UTF-8を保つ文字・異体字・造字の内部表現](docs/glyph-identity-roadmap.md)
 - [拡張可能な寸法単位](docs/extensible-dimension-units-roadmap.md)
+- [各地域・組版文化の文字サイズ単位調査](docs/international-typographic-units.md)
 - [明示登録Vaak phaseと低頻度WASM bulk](docs/vaak-embedding-api-design.md)
+- [外向きWASM provider ABI 0.0](docs/wasm-provider-abi-v0.md)
 - [監視/incremental実行/package取得/LSP](docs/incremental-tooling-roadmap.md)
 - [LaPraTeX](docs/lapratex-roadmap.md)
 
@@ -146,9 +150,9 @@ PraTeXはGPL-3.0で配布します。基礎となるrtexの権利はtyti氏に�
 配布されていますが、PraTeXへ組み込んだ全体はGPLv3として扱います。GPLのrtex側から
 Vaakへコードを移すことはしません。
 
-実装は原則としてsafe Rustだけを使います。頻出経路の性能を測り、出力とTRIPの結果を
-固定したうえで最適化します。完成時の性能目標はupTeX/e-upTeXとの同一DVI workloadでの
-正面比較であり、探索・fmt復元・組版・出力を分けて追跡します。
+実装と性能調整はsafe Rustだけを使います。頻出経路を測り、出力とTRIPの結果を固定したうえで
+最適化します。DVI modeでは同一入力・同一TeX tree・同等DVIでupLaTeXの実行時間の
+1.2倍未満をhard gateとし、探索・fmt復元・組版・出力も分けて追跡します。
 
 e-TeX、pTeX、upTeX、pdfTeX由来の拡張は、上流の実装コードを移植せず、公開仕様と
 許可された黒箱観測から書き直します。特にpTeX／upTeX系は由来ごとにライセンスが異なる

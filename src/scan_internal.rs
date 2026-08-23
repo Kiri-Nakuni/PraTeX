@@ -254,12 +254,12 @@ fn fetch_category_code(
 ) -> InternalValue {
     let chr = scanner.scan_latin_ucs_char_num(eqtb, logger);
     let cat_code = eqtb.latin_ucs_cat_code(u32::from(chr));
-    InternalValue::Int(cat_code as i32)
+    InternalValue::Int(cat_code.public_number())
 }
 
 fn fetch_kcat_code(scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Logger) -> InternalValue {
     let code_point = scanner.scan_unicode_code_point(eqtb, logger);
-    InternalValue::Int(eqtb.kcat_code(code_point) as i32)
+    InternalValue::Int(eqtb.kcat_code(code_point).public_number())
 }
 
 /// See 414.

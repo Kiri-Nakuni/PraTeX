@@ -9,6 +9,9 @@ PraTeX の寸法単位を、既存の TeX 互換経路を保ったまま追加�
 この文書は将来の実装順を定めるものであり、registry、Vaak の単位表登録、
 WASM provider はまだ実装済みではない。
 
+地域・組版文化ごとの実在単位、離散的な号数、font内部FUnitsをどのdomainへ置くかは
+[各地域・組版文化の文字サイズ単位](international-typographic-units.md)に一次資料つきで分離した。
+
 ## 2. 現在の実装
 
 通常寸法は `src/dimension.rs` の `scan_dimen` から `scan_units` へ入り、

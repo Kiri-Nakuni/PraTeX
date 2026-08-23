@@ -1,52 +1,6 @@
 use super::{CatCode, Eqtb, KCatCode};
 use crate::token::CjkCategory;
 
-/// 文字分類を ABI や token の内部表現から切り離して識別する番号。
-///
-/// `catcode` と `kcatcode` は公開数値が重なるため、同じ数値空間へ直接
-/// 押し込まない。上位領域で出自を区別し、拡張クラスには別領域を予約する。
-/// この符号化は現時点では crate 内部用であり、将来の WASM ABI そのものではない。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) struct CharClassId(u32);
-
-const KCAT_CODE_DOMAIN: u32 = 0x0001_0000;
-#[allow(dead_code)] // versioned extension registry が次段でこの予約領域を使う。
-const EXTENSION_DOMAIN: u32 = 0x8000_0000;
-#[allow(dead_code)] // 同上。組込み class と混ざらない局所 ID の上限。
-const EXTENSION_REGISTRY_ID_MASK: u32 = !EXTENSION_DOMAIN;
-
-impl CharClassId {
-    #[allow(dead_code)]
-    pub(crate) const fn from_cat_code(cat_code: CatCode) -> Self {
-        Self(cat_code as u32)
-    }
-
-    pub(crate) const fn from_kcat_code(kcat_code: KCatCode) -> Self {
-        Self(KCAT_CODE_DOMAIN | kcat_code as u32)
-    }
-
-    /// 中央host registryが一意に割り当てた番号を拡張クラス番号へ変換する。
-    /// provider自身の局所番号を直接渡してはならない。
-    #[allow(dead_code)]
-    pub(crate) const fn from_extension_registry(registry_id: u32) -> Option<Self> {
-        if registry_id <= EXTENSION_REGISTRY_ID_MASK {
-            Some(Self(EXTENSION_DOMAIN | registry_id))
-        } else {
-            None
-        }
-    }
-
-    #[allow(dead_code)]
-    pub(crate) const fn raw(self) -> u32 {
-        self.0
-    }
-
-    #[allow(dead_code)]
-    pub(crate) const fn is_extension(self) -> bool {
-        self.raw() & EXTENSION_DOMAIN != 0
-    }
-}
-
 /// 分類規則が呼ばれた場所。
 ///
 /// 組込み表は文脈に依存しない。将来の明示的に有効化された Vaak/WASM 規則が、
@@ -60,21 +14,20 @@ pub(crate) enum ClassificationContext {
     Detokenize,
 }
 
-/// Unicode 一単位を、現在の組込み規則でどちらの入力経路へ送るか。
+/// Unicode 一単位のカノンな入力分類。
+///
+/// `KCatCode` の 14..=20 は upTeX 互換のアクセス符号であり、この型へ入る前に
+/// 意味へ写す。通常の TeX category は `CatCode` をそのまま保持するため、
+/// `catcode=14` と `kcatcode=14` のような公開数値の衝突を内部 ID に持ち込まない。
+/// layout の script/JFM/provider class は入力分類ではないので、この型へ混ぜない。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum UnicodeDisposition {
+pub(crate) enum InputCategory {
     /// 元の UTF-8 byte 列を、8 bit `catcode` 表で処理する。
-    RawBytes { class_id: CharClassId },
-    /// upTeX `latin_ucs`: current Unicode catcodeを持つ欧文一文字token。
-    LatinUcs {
-        class_id: CharClassId,
-        cat_code: CatCode,
-    },
+    RawBytes,
+    /// current Unicode catcodeを持つ欧文一文字token。
+    CatCode(CatCode),
     /// 一つの和文 token として処理する。
-    Wide {
-        class_id: CharClassId,
-        category: CjkCategory,
-    },
+    Wide(CjkCategory),
 }
 
 /// 字句解析器が参照する統一問い合わせ面。
@@ -85,11 +38,11 @@ pub(crate) trait CharacterClassifier {
     /// 最頻経路。拡張IDを組み立てずTeX82の表だけを返す。
     fn byte_cat_code(&self, byte: u8, context: ClassificationContext) -> CatCode;
 
-    fn unicode_disposition(
+    fn unicode_category(
         &self,
         code_point: u32,
         context: ClassificationContext,
-    ) -> UnicodeDisposition;
+    ) -> InputCategory;
 }
 
 /// 組込み経路は `Eqtb` 自身へ静的dispatchし、中間objectを作らない。
@@ -100,13 +53,12 @@ impl CharacterClassifier for Eqtb {
     }
 
     #[inline(always)]
-    fn unicode_disposition(
+    fn unicode_category(
         &self,
         code_point: u32,
         _context: ClassificationContext,
-    ) -> UnicodeDisposition {
+    ) -> InputCategory {
         let kcat_code = self.kcat_code(code_point);
-        let class_id = CharClassId::from_kcat_code(kcat_code);
         let category = match kcat_code {
             KCatCode::Kanji => CjkCategory::Kanji,
             KCatCode::Kana => CjkCategory::Kana,
@@ -114,16 +66,13 @@ impl CharacterClassifier for Eqtb {
             KCatCode::Hangul => CjkCategory::Hangul,
             KCatCode::Modifier => CjkCategory::Modifier,
             KCatCode::LatinUcs => {
-                return UnicodeDisposition::LatinUcs {
-                    class_id,
-                    cat_code: self.latin_ucs_cat_code(code_point),
-                };
+                return InputCategory::CatCode(self.latin_ucs_cat_code(code_point));
             }
             KCatCode::NotCjk => {
-                return UnicodeDisposition::RawBytes { class_id };
+                return InputCategory::RawBytes;
             }
         };
-        UnicodeDisposition::Wide { class_id, category }
+        InputCategory::Wide(category)
     }
 }
 
@@ -153,13 +102,12 @@ where
         (self.cat_code)(byte)
     }
 
-    fn unicode_disposition(
+    fn unicode_category(
         &self,
         code_point: u32,
         _context: ClassificationContext,
-    ) -> UnicodeDisposition {
+    ) -> InputCategory {
         let kcat_code = (self.kcat_code)(code_point);
-        let class_id = CharClassId::from_kcat_code(kcat_code);
         let category = match kcat_code {
             KCatCode::Kanji => CjkCategory::Kanji,
             KCatCode::Kana => CjkCategory::Kana,
@@ -174,13 +122,13 @@ where
                 } else {
                     CatCode::OtherChar
                 };
-                return UnicodeDisposition::LatinUcs { class_id, cat_code };
+                return InputCategory::CatCode(cat_code);
             }
             KCatCode::NotCjk => {
-                return UnicodeDisposition::RawBytes { class_id };
+                return InputCategory::RawBytes;
             }
         };
-        UnicodeDisposition::Wide { class_id, category }
+        InputCategory::Wide(category)
     }
 }
 
@@ -189,18 +137,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn 組込み二領域と拡張領域は数値が衝突しない() {
-        let comment = CharClassId::from_cat_code(CatCode::Comment);
-        let latin_ucs = CharClassId::from_kcat_code(KCatCode::LatinUcs);
-        let namespace = CharClassId::from_cat_code(CatCode::Namespace);
-        let kanji = CharClassId::from_kcat_code(KCatCode::Kanji);
-        let extension = CharClassId::from_extension_registry(16).unwrap();
+    fn kcatcodeの公開数値はcatcode側の意味へ写す() {
+        assert_eq!(CatCode::Comment.public_number(), 14);
+        assert_eq!(KCatCode::LatinUcs.public_number(), 14);
+        assert_eq!(CatCode::Namespace.public_number(), 16);
+        assert_eq!(KCatCode::Kanji.public_number(), 16);
 
-        assert_ne!(comment, latin_ucs);
-        assert_ne!(namespace, kanji);
-        assert!(extension.is_extension());
-        assert!(!comment.is_extension());
-        assert!(CharClassId::from_extension_registry(EXTENSION_DOMAIN).is_none());
+        let latin = CallbackClassifier::new(|_| CatCode::Letter, |_| KCatCode::LatinUcs);
+        assert_eq!(
+            latin.unicode_category(0x00DF, ClassificationContext::Input),
+            InputCategory::CatCode(CatCode::Letter),
+        );
+
+        let kanji = CallbackClassifier::new(|_| CatCode::Namespace, |_| KCatCode::Kanji);
+        assert_eq!(
+            kanji.unicode_category(0x4E00, ClassificationContext::Input),
+            InputCategory::Wide(CjkCategory::Kanji),
+        );
     }
 
     #[test]
@@ -211,26 +164,20 @@ mod tests {
             CatCode::Letter,
         );
         assert!(matches!(
-            eqtb.unicode_disposition(0x3042, ClassificationContext::Input),
-            UnicodeDisposition::Wide {
-                category: CjkCategory::Kana,
-                ..
-            }
+            eqtb.unicode_category(0x3042, ClassificationContext::Input),
+            InputCategory::Wide(CjkCategory::Kana)
         ));
         assert!(matches!(
-            eqtb.unicode_disposition(0x41, ClassificationContext::Input),
-            UnicodeDisposition::RawBytes { .. }
+            eqtb.unicode_category(0x41, ClassificationContext::Input),
+            InputCategory::RawBytes
         ));
 
         let mut eqtb = eqtb;
         eqtb.kcat_code_define(0x00DF, KCatCode::LatinUcs, true);
         eqtb.latin_ucs_cat_code_define(0x00DF, CatCode::Letter, true);
         assert!(matches!(
-            eqtb.unicode_disposition(0x00DF, ClassificationContext::Input),
-            UnicodeDisposition::LatinUcs {
-                cat_code: CatCode::Letter,
-                ..
-            }
+            eqtb.unicode_category(0x00DF, ClassificationContext::Input),
+            InputCategory::CatCode(CatCode::Letter)
         ));
     }
 

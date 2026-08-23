@@ -1,0 +1,1307 @@
+use crate::dimension::{Dimension, MAX_DIMEN};
+use crate::eqtb::LanguageRegion;
+use crate::nodes::{DimensionOrder, HigherOrderDimension};
+
+pub(crate) const MAX_SCRIPT_SPACING_CLASSES: u32 = 64;
+pub(crate) const MAX_SCRIPT_SPACING_RANGES: usize = 4_096;
+pub(crate) const MAX_SCRIPT_SPACING_RULES: usize = 16_384;
+
+const REGION_COUNT: usize = LanguageRegion::MAX_CODE as usize + 1;
+const WRITING_MODE_COUNT: usize = 2;
+const CLASSIFICATION_CONTEXT_COUNT: usize = REGION_COUNT * WRITING_MODE_COUNT;
+const VALID_REGION_MASK: u32 = (1 << REGION_COUNT) - 1;
+const VALID_WRITING_MODE_MASK: u32 = (1 << WRITING_MODE_COUNT) - 1;
+
+/// A class number in a provider's declaration.
+///
+/// This is deliberately not convertible to [`ScriptClassId`] outside this module. Provider
+/// numbers are one-based and only meaningful while one complete proposal is being validated;
+/// zero is reserved by the WASM ABI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ProviderScriptClassId(u32);
+
+impl ProviderScriptClassId {
+    pub(crate) const fn from_wire(value: u32) -> Self {
+        Self(value)
+    }
+}
+
+/// A class number in one host-owned, validated table.
+///
+/// It is neither a JFM character type nor a value that may be saved in a format file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ScriptClassId(u16);
+
+impl ScriptClassId {
+    const fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum WritingMode {
+    Horizontal = 0,
+    Vertical = 1,
+}
+
+impl WritingMode {
+    const ALL: [Self; WRITING_MODE_COUNT] = [Self::Horizontal, Self::Vertical];
+
+    const fn index(self) -> usize {
+        self as usize
+    }
+}
+
+/// A provider's bit mask over the public [`LanguageRegion`] codes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ProviderRegionMask(u32);
+
+impl ProviderRegionMask {
+    pub(crate) const fn from_wire(value: u32) -> Self {
+        Self(value)
+    }
+
+    pub(crate) const fn all() -> Self {
+        Self(VALID_REGION_MASK)
+    }
+
+    pub(crate) const fn one(region: LanguageRegion) -> Self {
+        Self(1 << region.code())
+    }
+
+    const fn contains_code(self, region_code: usize) -> bool {
+        self.0 & (1 << region_code) != 0
+    }
+}
+
+/// A provider's bit mask whose bits 0 and 1 mean horizontal and vertical writing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ProviderWritingModeMask(u32);
+
+impl ProviderWritingModeMask {
+    pub(crate) const fn from_wire(value: u32) -> Self {
+        Self(value)
+    }
+
+    pub(crate) const fn all() -> Self {
+        Self(VALID_WRITING_MODE_MASK)
+    }
+
+    pub(crate) const fn one(writing_mode: WritingMode) -> Self {
+        Self(1 << writing_mode.index())
+    }
+
+    const fn contains(self, writing_mode: WritingMode) -> bool {
+        self.0 & (1 << writing_mode.index()) != 0
+    }
+}
+
+/// A fixed glue value which no longer needs validation in the list finalizer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct FixedGlue {
+    width: Dimension,
+    stretch: HigherOrderDimension,
+    shrink: HigherOrderDimension,
+}
+
+impl FixedGlue {
+    pub(crate) const fn width(self) -> Dimension {
+        self.width
+    }
+
+    pub(crate) const fn stretch(self) -> HigherOrderDimension {
+        self.stretch
+    }
+
+    pub(crate) const fn shrink(self) -> HigherOrderDimension {
+        self.shrink
+    }
+}
+
+/// The result consumed by native Japanese spacing and by uploaded compiled profiles alike.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ScriptSpacingAction {
+    BuiltInFallback,
+    NoAutomaticSpace,
+    KanjiSkip,
+    XKanjiSkip,
+    FixedGlue(FixedGlue),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct FixedGlueProposal {
+    width: i64,
+    stretch: i64,
+    stretch_order: u8,
+    shrink: i64,
+    shrink_order: u8,
+}
+
+impl FixedGlueProposal {
+    pub(crate) const fn new(
+        width: i64,
+        stretch: i64,
+        stretch_order: u8,
+        shrink: i64,
+        shrink_order: u8,
+    ) -> Self {
+        Self {
+            width,
+            stretch,
+            stretch_order,
+            shrink,
+            shrink_order,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ScriptSpacingActionProposal {
+    BuiltInFallback,
+    NoAutomaticSpace,
+    KanjiSkip,
+    XKanjiSkip,
+    FixedGlue(FixedGlueProposal),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct UnicodeScalarRangeProposal {
+    start: u32,
+    end: u32,
+    class: ProviderScriptClassId,
+    region_mask: ProviderRegionMask,
+    writing_mode_mask: ProviderWritingModeMask,
+}
+
+impl UnicodeScalarRangeProposal {
+    pub(crate) const fn new(
+        start: u32,
+        end: u32,
+        class: ProviderScriptClassId,
+        region_mask: ProviderRegionMask,
+        writing_mode_mask: ProviderWritingModeMask,
+    ) -> Self {
+        Self {
+            start,
+            end,
+            class,
+            region_mask,
+            writing_mode_mask,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ScriptPairRuleProposal {
+    left: ProviderScriptClassId,
+    right: ProviderScriptClassId,
+    region: LanguageRegion,
+    writing_mode: WritingMode,
+    action: ScriptSpacingActionProposal,
+}
+
+impl ScriptPairRuleProposal {
+    pub(crate) const fn new(
+        left: ProviderScriptClassId,
+        right: ProviderScriptClassId,
+        region: LanguageRegion,
+        writing_mode: WritingMode,
+        action: ScriptSpacingActionProposal,
+    ) -> Self {
+        Self {
+            left,
+            right,
+            region,
+            writing_mode,
+            action,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ScriptSpacingTableProposal {
+    class_count: u32,
+    ranges: Vec<UnicodeScalarRangeProposal>,
+    rules: Vec<ScriptPairRuleProposal>,
+}
+
+impl ScriptSpacingTableProposal {
+    pub(crate) fn new(
+        class_count: u32,
+        ranges: Vec<UnicodeScalarRangeProposal>,
+        rules: Vec<ScriptPairRuleProposal>,
+    ) -> Self {
+        Self {
+            class_count,
+            ranges,
+            rules,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GlueComponent {
+    Width,
+    Stretch,
+    Shrink,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ScriptSpacingTableError {
+    EmptyClassSet,
+    TooManyClasses {
+        actual: u32,
+        maximum: u32,
+    },
+    TooManyRanges {
+        actual: usize,
+        maximum: usize,
+    },
+    TooManyRules {
+        actual: usize,
+        maximum: usize,
+    },
+    ReversedScalarRange {
+        range_index: usize,
+    },
+    NonScalarRange {
+        range_index: usize,
+    },
+    RangeClassOutOfBounds {
+        range_index: usize,
+        class: u32,
+        class_count: u32,
+    },
+    InvalidRangeRegionMask {
+        range_index: usize,
+        mask: u32,
+    },
+    InvalidRangeWritingModeMask {
+        range_index: usize,
+        mask: u32,
+    },
+    OverlappingScalarRanges {
+        first_range_index: usize,
+        second_range_index: usize,
+        region_code: u8,
+        writing_mode: WritingMode,
+    },
+    RuleClassOutOfBounds {
+        rule_index: usize,
+        class: u32,
+        class_count: u32,
+    },
+    DuplicatePairRules {
+        first_rule_index: usize,
+        second_rule_index: usize,
+    },
+    InvalidGlueOrder {
+        rule_index: usize,
+        component: GlueComponent,
+        order: u8,
+    },
+    GlueComponentOutOfBounds {
+        rule_index: usize,
+        component: GlueComponent,
+        value: i64,
+    },
+    CompiledTableTooLarge,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct UnicodeScalarRange {
+    start: u32,
+    end: u32,
+    class: ScriptClassId,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ValidatedScalarRange {
+    original_index: usize,
+    range: UnicodeScalarRange,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RangeSpan {
+    start: usize,
+    end: usize,
+}
+
+impl RangeSpan {
+    const EMPTY: Self = Self { start: 0, end: 0 };
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct ScriptPairKey {
+    left: u16,
+    right: u16,
+    region: u8,
+    writing_mode: WritingMode,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ValidatedRule {
+    original_index: usize,
+    key: ScriptPairKey,
+    action: ScriptSpacingAction,
+}
+
+/// A host-owned table. All allocation and validation happens when it is compiled.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CompiledScriptSpacingTable {
+    class_count: u16,
+    ranges: Vec<UnicodeScalarRange>,
+    /// Slices in `ranges`, indexed by `(writing mode, region)`.
+    range_spans: [RangeSpan; CLASSIFICATION_CONTEXT_COUNT],
+    /// Dense `(writing mode, region, left, right)` slots containing indexes into `actions`.
+    action_indices: Vec<u16>,
+    /// Slot zero is always `BuiltInFallback`.
+    actions: Vec<ScriptSpacingAction>,
+}
+
+impl CompiledScriptSpacingTable {
+    /// Validates the complete proposal before returning a table visible to the caller.
+    pub(crate) fn compile(
+        proposal: ScriptSpacingTableProposal,
+    ) -> Result<Self, ScriptSpacingTableError> {
+        validate_proposal_size(&proposal)?;
+
+        let class_count = proposal.class_count as u16;
+        let mut ranges_by_context: [Vec<ValidatedScalarRange>; CLASSIFICATION_CONTEXT_COUNT] =
+            std::array::from_fn(|_| Vec::new());
+        for (range_index, range) in proposal.ranges.into_iter().enumerate() {
+            let class = validate_scalar_range(range_index, range, proposal.class_count)?;
+            let validated_range = UnicodeScalarRange {
+                start: range.start,
+                end: range.end,
+                class,
+            };
+            for writing_mode in WritingMode::ALL {
+                if !range.writing_mode_mask.contains(writing_mode) {
+                    continue;
+                }
+                for region_code in 0..REGION_COUNT {
+                    if range.region_mask.contains_code(region_code) {
+                        ranges_by_context[classification_context_index(region_code, writing_mode)]
+                            .push(ValidatedScalarRange {
+                                original_index: range_index,
+                                range: validated_range,
+                            });
+                    }
+                }
+            }
+        }
+
+        let expanded_range_count = ranges_by_context
+            .iter()
+            .try_fold(0usize, |count, ranges| count.checked_add(ranges.len()));
+        let mut ranges = Vec::with_capacity(
+            expanded_range_count.ok_or(ScriptSpacingTableError::CompiledTableTooLarge)?,
+        );
+        let mut range_spans = [RangeSpan::EMPTY; CLASSIFICATION_CONTEXT_COUNT];
+        for writing_mode in WritingMode::ALL {
+            for region_code in 0..REGION_COUNT {
+                let context = classification_context_index(region_code, writing_mode);
+                let context_ranges = &mut ranges_by_context[context];
+                context_ranges.sort_unstable_by_key(|entry| {
+                    (entry.range.start, entry.range.end, entry.original_index)
+                });
+                for index in 1..context_ranges.len() {
+                    if context_ranges[index - 1].range.end >= context_ranges[index].range.start {
+                        return Err(ScriptSpacingTableError::OverlappingScalarRanges {
+                            first_range_index: context_ranges[index - 1].original_index,
+                            second_range_index: context_ranges[index].original_index,
+                            region_code: region_code as u8,
+                            writing_mode,
+                        });
+                    }
+                }
+                let start = ranges.len();
+                ranges.extend(context_ranges.iter().map(|entry| entry.range));
+                range_spans[context] = RangeSpan {
+                    start,
+                    end: ranges.len(),
+                };
+            }
+        }
+
+        let mut rules = Vec::with_capacity(proposal.rules.len());
+        for (rule_index, rule) in proposal.rules.into_iter().enumerate() {
+            let left = validate_rule_class(rule_index, rule.left, proposal.class_count)?;
+            let right = validate_rule_class(rule_index, rule.right, proposal.class_count)?;
+            rules.push(ValidatedRule {
+                original_index: rule_index,
+                key: ScriptPairKey {
+                    left: left.0,
+                    right: right.0,
+                    region: rule.region.code(),
+                    writing_mode: rule.writing_mode,
+                },
+                action: validate_action(rule_index, rule.action)?,
+            });
+        }
+        rules.sort_unstable_by_key(|rule| (rule.key, rule.original_index));
+        for index in 1..rules.len() {
+            if rules[index - 1].key == rules[index].key {
+                return Err(ScriptSpacingTableError::DuplicatePairRules {
+                    first_rule_index: rules[index - 1].original_index,
+                    second_rule_index: rules[index].original_index,
+                });
+            }
+        }
+
+        let slot_count = usize::from(class_count)
+            .checked_mul(usize::from(class_count))
+            .and_then(|count| count.checked_mul(REGION_COUNT))
+            .and_then(|count| count.checked_mul(WRITING_MODE_COUNT))
+            .ok_or(ScriptSpacingTableError::CompiledTableTooLarge)?;
+        let mut action_indices = vec![0; slot_count];
+        let mut actions = Vec::with_capacity(rules.len() + 1);
+        actions.push(ScriptSpacingAction::BuiltInFallback);
+        for rule in rules {
+            let action_index = u16::try_from(actions.len())
+                .map_err(|_| ScriptSpacingTableError::CompiledTableTooLarge)?;
+            let slot = slot_index(
+                usize::from(class_count),
+                ScriptClassId(rule.key.left),
+                ScriptClassId(rule.key.right),
+                rule.key.region as usize,
+                rule.key.writing_mode,
+            );
+            action_indices[slot] = action_index;
+            actions.push(rule.action);
+        }
+
+        Ok(Self {
+            class_count,
+            ranges,
+            range_spans,
+            action_indices,
+            actions,
+        })
+    }
+
+    /// Compiles first and only then replaces the active table.
+    pub(crate) fn try_replace(
+        &mut self,
+        proposal: ScriptSpacingTableProposal,
+    ) -> Result<(), ScriptSpacingTableError> {
+        let replacement = Self::compile(proposal)?;
+        *self = replacement;
+        Ok(())
+    }
+
+    pub(crate) const fn class_count(&self) -> u16 {
+        self.class_count
+    }
+
+    /// Classifies one already-validated Unicode scalar in its layout context without allocation.
+    #[inline]
+    pub(crate) fn classify_scalar(
+        &self,
+        scalar: char,
+        region: LanguageRegion,
+        writing_mode: WritingMode,
+    ) -> Option<ScriptClassId> {
+        let span =
+            self.range_spans[classification_context_index(region.code() as usize, writing_mode)];
+        let ranges = &self.ranges[span.start..span.end];
+        let scalar = scalar as u32;
+        let insertion_point = ranges.partition_point(|range| range.start <= scalar);
+        if insertion_point == 0 {
+            return None;
+        }
+        let range = ranges[insertion_point - 1];
+        (scalar <= range.end).then_some(range.class)
+    }
+
+    /// Performs a direct table lookup without allocation, dynamic dispatch, or an ABI call.
+    #[inline]
+    pub(crate) fn action_for(
+        &self,
+        left: ScriptClassId,
+        right: ScriptClassId,
+        region: LanguageRegion,
+        writing_mode: WritingMode,
+    ) -> ScriptSpacingAction {
+        let class_count = usize::from(self.class_count);
+        if left.index() >= class_count || right.index() >= class_count {
+            debug_assert!(false, "script class belongs to another compiled table");
+            return ScriptSpacingAction::BuiltInFallback;
+        }
+        let slot = slot_index(
+            class_count,
+            left,
+            right,
+            region.code() as usize,
+            writing_mode,
+        );
+        self.actions[self.action_indices[slot] as usize]
+    }
+}
+
+/// The dispatcher chooses one variant once per list, then the hot loop keeps the returned table.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum ScriptSpacingProfileRef<'a> {
+    BuiltIn(&'a CompiledScriptSpacingTable),
+    CompiledTable(&'a CompiledScriptSpacingTable),
+}
+
+impl<'a> ScriptSpacingProfileRef<'a> {
+    pub(crate) const fn select_table(self) -> &'a CompiledScriptSpacingTable {
+        match self {
+            Self::BuiltIn(table) | Self::CompiledTable(table) => table,
+        }
+    }
+}
+
+fn validate_proposal_size(
+    proposal: &ScriptSpacingTableProposal,
+) -> Result<(), ScriptSpacingTableError> {
+    if proposal.class_count == 0 {
+        return Err(ScriptSpacingTableError::EmptyClassSet);
+    }
+    if proposal.class_count > MAX_SCRIPT_SPACING_CLASSES {
+        return Err(ScriptSpacingTableError::TooManyClasses {
+            actual: proposal.class_count,
+            maximum: MAX_SCRIPT_SPACING_CLASSES,
+        });
+    }
+    if proposal.ranges.len() > MAX_SCRIPT_SPACING_RANGES {
+        return Err(ScriptSpacingTableError::TooManyRanges {
+            actual: proposal.ranges.len(),
+            maximum: MAX_SCRIPT_SPACING_RANGES,
+        });
+    }
+    if proposal.rules.len() > MAX_SCRIPT_SPACING_RULES {
+        return Err(ScriptSpacingTableError::TooManyRules {
+            actual: proposal.rules.len(),
+            maximum: MAX_SCRIPT_SPACING_RULES,
+        });
+    }
+    Ok(())
+}
+
+fn validate_scalar_range(
+    range_index: usize,
+    range: UnicodeScalarRangeProposal,
+    class_count: u32,
+) -> Result<ScriptClassId, ScriptSpacingTableError> {
+    if range.start > range.end {
+        return Err(ScriptSpacingTableError::ReversedScalarRange { range_index });
+    }
+    if range.end > char::MAX as u32 || (range.start <= 0xdfff && range.end >= 0xd800) {
+        return Err(ScriptSpacingTableError::NonScalarRange { range_index });
+    }
+    if range.region_mask.0 == 0 || range.region_mask.0 & !VALID_REGION_MASK != 0 {
+        return Err(ScriptSpacingTableError::InvalidRangeRegionMask {
+            range_index,
+            mask: range.region_mask.0,
+        });
+    }
+    if range.writing_mode_mask.0 == 0 || range.writing_mode_mask.0 & !VALID_WRITING_MODE_MASK != 0 {
+        return Err(ScriptSpacingTableError::InvalidRangeWritingModeMask {
+            range_index,
+            mask: range.writing_mode_mask.0,
+        });
+    }
+    translate_provider_class(range.class, class_count).ok_or(
+        ScriptSpacingTableError::RangeClassOutOfBounds {
+            range_index,
+            class: range.class.0,
+            class_count,
+        },
+    )
+}
+
+fn validate_rule_class(
+    rule_index: usize,
+    class: ProviderScriptClassId,
+    class_count: u32,
+) -> Result<ScriptClassId, ScriptSpacingTableError> {
+    translate_provider_class(class, class_count).ok_or(
+        ScriptSpacingTableError::RuleClassOutOfBounds {
+            rule_index,
+            class: class.0,
+            class_count,
+        },
+    )
+}
+
+/// ABI class zero is reserved; this is the sole wire-to-dense-ID translation point.
+fn translate_provider_class(
+    class: ProviderScriptClassId,
+    class_count: u32,
+) -> Option<ScriptClassId> {
+    if class.0 == 0 || class.0 > class_count {
+        None
+    } else {
+        Some(ScriptClassId((class.0 - 1) as u16))
+    }
+}
+
+fn validate_action(
+    rule_index: usize,
+    action: ScriptSpacingActionProposal,
+) -> Result<ScriptSpacingAction, ScriptSpacingTableError> {
+    Ok(match action {
+        ScriptSpacingActionProposal::BuiltInFallback => ScriptSpacingAction::BuiltInFallback,
+        ScriptSpacingActionProposal::NoAutomaticSpace => ScriptSpacingAction::NoAutomaticSpace,
+        ScriptSpacingActionProposal::KanjiSkip => ScriptSpacingAction::KanjiSkip,
+        ScriptSpacingActionProposal::XKanjiSkip => ScriptSpacingAction::XKanjiSkip,
+        ScriptSpacingActionProposal::FixedGlue(glue) => {
+            ScriptSpacingAction::FixedGlue(validate_fixed_glue(rule_index, glue)?)
+        }
+    })
+}
+
+fn validate_fixed_glue(
+    rule_index: usize,
+    glue: FixedGlueProposal,
+) -> Result<FixedGlue, ScriptSpacingTableError> {
+    Ok(FixedGlue {
+        width: validate_glue_value(rule_index, GlueComponent::Width, glue.width)?,
+        stretch: HigherOrderDimension {
+            value: validate_glue_value(rule_index, GlueComponent::Stretch, glue.stretch)?,
+            order: validate_glue_order(rule_index, GlueComponent::Stretch, glue.stretch_order)?,
+        },
+        shrink: HigherOrderDimension {
+            value: validate_glue_value(rule_index, GlueComponent::Shrink, glue.shrink)?,
+            order: validate_glue_order(rule_index, GlueComponent::Shrink, glue.shrink_order)?,
+        },
+    })
+}
+
+fn validate_glue_value(
+    rule_index: usize,
+    component: GlueComponent,
+    value: i64,
+) -> Result<i32, ScriptSpacingTableError> {
+    if !(-(MAX_DIMEN as i64)..=MAX_DIMEN as i64).contains(&value) {
+        return Err(ScriptSpacingTableError::GlueComponentOutOfBounds {
+            rule_index,
+            component,
+            value,
+        });
+    }
+    Ok(value as i32)
+}
+
+fn validate_glue_order(
+    rule_index: usize,
+    component: GlueComponent,
+    order: u8,
+) -> Result<DimensionOrder, ScriptSpacingTableError> {
+    match order {
+        0 => Ok(DimensionOrder::Normal),
+        1 => Ok(DimensionOrder::Fil),
+        2 => Ok(DimensionOrder::Fill),
+        3 => Ok(DimensionOrder::Filll),
+        _ => Err(ScriptSpacingTableError::InvalidGlueOrder {
+            rule_index,
+            component,
+            order,
+        }),
+    }
+}
+
+#[inline]
+fn classification_context_index(region: usize, writing_mode: WritingMode) -> usize {
+    writing_mode.index() * REGION_COUNT + region
+}
+
+#[inline]
+fn slot_index(
+    class_count: usize,
+    left: ScriptClassId,
+    right: ScriptClassId,
+    region: usize,
+    writing_mode: WritingMode,
+) -> usize {
+    (((writing_mode.index() * REGION_COUNT + region) * class_count + left.index()) * class_count)
+        + right.index()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn class(value: u32) -> ProviderScriptClassId {
+        ProviderScriptClassId::from_wire(value)
+    }
+
+    fn range(start: u32, end: u32, class_id: u32) -> UnicodeScalarRangeProposal {
+        UnicodeScalarRangeProposal::new(
+            start,
+            end,
+            class(class_id),
+            ProviderRegionMask::all(),
+            ProviderWritingModeMask::all(),
+        )
+    }
+
+    fn contextual_range(
+        start: u32,
+        end: u32,
+        class_id: u32,
+        region_mask: ProviderRegionMask,
+        writing_mode_mask: ProviderWritingModeMask,
+    ) -> UnicodeScalarRangeProposal {
+        UnicodeScalarRangeProposal::new(start, end, class(class_id), region_mask, writing_mode_mask)
+    }
+
+    fn rule(
+        left: u32,
+        right: u32,
+        region: LanguageRegion,
+        writing_mode: WritingMode,
+        action: ScriptSpacingActionProposal,
+    ) -> ScriptPairRuleProposal {
+        ScriptPairRuleProposal::new(class(left), class(right), region, writing_mode, action)
+    }
+
+    fn 最小の正しい提案() -> ScriptSpacingTableProposal {
+        ScriptSpacingTableProposal::new(
+            3,
+            vec![
+                range(0x4e00, 0x9fff, 3),
+                range(0x3040, 0x309f, 2),
+                range(u32::from('A'), u32::from('Z'), 1),
+            ],
+            vec![
+                rule(
+                    3,
+                    3,
+                    LanguageRegion::Ja,
+                    WritingMode::Horizontal,
+                    ScriptSpacingActionProposal::KanjiSkip,
+                ),
+                rule(
+                    3,
+                    1,
+                    LanguageRegion::Ja,
+                    WritingMode::Horizontal,
+                    ScriptSpacingActionProposal::XKanjiSkip,
+                ),
+                rule(
+                    1,
+                    3,
+                    LanguageRegion::Ja,
+                    WritingMode::Vertical,
+                    ScriptSpacingActionProposal::FixedGlue(FixedGlueProposal::new(
+                        65_536, 32_768, 1, 16_384, 0,
+                    )),
+                ),
+            ],
+        )
+    }
+
+    #[test]
+    fn 検証済み範囲と文字クラス対を割当てなしで引ける() {
+        let table = CompiledScriptSpacingTable::compile(最小の正しい提案()).unwrap();
+        assert_eq!(table.class_count(), 3);
+
+        let latin = table
+            .classify_scalar('A', LanguageRegion::Ja, WritingMode::Horizontal)
+            .unwrap();
+        let hiragana = table
+            .classify_scalar('あ', LanguageRegion::Ja, WritingMode::Horizontal)
+            .unwrap();
+        let han = table
+            .classify_scalar('漢', LanguageRegion::Ja, WritingMode::Horizontal)
+            .unwrap();
+        assert_ne!(latin, hiragana);
+        assert_ne!(hiragana, han);
+        assert_eq!(
+            table.classify_scalar('a', LanguageRegion::Ja, WritingMode::Horizontal),
+            None
+        );
+
+        assert_eq!(
+            table.action_for(han, han, LanguageRegion::Ja, WritingMode::Horizontal),
+            ScriptSpacingAction::KanjiSkip
+        );
+        assert_eq!(
+            table.action_for(han, latin, LanguageRegion::Ja, WritingMode::Horizontal),
+            ScriptSpacingAction::XKanjiSkip
+        );
+        assert_eq!(
+            table.action_for(han, latin, LanguageRegion::Ko, WritingMode::Horizontal),
+            ScriptSpacingAction::BuiltInFallback
+        );
+
+        let ScriptSpacingAction::FixedGlue(glue) =
+            table.action_for(latin, han, LanguageRegion::Ja, WritingMode::Vertical)
+        else {
+            panic!("固定糊でなければならない");
+        };
+        assert_eq!(glue.width(), 65_536);
+        assert_eq!(glue.stretch().value, 32_768);
+        assert_eq!(glue.stretch().order, DimensionOrder::Fil);
+        assert_eq!(glue.shrink().value, 16_384);
+        assert_eq!(glue.shrink().order, DimensionOrder::Normal);
+    }
+
+    #[test]
+    fn 組込みと登録済み表は同じ意味型を返す() {
+        let built_in = CompiledScriptSpacingTable::compile(最小の正しい提案()).unwrap();
+        let uploaded = CompiledScriptSpacingTable::compile(最小の正しい提案()).unwrap();
+        let built_in = ScriptSpacingProfileRef::BuiltIn(&built_in).select_table();
+        let uploaded = ScriptSpacingProfileRef::CompiledTable(&uploaded).select_table();
+
+        let left = built_in
+            .classify_scalar('漢', LanguageRegion::Ja, WritingMode::Horizontal)
+            .unwrap();
+        let right = built_in
+            .classify_scalar('A', LanguageRegion::Ja, WritingMode::Horizontal)
+            .unwrap();
+        let uploaded_left = uploaded
+            .classify_scalar('漢', LanguageRegion::Ja, WritingMode::Horizontal)
+            .unwrap();
+        let uploaded_right = uploaded
+            .classify_scalar('A', LanguageRegion::Ja, WritingMode::Horizontal)
+            .unwrap();
+        assert_eq!(
+            built_in.action_for(left, right, LanguageRegion::Ja, WritingMode::Horizontal),
+            uploaded.action_for(
+                uploaded_left,
+                uploaded_right,
+                LanguageRegion::Ja,
+                WritingMode::Horizontal
+            )
+        );
+    }
+
+    #[test]
+    fn wireの一始まり文字クラスを内部の零始まり密番号へ写す() {
+        let table = CompiledScriptSpacingTable::compile(ScriptSpacingTableProposal::new(
+            2,
+            vec![
+                range(u32::from('A'), u32::from('A'), 1),
+                range(u32::from('B'), u32::from('B'), 2),
+            ],
+            Vec::new(),
+        ))
+        .unwrap();
+        assert_eq!(
+            table.classify_scalar('A', LanguageRegion::Und, WritingMode::Horizontal),
+            Some(ScriptClassId(0))
+        );
+        assert_eq!(
+            table.classify_scalar('B', LanguageRegion::Und, WritingMode::Horizontal),
+            Some(ScriptClassId(1))
+        );
+
+        assert_eq!(
+            CompiledScriptSpacingTable::compile(ScriptSpacingTableProposal::new(
+                1,
+                vec![range(u32::from('A'), u32::from('A'), 0)],
+                Vec::new(),
+            )),
+            Err(ScriptSpacingTableError::RangeClassOutOfBounds {
+                range_index: 0,
+                class: 0,
+                class_count: 1,
+            })
+        );
+        assert_eq!(
+            CompiledScriptSpacingTable::compile(ScriptSpacingTableProposal::new(
+                1,
+                Vec::new(),
+                vec![rule(
+                    0,
+                    1,
+                    LanguageRegion::Und,
+                    WritingMode::Horizontal,
+                    ScriptSpacingActionProposal::BuiltInFallback,
+                )],
+            )),
+            Err(ScriptSpacingTableError::RuleClassOutOfBounds {
+                rule_index: 0,
+                class: 0,
+                class_count: 1,
+            })
+        );
+    }
+
+    #[test]
+    fn 同じ符号位置を地域と組方向ごとに別の文字クラスへできる() {
+        let scalar = u32::from('A');
+        let table = CompiledScriptSpacingTable::compile(ScriptSpacingTableProposal::new(
+            3,
+            vec![
+                contextual_range(
+                    scalar,
+                    scalar,
+                    1,
+                    ProviderRegionMask::one(LanguageRegion::Ja),
+                    ProviderWritingModeMask::one(WritingMode::Horizontal),
+                ),
+                contextual_range(
+                    scalar,
+                    scalar,
+                    2,
+                    ProviderRegionMask::one(LanguageRegion::Ko),
+                    ProviderWritingModeMask::one(WritingMode::Horizontal),
+                ),
+                contextual_range(
+                    scalar,
+                    scalar,
+                    3,
+                    ProviderRegionMask::one(LanguageRegion::Ja),
+                    ProviderWritingModeMask::one(WritingMode::Vertical),
+                ),
+            ],
+            Vec::new(),
+        ))
+        .unwrap();
+
+        assert_eq!(
+            table.classify_scalar('A', LanguageRegion::Ja, WritingMode::Horizontal),
+            Some(ScriptClassId(0))
+        );
+        assert_eq!(
+            table.classify_scalar('A', LanguageRegion::Ko, WritingMode::Horizontal),
+            Some(ScriptClassId(1))
+        );
+        assert_eq!(
+            table.classify_scalar('A', LanguageRegion::Ja, WritingMode::Vertical),
+            Some(ScriptClassId(2))
+        );
+        assert_eq!(
+            table.classify_scalar('A', LanguageRegion::Ko, WritingMode::Vertical),
+            None
+        );
+    }
+
+    #[test]
+    fn 同じ地域と組方向でだけ重複範囲を拒む() {
+        let scalar = u32::from('A');
+        let ja_and_ko = ProviderRegionMask::from_wire(
+            (1 << LanguageRegion::Ja.code()) | (1 << LanguageRegion::Ko.code()),
+        );
+        let both_modes = ProviderWritingModeMask::all();
+        let proposal = ScriptSpacingTableProposal::new(
+            2,
+            vec![
+                contextual_range(scalar, scalar, 1, ja_and_ko, both_modes),
+                contextual_range(
+                    scalar,
+                    scalar,
+                    2,
+                    ProviderRegionMask::one(LanguageRegion::Ko),
+                    ProviderWritingModeMask::one(WritingMode::Vertical),
+                ),
+            ],
+            Vec::new(),
+        );
+        assert_eq!(
+            CompiledScriptSpacingTable::compile(proposal),
+            Err(ScriptSpacingTableError::OverlappingScalarRanges {
+                first_range_index: 0,
+                second_range_index: 1,
+                region_code: LanguageRegion::Ko.code(),
+                writing_mode: WritingMode::Vertical,
+            })
+        );
+    }
+
+    #[test]
+    fn 零と未知bitを持つ範囲maskを拒む() {
+        let scalar = u32::from('A');
+        for (bad_range, expected) in [
+            (
+                contextual_range(
+                    scalar,
+                    scalar,
+                    1,
+                    ProviderRegionMask::from_wire(0),
+                    ProviderWritingModeMask::all(),
+                ),
+                ScriptSpacingTableError::InvalidRangeRegionMask {
+                    range_index: 0,
+                    mask: 0,
+                },
+            ),
+            (
+                contextual_range(
+                    scalar,
+                    scalar,
+                    1,
+                    ProviderRegionMask::from_wire(1 << REGION_COUNT),
+                    ProviderWritingModeMask::all(),
+                ),
+                ScriptSpacingTableError::InvalidRangeRegionMask {
+                    range_index: 0,
+                    mask: 1 << REGION_COUNT,
+                },
+            ),
+            (
+                contextual_range(
+                    scalar,
+                    scalar,
+                    1,
+                    ProviderRegionMask::all(),
+                    ProviderWritingModeMask::from_wire(0),
+                ),
+                ScriptSpacingTableError::InvalidRangeWritingModeMask {
+                    range_index: 0,
+                    mask: 0,
+                },
+            ),
+            (
+                contextual_range(
+                    scalar,
+                    scalar,
+                    1,
+                    ProviderRegionMask::all(),
+                    ProviderWritingModeMask::from_wire(1 << WRITING_MODE_COUNT),
+                ),
+                ScriptSpacingTableError::InvalidRangeWritingModeMask {
+                    range_index: 0,
+                    mask: 1 << WRITING_MODE_COUNT,
+                },
+            ),
+        ] {
+            assert_eq!(
+                CompiledScriptSpacingTable::compile(ScriptSpacingTableProposal::new(
+                    1,
+                    vec![bad_range],
+                    Vec::new(),
+                )),
+                Err(expected)
+            );
+        }
+    }
+
+    #[test]
+    fn 文字クラス数零と上限超過を拒む() {
+        assert_eq!(
+            CompiledScriptSpacingTable::compile(ScriptSpacingTableProposal::new(
+                0,
+                Vec::new(),
+                Vec::new()
+            )),
+            Err(ScriptSpacingTableError::EmptyClassSet)
+        );
+        assert_eq!(
+            CompiledScriptSpacingTable::compile(ScriptSpacingTableProposal::new(
+                MAX_SCRIPT_SPACING_CLASSES + 1,
+                Vec::new(),
+                Vec::new()
+            )),
+            Err(ScriptSpacingTableError::TooManyClasses {
+                actual: MAX_SCRIPT_SPACING_CLASSES + 1,
+                maximum: MAX_SCRIPT_SPACING_CLASSES,
+            })
+        );
+    }
+
+    #[test]
+    fn 範囲数と規則数の上限超過を割当て前に拒む() {
+        let ranges = vec![range(0x41, 0x41, 1); MAX_SCRIPT_SPACING_RANGES + 1];
+        assert_eq!(
+            CompiledScriptSpacingTable::compile(ScriptSpacingTableProposal::new(
+                1,
+                ranges,
+                Vec::new()
+            )),
+            Err(ScriptSpacingTableError::TooManyRanges {
+                actual: MAX_SCRIPT_SPACING_RANGES + 1,
+                maximum: MAX_SCRIPT_SPACING_RANGES,
+            })
+        );
+
+        let rules = vec![
+            rule(
+                1,
+                1,
+                LanguageRegion::Und,
+                WritingMode::Horizontal,
+                ScriptSpacingActionProposal::BuiltInFallback,
+            );
+            MAX_SCRIPT_SPACING_RULES + 1
+        ];
+        assert_eq!(
+            CompiledScriptSpacingTable::compile(ScriptSpacingTableProposal::new(
+                1,
+                Vec::new(),
+                rules
+            )),
+            Err(ScriptSpacingTableError::TooManyRules {
+                actual: MAX_SCRIPT_SPACING_RULES + 1,
+                maximum: MAX_SCRIPT_SPACING_RULES,
+            })
+        );
+    }
+
+    #[test]
+    fn 逆転範囲代理対範囲外符号位置を拒む() {
+        for (bad_range, expected) in [
+            (
+                range(0x42, 0x41, 1),
+                ScriptSpacingTableError::ReversedScalarRange { range_index: 0 },
+            ),
+            (
+                range(0xd800, 0xd800, 1),
+                ScriptSpacingTableError::NonScalarRange { range_index: 0 },
+            ),
+            (
+                range(0xd7ff, 0xe000, 1),
+                ScriptSpacingTableError::NonScalarRange { range_index: 0 },
+            ),
+            (
+                range(0x110000, 0x110000, 1),
+                ScriptSpacingTableError::NonScalarRange { range_index: 0 },
+            ),
+        ] {
+            assert_eq!(
+                CompiledScriptSpacingTable::compile(ScriptSpacingTableProposal::new(
+                    1,
+                    vec![bad_range],
+                    Vec::new()
+                )),
+                Err(expected)
+            );
+        }
+    }
+
+    #[test]
+    fn 重複範囲と範囲外文字クラスを拒む() {
+        assert_eq!(
+            CompiledScriptSpacingTable::compile(ScriptSpacingTableProposal::new(
+                1,
+                vec![range(0x50, 0x60, 1), range(0x40, 0x50, 1)],
+                Vec::new()
+            )),
+            Err(ScriptSpacingTableError::OverlappingScalarRanges {
+                first_range_index: 1,
+                second_range_index: 0,
+                region_code: LanguageRegion::Und.code(),
+                writing_mode: WritingMode::Horizontal,
+            })
+        );
+        assert_eq!(
+            CompiledScriptSpacingTable::compile(ScriptSpacingTableProposal::new(
+                1,
+                vec![range(0x41, 0x5a, 2)],
+                Vec::new()
+            )),
+            Err(ScriptSpacingTableError::RangeClassOutOfBounds {
+                range_index: 0,
+                class: 2,
+                class_count: 1,
+            })
+        );
+    }
+
+    #[test]
+    fn 範囲外文字クラスと重複する対規則を拒む() {
+        assert_eq!(
+            CompiledScriptSpacingTable::compile(ScriptSpacingTableProposal::new(
+                1,
+                Vec::new(),
+                vec![rule(
+                    1,
+                    2,
+                    LanguageRegion::Ja,
+                    WritingMode::Horizontal,
+                    ScriptSpacingActionProposal::NoAutomaticSpace,
+                )]
+            )),
+            Err(ScriptSpacingTableError::RuleClassOutOfBounds {
+                rule_index: 0,
+                class: 2,
+                class_count: 1,
+            })
+        );
+
+        let duplicate = rule(
+            1,
+            1,
+            LanguageRegion::Ja,
+            WritingMode::Horizontal,
+            ScriptSpacingActionProposal::KanjiSkip,
+        );
+        assert_eq!(
+            CompiledScriptSpacingTable::compile(ScriptSpacingTableProposal::new(
+                1,
+                Vec::new(),
+                vec![
+                    duplicate,
+                    ScriptPairRuleProposal {
+                        action: ScriptSpacingActionProposal::XKanjiSkip,
+                        ..duplicate
+                    },
+                ]
+            )),
+            Err(ScriptSpacingTableError::DuplicatePairRules {
+                first_rule_index: 0,
+                second_rule_index: 1,
+            })
+        );
+    }
+
+    #[test]
+    fn 固定糊の次数と寸法範囲を検証する() {
+        let bad_order = ScriptSpacingTableProposal::new(
+            1,
+            Vec::new(),
+            vec![rule(
+                1,
+                1,
+                LanguageRegion::Ja,
+                WritingMode::Horizontal,
+                ScriptSpacingActionProposal::FixedGlue(FixedGlueProposal::new(0, 0, 4, 0, 0)),
+            )],
+        );
+        assert_eq!(
+            CompiledScriptSpacingTable::compile(bad_order),
+            Err(ScriptSpacingTableError::InvalidGlueOrder {
+                rule_index: 0,
+                component: GlueComponent::Stretch,
+                order: 4,
+            })
+        );
+
+        let overflow = ScriptSpacingTableProposal::new(
+            1,
+            Vec::new(),
+            vec![rule(
+                1,
+                1,
+                LanguageRegion::Ja,
+                WritingMode::Horizontal,
+                ScriptSpacingActionProposal::FixedGlue(FixedGlueProposal::new(
+                    MAX_DIMEN as i64 + 1,
+                    0,
+                    0,
+                    0,
+                    0,
+                )),
+            )],
+        );
+        assert_eq!(
+            CompiledScriptSpacingTable::compile(overflow),
+            Err(ScriptSpacingTableError::GlueComponentOutOfBounds {
+                rule_index: 0,
+                component: GlueComponent::Width,
+                value: MAX_DIMEN as i64 + 1,
+            })
+        );
+    }
+
+    #[test]
+    fn 不正提案では使用中の表を部分更新しない() {
+        let mut table = CompiledScriptSpacingTable::compile(最小の正しい提案()).unwrap();
+        let before = table.clone();
+        let bad = ScriptSpacingTableProposal::new(
+            1,
+            vec![range(0x41, 0x50, 1), range(0x50, 0x60, 1)],
+            Vec::new(),
+        );
+        assert!(table.try_replace(bad).is_err());
+        assert_eq!(table, before);
+    }
+}

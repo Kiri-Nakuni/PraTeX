@@ -24,8 +24,10 @@ token-list input source を積む。読み終えた後に元のファイル入�
 通常どおり閉じる。この順なら既存のrunaway検査は `\everyeof` の後になる。
 
 子ファイルを読む統合試験で、本文の後、閉じ括弧がログへ出る前に一度だけ実行される
-ことを固定した。release全160試験を通し、現行LaTeXの停止点は
-`\tex_everyeof:D` から `\tex_readline:D` へ進んだ。
+ことを固定した。ただし現実装は自然EOFと`\endinput`によるforce EOFを同じ経路へ流し、
+後者でも`\everyeof`を挿入する既知不具合がある。自然EOFのsource-local行番号も含め、
+`\scantokens`の前に終了理由をtypedに分離する。過去のLaTeX停止点やrelease件数は現在地の
+判定に使わず、[e-TeX/TeX--XeT監査](etex-texxet-status.md)を優先する。
 
 ## `\readline`
 

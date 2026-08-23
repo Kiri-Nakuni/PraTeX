@@ -1,34 +1,63 @@
 # safe Rust 性能測定
 
-## 到達目標: upTeX / e-upTeX と正面比較する
+## 合格条件: DVI modeでupLaTeXの1.2倍未満
 
-PraTeXの最終性能目標は、単に「Rust実装として十分速い」ことではなく、同じ入力を同じ
-意味でDVIへ組むupTeX / e-upTeXと同等のthroughputを得ることである。機能を省いた短い
-fixtureだけで達成扱いにせず、pTeX相当P0の完成に合わせて次を継続測定する。
+PraTeXの性能合格条件は、単に「Rust実装として十分速い」ことではない。**DVI出力modeの
+end-to-end実行時間を、同じ入力、同じTeX tree、同じcold/warm条件で動かすupLaTeXの
+1.2倍未満に収める。** 意味が同等でないDVI、機能を省いた短いfixture、探索時間を別processへ
+隠した値では合格にしない。日本語機能が増えるほど比較対象へ近づき、条件を満たす価値も難度も
+上がるため、主要sliceごとに退行を止める。
+
+合否判定にはprocess起動、native file探索、fmt復元、展開、組版、page build、DVI closeまでを
+含むwall timeを使う。診断用にCPU timeと各区間も別列へ記録するが、engine部分だけを切り出して
+end-to-endの失敗を打ち消さない。PraTeXだけが通常lookupごとに`kpsewhich`を子process起動したり、
+upLaTeX側だけがcache済みだったりする非対称な標本は採用しない。
+
+最低限、次を継続測定する。
 
 - process起動、TeX Live探索、fmt復元、展開、段落整形、JFM class対処理、page build、
   DVI shipoutを分離したmicro/macro benchmark
 - ASCII、和文、和欧混植、禁則が多い狭い段落、100頁、横組、縦組の固定corpus
 - 同一TeX Live tree・warm/cold条件・CPU affinity・release LTOで交互に走らせたwall/CPU値
-- `updvitype`で正規化したnode/命令・sp座標が一致する実行だけを性能標本に採用
+- 公開DVI仕様に基づく正規化event列、font identity、sp座標、page数が同等の実行だけを性能標本に採用
 
-P0のperformance gateは、engine本体のcorpus幾何平均をe-upTeXの5%以内、各主要caseを
-10%以内に置く。探索を含むend-to-endも別列で同じ水準を目指す。PDF直接出力はupTeX単体と
-同じ仕事ではないため、DVI core比較へ混ぜず、upTeX + driverのpipelineと別に測る。
+必須corpusの幾何平均と各主要caseをともに`PraTeX / upLaTeX < 1.2`へ置く。一つの巨大caseで
+小さい文書の退行を隠さない。5%以内の幾何平均と10%以内の各caseは、その後のstretch goalとする。
+PDF直接出力はupLaTeX単体と同じ仕事ではないためDVI gateへ混ぜず、upLaTeX + driverの
+pipelineと別に測る。
 
-最適化はsafe Rustを既定にする。意味一致を固定したprofileで必要性が残り、`unsafe`を試す
-場合は専用枝を先に切り、安全条件・差分・性能値を独立に審査できるようにする。
+最適化はsafe Rustの範囲だけで行う。`unsafe`を前提にした案はこの性能計画の候補に含めない。
 
 性能変更は、同じrelease設定・同じ合成入力で変更前後を交互に走らせ、出力の一致を
 確認してから採用する。測定用入力、実行ファイルの複製、logはリポジトリ外の
 `%TEMP%` にだけ置き、版方へ入れない。
 
-## WSL e-upTeXとの同一OS基線
+## 現在の一頁budget（Linux perf、`82fa3a2`）
 
-Windows版TeX Liveの遅さを比較基準にはしない。最初の中間gateは、同じPC、同じWSL、
-同じCPU scheduler上でPraTeXとTeX Live 2026 e-upTeXを交互に走らせ、探索とfmtを外した
-engine workloadで **1.2倍未満**へ入れることである。最終の5%/10% gateは、その後に
-pTeX相当corpusで判定する。
+TeX Live 2026、同じ一頁入力を15回測った既知の分解は次である。これは機能完成後の
+合格値ではなく、native探索に使える現在の時間budgetである。
+
+| | wall |
+|---|---:|
+| upLaTeX DVI | 229 ms |
+| PraTeX、現在の通常探索 | 524 ms |
+| PraTeX、資材を手元へ置いた診断経路 | 140 ms |
+| 上の524 ms中の外部`kpsewhich` | 約291 ms |
+| 上の524 ms中の自前`ls-R`索引等 | 約93 ms |
+
+このcaseのstrict gateは`229 * 1.2 = 274.8 ms`未満であり、現在値は約2.29倍で不合格である。
+一方、外部processだけを同じ意味のnative resolverへ置換した概算233 msは約1.02倍なので、
+通常lookupの子process 0は単なる高速化候補でなく最初の必須sliceである。ただし140 msは
+TeX tree探索を省いた非対称条件なので合格標本にせず、233 msも実装後に同一tree・同一resolver結果・
+等価DVIで再測定する。JFM、K/X、縦組等を加えるたびにこの余裕を再計上し、完成間際まで借金を
+隠さない。
+
+## 過去のWSL e-upTeX診断値
+
+次の値は、同じPC、同じWSL、同じCPU scheduler上でPraTeXとTeX Live 2026 e-upTeXを
+交互に走らせた過去のmicro benchmarkである。upLaTeX format、JFM、page build、DVI出力を
+含まないため、現在のhard gateの合否には使わない。hot pathの遅い箇所を見つける診断値として
+だけ残す。
 
 `4745f3c`をWSL上でもrelease LTO buildし、INITEX、fmtなし、探索なしで測った。入力は
 macro展開と `\advance\count0 by 1` を1000万回行い、終了時に値を検査する。2回warm-up後、
@@ -92,8 +121,8 @@ unsafe Rustは使っていない。
 
 1000万回の平均でも5.69%短縮した。release全体は507 passed、0 failed、6 ignored。
 TRIPは両段exit 0、`tripos.tex`一致、DVI hashと既知の999 records意味差0を維持した。
-この時点でも同一WSL e-upTeX比1.2未満には届かない。依頼者判断によりunsafe最適化は一通りの
-機能完成後まで保留し、性能専用作業を止めてe-TeX/pdfTeXと日本語組版の統合へ戻った。
+この時点でも同一WSL e-upTeX比1.2未満には届かなかった。当時はいったん性能専用作業を止めて
+e-TeX/pdfTeXと日本語組版の統合へ戻ったが、現在はsafe Rustのまま主要sliceごとに退行を測る。
 
 ## 一字の差し戻し
 
