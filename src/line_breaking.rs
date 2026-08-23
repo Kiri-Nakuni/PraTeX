@@ -1,6 +1,9 @@
 use crate::dimension::{Dimension, MAX_DIMEN};
 use crate::eqtb::Eqtb;
-use crate::eqtb::{DimensionVariable, IntegerVariable, ParShapeVariable, SkipVariable, NULL_FONT};
+use crate::eqtb::{
+    DimensionVariable, IntegerVariable, ParShapeVariable, PenaltyArrayVariable, SkipVariable,
+    NULL_FONT,
+};
 use crate::horizontal_mode::LanguageData;
 use crate::hyphenation::Hyphenator;
 use crate::input::Scanner;
@@ -20,6 +23,27 @@ use std::ops::{Add, AddAssign, Neg, Sub, SubAssign};
 pub const INF_PENALTY: i32 = INF_BAD;
 pub const EJECT_PENALTY: i32 = -INF_PENALTY;
 
+#[derive(Clone, Copy)]
+pub enum ParagraphEnding {
+    Paragraph,
+    BeforeDisplay,
+}
+
+impl ParagraphEnding {
+    fn widow_parameters(self) -> (PenaltyArrayVariable, IntegerVariable) {
+        match self {
+            Self::Paragraph => (
+                PenaltyArrayVariable::Widow,
+                IntegerVariable::WidowPenalty,
+            ),
+            Self::BeforeDisplay => (
+                PenaltyArrayVariable::DisplayWidow,
+                IntegerVariable::DisplayWidowPenalty,
+            ),
+        }
+    }
+}
+
 /// See 817.
 const TIGHT_FIT: usize = 3;
 const DECENT_FIT: usize = 2;
@@ -35,7 +59,7 @@ pub fn line_break(
     mut hlist: Vec<Node>,
     lang_data: &LanguageData,
     begin_line: i32,
-    final_widow_penalty: i32,
+    paragraph_ending: ParagraphEnding,
     give_pre_display_size: bool,
     hyphenator: &mut Hyphenator,
     nest: &mut SemanticState,
@@ -64,7 +88,7 @@ pub fn line_break(
     let pre_display_size = line_breaker.post_line_break(
         hlist,
         best_bet,
-        final_widow_penalty,
+        paragraph_ending,
         give_pre_display_size,
         nest,
         eqtb,
@@ -1237,7 +1261,7 @@ impl LineBreaker {
         &self,
         hlist: Vec<Node>,
         best_bet: ActiveNode,
-        final_widow_penalty: i32,
+        paragraph_ending: ParagraphEnding,
         give_pre_display_size: bool,
         nest: &mut SemanticState,
         eqtb: &mut Eqtb,
@@ -1287,7 +1311,7 @@ impl LineBreaker {
                     );
                     Self::append_penalty_node_if_appropriate(
                         cur_line_number,
-                        final_widow_penalty,
+                        paragraph_ending,
                         true,
                         &best_bet,
                         nest,
@@ -1348,7 +1372,7 @@ impl LineBreaker {
                 );
                 Self::append_penalty_node_if_appropriate(
                     cur_line_number,
-                    final_widow_penalty,
+                    paragraph_ending,
                     false,
                     &best_bet,
                     nest,
@@ -1484,22 +1508,41 @@ impl LineBreaker {
     /// See 890.
     fn append_penalty_node_if_appropriate(
         cur_line_number: usize,
-        final_widow_penalty: i32,
+        paragraph_ending: ParagraphEnding,
         disc_break: bool,
         best_bet: &ActiveNode,
         nest: &mut SemanticState,
         eqtb: &mut Eqtb,
     ) {
-        let mut pen = eqtb.integer(IntegerVariable::InterLinePenalty);
-        let RichMode::Vertical(vmode) = nest.mode_mut() else {
+        let RichMode::Vertical(vmode) = nest.mode() else {
             panic!("We expected to be in vertical mode here");
         };
-        if cur_line_number == vmode.prev_graf as usize + 1 {
-            pen += eqtb.integer(IntegerVariable::ClubPenalty);
-        }
-        if cur_line_number + 2 == best_bet.line_number {
-            pen += final_widow_penalty;
-        }
+        let previous_line_count = vmode.prev_graf as usize;
+        let partial_line_number = cur_line_number - previous_line_count;
+        let distance_from_last_line = best_bet.line_number - 1 - cur_line_number;
+
+        let mut pen = eqtb
+            .penalty_array_value(PenaltyArrayVariable::InterLine, cur_line_number)
+            .unwrap_or_else(|| eqtb.integer(IntegerVariable::InterLinePenalty));
+        pen += eqtb
+            .penalty_array_value(PenaltyArrayVariable::Club, partial_line_number)
+            .unwrap_or_else(|| {
+                if partial_line_number == 1 {
+                    eqtb.integer(IntegerVariable::ClubPenalty)
+                } else {
+                    0
+                }
+            });
+        let (widow_array, widow_parameter) = paragraph_ending.widow_parameters();
+        pen += eqtb
+            .penalty_array_value(widow_array, distance_from_last_line)
+            .unwrap_or_else(|| {
+                if distance_from_last_line == 1 {
+                    eqtb.integer(widow_parameter)
+                } else {
+                    0
+                }
+            });
         if disc_break {
             pen += eqtb.integer(IntegerVariable::BrokenPenalty);
         }

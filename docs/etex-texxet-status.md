@@ -5,7 +5,7 @@
 ## 結論
 
 PraTeXはe-TeXのmacro処理・拡張register・class別mark・式・typed疑似入力をかなり実装しているが、
-**e-TeX完全対応ではない**。組版、表示、discard、penalty配列に未実装が残る。
+**e-TeX完全対応ではない**。組版、表示、discardに未実装が残る。
 TeX--XeTは二つの整数parameterを保存できるだけで、**組版機能としては未実装**である。
 
 この文書の「実装」は、primitive名が登録されているだけでなく、本来の処理へ接続され、
@@ -29,7 +29,7 @@ TeX--XeTは二つの整数parameterを保存できるだけで、**組版機能�
 | font寸法照会 | 実装 | `\fontcharwd`、`\fontcharht`、`\fontchardp`、`\fontcharic`はfont identifierと0--255の文字番号を読み、8-bit TFMの共通typed metric queryから内部寸法を返す。欠落字・範囲外glyph・nullfontは0pt、文字番号自体が範囲外なら既存8-bit scannerがcode 0へ診断回復する。寸法代入、`\dimexpr`、`\number`、`\the`のother文字token化、fmtを自作TFMで試験済み |
 | `\iffontchar` | 実装 | font identifierと0--255の文字番号を読み、8-bit TFMの存在判定へ接続する。範囲外文字番号は中央scannerで診断してcode 0へ回復し、欠落字とnullfontは偽を返す。code 0だけを持つ自作TFMでprocess試験済み |
 | parshape拡張 | 実装 | `\parshapelength`、`\parshapeindent`、`\parshapedimen`は現在の`\parshape`を内部寸法として照会する。非正index、最終pair反復、奇偶のinterleave、式・`\the`・`\number`、fmtを試験済み |
-| penalty配列 | 未実装 | `\interlinepenalties`、`\clubpenalties`、`\widowpenalties`、`\displaywidowpenalties`がない |
+| penalty配列 | 実装 | `\interlinepenalties`、`\clubpenalties`、`\widowpenalties`、`\displaywidowpenalties`は正の個数に続く整数列を局所／大域代入でき、0以下でresetする。内部整数照会は負添字またはresetで0、添字0で長さ、正添字で値を返し、範囲外では末尾を反復する。4配列をfmtへ保存し、通常段落とdisplay直前の部分段落でpost-line-break penaltyへ接続する。`\interlinepenalties`だけは段落終了時に`\parshape`と同じreset経路を通る。独立process試験で照会、group・`\globaldefs`、fmt、実node列を固定済み |
 | discard list | 未実装 | `\pagediscards`、`\splitdiscards`がない。`\savingvdiscards`は値だけを保存する |
 | math | 実装 | `\middle`は`\left`--`\right`内部をsegmentごとのsave groupへ分け、各境界で局所代入を復元して元のmath styleから次のlistを始める。全delimiterを全segmentの最大height/depthから同じ大きさにし、左右のspacingをそれぞれClose/Openとして扱う。文字・`\delimiter`走査、delimiter欠落と対応しない境界の回復、表示、fmtを独立process試験済み |
 | tracing/show | 部分／未実装 | `\tracingscantokens`は実出力へ接続済み。他のtracing parameterは値だけで、`\showtokens`、`\showgroups`、`\showifs`と対応trace出力がない |
@@ -61,10 +61,8 @@ left-to-right/right-to-left区間は公開意味論が異なるため、一つ�
 
 1. 実装済みの`FontCharDimension` query種別を、将来JFM・Unicode font metricへ広げる。
    e-TeX primitiveの公開文字番号は0--255のまま保ち、別の文字identityを暗黙に混ぜない。
-2. penalty配列を局所代入、fmt、line breakingまで実装する。JLReqの段落処理も
-   `\parshape`と同じ保存・照会基盤を利用できるようにする。
-3. discard保存、`\lastlinefit`、`\savinghyphcodes`、show/tracingを実処理へ接続する。
-4. TeX--XeTはrestricted hboxで方向node、LR stack、共通DVI/PDF shipoutまでを最初の縦sliceにし、
+2. discard保存、`\lastlinefit`、`\savinghyphcodes`、show/tracingを実処理へ接続する。
+3. TeX--XeTはrestricted hboxで方向node、LR stack、共通DVI/PDF shipoutまでを最初の縦sliceにし、
    次にparagraph、display、mathへ広げる。parameterだけ先に「対応済み」へ格上げしない。
 
 完全対応の完了条件は、公開e-TeX manualの全primitiveを一覧照合し、通常実行、group、
@@ -83,6 +81,11 @@ error回復、fmt往復、DVI/PDFへの効果を該当機能ごとに試験し�
 完成済みの内部listを次segmentのleft boundaryとして引き継ぐ形で独立実装した。全delimiterの
 共通寸法、Close/Open spacing、文字・数値delimiter、診断回復、fmt/表示は自作TFMを生成する
 [process試験](../tests/etex_middle.rs)で固定し、原実装sourceや上流testは参照していない。
+
+4つのpenalty配列は同manual 3.8の公開契約から、添字方向と末尾反復を一つのtyped storageへ
+集約して独立実装した。従来の単一parameterへ戻るreset状態、部分段落ごとのclub添字、段落末から
+逆向きのwidow添字、display直前の選択を[process試験](../tests/etex_penalty_arrays.rs)で固定し、
+原実装sourceや上流testは参照していない。
 
 `\eTeXrevision`は公開manualの文字列契約と、TeX Live 2026のe-upTeX
 `p4.1.2-u2.02`に対する自作black-boxの`.6`展開を照合した。実装sourceや上流testは

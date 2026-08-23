@@ -1,7 +1,7 @@
 use super::control_sequences::ControlSequence;
 use super::{
-    CodeType, DimensionVariable, Eqtb, IntegerVariable, MathFontSize, SkipVariable,
-    TokenListVariable, NULL_FONT,
+    CodeType, DimensionVariable, Eqtb, IntegerVariable, MathFontSize, PenaltyArrayVariable,
+    SkipVariable, TokenListVariable, NULL_FONT,
 };
 use crate::command::{
     ArithCommand, BoxDimension, Command, ConvertCommand, DefCommand, ExpandableCommand, FiOrElse,
@@ -754,6 +754,12 @@ impl Eqtb {
             b"parshape",
             UnexpandableCommand::Prefixable(PrefixableCommand::ParShape),
         );
+        for variable in PenaltyArrayVariable::ALL {
+            self.primitive_unexpandable(
+                variable.primitive_name(),
+                UnexpandableCommand::Prefixable(PrefixableCommand::PenaltyArray(variable)),
+            );
+        }
         self.primitive_unexpandable(b"penalty", UnexpandableCommand::Penalty);
         self.primitive_unexpandable(
             b"prevgraf",

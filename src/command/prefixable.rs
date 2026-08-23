@@ -15,7 +15,7 @@ use crate::dimension::scan_normal_dimen;
 use crate::eqtb::{
     CatCode, CodeType, CodeVariable, ControlSequence, DimensionVariable, Eqtb, FontIndex,
     FontVariable, IntegerVariable, KCatCode, LanguageRegion, MathFontSize, ParagraphShape,
-    SkipVariable, TokenListVariable, NULL_FONT,
+    PenaltyArray, PenaltyArrayVariable, SkipVariable, TokenListVariable, NULL_FONT,
 };
 use crate::file_search::FileKind;
 use crate::fonts::FontInfo;
@@ -76,6 +76,7 @@ pub enum PrefixableCommand {
     InsertPenalties,
     BoxDimen(BoxDimension),
     ParShape,
+    PenaltyArray(PenaltyArrayVariable),
     CatCode,
     KCatCode,
     SetAutoSpacing {
@@ -135,6 +136,7 @@ impl PrefixableCommand {
             &Self::InsertPenalties => Some(InternalCommand::InsertPenalties),
             &Self::BoxDimen(box_dimension) => Some(InternalCommand::BoxDimen(box_dimension)),
             &Self::ParShape => Some(InternalCommand::ParShape),
+            &Self::PenaltyArray(variable) => Some(InternalCommand::PenaltyArray(variable)),
             &Self::CatCode => Some(InternalCommand::CatCode),
             &Self::KCatCode => Some(InternalCommand::KCatCode),
             Self::XspCode => Some(InternalCommand::XspCode),
@@ -191,6 +193,7 @@ impl PrefixableCommand {
             Self::InsertPenalties => printer.print_esc_str(b"insertpenalties"),
             Self::BoxDimen(box_dimension) => box_dimension.display(printer),
             Self::ParShape => printer.print_esc_str(b"parshape"),
+            Self::PenaltyArray(variable) => printer.print_esc_str(variable.primitive_name()),
             Self::CatCode => printer.print_esc_str(b"catcode"),
             Self::KCatCode => printer.print_esc_str(b"kcatcode"),
             Self::SetAutoSpacing { variable, enabled } => {
@@ -294,6 +297,10 @@ impl Dumpable for PrefixableCommand {
                 box_dimension.dump(target)?;
             }
             Self::ParShape => writeln!(target, "ParShape")?,
+            Self::PenaltyArray(variable) => {
+                writeln!(target, "PenaltyArray")?;
+                variable.dump(target)?;
+            }
             Self::CatCode => writeln!(target, "CatCode")?,
             Self::KCatCode => writeln!(target, "KCatCode")?,
             Self::SetAutoSpacing { variable, enabled } => {
@@ -422,6 +429,7 @@ impl Dumpable for PrefixableCommand {
                 Ok(Self::BoxDimen(box_dimension))
             }
             "ParShape" => Ok(Self::ParShape),
+            "PenaltyArray" => Ok(Self::PenaltyArray(PenaltyArrayVariable::undump(lines)?)),
             "CatCode" => Ok(Self::CatCode),
             "KCatCode" => Ok(Self::KCatCode),
             "SetAutoSpacing" => Ok(Self::SetAutoSpacing {
@@ -629,6 +637,15 @@ pub fn prefixed_command(
                 shape.push((indent, line_length));
             }
             eqtb.par_shape_define(shape, global);
+        }
+        PrefixableCommand::PenaltyArray(variable) => {
+            scanner.scan_optional_equals(eqtb, logger);
+            let count = Integer::scan_int(scanner, eqtb, logger);
+            let mut values = PenaltyArray::new();
+            for _ in 0..count {
+                values.push(Integer::scan_int(scanner, eqtb, logger));
+            }
+            eqtb.penalty_array_define(variable, values, global);
         }
         PrefixableCommand::CatCode => {
             let chr = scanner.scan_latin_ucs_char_num(eqtb, logger);

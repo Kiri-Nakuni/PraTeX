@@ -11,6 +11,7 @@ mod kcatcodes;
 mod language_region;
 mod levels;
 mod parshape;
+mod penalties;
 mod primitives;
 mod raw_strings;
 pub mod save_stack;
@@ -72,6 +73,8 @@ pub use language_region::LanguageRegion;
 use levels::{Level, VariableLevels};
 use parshape::ParShapeParameter;
 pub use parshape::{ParShapeVariable, ParagraphShape};
+use penalties::PenaltyArrayParameters;
+pub use penalties::{PenaltyArray, PenaltyArrayVariable};
 use raw_strings::RawStringRegisters;
 pub use raw_strings::RawStringVariable;
 pub(crate) use raw_strings::{
@@ -156,6 +159,7 @@ pub struct Eqtb {
 
     // Region 4
     pub par_shape: ParShapeParameter,
+    penalty_arrays: PenaltyArrayParameters,
     language_region: LanguageRegion,
     /// **参照時に探しに行く名前空間。** `\usingnamespace` が足す。
     ///
@@ -249,6 +253,7 @@ impl Eqtb {
             control_sequences: ControlSequenceStore::new(),
             skips: SkipParameters::new(),
             par_shape: ParShapeParameter::new(),
+            penalty_arrays: PenaltyArrayParameters::new(),
             language_region: LanguageRegion::default(),
             using_namespaces: Vec::new(),
             last_node_type: -1,
@@ -530,6 +535,27 @@ impl Eqtb {
 
     pub fn par_shape_define(&mut self, value: ParagraphShape, global: bool) {
         self.define(Definition::ParShape(value), global);
+    }
+
+    pub fn penalty_array_define(
+        &mut self,
+        variable: PenaltyArrayVariable,
+        value: PenaltyArray,
+        global: bool,
+    ) {
+        self.define(Definition::PenaltyArray(variable, value), global);
+    }
+
+    pub fn penalty_array_query(&self, variable: PenaltyArrayVariable, index: i32) -> i32 {
+        self.penalty_arrays.query(variable, index)
+    }
+
+    pub fn penalty_array_value(
+        &self,
+        variable: PenaltyArrayVariable,
+        index: usize,
+    ) -> Option<i32> {
+        self.penalty_arrays.value_at(variable, index)
     }
 
     pub fn language_region_define(&mut self, value: LanguageRegion, global: bool) {
@@ -828,6 +854,10 @@ impl Eqtb {
                 let prev_paragraph_shape = self.par_shape.set(ParShapeVariable, paragraph_shape);
                 Definition::ParShape(prev_paragraph_shape)
             }
+            Definition::PenaltyArray(variable, value) => {
+                let previous = self.penalty_arrays.set(variable, value);
+                Definition::PenaltyArray(variable, previous)
+            }
             Definition::LanguageRegion(language_region) => {
                 let previous = std::mem::replace(&mut self.language_region, language_region);
                 Definition::LanguageRegion(previous)
@@ -1049,6 +1079,11 @@ impl Eqtb {
             }
             Variable::Skip(skip_var) => self.show_equivalent_of_skip_variable(skip_var, logger),
             Variable::ParShape => self.show_equivalent_of_par_shape(logger),
+            Variable::PenaltyArray(variable) => {
+                logger.print_esc_str(variable.primitive_name());
+                logger.print_char(b'=');
+                logger.print_int(self.penalty_array_query(variable, 0));
+            }
             Variable::LanguageRegion => {
                 logger.print_esc_str(b"pratexregion");
                 logger.print_char(b'=');
@@ -1829,6 +1864,7 @@ pub enum Variable {
     ControlSequence(ControlSequence),
     Skip(SkipVariable),
     ParShape,
+    PenaltyArray(PenaltyArrayVariable),
     LanguageRegion,
     UsingNamespaces,
     TokenList(TokenListVariable),
@@ -1852,6 +1888,7 @@ pub enum Definition {
     ControlSequence(ControlSequence, Command),
     Skip(SkipVariable, Skip),
     ParShape(ParagraphShape),
+    PenaltyArray(PenaltyArrayVariable, PenaltyArray),
     LanguageRegion(LanguageRegion),
     UsingNamespaces(Vec<NamespaceId>),
     TokenList(TokenListVariable, Option<RcTokenList>),
@@ -1877,6 +1914,7 @@ impl Definition {
             }
             Self::Skip(skip_variable, _) => Variable::Skip(skip_variable),
             Self::ParShape(_) => Variable::ParShape,
+            Self::PenaltyArray(variable, _) => Variable::PenaltyArray(variable),
             Self::LanguageRegion(_) => Variable::LanguageRegion,
             Self::UsingNamespaces(_) => Variable::UsingNamespaces,
             Self::TokenList(token_list_variable, _) => Variable::TokenList(token_list_variable),
@@ -1921,6 +1959,10 @@ impl Dumpable for Variable {
             }
             Self::ParShape => {
                 writeln!(target, "ParShape")?;
+            }
+            Self::PenaltyArray(variable) => {
+                writeln!(target, "PenaltyArray")?;
+                variable.dump(target)?;
             }
             Self::LanguageRegion => {
                 writeln!(target, "LanguageRegion")?;
@@ -1999,6 +2041,7 @@ impl Dumpable for Variable {
                 Ok(Self::Skip(skip_variable))
             }
             "ParShape" => Ok(Self::ParShape),
+            "PenaltyArray" => Ok(Self::PenaltyArray(PenaltyArrayVariable::undump(lines)?)),
             "LanguageRegion" => Ok(Self::LanguageRegion),
             "UsingNamespaces" => Ok(Self::UsingNamespaces),
             "TokenList" => {
@@ -2054,6 +2097,7 @@ impl Dumpable for Eqtb {
         self.control_sequences.dump(target)?;
         self.skips.dump(target)?;
         self.par_shape.dump(target)?;
+        self.penalty_arrays.dump(target)?;
         self.language_region.dump(target)?;
         self.using_namespaces.dump(target)?;
         self.token_lists.dump(target)?;
@@ -2086,6 +2130,7 @@ impl Dumpable for Eqtb {
         let control_sequences = ControlSequenceStore::undump(lines)?;
         let skips = SkipParameters::undump(lines)?;
         let par_shape = ParShapeParameter::undump(lines)?;
+        let penalty_arrays = PenaltyArrayParameters::undump(lines)?;
         let language_region = LanguageRegion::undump(lines)?;
         let using_namespaces: Vec<NamespaceId> = Vec::undump(lines)?;
         let token_lists = TokenListParameters::undump(lines)?;
@@ -2132,6 +2177,7 @@ impl Dumpable for Eqtb {
             control_sequences,
             skips,
             par_shape,
+            penalty_arrays,
             language_region,
             using_namespaces,
             last_node_type: -1,

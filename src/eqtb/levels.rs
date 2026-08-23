@@ -236,6 +236,7 @@ pub struct VariableLevels {
 
     // Parshape
     par_shape: Level,
+    penalty_arrays: [Level; 4],
     language_region: Level,
     using_namespaces: Level,
 
@@ -423,6 +424,7 @@ impl VariableLevels {
 
             // Parshape
             par_shape: 0,
+            penalty_arrays: [0; 4],
             language_region: 0,
             using_namespaces: 0,
 
@@ -623,6 +625,7 @@ impl VariableLevels {
                 IntegerVariable::Count(register_index) => *self.count.get(register_index),
             },
             Variable::ParShape => self.par_shape,
+            Variable::PenaltyArray(variable) => self.penalty_arrays[variable.index()],
             Variable::LanguageRegion => self.language_region,
             Variable::UsingNamespaces => self.using_namespaces,
             Variable::Skip(skip_variable) => match skip_variable {
@@ -822,6 +825,7 @@ impl VariableLevels {
                 IntegerVariable::Count(register_index) => self.count.get_mut(register_index),
             },
             Variable::ParShape => &mut self.par_shape,
+            Variable::PenaltyArray(variable) => &mut self.penalty_arrays[variable.index()],
             Variable::LanguageRegion => &mut self.language_region,
             Variable::UsingNamespaces => &mut self.using_namespaces,
             Variable::Skip(skip_variable) => match skip_variable {
@@ -1020,6 +1024,7 @@ impl Dumpable for VariableLevels {
 
         // Parshape
         self.par_shape.dump(target)?;
+        self.penalty_arrays.dump(target)?;
         self.language_region.dump(target)?;
         self.using_namespaces.dump(target)?;
 
@@ -1210,6 +1215,7 @@ impl Dumpable for VariableLevels {
 
         // Parshape
         let par_shape = Dumpable::undump(lines)?;
+        let penalty_arrays = Dumpable::undump(lines)?;
         let language_region = Dumpable::undump(lines)?;
         let using_namespaces = Dumpable::undump(lines)?;
 
@@ -1379,6 +1385,7 @@ impl Dumpable for VariableLevels {
             error_context_lines,
             count,
             par_shape,
+            penalty_arrays,
             language_region,
             using_namespaces,
             line_skip,

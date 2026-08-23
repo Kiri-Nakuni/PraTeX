@@ -4,8 +4,8 @@ use crate::dimension::{scan_mu_dimen, scan_normal_dimen, Dimension};
 use crate::eqtb::save_stack::{DiscGroupType, GroupType, SubformulaType};
 use crate::eqtb::{
     BoxVariable, ControlSequence, DimensionVariable, Eqtb, FontIndex, IntegerVariable,
-    LastNodeInfo, ParShapeVariable, ParagraphShape, RegisterIndex, SkipVariable, TokenListVariable,
-    VADJUST_INSERTION_CODE,
+    LastNodeInfo, ParShapeVariable, ParagraphShape, PenaltyArray, PenaltyArrayVariable,
+    RegisterIndex, SkipVariable, TokenListVariable, VADJUST_INSERTION_CODE,
 };
 use crate::fonts::new_character;
 use crate::glue::scan_glue;
@@ -14,7 +14,7 @@ use crate::hyphenation::Hyphenator;
 use crate::input::token_source::TokenSourceType;
 use crate::input::Scanner;
 use crate::integer::{Integer, IntegerExt};
-use crate::line_breaking::line_break;
+use crate::line_breaking::{line_break, ParagraphEnding};
 use crate::logger::Logger;
 use crate::main_control::you_cant;
 use crate::math::build_choices;
@@ -643,6 +643,13 @@ pub fn normal_paragraph(eqtb: &mut Eqtb, logger: &mut Logger) {
     if !eqtb.par_shape.get(ParShapeVariable).is_empty() {
         eqtb.par_shape_define(ParagraphShape::new(), false);
     }
+    if eqtb.penalty_array_query(PenaltyArrayVariable::InterLine, 0) != 0 {
+        eqtb.penalty_array_define(
+            PenaltyArrayVariable::InterLine,
+            PenaltyArray::new(),
+            false,
+        );
+    }
 }
 
 /// See 1091.
@@ -768,12 +775,11 @@ pub fn end_graf(
             panic!("We know it is horizontal");
         };
         if !hmode.list.is_empty() {
-            let widow_penalty = eqtb.integer(IntegerVariable::WidowPenalty);
             line_break(
                 hmode.list,
                 &lang_data,
                 old_level.mode_line,
-                widow_penalty,
+                ParagraphEnding::Paragraph,
                 false,
                 hyphenator,
                 nest,

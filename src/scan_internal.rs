@@ -12,6 +12,7 @@ use crate::error::mu_error;
 use crate::fonts::{find_font_dimen, scan_font_ident};
 use crate::format::{Dumpable, FormatError};
 use crate::input::Scanner;
+use crate::integer::{Integer, IntegerExt};
 use crate::logger::Logger;
 use crate::nodes::{DimensionOrder, GlueSpec, HigherOrderDimension};
 use crate::page_breaking::PageContents;
@@ -210,6 +211,10 @@ fn scan_something_internal(
             fetch_box_dimension(box_dimension, scanner, eqtb, logger)
         }
         InternalCommand::ParShape => fetch_par_shape_size(eqtb),
+        InternalCommand::PenaltyArray(variable) => {
+            let index = Integer::scan_int(scanner, eqtb, logger);
+            InternalValue::Int(eqtb.penalty_array_query(variable, index))
+        }
         InternalCommand::CatCode => fetch_category_code(scanner, eqtb, logger),
         InternalCommand::KCatCode => fetch_kcat_code(scanner, eqtb, logger),
         InternalCommand::XspCode => {

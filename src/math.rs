@@ -18,7 +18,7 @@ use crate::input::token_source::TokenSourceType;
 use crate::input::InputStack;
 use crate::input::Scanner;
 use crate::integer::{Integer, IntegerExt};
-use crate::line_breaking::{line_break, INF_PENALTY};
+use crate::line_breaking::{line_break, ParagraphEnding, INF_PENALTY};
 use crate::logger::Logger;
 use crate::math_mode::{MathBoundary, MathMode};
 use crate::nodes::noads::{
@@ -2467,7 +2467,6 @@ fn go_into_display_math_mode(
         nest.pop_nest(eqtb);
         pre_display_size = -MAX_DIMEN;
     } else {
-        let display_widow_penalty = *eqtb.integers.get(IntegerVariable::DisplayWidowPenalty);
         if let RichMode::Horizontal(hmode) = nest.mode_mut() {
             hmode.finalize_script_spacing(eqtb);
         }
@@ -2479,7 +2478,7 @@ fn go_into_display_math_mode(
             hmode.list,
             lang_data,
             old_level.mode_line,
-            display_widow_penalty,
+            ParagraphEnding::BeforeDisplay,
             true,
             hyphenator,
             nest,

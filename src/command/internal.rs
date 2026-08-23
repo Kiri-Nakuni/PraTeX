@@ -7,7 +7,7 @@ use super::par_shape_dimension::ParShapeDimension;
 use super::raw_string::RawStringCommand;
 use crate::eqtb::{
     CodeType, DimensionVariable, FontIndex, IntegerVariable, MathFontSize, SkipVariable,
-    TokenListVariable,
+    PenaltyArrayVariable, TokenListVariable,
 };
 use crate::scan_internal::ValueType;
 
@@ -67,6 +67,7 @@ pub enum InternalCommand {
     InsertPenalties,
     BoxDimen(BoxDimension),
     ParShape,
+    PenaltyArray(PenaltyArrayVariable),
     CatCode,
     KCatCode,
     XspCode,
