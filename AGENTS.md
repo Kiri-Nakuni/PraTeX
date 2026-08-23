@@ -228,6 +228,11 @@ cold/warmとhit/missを同じfixtureで測る。
   boundedなtyped疑似fileとして接続済みで、実file・疑似fileとも`\everyeof`は自然EOFだけで
   一度発火し、`\endinput`では発火しない。fmtとKOMA-Scriptの動的catcode経路も試験済み。
 - `\TeXXeTstate`はfmt読込時0へ戻るが、LR組版自体は未実装。
+- 外向きWASM provider ABI 0.0は、version range、required/optional feature、capability、
+  operationのruntime非依存交渉を`src/wasm_provider_abi.rs`へ、固定envelope、section集合、
+  mailbox範囲、transport返値、lease上限のbyte codecを`src/wasm_wire_v0.rs`へ実装した。
+  module profile、export検査、affine lease、runtime、provider registrationは未実装であり、
+  TeX sourceから自己承認する経路はない。標準日本語はこの境界を通らずcallback 0回を維持する。
 - 生文字列registerは`\rawstring`、`\rawstringdef`、`\therawstring`、専用`\showthe`、
   `Rc<Vec<u8>>` storage、群・`globaldefs`、fmt、production testまで実装済み。1 slotは16 MiB、
   active/future slot全体は64 MiBに制限し、0--255をdense、256--32767をsparseに持つ。

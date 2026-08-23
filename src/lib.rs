@@ -58,6 +58,8 @@ mod vertical_mode;
 mod vsplit;
 #[allow(dead_code)]
 mod wasm_provider_abi;
+#[allow(dead_code)]
+mod wasm_wire_v0;
 mod write_streams;
 
 use alignment::AlignState;

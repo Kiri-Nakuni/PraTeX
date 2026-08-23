@@ -2,8 +2,8 @@
 
 更新: 2026-08-23
 
-状態: **実験実装。ABI 0.0のversion・feature・capability・operation交渉だけ実装済み。
-runtime・module profile検査・wire codec・provider接続は未実装**
+状態: **実験実装。ABI 0.0のversion・feature・capability・operation交渉と、runtime非依存の
+wire/mailbox検証を実装済み。runtime・module profile検査・lease・provider接続は未実装**
 
 ## 1. 結論
 
@@ -284,7 +284,9 @@ PraTeX node、fmt、diagnostic ownerへ保存しない。
 - floating-point fieldは存在しない。
 - offsetとlengthの演算は一度`u64`以上へ広げてから上限と`usize`変換を検査する。
 - 本書の擬似recordは記載順にfieldを密に並べる。native paddingやalignmentを挿入しない。
-- record内の`*_offset`は、別記がなければEnvelopeのpayload先頭からの相対byte offsetである。
+- EnvelopeV0の`section_dir_offset`と`payload_offset`、SectionV0の`offset`はmessage先頭
+  （magicの先頭をbyte 0とする）からの絶対byte offsetであり、すべて4 byte境界へ整列する。
+- それ以外のrecord内の`*_offset`は、別記がなければEnvelopeのpayload先頭からの相対byte offsetである。
 
 ### 8.2 EnvelopeV0
 
@@ -300,9 +302,9 @@ PraTeX node、fmt、diagnostic ownerへ保存しない。
 | 20 | 4 | `flags` | bit 0だけresponse、他は0 |
 | 24 | 4 | `total_bytes` | buffer全長と一致 |
 | 28 | 4 | `section_count` | operation limit内 |
-| 32 | 4 | `section_dir_offset` | 64以上 |
+| 32 | 4 | `section_dir_offset` | 64以上、message先頭基準、4 byte整列 |
 | 36 | 4 | `section_dir_bytes` | `section_count * 16` |
-| 40 | 4 | `payload_offset` | bounds内 |
+| 40 | 4 | `payload_offset` | bounds内、message先頭基準、4 byte整列 |
 | 44 | 4 | `payload_bytes` | bounds内 |
 | 48 | 8 | `request_id` | responseがexact echo |
 | 56 | 8 | `capabilities` | negotiated grantとexact一致 |
@@ -332,7 +334,7 @@ section directory entryは固定16 byteである。
 | 0 | 4 | `section_kind` |
 | 4 | 4 | `record_bytes` |
 | 8 | 4 | `record_count` |
-| 12 | 4 | `offset` |
+| 12 | 4 | `offset` | message先頭基準、4 byte整列 |
 
 section entryは`section_kind`昇順で、kindは重複しない。`record_bytes * record_count`をchecked計算し、
 section全体がbuffer内に収まることを検査する。header、directory、payload、各record sectionは互いに
@@ -1081,16 +1083,17 @@ fuzz corpusへpTeX、upTeX、LuaTeX等の上流source/testを移植しない。A
 ## 21. 実装順
 
 `src/wasm_provider_abi.rs`には、immutable export globalをruntime非依存の宣言へ移した後に使う
-ABI 0.0交渉を実装した。`0.0`とのversion range交差、未知required feature/capability、policyに
-拒否されたrequired capability、optional capabilityの積、operationとcapabilityの対応を、
-instantiate前に一度だけ検査する。これはmodule parser、policy grant、lease、runtime、provider
-registrationを実装したことを意味しない。標準日本語経路はこの交渉を呼ばずcallback 0回である。
+ABI 0.0交渉を実装した。`src/wasm_wire_v0.rs`には、固定envelope、section directory、status、
+invocation limit、mailbox range、transport返値のruntime非依存codecを実装した。codecはmessageを
+全体検証してからだけ値を返し、runtime memory pointerやPraTeX nodeを保持しない。これらは
+module parser、policy grant、affine lease、runtime、domain proposal validator、provider
+registrationを実装したことを意味しない。標準日本語経路はこの境界を呼ばずcallback 0回である。
 
 | 段 | 内容 | 完了条件 |
 |---|---|---|
 | W0-P | version・feature・capability・operation交渉 | **完了**。ABI 0.0だけを選び、未知required bitとpolicy不一致を構造化errorにする |
 | W0-A | host-owned proposal型とspacing/unit validator | Vaak/WASM/試験adapterが同じvalidatorを使い、部分登録0 |
-| W0-B | 0.0 byte codecとgolden/property test | Rust layout非依存、malformed inputでpanic 0 |
+| W0-B | 0.0 byte codecとgolden/property test | **完了**。Rust layout非依存のcanonical encode/decode、全切断位置、reserved/range/limit/mailbox/transport拒否を固定 |
 | W0-C | optional runtime adapter、module profile、fixed mailbox | default build不変、import/start/memory/fuel境界を検査 |
 | W0-D | `SpacingTableUpload` | explicit custom profileだけ有効、登録後WASM call 0 |
 | W0-E | `UnitTableUpload` | 中央`scan_units`だけへ接続、組込み単位不変 |

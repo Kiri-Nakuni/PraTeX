@@ -379,6 +379,10 @@ Claude `82fa3a2`のLinux perf分解:
 - named entry＋引数、typed HostFn完了値の公開enum、Leaf allocation 0、opaque token、
   suspend/resumeはまだない。これらが固まる前にPraTeX phase hookを先走らせない。
 - 標準日本語経路のcallback数は0のままにする。
+- PraTeX側の外向きWASM provider ABI 0.0は、version・feature・capability・operationを
+  instantiate前に照合する層と、固定envelope/section/mailbox/transportを検査するbyte codecを
+  runtime非依存で実装した。Vaakのprepared APIやportable ABIとは別version domainであり、
+  module parser/runtime/affine lease/provider接続はまだない。
 
 ## LaTeXと日本語組版の次順
 
