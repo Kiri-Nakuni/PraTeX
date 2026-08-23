@@ -835,6 +835,7 @@ impl Eqtb {
         // See 376.
         self.primitive_expandable(b"input", ExpandableCommand::Input);
         self.primitive_expandable(b"endinput", ExpandableCommand::EndInput);
+        self.primitive_expandable(b"scantokens", ExpandableCommand::ScanTokens);
 
         // See 384.
         for (singular, plural, query) in [

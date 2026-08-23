@@ -470,6 +470,8 @@ pub enum ExpandableCommand {
     NoExpand,
     Input,
     EndInput,
+    /// e-TeX `\scantokens` — 未展開のgeneral textを一度表示し、通常字句器で再読込する。
+    ScanTokens,
     IfTest(IfTest),
     FiOrElse(FiOrElse),
     CsName,
@@ -543,6 +545,7 @@ impl ExpandableCommand {
             Self::NoExpand => printer.print_esc_str(b"noexpand"),
             Self::Input => printer.print_esc_str(b"input"),
             Self::EndInput => printer.print_esc_str(b"endinput"),
+            Self::ScanTokens => printer.print_esc_str(b"scantokens"),
             Self::IfTest(if_test) => if_test.display(printer),
             Self::FiOrElse(fi_or_else) => fi_or_else.display(printer),
             Self::CsName => printer.print_esc_str(b"csname"),

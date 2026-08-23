@@ -1,5 +1,8 @@
 use super::line_lexer::LineLexer;
 use super::macro_reader::MacroReader;
+use super::pseudo_file::{
+    MAX_SCANTOKENS_BYTES_PER_SOURCE, MAX_VIRTUAL_INPUT_BYTES_LIVE, PseudoText,
+};
 use super::token_source::{AlignCommand, TokenListReader, TokenSourceType};
 use crate::eqtb::{ControlSequence, ControlSequenceId, Eqtb, IntegerVariable, TokenListVariable};
 use crate::error::{fatal_error, overflow};
@@ -35,12 +38,14 @@ pub struct InputStack {
     force_eof: bool,
     /// Keep the first input line around for when the log file is ready.
     pub first_line: Vec<u8>,
+    /// `\scantokens` の入れ子が現在所有する概算byte数。
+    virtual_input_bytes_live: usize,
 }
 
 /// An input source. It can either provide characters or tokens
 /// depending on the type.
 #[derive(Debug)]
-pub enum InputSource {
+pub(crate) enum InputSource {
     /// A [`TextSource`].
     TextSource {
         source_type: SourceType,
@@ -63,12 +68,19 @@ pub enum InputSource {
 /// Indicates the type of [`TextSource`].
 /// See 303--305.
 #[derive(Debug)]
-pub enum SourceType {
+pub(crate) enum SourceType {
     /// An input file.
     File {
         file: Box<BufReader<File>>,
         /// e-TeX の `\everyeof` は一つの入力源につき一度だけ読む。
         every_eof_seen: bool,
+    },
+    /// e-TeX `\scantokens` が所有する、実fileを使わない疑似入力。
+    PseudoFile {
+        text: PseudoText,
+        every_eof_seen: bool,
+        trace_opened: bool,
+        charge: usize,
     },
     /// An inserted line from the terminal.
     TerminalInsert,
@@ -93,11 +105,12 @@ impl InputStack {
             line_number_stack: Vec::new(),
             force_eof: false,
             first_line,
+            virtual_input_bytes_live: 0,
         }
     }
 
     /// Returns a reference to the currently used input source.
-    pub fn current_source(&self) -> &InputSource {
+    pub(crate) fn current_source(&self) -> &InputSource {
         &self.cur_source
     }
 
@@ -114,7 +127,12 @@ impl InputStack {
 
     /// Push a new [`InputSource`] on the input stack.
     /// See 321.
-    pub fn push_input(&mut self, new_input_source: InputSource, eqtb: &Eqtb, logger: &mut Logger) {
+    pub(crate) fn push_input(
+        &mut self,
+        new_input_source: InputSource,
+        eqtb: &Eqtb,
+        logger: &mut Logger,
+    ) {
         let old_input_source = std::mem::replace(&mut self.cur_source, new_input_source);
         if self.stack.len() > self.max_in_stack {
             self.max_in_stack = self.stack.len();
@@ -128,6 +146,13 @@ impl InputStack {
     /// Pop the top of the input stack into the current input state.
     /// See 322.
     pub fn pop_input(&mut self) {
+        if let InputSource::TextSource {
+            source_type: SourceType::PseudoFile { charge, .. },
+            ..
+        } = &self.cur_source
+        {
+            self.virtual_input_bytes_live = self.virtual_input_bytes_live.saturating_sub(*charge);
+        }
         let prev_source = self.stack.pop().expect("`pop_input` called on empty stack");
         self.cur_source = prev_source;
     }
@@ -244,6 +269,75 @@ impl InputStack {
         self.push_input(input, eqtb, logger)
     }
 
+    /// `\scantokens` の型付きbufferを通常の行字句器へ積む。
+    pub(super) fn input_from_pseudo_file(
+        &mut self,
+        mut text: PseudoText,
+        trace_opened: bool,
+        eqtb: &mut Eqtb,
+        logger: &mut Logger,
+    ) {
+        let charge = text.charge();
+        let Some(next_live) = self.virtual_input_bytes_live.checked_add(charge) else {
+            overflow(
+                "scantokens live input size",
+                MAX_VIRTUAL_INPUT_BYTES_LIVE,
+                self,
+                eqtb,
+                logger,
+            );
+        };
+        if next_live > MAX_VIRTUAL_INPUT_BYTES_LIVE {
+            overflow(
+                "scantokens live input size",
+                MAX_VIRTUAL_INPUT_BYTES_LIVE,
+                self,
+                eqtb,
+                logger,
+            );
+        }
+
+        if trace_opened {
+            logger.print_str("( ");
+            logger.update_terminal();
+        }
+
+        let line_count = text.line_count();
+        let end_line_char = if eqtb.end_line_char_inactive() {
+            None
+        } else {
+            Some(eqtb.end_line_char() as u8)
+        };
+        let first_line = match text.next_line(end_line_char) {
+            Ok(Some(line)) => line,
+            Ok(None) => Vec::new(),
+            Err(()) => overflow(
+                "scantokens buffer size",
+                MAX_SCANTOKENS_BYTES_PER_SOURCE,
+                self,
+                eqtb,
+                logger,
+            ),
+        };
+        self.line_number_stack.push(self.line_number);
+        self.line_number = usize::from(line_count > 0);
+        eqtb.line_number = self.line_number;
+        self.virtual_input_bytes_live = next_live;
+        self.push_input(
+            InputSource::TextSource {
+                lexer: LineLexer::new(first_line),
+                source_type: SourceType::PseudoFile {
+                    text,
+                    every_eof_seen: false,
+                    trace_opened,
+                    charge,
+                },
+            },
+            eqtb,
+            logger,
+        );
+    }
+
     /// See 341., 343., 360. and 362.
     pub fn get_next(
         &mut self,
@@ -319,6 +413,65 @@ impl InputStack {
                                     logger.print_char(b')');
                                     logger.update_terminal();
                                 });
+                                self.force_eof = false;
+                                self.pop_input();
+                                self.line_number = self.line_number_stack.pop().unwrap();
+                                eqtb.line_number = self.line_number;
+                                return NextResult::FileEnded;
+                            }
+                            SourceType::PseudoFile {
+                                text,
+                                every_eof_seen,
+                                trace_opened,
+                                ..
+                            } => {
+                                let should_trace_close = *trace_opened;
+                                if !force_eof {
+                                    let end_line_char = if eqtb.end_line_char_inactive() {
+                                        None
+                                    } else {
+                                        Some(eqtb.end_line_char() as u8)
+                                    };
+                                    match text.next_line(end_line_char) {
+                                        Ok(Some(line)) => {
+                                            *lexer = LineLexer::new(line);
+                                            self.line_number += 1;
+                                            eqtb.line_number = self.line_number;
+                                            return NextResult::LineEnded;
+                                        }
+                                        Ok(None) => {}
+                                        Err(()) => overflow(
+                                            "scantokens buffer size",
+                                            MAX_SCANTOKENS_BYTES_PER_SOURCE,
+                                            self,
+                                            eqtb,
+                                            logger,
+                                        ),
+                                    }
+                                }
+
+                                // 実fileと同じく、自然EOFだけが `\everyeof` を一度挿入する。
+                                if !force_eof && !*every_eof_seen {
+                                    *every_eof_seen = true;
+                                    self.line_number += 1;
+                                    eqtb.line_number = self.line_number;
+                                    if let Some(tokens) =
+                                        eqtb.token_lists.get(TokenListVariable::EveryEof).clone()
+                                    {
+                                        self.begin_token_list(
+                                            tokens,
+                                            TokenSourceType::EveryEofText,
+                                            eqtb,
+                                            logger,
+                                        );
+                                        continue;
+                                    }
+                                }
+
+                                if should_trace_close {
+                                    logger.print_char(b')');
+                                    logger.update_terminal();
+                                }
                                 self.force_eof = false;
                                 self.pop_input();
                                 self.line_number = self.line_number_stack.pop().unwrap();
@@ -620,9 +773,12 @@ impl InputStack {
     /// See 311.
     pub fn show_context(&self, logger: &mut Logger, eqtb: &Eqtb) {
         let mut sources = self.source_iter();
+        let mut file_lines = std::iter::once(self.line_number)
+            .chain(self.line_number_stack.iter().rev().copied());
         // Always display the current source.
         let cur_source = sources.next().expect("There is always at least one source");
-        self.display_current_context(cur_source, logger, eqtb);
+        let line = Self::consume_file_line(cur_source, &mut file_lines);
+        self.display_current_context(cur_source, line, logger, eqtb);
 
         // If the current source is already the terminal or a file, we stop here.
         if let InputSource::TextSource {
@@ -637,13 +793,15 @@ impl InputStack {
         let mut nn = 0;
 
         for source in sources {
+            // 表示を省略する疑似sourceでも対応する保存行番号は必ず消費する。
+            let line = Self::consume_file_line(source, &mut file_lines);
             // We stop once we reach a file source or the terminal.
             if let InputSource::TextSource {
                 source_type: SourceType::File { .. } | SourceType::TerminalBase,
                 ..
             } = source
             {
-                self.display_current_context(source, logger, eqtb);
+                self.display_current_context(source, line, logger, eqtb);
                 return;
             // If we have not yet displayed too many intermediate levels.
             } else if nn < eqtb.error_context_lines() {
@@ -658,7 +816,7 @@ impl InputStack {
                         continue;
                     }
                 }
-                self.display_current_context(source, logger, eqtb);
+                self.display_current_context(source, line, logger, eqtb);
                 nn += 1;
             // If we have just displayed too many intermediate levels.
             } else if nn == eqtb.error_context_lines() {
@@ -668,11 +826,25 @@ impl InputStack {
         }
     }
 
+    fn consume_file_line(
+        source: &InputSource,
+        file_lines: &mut impl Iterator<Item = usize>,
+    ) -> Option<usize> {
+        match source {
+            InputSource::TextSource {
+                source_type: SourceType::File { .. } | SourceType::PseudoFile { .. },
+                ..
+            } => file_lines.next(),
+            _ => None,
+        }
+    }
+
     /// HIST: The top check was moved to 311.
     /// See 312. and 318.
     fn display_current_context(
         &self,
         input_source: &InputSource,
+        file_line: Option<usize>,
         logger: &mut Logger,
         eqtb: &Eqtb,
     ) {
@@ -684,7 +856,7 @@ impl InputStack {
                 ref source_type,
                 ref lexer,
             } => {
-                let location = self.source_location_to_string(source_type);
+                let location = self.source_location_to_string(source_type, file_line);
                 logger.print_nl_str(&location);
                 location_len = logger.get_tally();
 
@@ -750,7 +922,11 @@ impl InputStack {
     /// Return an indication of what the current input is and the line number
     /// in case of file inputs.
     /// See 313.
-    fn source_location_to_string(&self, source_type: &SourceType) -> String {
+    fn source_location_to_string(
+        &self,
+        source_type: &SourceType,
+        file_line: Option<usize>,
+    ) -> String {
         match source_type {
             SourceType::TerminalBase => "<*> ".to_string(),
             SourceType::TerminalInsert => {
@@ -764,8 +940,8 @@ impl InputStack {
                     "<read *>".to_string()
                 }
             }
-            SourceType::File { .. } => {
-                format!("l.{} ", self.line_number)
+            SourceType::File { .. } | SourceType::PseudoFile { .. } => {
+                format!("l.{} ", file_line.expect("file-like source has a line number"))
             }
         }
     }
@@ -840,14 +1016,20 @@ impl InputStack {
     pub fn shutdown(&mut self, logger: &mut Logger) {
         while !self.stack.is_empty() {
             // Print a closing parenthesis for every input file we close.
-            if let InputSource::TextSource {
-                source_type: SourceType::File { .. },
-                ..
-            } = self.cur_source
-            {
-                logger.automatic_output(|logger| {
-                    logger.print_str(" )");
-                });
+            match &self.cur_source {
+                InputSource::TextSource {
+                    source_type: SourceType::File { .. },
+                    ..
+                } => logger.automatic_output(|logger| logger.print_str(" )")),
+                InputSource::TextSource {
+                    source_type:
+                        SourceType::PseudoFile {
+                            trace_opened: true,
+                            ..
+                        },
+                    ..
+                } => logger.print_str(" )"),
+                _ => {}
             }
             self.pop_input();
         }

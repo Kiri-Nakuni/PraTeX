@@ -1,5 +1,6 @@
 use super::conditional::{conditional, terminate_current_conditional_and_skip_to_fi};
 use super::macro_expand::macro_expand;
+use super::pseudo_file::PseudoFilePrinter;
 use super::{Scanner, TokenSourceType};
 use crate::command::{
     Command, ExpandableCommand, MarkClassOperand, MarkCommand, UnexpandableCommand,
@@ -12,7 +13,7 @@ use crate::error::overflow;
 use crate::logger::Logger;
 use crate::print::Printer;
 use crate::token::Token;
-use crate::token_lists::{conv_toks, ins_the_toks};
+use crate::token_lists::{conv_toks, ins_the_toks, nested_scan_toks, token_show};
 
 /// `\csname` が集める名前。通常byteだけなら既存hashへそのまま流し、
 /// 最初のUnicode文字を見た時だけtyped名へ昇格する。
@@ -140,7 +141,33 @@ pub fn expand(
         }
         ExpandableCommand::Input => initiate_input_from_file(token, scanner, eqtb, logger),
         ExpandableCommand::EndInput => scanner.end_input_from_current_file(),
+        ExpandableCommand::ScanTokens => scan_tokens_as_pseudo_file(scanner, eqtb, logger),
     }
+}
+
+/// e-TeX `\scantokens`。実fileや一時fileへ逃がさず、同じ行字句器へ型付きbufferを積む。
+fn scan_tokens_as_pseudo_file(scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Logger) {
+    let trace_opened = eqtb.integer(IntegerVariable::TracingScanTokens) > 0;
+    let newline_char = eqtb.get_current_newline_character();
+    let escape_char = eqtb.get_current_escape_character();
+
+    // `scan_toks` は外側の `def_ref` を作り直すため、必ずnested境界を通す。
+    let tokens = nested_scan_toks(scanner, false, eqtb, logger);
+    let mut printer = PseudoFilePrinter::new(newline_char, escape_char);
+    token_show(&tokens, &mut printer, eqtb);
+    let text = match printer.finish() {
+        Ok(text) => text,
+        Err(error) => overflow(
+            error.resource,
+            error.limit,
+            &scanner.input_stack,
+            eqtb,
+            logger,
+        ),
+    };
+    scanner
+        .input_stack
+        .input_from_pseudo_file(text, trace_opened, eqtb, logger);
 }
 
 /// Expand the next token after expanding the one following it.

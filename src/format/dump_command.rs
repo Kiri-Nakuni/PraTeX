@@ -481,6 +481,9 @@ impl Dumpable for ExpandableCommand {
             Self::EndInput => {
                 writeln!(target, "EndInput")?;
             }
+            Self::ScanTokens => {
+                writeln!(target, "ScanTokens")?;
+            }
             Self::IfTest(if_test) => {
                 writeln!(target, "IfTest")?;
                 if_test.dump(target)?;
@@ -570,6 +573,7 @@ impl Dumpable for ExpandableCommand {
             "NoExpand" => Ok(Self::NoExpand),
             "Input" => Ok(Self::Input),
             "EndInput" => Ok(Self::EndInput),
+            "ScanTokens" => Ok(Self::ScanTokens),
             "IfTest" => {
                 let if_test = IfTest::undump(lines)?;
                 Ok(Self::IfTest(if_test))
@@ -976,6 +980,7 @@ mod tests {
         let no_expand = ExpandableCommand::NoExpand;
         let input_command = ExpandableCommand::Input;
         let end_input = ExpandableCommand::EndInput;
+        let scan_tokens = ExpandableCommand::ScanTokens;
         let if_test = ExpandableCommand::IfTest(IfTest::IfChar);
         let fi_or_else = ExpandableCommand::FiOrElse(FiOrElse::Fi);
         let cs_name = ExpandableCommand::CsName;
@@ -999,6 +1004,7 @@ mod tests {
         no_expand.dump(&mut file).unwrap();
         input_command.dump(&mut file).unwrap();
         end_input.dump(&mut file).unwrap();
+        scan_tokens.dump(&mut file).unwrap();
         if_test.dump(&mut file).unwrap();
         fi_or_else.dump(&mut file).unwrap();
         cs_name.dump(&mut file).unwrap();
@@ -1015,6 +1021,7 @@ mod tests {
         let no_expand_undumped = ExpandableCommand::undump(&mut lines).unwrap();
         let input_command_undumped = ExpandableCommand::undump(&mut lines).unwrap();
         let end_input_undumped = ExpandableCommand::undump(&mut lines).unwrap();
+        let scan_tokens_undumped = ExpandableCommand::undump(&mut lines).unwrap();
         let if_test_undumped = ExpandableCommand::undump(&mut lines).unwrap();
         let fi_or_else_undumped = ExpandableCommand::undump(&mut lines).unwrap();
         let cs_name_undumped = ExpandableCommand::undump(&mut lines).unwrap();
@@ -1028,6 +1035,7 @@ mod tests {
         assert_eq!(no_expand, no_expand_undumped);
         assert_eq!(input_command, input_command_undumped);
         assert_eq!(end_input, end_input_undumped);
+        assert_eq!(scan_tokens, scan_tokens_undumped);
         assert_eq!(if_test, if_test_undumped);
         assert_eq!(fi_or_else, fi_or_else_undumped);
         assert_eq!(cs_name, cs_name_undumped);
