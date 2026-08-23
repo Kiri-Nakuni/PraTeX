@@ -219,30 +219,35 @@ cold/warmとhit/missを同じfixtureで測る。
   これは一般のclass/package互換性やLaTeX DVIの完全回帰を保証しない。
 - `\kanjiskip` / `\xkanjiskip`の通常glue parameter面と、検証済みscript class対tableは実装済み。
   横組BuiltIn最小finalizerはJFM pair、K/X、`、。）（`の4文字禁則を由来付き実nodeとして
-  hbox、段落、alignment、line break、DVIへ接続する。JFM/禁則もlist-close、Kも可視glueの
-  correctness checkpointである。auto switch、`xspcode`、`inhibitxspcode`はtyped eqtb、群・
-  `globaldefs`、fmt、中央finalizerへ接続済み。仮想K、box/disc境界は未実装。
+  hbox、段落、alignment、line break、DVIへ接続する。auto switch、`xspcode`、
+  `inhibitxspcode`はtyped eqtb、群・`globaldefs`、fmt、中央finalizerへ接続済み。直結和文glyph間の
+  Kは公式e-upTeXのblack-box結果に合わせた仮想nodeとなり、寸法・改行・DVIには効く一方、
+  `\showbox`、`\lastskip`、`\lastnodetype`、`\unskip`からは隠れる。箱境界のmaterial Kとdisc境界は
+  まだ未実装であり、この仮想K型へ混ぜない。
 - `\readline`、`\interactionmode`、mark class、糊成分・型変換は実装済み。`\scantokens`は
   boundedなtyped疑似fileとして接続済みで、実file・疑似fileとも`\everyeof`は自然EOFだけで
   一度発火し、`\endinput`では発火しない。fmtとKOMA-Scriptの動的catcode経路も試験済み。
 - `\TeXXeTstate`はfmt読込時0へ戻るが、LR組版自体は未実装。
-- 生文字列registerは`docs/raw-string-registers.md`に契約があるだけで、`\rawstring`、
-  `\rawstringdef`、`\therawstring`、専用`\showthe`、storage、fmt、production testは未実装。
-  font mapが生byteを保存する既存処理は、このregister機能の実装ではない。
+- 生文字列registerは`\rawstring`、`\rawstringdef`、`\therawstring`、専用`\showthe`、
+  `Rc<Vec<u8>>` storage、群・`globaldefs`、fmt、production testまで実装済み。1 slotは16 MiB、
+  active/future slot全体は64 MiBに制限し、0--255をdense、256--32767をsparseに持つ。
+  literal/file producerと`\the\rawstring`のLF/CRLF契約は未実装なので、`\therawstring`と混同しない。
 - 横組JFMはbounded loader、TeX互換scale、current和文font、`\pratexjfont`と意味が一致する
   範囲の`\jfont` alias、`zw`/`zh`、wide node、class pair、DVI `set2`/`set3`まで接続済み。
   `\tfont`、縦組、main-loop JFM/完全禁則は未接続。PDF和文glyphは明示named CID profileを
   使う非埋込みBMP最小経路だけ接続済みで、portableな字形表示ではない。
 - plain formatで`\directvaak`、`\vaakdef`、`let` / `var`、host aliasを使う実行例は
   `examples/plain-vaak.tex`。静的失敗はprepare段階・行・桁・診断本文を表示して0へ展開する。
-- PDF直接出力、Type 1全埋込み、`ls-R`/`kpsewhich` resolverは部分実装済み。
+- `\pdfmdfivesum file{...}`はresolver経由の実file byte列をincremental MD5へ流し、最小
+  `hyperref`文書はDVIまで到達済み。PDF直接出力、Type 1全埋込み、`ls-R`/`kpsewhich` resolverは
+  なお部分実装である。
 - 現resolverは曖昧・stale・未対応pathでone-shot `kpsewhich`へ戻る。これは移行実装であり、
   通常lookupの最終設計ではない。
 - 名前空間はPhase 0--7済み。Phase 8のTRIPとalignment再利用検証が残る。
 
 ## 直近の実装順
 
-1. JFM/禁則をmain-loop早期挿入へ移し、仮想K、box edge、discの意味を完成する。
+1. JFM/禁則をmain-loop早期挿入へ移し、box edgeのmaterial Kとdiscの意味を完成する。
 2. compile済み汎用script class対tableをlist単位dispatcherと中央finalizerへ接続する。
 3. `\tfont`と縦組metric/node/outputを追加し、JFM/K/X/禁則を横組から縦組へ広げる。
 4. kpathsea互換resolverをrun-global化し、native path解決を広げて通常の子process呼出しをなくす。

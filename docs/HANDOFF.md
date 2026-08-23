@@ -185,9 +185,11 @@ error 0でdumpした。28,640個の複数文字control sequenceを保存し、pr
 - 文書: `docs/kanjiskip-core-design.md`
 - INITEX既定0pt、通常glue parameterとしての代入・group、`\globaldefs`、算術、fmt、表示を
   既存のglue経路へ接続した。release focused testは3 passed、0 failed。
-- K/Xはlist終端値で元のWideChar/Char/Ligature境界を再評価する。現checkpointのKは
-  correctness用の由来付き実glueで、show/lastskipへ見せない仮想Kは未実装。auto switch、
-  `xspcode`、`inhibitxspcode`はtyped eqtb、群・`globaldefs`、fmt、中央finalizerへ接続済みである。
+- K/Xはlist終端値で元のWideChar/Char/Ligature境界を再評価する。直結和和Kは
+  寸法・伸縮・改行・DVIに効く一方、`\showbox`、`\lastskip`、`\lastnodetype`、`\unskip`から
+  隠れる仮想nodeとして公式e-upTeX black-boxと照合済みである。X、JFM、禁則、将来の箱境界Kは
+  material nodeとしてこの型へ混ぜない。auto switch、`xspcode`、`inhibitxspcode`もtyped eqtb、
+  群・`globaldefs`、fmt、中央finalizerへ接続済みである。
 - JFMは途中で観測・除去できるためmain-loopで早期挿入し、K/Xだけclose-timeで再評価する
   hybridにする。
 - 最終形のKはwide glyphのbit＋hlist単位specをline breaker/packer/outputが仮想glueとして扱い、
@@ -380,8 +382,8 @@ Claude `82fa3a2`のLinux perf分解:
 
 ## LaTeXと日本語組版の次順
 
-1. 公式CTAN資材でauto/xsp/inhibitを含むPraTeX-native日本語adapterを再測定する。
-2. JFM/禁則をmain-loop早期挿入へ移し、仮想Kとbox/disc境界を完成する。
+1. 固定10ptの`pratex-japanese`をNFSSのsize/family/seriesと任意JFMへ一般化する。
+2. JFM/禁則をmain-loop早期挿入へ移し、box edgeのmaterial Kとdisc境界を完成する。
 3. `\tfont`と縦組metric/node/outputを追加し、spacingと禁則を横組から縦組へ広げる。
 4. `\currentiftype`、font照会、penalty/discard/show等のe-TeX残件を進める。
 
@@ -423,10 +425,10 @@ Unicode table追加後の最小fmt増分は上記のとおり実測済み。full
 - LaTeX名はLaPraTeX。
 - 十分に固まった機能checkpointは`codex2/*`で検証後、`full`へ順次merge・pushしてよい。
   `main`へは入れず、設計だけ・production未接続・既知退行ありのsliceを完成機能扱いしない。
-- 生文字列registerは[設計](raw-string-registers.md)のみ。`\rawstring` / `\rawstringdef` /
-  `\therawstring`、raw専用`\showthe`、任意byte storage、fmt、production testは未実装である。
-  `InternalValue::RawString`まで取得を共通化し、再字句化する`\the`、全Other化、非実行表示の
-  三consumerを分ける。font map内の生byte保持とは別機能である。
+- 生文字列registerは`\rawstring` / `\rawstringdef` / `\therawstring`、raw専用`\showthe`、
+  `Rc<Vec<u8>>` storage、群・`globaldefs`、fmt、production testまで実装済みである。
+  1 slot 16 MiB、active/future slot全体64 MiBの上限を持つ。literal/file producerと
+  `\the\rawstring`のLF/CRLF契約は未実装であり、`\therawstring`へ黙って統合しない。
 - TCXはWeb2C input translation profileとして未実装。xord/xchrや`^^`記法と混同しない。
 - `^^^^hhhh` / `^^^^^^hhhhhh`は未実装。
 - PDF直接出力をOTF対応より先に進め、JFM/TFMだけのDVI/PDF基線を完成する。

@@ -1,7 +1,7 @@
 # PraTeXのTeX82外機能と独立実装
 
-更新: 2026-08-23
-監査対象: `codex2/jlreq-script-spacing`（基点`6ce8315`）
+更新: 2026-08-24
+監査対象: `codex2/jlreq-script-spacing`
 
 この文書は、PraTeXが現在持つ機能のうちTeX82の中核にはないものと、PraTeXで新たに
 書いた実装を区別して記録する。将来構想を現在の対応機能として数えないこと、既存engineの
@@ -76,7 +76,7 @@
 |---|---|---|
 | 実装 | `\expanded` | general textを完全展開して現在位置へ戻す。外側の走査状態を保つ |
 | 実装 | `\pdffilesize` | 展開した論理名をTeX file resolverへ通し、見つかったfileのbyte数を返す。不在・起動不能では空に展開する |
-| 部分 | `\pdfmdfivesum` | general textのMD5を大文字hexで返す。`file`形式は未実装。暗号用途ではない |
+| 実装 | `\pdfmdfivesum` | general textまたはresolverで解決した`file{...}`の全byte列をincremental MD5へ流し、大文字hexで返す。不在・読取不能は空展開。暗号用途ではない |
 | 実装 | `\pdfstrcmp` | 展開後の二つのgeneral textをbyte辞書順で比較し、`-1`、`0`、`1`を返す |
 | 部分 | PDF文字列変換 | `\pdfescapehex`、`\pdfunescapehex`、`\pdfescapestring`、`\pdfescapename`のbyte変換は実装。focusedなprocess試験は`\pdfescapehex`中心で、残りの互換性検証は薄い |
 | 対応 | `\year` / `\month` / `\day` / `\time`、transcript、`\pdfcreationdate` | run開始時のlocal clockを一度だけ共有する。`SOURCE_DATE_EPOCH`はUTC固定。不正値はfallbackせず、非Windows/Unix targetはhost clockがなければ固定epochを要求する |
@@ -101,9 +101,9 @@ OTF shapingは未実装である。現在のnamed CIDはJFM幅で位置を進め
 |---|---|---|
 | 実装 | 和文寸法単位 `Q`、`H` | どちらも厳密に0.25 mm。通常寸法、糊、式の既存寸法走査を通る |
 | 部分 | 和文寸法単位 `zw`、`zh` | current横組JFMを選んだ時はscale済みclass 0の幅、height+depthを返す。未選択時だけ従来の欧文font `em`へ戻る。縦組metricは未接続 |
-| 部分 | `\kanjiskip`、`\xkanjiskip`と自動間隔制御 | INITEX既定0の通常glue parameterに加え、`\autospacing` / `\noautospacing`、`\autoxspacing` / `\noautoxspacing`、`\xspcode`、Unicode scalarの`\inhibitxspcode`をtyped eqtbへ持つ。代入、group、`\globaldefs`、内部量、fmtを通し、横組の和和・和欧・欧和境界へBuiltIn最小finalizerが現在値を実nodeとして反映する。仮想K、box edgeは未接続 |
+| 部分 | `\kanjiskip`、`\xkanjiskip`と自動間隔制御 | INITEX既定0の通常glue parameterに加え、`\autospacing` / `\noautospacing`、`\autoxspacing` / `\noautoxspacing`、`\xspcode`、Unicode scalarの`\inhibitxspcode`をtyped eqtbへ持つ。代入、group、`\globaldefs`、内部量、fmtを通す。直結和和Kは寸法・改行・DVIに効くが`\showbox` / `\lastskip` / `\lastnodetype` / `\unskip`から隠れる仮想node、Xはmaterial nodeである。box edgeのmaterial Kは未接続 |
 | 部分 | JFM reader/modelと横組font | 公開JFM仕様から独立実装。横組11／縦組9、24-bit raw文字code、u8 class、skip・再配置・256超glue/kern indexをboundedに検査する。横組11はbounded loader、TeX互換scale、current font、`\pratexjfont`と意味一致範囲の`\jfont`、group/fmtへ接続済み。`\tfont`と縦組は未接続 |
-| 部分 | 横組JFM/K/X/禁則finalizer | WideChar/Char/Ligature境界を中央plannerで一度だけ決め、同一fontのJFM pair glue/kernをKより優先する。明示penaltyは透明、glue/kern/math/whatsit/list/rule/disc等はbarrier。由来付きnodeをunbox再評価、line break、box寸法、DVI座標、fmtへ接続。禁則は`、。）（`の4文字subset、JFM/禁則もlist-close、Kも可視実glueのcorrectness checkpointに限る |
+| 部分 | 横組JFM/K/X/禁則finalizer | WideChar/Char/Ligature境界を中央plannerで一度だけ決め、同一fontのJFM pair glue/kernをKより優先する。明示penaltyは透明、glue/kern/math/whatsit/list/rule/disc等はbarrier。由来付きnodeをunbox再評価、line break、box寸法、DVI座標、fmtへ接続。禁則は`、。）（`の4文字subset。直結Kの利用者不可視性は公式e-upTeX black-boxと照合済みだが、JFM/禁則のmain-loop早期挿入とbox/disc境界は残る |
 | 実装 | `\kcatcode`表・照会・代入 | 公開値14〜20。U+0000〜U+10FFFFをUnicode 17.0.0のblock、upTeX擬似境界、7例外集合で保存する。block単位の局所/global/globaldefs復元とfmt往復を含む |
 | 実装 | `latin_ucs`（kcatcode 14） | U+0080〜U+2E7FをUnicode欧文一文字tokenとして保持し、cat/lc/uc/sf、group/fmt、active/control identity、特殊catcode、case変換、表示へ通す。pattern/exception/trieもu16 alphabetで一文字として扱う。runtime namespaced Unicode active生成とwide font nodeは後段 |
 | 部分 | UTF-8 CJK一文字tokenと横組glyph | kcatcode 16〜20を符号位置と入力時categoryを持つ一tokenにし、macro、`\edef`、`\let`、条件、`\string`、`\detokenize`、`\write`、fmtまで保持する。current横組JFMがあればUnicode・JFM class・scale済みmetricを持つwide nodeにし、DVIはBMPを`set2`、補助面を`set3`、PDFは明示named CID profileがあるBMPだけをType 0へ出す。未選択、縦組、math、PDF非BMPは明示診断する |
@@ -128,7 +128,7 @@ CJK tokenを現在変更しない。
 
 | 状態 | 機能 | 現在の範囲と境界 |
 |---|---|---|
-| 部分 | kpathsea/web2c相当の探索 | 直接pathを優先し、用途別`--show-path`とrun-local `ls-R`索引で一意な候補を証明できれば外部processを省く。曖昧・stale・未対応ならshellを介さないone-shot `kpsewhich`へ戻す。TeX入力、`\openin`、`\pdffilesize`、TFM、map、encoding、Type 1、AFM、Vaak入力へ接続し、run内で成功・不在をcacheする |
+| 部分 | kpathsea/web2c相当の探索 | 直接pathを優先し、用途別`--show-path`とrun-local `ls-R`索引で一意な候補を証明できれば外部processを省く。曖昧・stale・未対応ならshellを介さないone-shot `kpsewhich`へ戻す。TeX入力、`\openin`、`\pdffilesize`、TFM/JFM、VF、map、encoding、Type 1、AFM、Vaak入力へ接続し、run内で成功・不在をcacheする。DVI modeのVF consumerはPraTeXでなくDVI driverなので先読みしない |
 | 部分 | Windows--WSL TeX Live bridge | production既定値ではnative `kpsewhich`の起動fileがない時だけ既定WSLへ移り、選んだbackendをresolver instance内で固定する。Linux絶対pathと探索pathを検証つきUNCへ写す。nativeの不在回答や異常を別TeX Liveで覆わない。ScannerとPDF loaderを跨ぐrun-global固定は未実装 |
 | 実装 | 論理名と物理pathの分離 | 解決したTEXMF上のpathをTFM名、DVI font名、PDF map keyなどの論理identityへ漏らさない |
 | 部分 | OS固有file名 | CLIは`args_os`、Unixの非UTF-8名はbyteのまま、WindowsのUnicode名は`OsString`で運ぶ。単一argv中の空白やWindows絶対pathをTeX入力としてどう引用するかは未解決 |
@@ -155,6 +155,7 @@ mktex生成は未実装である。一意性を証明できないcache missで�
 | 実装 | PraTeXの実行名 | primary/default binaryとbannerは`pratex`。移行用の`rtex`互換binaryは残す。crate/library名も現在は`rtex`のまま |
 | 実装 | 自動出力だけを抑える`--quiet` | banner、file括弧、page番号、通常summaryだけをterminalから消す。log、明示`\message`、`\write16`、`\show`、tracing、error、promptは残す |
 | 実装 | Type 1埋込みの明示opt-in | `--pdf-font-map`を指定した時だけ限定map parserと埋込み経路を有効にし、暗黙のresource選択を避ける |
+| 部分 | 生文字列register | `\rawstring`、`\rawstringdef`、`\therawstring`、専用`\showthe`、群・`\globaldefs`、fmtを持つ。任意byte列を`Rc<Vec<u8>>`でtoken列と分離し、1 slot 16 MiB、active/future slot全体64 MiBに制限する。literal/file producerと`\the\rawstring`の改行契約は未実装 |
 
 Vaak言語runtimeそのものは別repositoryのMIT依存であり、PraTeX独自なのはTeXとのbridge層で
 ある。Vaak側のprepared/layout APIは接続済みだが、現bridgeが公開する値は低位count/dimenだけで、
@@ -205,7 +206,6 @@ runtimeは別MIT projectを依存として使う。PraTeX側からMITのVaakへG
 
 | 状態 | 項目 | 現在地 |
 |---|---|---|
-| 設計のみ | 生文字列register、`\therawstring`、raw専用`\showthe` | [設計文書](raw-string-registers.md)だけ。production primitive、storage、testはない |
 | 設計のみ | run-local Vaak疑似callback | 特定のVaak実行が明示要求した時だけ有効にする方針だけ。常設callback表はない |
 | 設計のみ | version付きWASM ABI | 実験[ABI 0.0](wasm-provider-abi-v0.md)で四operation、固定mailbox、capability、fuel、atomic fallbackまで定義。ABI export、runtime、providerはない |
 | 部分 | PraTeX自身のWASI target | `wasm32-wasip1`へcheck・binary linkし、`pratex.wasm` / `rtex.wasm`を生成できる。現状はargs、stream、preopen filesystem、process exitを使うcommand moduleであり、runtime適合試験、子processなしresolver、host API/VFS、native DVI比較は未達。詳細は[WASM target監査](wasm-target-status.md) |
@@ -219,8 +219,8 @@ runtimeは別MIT projectを依存として使う。PraTeX側からMITのVaakへG
 | 未実装 | Web2C TCX input translation | `--translate-file`、`%& -translate-file`、`-8bit`、TCXの`xord/xchr/xprn`三表はまだない。既定UTF-8と分けたlegacy input profileは[文字identity roadmap](glyph-identity-roadmap.md)で設計のみ |
 | 未実装 | OTF/TrueTypeとRustyBuzz | dependencyもbackendもない。JFM/TFM出力基線後にdefault-offで接続し、PraTeX側はsafe Rust、依存のlicense・unsafe利用・binary sizeを採用前に監査する |
 | 未実装 | 完全なe-TeX | `\showtokens`、`\showgroups`、`\showifs`、`\middle`、`\fontcharwd/ht/dp/ic`、`\parshapelength/indent/dimen`、各種penalty配列、`\pagediscards`、`\splitdiscards`、`\beginL/\endL/\beginR/\endR`などが残る |
-| 部分 | 横組・縦組の日本語組版 | 横組JFM font、wide node、JFM pair、実node K/X、4文字禁則、box/line幅、DVI glyphまでのBuiltIn最小基線を実装。main-loop JFM、仮想K、完全JLReq、方向node、縦組が残る |
-| 部分 | class/package互換 | 最小`article`に加え、公式KOMA-Script 3.49.2の最小`scrartcl`をerror 0のDVIまで実測。`jsarticle`、`jlreq`、`ltjsarticle`、`hyperref`を実用的に処理する保証はない |
+| 部分 | 横組・縦組の日本語組版 | 横組JFM font、wide node、JFM pair、仮想K・material X、4文字禁則、box/line幅、DVI glyphまでのBuiltIn最小基線を実装。main-loop JFM、box/disc境界、完全JLReq、方向node、縦組が残る |
+| 部分 | class/package互換 | `article`、日本語`prjsarticle`、`pratex-japanese`を明示したKOMA-Script 3.49.2 `scrartcl`、`graphicx`、`xcolor`、`hyperref`、TikZ/PGF、`siunitx`の限定smokeをDVIまで実測。package全API、`jsarticle`、`jlreq`、`ltjsarticle`の実用互換を保証しない |
 
 文字分類の実装済み境界と未実装部分は
 [拡張可能な文字分類器](character-classifier-extension.md) に分離している。
