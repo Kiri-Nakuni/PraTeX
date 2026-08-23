@@ -77,6 +77,7 @@ pub struct VariableLevels {
 
     // Fonts
     cur_font: Level,
+    japanese_font: Level,
     text_font: [Level; 16],
     script_font: [Level; 16],
     script_script_font: [Level; 16],
@@ -257,6 +258,7 @@ impl VariableLevels {
 
             // Fonts
             cur_font: 0,
+            japanese_font: 0,
             text_font: [0; 16],
             script_font: [0; 16],
             script_script_font: [0; 16],
@@ -455,6 +457,7 @@ impl VariableLevels {
                     MathFontSize::ScriptScript => self.script_script_font[number],
                 },
             },
+            Variable::JapaneseFont => self.japanese_font,
             Variable::Integer(integer_variable) => match integer_variable {
                 IntegerVariable::Pretolerance => self.pretolerance,
                 IntegerVariable::Tolerance => self.tolerance,
@@ -643,6 +646,7 @@ impl VariableLevels {
                     MathFontSize::ScriptScript => &mut self.script_script_font[number],
                 },
             },
+            Variable::JapaneseFont => &mut self.japanese_font,
             Variable::Integer(integer_variable) => match integer_variable {
                 IntegerVariable::Pretolerance => &mut self.pretolerance,
                 IntegerVariable::Tolerance => &mut self.tolerance,
@@ -831,6 +835,7 @@ impl Dumpable for VariableLevels {
 
         // Fonts
         self.cur_font.dump(target)?;
+        self.japanese_font.dump(target)?;
         self.text_font.dump(target)?;
         self.script_font.dump(target)?;
         self.script_script_font.dump(target)?;
@@ -1014,6 +1019,7 @@ impl Dumpable for VariableLevels {
 
         // Fonts
         let cur_font = Dumpable::undump(lines)?;
+        let japanese_font = Dumpable::undump(lines)?;
         let text_font = Dumpable::undump(lines)?;
         let script_font = Dumpable::undump(lines)?;
         let script_script_font = Dumpable::undump(lines)?;
@@ -1180,6 +1186,7 @@ impl Dumpable for VariableLevels {
             emergency_stretch,
             dimen,
             cur_font,
+            japanese_font,
             text_font,
             script_font,
             script_script_font,

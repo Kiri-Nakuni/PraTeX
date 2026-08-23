@@ -23,6 +23,7 @@ use crate::fonts::FontInfo;
 use crate::format::{Dumpable, FormatError};
 use crate::input::{InputStack, Scanner};
 use crate::integer::Integer;
+use crate::japanese_fonts::{JapaneseFontIndex, JapaneseFontInfo};
 use crate::logger::Logger;
 use crate::macros::show_macro_def;
 use crate::nodes::{show_list_node, GlueSpec, GlueType, ListNode, Node};
@@ -156,6 +157,7 @@ pub struct Eqtb {
     pub token_lists: TokenListParameters,
     pub boxes: BoxParameters,
     pub font_params: FontParameters,
+    cur_japanese_font: Option<JapaneseFontIndex>,
     pub cat_codes: CatCodes,
     kcat_codes: KCatCodes,
     pub codes: CodeParameters,
@@ -179,6 +181,7 @@ pub struct Eqtb {
 
     // See 549.
     pub fonts: Vec<FontInfo>,
+    pub(crate) japanese_fonts: Vec<JapaneseFontInfo>,
 
     /// See 646.
     pub last_badness: i32,
@@ -231,6 +234,7 @@ impl Eqtb {
             token_lists: TokenListParameters::new(),
             boxes: BoxParameters::new(),
             font_params: FontParameters::new(),
+            cur_japanese_font: None,
             cat_codes: CatCodes::new(),
             kcat_codes: KCatCodes::new(),
             codes: CodeParameters::new(),
@@ -243,6 +247,7 @@ impl Eqtb {
             },
             mag_set: 0,
             fonts: vec![FontInfo::null_font()],
+            japanese_fonts: Vec::new(),
             last_badness: 0,
             dead_cycles: 0,
             output_active: false,
@@ -327,6 +332,23 @@ impl Eqtb {
 
     pub fn cur_font(&self) -> FontIndex {
         *self.font_params.get(FontVariable::CurFont)
+    }
+
+    pub(crate) const fn cur_japanese_font(&self) -> Option<JapaneseFontIndex> {
+        self.cur_japanese_font
+    }
+
+    pub(crate) fn current_japanese_font_info(&self) -> Option<&JapaneseFontInfo> {
+        self.cur_japanese_font
+            .and_then(|index| self.japanese_fonts.get(index.position()))
+    }
+
+    pub(crate) fn zw_for_cur_japanese_font(&self) -> Option<Dimension> {
+        self.current_japanese_font_info().map(JapaneseFontInfo::zw)
+    }
+
+    pub(crate) fn zh_for_cur_japanese_font(&self) -> Option<Dimension> {
+        self.current_japanese_font_info().map(JapaneseFontInfo::zh)
     }
 
     pub fn fam_fnt(&self, size: MathFontSize, number: usize) -> FontIndex {
@@ -483,6 +505,14 @@ impl Eqtb {
         self.define(Definition::Font(font_var, font_index), global);
     }
 
+    pub(crate) fn japanese_font_define(
+        &mut self,
+        font_index: Option<JapaneseFontIndex>,
+        global: bool,
+    ) {
+        self.define(Definition::JapaneseFont(font_index), global);
+    }
+
     /// A category code version of `define`.
     /// See 1214., 277., and 279.
     pub fn cat_code_define(&mut self, chr: u8, cat_code: CatCode, global: bool) {
@@ -606,6 +636,10 @@ impl Eqtb {
             Definition::Font(font_variable, font_index) => {
                 let prev_font_index = self.font_params.set(font_variable, font_index);
                 Definition::Font(font_variable, prev_font_index)
+            }
+            Definition::JapaneseFont(font_index) => {
+                let previous = std::mem::replace(&mut self.cur_japanese_font, font_index);
+                Definition::JapaneseFont(previous)
             }
             Definition::CatCode(chr, cat_code) => {
                 let prev_cat_code = self.cat_codes.set_latin_ucs(chr as u16, cat_code);
@@ -793,6 +827,14 @@ impl Eqtb {
             }
             Variable::BoxRegister(box_var) => self.show_equivalent_of_box_variable(box_var, logger),
             Variable::Font(font_var) => self.show_equivalent_of_font_variable(font_var, logger),
+            Variable::JapaneseFont => {
+                logger.print_str("current Japanese font=");
+                if let Some(index) = self.cur_japanese_font {
+                    logger.print_int(index.position() as i32);
+                } else {
+                    logger.print_str("none");
+                }
+            }
             Variable::CatCode(chr) => self.show_equivalent_of_cat_code_variable(chr, logger),
             Variable::KCatCode(block) => {
                 logger.print_esc_str(b"kcatcode");
@@ -1457,7 +1499,7 @@ impl Eqtb {
     fn last_node_state(last_node: Option<&Node>) -> (i32, LastNodeInfo) {
         let node_type = match last_node {
             None => -1,
-            Some(Node::Char(_)) => 0,
+            Some(Node::Char(_) | Node::WideChar(_)) => 0,
             Some(Node::List(l)) => {
                 if matches!(l.list, crate::nodes::HlistOrVlist::Hlist(_)) {
                     1
@@ -1537,6 +1579,7 @@ pub enum Variable {
     TokenList(TokenListVariable),
     BoxRegister(BoxVariable),
     Font(FontVariable),
+    JapaneseFont,
     CatCode(usize),
     KCatCode(KCatCodeBlock),
     Code(CodeVariable),
@@ -1555,6 +1598,7 @@ pub enum Definition {
     TokenList(TokenListVariable, Option<RcTokenList>),
     BoxRegister(BoxVariable, Option<ListNode>),
     Font(FontVariable, FontIndex),
+    JapaneseFont(Option<JapaneseFontIndex>),
     CatCode(usize, CatCode),
     KCatCode(KCatCodeBlock, KCatCode),
     Code(CodeVariable, i32),
@@ -1575,6 +1619,7 @@ impl Definition {
             Self::TokenList(token_list_variable, _) => Variable::TokenList(token_list_variable),
             Self::BoxRegister(box_variable, _) => Variable::BoxRegister(box_variable),
             Self::Font(font_variable, _) => Variable::Font(font_variable),
+            Self::JapaneseFont(_) => Variable::JapaneseFont,
             Self::CatCode(chr, _) => Variable::CatCode(chr),
             Self::KCatCode(block, _) => Variable::KCatCode(block),
             Self::Code(code_variable, _) => Variable::Code(code_variable),
@@ -1624,6 +1669,9 @@ impl Dumpable for Variable {
             Self::Font(font_variable) => {
                 writeln!(target, "Font")?;
                 font_variable.dump(target)?;
+            }
+            Self::JapaneseFont => {
+                writeln!(target, "JapaneseFont")?;
             }
             Self::CatCode(chr) => {
                 if *chr > MAX_LATIN_UCS_CODE as usize {
@@ -1682,6 +1730,7 @@ impl Dumpable for Variable {
                 let font_variable = FontVariable::undump(lines)?;
                 Ok(Self::Font(font_variable))
             }
+            "JapaneseFont" => Ok(Self::JapaneseFont),
             "CatCode" => {
                 let chr = usize::undump(lines)?;
                 if chr <= MAX_LATIN_UCS_CODE as usize {
@@ -1723,6 +1772,7 @@ impl Dumpable for Eqtb {
         self.token_lists.dump(target)?;
         self.boxes.dump(target)?;
         self.font_params.dump(target)?;
+        self.cur_japanese_font.dump(target)?;
         self.cat_codes.dump(target)?;
         self.kcat_codes.dump(target)?;
         self.codes.dump(target)?;
@@ -1734,6 +1784,7 @@ impl Dumpable for Eqtb {
         self.write_cs.dump(target)?;
 
         self.fonts.dump(target)?;
+        self.japanese_fonts.dump(target)?;
 
         Ok(())
     }
@@ -1749,6 +1800,7 @@ impl Dumpable for Eqtb {
         let token_lists = TokenListParameters::undump(lines)?;
         let boxes = BoxParameters::undump(lines)?;
         let font_params = FontParameters::undump(lines)?;
+        let cur_japanese_font = Option::<JapaneseFontIndex>::undump(lines)?;
         let cat_codes = CatCodes::undump(lines)?;
         let kcat_codes = KCatCodes::undump(lines)?;
         let codes = CodeParameters::undump(lines)?;
@@ -1760,6 +1812,12 @@ impl Dumpable for Eqtb {
         let write_cs = ControlSequence::undump(lines)?;
 
         let fonts = Vec::undump(lines)?;
+        let japanese_fonts: Vec<JapaneseFontInfo> = Vec::undump(lines)?;
+        if cur_japanese_font
+            .is_some_and(|index| index.position() >= japanese_fonts.len())
+        {
+            return Err(FormatError::ParseError);
+        }
 
         Ok(Self {
             cur_level: 0,
@@ -1781,6 +1839,7 @@ impl Dumpable for Eqtb {
             token_lists,
             boxes,
             font_params,
+            cur_japanese_font,
             cat_codes,
             kcat_codes,
             codes,
@@ -1791,6 +1850,7 @@ impl Dumpable for Eqtb {
             par_token,
             mag_set: 0,
             fonts,
+            japanese_fonts,
             last_badness: 0,
             dead_cycles: 0,
             output_active: false,

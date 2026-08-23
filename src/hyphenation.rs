@@ -40,6 +40,7 @@ impl Hyphenator {
         while let Some(node) = next_node {
             match node {
                 Node::Char(_)
+                | Node::WideChar(_)
                 | Node::List(_)
                 | Node::Rule(_)
                 | Node::Kern(_)

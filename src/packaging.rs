@@ -70,6 +70,7 @@ pub fn split_adjust_material_off(hlist: &mut Vec<Node>) -> Vec<Node> {
                 hlist.remove(i);
             }
             Node::Char(_)
+            | Node::WideChar(_)
             | Node::Ligature(_)
             | Node::List(_)
             | Node::Rule(_)
@@ -99,6 +100,12 @@ pub fn measure_hlist(hlist: &Vec<Node>) -> Measurement {
     for node in hlist {
         match node {
             &Node::Char(CharNode {
+                width,
+                height,
+                depth,
+                ..
+            })
+            | &Node::WideChar(crate::nodes::WideCharNode {
                 width,
                 height,
                 depth,
@@ -207,6 +214,12 @@ fn measure_disc_internal_node(
 ) {
     match node {
         &Node::Char(CharNode {
+            width,
+            height,
+            depth,
+            ..
+        })
+        | &Node::WideChar(crate::nodes::WideCharNode {
             width,
             height,
             depth,
@@ -539,6 +552,7 @@ pub fn measure_vlist(vlist: &Vec<Node>) -> Measurement {
             }
             Node::Ins(_) | Node::Mark(_) | Node::Penalty(_) => {}
             Node::Char(_)
+            | Node::WideChar(_)
             | Node::Ligature(_)
             | Node::Disc(_)
             | Node::Math(_)

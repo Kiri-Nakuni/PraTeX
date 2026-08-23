@@ -4,6 +4,12 @@ use crate::scaled::Scaled;
 use std::fmt::Debug;
 use std::io::Write;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum OutputFontKind {
+    Byte,
+    Japanese,
+}
+
 /// TeX が読み込んだ一つの論理fontをbackendへ渡す借用view。
 ///
 /// `area` / `name` は DVI や map lookup に使う論理名であり、TFM resolver が
@@ -11,6 +17,7 @@ use std::io::Write;
 /// `char_exists` が真になるcode集合も同じ境界で渡す。
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct OutputFontDefinition<'a> {
+    pub(crate) kind: OutputFontKind,
     pub(crate) font_number: u32,
     pub(crate) checksum: u32,
     pub(crate) at_size: Scaled,
@@ -44,6 +51,7 @@ pub(crate) trait ShipoutBackend {
     fn define_font(&mut self, font: OutputFontDefinition<'_>) -> Result<(), Self::Error>;
     fn set_font(&mut self, font_number: u32) -> Result<(), Self::Error>;
     fn set_char(&mut self, character: u8, width: Scaled) -> Result<(), Self::Error>;
+    fn set_wide_char(&mut self, character: u32, width: Scaled) -> Result<(), Self::Error>;
     fn set_rule(&mut self, height: Scaled, width: Scaled) -> Result<(), Self::Error>;
     fn put_rule(&mut self, height: Scaled, width: Scaled) -> Result<(), Self::Error>;
     fn write_special(&mut self, bytes: &[u8]) -> Result<(), Self::Error>;
@@ -117,6 +125,10 @@ impl<T: Write> ShipoutBackend for DviBackend<T> {
         self.writer.set_char(character)
     }
 
+    fn set_wide_char(&mut self, character: u32, _width: Scaled) -> Result<(), Self::Error> {
+        self.writer.set_wide_char(character)
+    }
+
     fn set_rule(&mut self, height: Scaled, width: Scaled) -> Result<(), Self::Error> {
         self.writer.set_rule(height, width)
     }
@@ -140,7 +152,7 @@ impl<T: Write> ShipoutBackend for DviBackend<T> {
 
 #[cfg(test)]
 mod tests {
-    use super::{DviBackend, OutputFontDefinition, ShipoutBackend};
+    use super::{DviBackend, OutputFontDefinition, OutputFontKind, ShipoutBackend};
     use crate::dvi::DviWriter;
 
     use std::cell::RefCell;
@@ -196,6 +208,7 @@ mod tests {
         adapted.move_down(-456).unwrap();
         adapted
             .define_font(OutputFontDefinition {
+                kind: OutputFontKind::Byte,
                 font_number: 0,
                 checksum: 0x1234_5678,
                 at_size: 655_360,

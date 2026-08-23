@@ -406,19 +406,18 @@ fn scan_for_units_that_are_internal_dimensions(
         }
         // `zw`（全角幅）と `zh`（全角高）。**和文フォントの全角の寸法**である。
         //
-        // pTeX ではこれは JFM が決める。rtex にはまだ和文フォントが無いので、
-        // **いまは欧文フォントの `em` を代わりに使う。**
-        //
-        // これは仮の措置である。JFM が入れば、**ここだけを差し替えればよい**——
-        // `zw` と `zh` が「和文フォントに尋ねる単位」であることは変わらない。
+        // current横組JFMがあれば、scale済みのclass 0 metricを中央経路から読む。
+        // 未選択時だけは従来どおり欧文fontのemへ戻し、plain TeXの意味を変えない。
         //
         // `zw` を先に見ること。`scan_keyword` は前方一致で進むので、
         // 一文字目が同じ二つは長さの順に関係なく別々に書けばよいが、
         // **順序を変えても意味が変わらないように、共通の接頭辞を持つものは隣に置く。**
         else if scanner.scan_keyword(b"zw", eqtb, logger) {
-            eqtb.em_width_for_cur_font()
+            eqtb.zw_for_cur_japanese_font()
+                .unwrap_or_else(|| eqtb.em_width_for_cur_font())
         } else if scanner.scan_keyword(b"zh", eqtb, logger) {
-            eqtb.em_width_for_cur_font()
+            eqtb.zh_for_cur_japanese_font()
+                .unwrap_or_else(|| eqtb.em_width_for_cur_font())
         } else {
             return None;
         };

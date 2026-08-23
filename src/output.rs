@@ -1,16 +1,18 @@
 use crate::dimension::{is_running, Dimension, MAX_DIMEN};
 use crate::eqtb::{
-    ControlSequence, DimensionVariable, Eqtb, FontIndex, IntegerVariable, RegisterIndex, NULL_FONT,
+    ControlSequence, DimensionVariable, Eqtb, FontIndex, IntegerVariable, RegisterIndex,
 };
 use crate::error::fatal_error;
 use crate::file_search::{KpsewhichResolver, LogicalFileName};
 use crate::font_resources::loader::FontResourceLoader;
 use crate::input::token_source::TokenSourceType;
 use crate::input::Scanner;
+use crate::japanese_fonts::JapaneseFontIndex;
 use crate::logger::Logger;
 use crate::nodes::{
     show_box, CharNode, DimensionOrder, GlueNode, GlueSign, GlueType, HlistOrVlist, LeaderKind,
-    LigatureNode, ListNode, Node, OpenNode, RuleNode, SpecialNode, WhatsitNode, WriteNode,
+    LigatureNode, ListNode, Node, OpenNode, RuleNode, SpecialNode, WhatsitNode, WideCharNode,
+    WriteNode,
 };
 use crate::print::stream::StreamPrinter;
 use crate::print::string::StringPrinter;
@@ -31,7 +33,7 @@ mod output_backend;
 #[path = "pdf_backend.rs"]
 mod pdf_backend;
 
-use output_backend::{DviBackend, OutputFontDefinition, ShipoutBackend};
+use output_backend::{DviBackend, OutputFontDefinition, OutputFontKind, ShipoutBackend};
 use pdf_backend::PdfBackend;
 
 type DviFileBackend = DviBackend<BufWriter<File>>;
@@ -340,12 +342,19 @@ struct Document<B: ShipoutBackend> {
     dvi_v: Dimension,
     /// See 616.
     /// backendで現在選択中のfont。
-    dvi_f: FontIndex,
+    dvi_f: Option<OutputFontSelection>,
     /// このbackendへ定義済みのfont。fmtに保存されたDVI固有flagには依存しない。
     defined_fonts: Vec<bool>,
+    defined_japanese_fonts: Vec<bool>,
     /// The current level of nesting. Starts at -1.
     /// See 616.
     cur_s: i32,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum OutputFontSelection {
+    Byte(FontIndex),
+    Japanese(JapaneseFontIndex),
 }
 
 impl Document<DviFileBackend> {
@@ -403,8 +412,9 @@ impl<B: ShipoutBackend> Document<B> {
             cur_v: 0,
             dvi_h: 0,
             dvi_v: 0,
-            dvi_f: NULL_FONT,
+            dvi_f: None,
             defined_fonts: Vec::new(),
+            defined_japanese_fonts: Vec::new(),
             cur_s: -1,
         }
     }
@@ -424,7 +434,7 @@ impl<B: ShipoutBackend> Document<B> {
         self.dvi_h = 0;
         self.dvi_v = 0;
         self.cur_h = eqtb.dimen(DimensionVariable::HOffset);
-        self.dvi_f = NULL_FONT;
+        self.dvi_f = None;
 
         let page_height =
             list_node.height + list_node.depth + eqtb.dimen(DimensionVariable::VOffset);
@@ -549,6 +559,17 @@ impl<B: ShipoutBackend> Document<B> {
                 self.output_char(font_index, character, width, eqtb);
                 self.dvi_h = self.cur_h;
             }
+            &Node::WideChar(WideCharNode {
+                font_index,
+                character,
+                width,
+                ..
+            }) => {
+                self.synch_h();
+                self.synch_v();
+                self.output_wide_char(font_index, character, width, eqtb);
+                self.dvi_h = self.cur_h;
+            }
             Node::Glue(glue_node) => {
                 self.move_right_or_output_leaders(
                     glue_node, this_box, base_line, left_edge, cur_g, cur_glue, g_order, g_sign,
@@ -604,7 +625,7 @@ impl<B: ShipoutBackend> Document<B> {
 
     /// See 620.
     fn output_char(&mut self, font_index: FontIndex, chr: u8, width: Dimension, eqtb: &mut Eqtb) {
-        if font_index != self.dvi_f {
+        if self.dvi_f != Some(OutputFontSelection::Byte(font_index)) {
             self.change_font(font_index, eqtb);
         }
         self.call_backend(|backend| backend.set_char(chr, width));
@@ -638,6 +659,7 @@ impl<B: ShipoutBackend> Document<B> {
                 }
             }
             let result = self.backend.define_font(OutputFontDefinition {
+                kind: OutputFontKind::Byte,
                 font_number,
                 checksum: font.check,
                 at_size: font.size,
@@ -657,7 +679,57 @@ impl<B: ShipoutBackend> Document<B> {
             }
         }
         match self.backend.set_font(font_number) {
-            Ok(()) => self.dvi_f = font_index,
+            Ok(()) => self.dvi_f = Some(OutputFontSelection::Byte(font_index)),
+            Err(error) => self.backend_error = Some(error),
+        }
+    }
+
+    fn output_wide_char(
+        &mut self,
+        font_index: JapaneseFontIndex,
+        character: u32,
+        width: Dimension,
+        eqtb: &mut Eqtb,
+    ) {
+        if self.dvi_f != Some(OutputFontSelection::Japanese(font_index)) {
+            self.change_japanese_font(font_index, eqtb);
+        }
+        self.call_backend(|backend| backend.set_wide_char(character, width));
+        self.cur_h += width;
+    }
+
+    fn change_japanese_font(&mut self, font_index: JapaneseFontIndex, eqtb: &mut Eqtb) {
+        if self.backend_error.is_some() {
+            return;
+        }
+        let position = font_index.position();
+        if self.defined_japanese_fonts.len() <= position {
+            self.defined_japanese_fonts.resize(position + 1, false);
+        }
+        let font_number = font_index.dvi_font_number();
+        if !self.defined_japanese_fonts[position] {
+            let font = &eqtb.japanese_fonts[position];
+            match self.backend.define_font(OutputFontDefinition {
+                kind: OutputFontKind::Japanese,
+                font_number,
+                checksum: font.check,
+                at_size: font.size,
+                design_size: font.design_size,
+                area: &font.area,
+                name: &font.name,
+                first_char: 0,
+                last_char: 0,
+                existing_codes: &[],
+            }) {
+                Ok(()) => self.defined_japanese_fonts[position] = true,
+                Err(error) => {
+                    self.backend_error = Some(error);
+                    return;
+                }
+            }
+        }
+        match self.backend.set_font(font_number) {
+            Ok(()) => self.dvi_f = Some(OutputFontSelection::Japanese(font_index)),
             Err(error) => self.backend_error = Some(error),
         }
     }
@@ -910,7 +982,9 @@ impl<B: ShipoutBackend> Document<B> {
         eqtb: &mut Eqtb,
     ) {
         match node {
-            Node::Char(_) => panic!("No CharNode should ever appear here"),
+            Node::Char(_) | Node::WideChar(_) => {
+                panic!("No character node should ever appear here")
+            }
             Node::List(list_node) => {
                 self.output_box_in_vlist(list_node, left_edge, whatsit_list, eqtb)
             }

@@ -7,9 +7,11 @@
 //! 8-bit TFM reader に判定を散らさず、ここで全長と全参照を検査してから
 //! `FontInfo` へ渡せる形にする。
 
+use crate::format::{Dumpable, FormatError};
 use crate::scaled::Scaled;
 
 use std::fmt;
+use std::io::Write;
 
 const HORIZONTAL_JFM_ID: u16 = 11;
 const VERTICAL_JFM_ID: u16 = 9;
@@ -35,6 +37,20 @@ pub(crate) struct JfmClassId(u8);
 impl JfmClassId {
     const fn index(self) -> usize {
         self.0 as usize
+    }
+
+    pub(crate) const fn number(self) -> u8 {
+        self.0
+    }
+}
+
+impl Dumpable for JfmClassId {
+    fn dump(&self, target: &mut impl Write) -> Result<(), std::io::Error> {
+        self.0.dump(target)
+    }
+
+    fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
+        Ok(Self(u8::undump(lines)?))
     }
 }
 

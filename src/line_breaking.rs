@@ -8,7 +8,7 @@ use crate::logger::Logger;
 use crate::nodes::{
     short_display, CharNode, DimensionOrder, DiscNode, GlueNode, GlueSign, GlueSpec, GlueType,
     HigherOrderDimension, HlistOrVlist, KernNode, KernSubtype, LigatureNode, ListNode, MathNode,
-    MathNodeKind, Node, PenaltyNode, RuleNode,
+    MathNodeKind, Node, PenaltyNode, RuleNode, WideCharNode,
 };
 use crate::packaging::{hpack, split_adjust_material_off, GlueCollector, TargetSpec};
 use crate::print::Printer;
@@ -480,6 +480,7 @@ impl LineBreaker {
     fn get_node_width(node: &Node) -> Dimension {
         match node {
             &Node::Char(CharNode { width, .. })
+            | &Node::WideChar(WideCharNode { width, .. })
             | &Node::Ligature(LigatureNode { width, .. })
             | &Node::List(ListNode { width, .. })
             | &Node::Rule(RuleNode { width, .. })
@@ -1005,7 +1006,7 @@ impl LineBreaker {
         logger: &mut Logger,
     ) {
         match &hlist[self.cur_pos] {
-            Node::Char(_) => {
+            Node::Char(_) | Node::WideChar(_) => {
                 self.advance_cur_p_to_node_following_present_string_of_characters(hlist, prev_pos);
                 return;
             }
@@ -1069,8 +1070,13 @@ impl LineBreaker {
         prev_pos: &mut usize,
     ) {
         *prev_pos = self.cur_pos;
-        while let Node::Char(char_node) = &hlist[self.cur_pos] {
-            self.delta.width += char_node.width;
+        while let Some(node) = hlist.get(self.cur_pos) {
+            let width = match node {
+                Node::Char(char_node) => char_node.width,
+                Node::WideChar(wide_char_node) => wide_char_node.width,
+                _ => break,
+            };
+            self.delta.width += width;
             self.cur_pos += 1;
         }
     }
@@ -1135,6 +1141,7 @@ impl LineBreaker {
     fn width_of_node(node: &Node) -> Dimension {
         match node {
             &Node::Char(CharNode { width, .. })
+            | &Node::WideChar(WideCharNode { width, .. })
             | &Node::Ligature(LigatureNode { width, .. })
             | &Node::List(ListNode { width, .. })
             | &Node::Rule(RuleNode { width, .. })
@@ -1147,6 +1154,7 @@ impl LineBreaker {
     fn add_width_of_node_to_act_width(&mut self, node: &Node) {
         match node {
             &Node::Char(CharNode { width, .. })
+            | &Node::WideChar(WideCharNode { width, .. })
             | &Node::Ligature(LigatureNode { width, .. })
             | &Node::List(ListNode { width, .. })
             | &Node::Rule(RuleNode { width, .. })
@@ -1543,6 +1551,7 @@ fn calculate_natural_width(just_box: &ListNode, eqtb: &Eqtb) -> Dimension {
 fn determine_visibility_and_width(node: &Node) -> (bool, Dimension) {
     match node {
         &Node::Char(CharNode { width, .. })
+        | &Node::WideChar(WideCharNode { width, .. })
         | &Node::Ligature(LigatureNode { width, .. })
         | &Node::List(ListNode { width, .. })
         | &Node::Rule(RuleNode { width, .. }) => (true, width),

@@ -18,6 +18,7 @@ mod hyphenation;
 mod input;
 mod input_streams;
 mod integer;
+mod japanese_fonts;
 #[allow(dead_code)]
 mod jfm;
 mod line_breaking;

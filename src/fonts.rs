@@ -337,18 +337,8 @@ impl FontInfo {
     /// See 571.
     fn get_scaled(file: &mut File, z: i32, alpha: i32, beta: i32) -> Result<Scaled, TfmError> {
         let fq = file.get_four_quarters()?;
-        let a = fq[0] as i32;
-        let b = fq[1] as i32;
-        let c = fq[2] as i32;
-        let d = fq[3] as i32;
-        let sw = (((d * z / 0o400 + c * z) / 0o400) + b * z) / beta;
-        if a == 0 {
-            Ok(sw)
-        } else if a == 255 {
-            Ok(sw - alpha)
-        } else {
-            Err(TfmError::BadFormat)
-        }
+        scale_fix_word_with_prepared_size(i32::from_be_bytes(fq), z, alpha, beta)
+            .ok_or(TfmError::BadFormat)
     }
 
     /// See 571.
@@ -714,6 +704,42 @@ impl FontInfo {
 
     pub fn extra_space(&self) -> Scaled {
         self.params[EXTRA_SPACE_CODE - 1]
+    }
+}
+
+/// TFM/JFMの12.20 fix_wordをTeXと同じ段階で切り捨ててscaleする中央経路。
+///
+/// first byteが0または255の値だけを受ける。JFM側もparse時にこの境界を
+/// 検査し、欧文TFMと別の丸めを持たない。
+pub(crate) fn scale_fix_word(raw: i32, mut size: Scaled) -> Option<Scaled> {
+    if size <= 0 {
+        return None;
+    }
+    let mut alpha = 16;
+    while size >= 0o40000000 {
+        size /= 2;
+        alpha *= 2;
+    }
+    let beta = 256 / alpha;
+    alpha *= size;
+    scale_fix_word_with_prepared_size(raw, size, alpha, beta)
+}
+
+fn scale_fix_word_with_prepared_size(
+    raw: i32,
+    size: Scaled,
+    alpha: Scaled,
+    beta: Scaled,
+) -> Option<Scaled> {
+    let [a, b, c, d] = raw.to_be_bytes();
+    let b = i32::from(b);
+    let c = i32::from(c);
+    let d = i32::from(d);
+    let scaled = (((d * size / 0o400 + c * size) / 0o400) + b * size) / beta;
+    match a {
+        0 => Some(scaled),
+        255 => Some(scaled - alpha),
+        _ => None,
     }
 }
 
