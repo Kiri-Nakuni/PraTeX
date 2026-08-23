@@ -1,9 +1,10 @@
 # PraTeX WASM provider ABI 0.0
 
-更新: 2026-08-23
+更新: 2026-08-24
 
 状態: **実験実装。ABI 0.0のversion・feature・capability・operation交渉と、runtime非依存の
-wire/mailbox検証を実装済み。runtime・module profile検査・lease・provider接続は未実装**
+wire/mailbox検証、`SpacingTableUpload`のhost-owned domain検証を実装済み。
+unit validator・runtime・module profile検査・lease・provider接続は未実装**
 
 ## 1. 結論
 
@@ -489,6 +490,10 @@ SpacingTableConfigV0 {              // 32 bytes
 region maskのbit nは`LanguageRegion` code nを表す。writing-mode maskはbit 0が横組、bit 1が縦組で、
 他bitは0とする。0 maskは「全部」ではなく不正である。
 
+`layout_schema=0`のhost上限はclass 64、range 4096、pair rule 16384であり、requestの各上限も
+これを越えない。`max_reason_ids`は件数で、許されるreason IDは`0..max_reason_ids`の半開区間で
+ある。従って0ならpair ruleを一件も受理しない。
+
 ### 10.3 response
 
 成功responseは`StatusV0`に加え、`SpacingClassRangeV0`と`SpacingPairRuleV0` sectionを持つ。
@@ -530,7 +535,8 @@ denominatorは正である。basisは次だけを認める。
 | 4 | right `zw` |
 
 flagsは0でなければならない。hostが有理数を既約化し、checked arithmeticでscaled pointへ変換する。
-guestにTeXの丸めを実装させない。
+guestにTeXの丸めを実装させない。`natural`の分子は負でもよいが、調整可能量を表す
+`shrink_limit` / `stretch_limit`は0以上とする。負のlimitを「逆方向の調整」と読み替えない。
 
 ```text
 SpacingPairRuleV0 {                  // 88 bytes
@@ -554,9 +560,14 @@ SpacingPairRuleV0 {                  // 88 bytes
 
 `break_rule`は0=`UseBuiltIn`、1=`Allow`、2=`Forbid`、3=`Penalty`とする。3以外ではpenaltyを0と
 する。`line_edge_rule`は0=`UseBuiltIn`、1=`Retain`、2=`DiscardAtStart`、
-3=`DiscardAtEnd`、4=`DiscardAtBoth`とする。flags/reservedは0である。
+3=`DiscardAtEnd`、4=`DiscardAtBoth`とする。schema 0の`shrink_tier` / `stretch_tier`は
+engine-nativeな256個の小整数tableのindexであり、0--255だけを認める。wire fieldの上位8 bitは
+将来schema用で、schema 0では拒否する。flags/reservedは0である。
 
 class、range、pair key、mask、length、tier、penalty、reason ID、entry数、総byteを全部検証する。
+同じclass pairのruleはregionとwriting-mode maskの積が一つでも重なれば曖昧として拒否する。
+domain validatorの総byteは24 byteのclass range recordと88 byteのpair rule recordの合計を指し、
+envelope、directory、statusを含むmessage/mailbox上限は先行するwire validatorで別に検証する。
 一件でも不正なら一件も登録しない。成功時は一時領域で全tableをcompileし、phase/list境界で
 active dispatcherを原子的に交換する。
 
@@ -1084,15 +1095,22 @@ fuzz corpusへpTeX、upTeX、LuaTeX等の上流source/testを移植しない。A
 
 `src/wasm_provider_abi.rs`には、immutable export globalをruntime非依存の宣言へ移した後に使う
 ABI 0.0交渉を実装した。`src/wasm_wire_v0.rs`には、固定envelope、section directory、status、
-invocation limit、mailbox range、transport返値のruntime非依存codecを実装した。codecはmessageを
-全体検証してからだけ値を返し、runtime memory pointerやPraTeX nodeを保持しない。これらは
-module parser、policy grant、affine lease、runtime、domain proposal validator、provider
-registrationを実装したことを意味しない。標準日本語経路はこの境界を呼ばずcallback 0回である。
+invocation limit、mailbox range、transport返値のruntime非依存codecを実装した。
+`src/spacing_table_domain.rs`にはnative tableと外向きadapterが共有するscalar、公開mask、class ID、
+context付きrange/pair keyの検査を置き、現行`CompiledScriptSpacingTable`も同じ判定へ委譲する。
+`src/wasm_spacing_table_v0.rs`には、Vaak/WASM/試験adapterで共有するhost-owned proposalと、
+scalar、mask、重複key、有理長、tier、break/edge/penalty、件数・byteを全件検証してからだけ
+canonical候補を返すdomain validatorを実装した。この候補はproduction compiled tableではない。
+W0-Dではraw proposalへ戻して現行validatorを再実行せず、検証済み候補をconsumeするcompilerへ
+native/custom経路を合流させる。codecとdomain validatorはruntime memory pointerや
+PraTeX nodeを保持しない。これらはmodule parser、policy grant、affine lease、runtime、unit domain
+validator、provider registrationを実装したことを意味しない。標準日本語経路はこの境界を呼ばず
+callback 0回である。
 
 | 段 | 内容 | 完了条件 |
 |---|---|---|
 | W0-P | version・feature・capability・operation交渉 | **完了**。ABI 0.0だけを選び、未知required bitとpolicy不一致を構造化errorにする |
-| W0-A | host-owned proposal型とspacing/unit validator | Vaak/WASM/試験adapterが同じvalidatorを使い、部分登録0 |
+| W0-A | host-owned proposal型とspacing/unit validator | **spacingの最初のbounded sliceは完了**。共有proposalを全件検証してcanonical候補だけを返し、部分交換0を試験済み。unit validatorとadapter接続は未完 |
 | W0-B | 0.0 byte codecとgolden/property test | **完了**。Rust layout非依存のcanonical encode/decode、全切断位置、reserved/range/limit/mailbox/transport拒否を固定 |
 | W0-C | optional runtime adapter、module profile、fixed mailbox | default build不変、import/start/memory/fuel境界を検査 |
 | W0-D | `SpacingTableUpload` | explicit custom profileだけ有効、登録後WASM call 0 |

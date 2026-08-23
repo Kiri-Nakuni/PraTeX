@@ -47,6 +47,7 @@ mod runtime_clock;
 mod scaled;
 mod scan_boxes;
 mod scan_internal;
+mod spacing_table_domain;
 #[allow(dead_code)]
 mod script_spacing;
 mod semantic_nest;
@@ -58,6 +59,8 @@ mod vertical_mode;
 mod vsplit;
 #[allow(dead_code)]
 mod wasm_provider_abi;
+#[allow(dead_code)]
+mod wasm_spacing_table_v0;
 #[allow(dead_code)]
 mod wasm_wire_v0;
 mod write_streams;

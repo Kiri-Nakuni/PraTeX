@@ -1,6 +1,12 @@
 use crate::dimension::{Dimension, MAX_DIMEN};
 use crate::eqtb::LanguageRegion;
 use crate::nodes::{DimensionOrder, HigherOrderDimension};
+use crate::spacing_table_domain::{
+    find_contextual_pair_overlap, find_contextual_scalar_overlap, provider_class_index,
+    valid_nonzero_mask, ContextOverlapSearchError, ContextualPairKey, ContextualScalarRange,
+    DomainWritingMode, ScalarRangeDomainError, LANGUAGE_REGION_COUNT, VALID_LANGUAGE_REGION_MASK,
+    VALID_WRITING_MODE_MASK, WRITING_MODE_COUNT,
+};
 
 pub(crate) mod finalizer;
 pub(crate) mod planner;
@@ -9,11 +15,8 @@ pub(crate) const MAX_SCRIPT_SPACING_CLASSES: u32 = 64;
 pub(crate) const MAX_SCRIPT_SPACING_RANGES: usize = 4_096;
 pub(crate) const MAX_SCRIPT_SPACING_RULES: usize = 16_384;
 
-const REGION_COUNT: usize = LanguageRegion::MAX_CODE as usize + 1;
-const WRITING_MODE_COUNT: usize = 2;
+const REGION_COUNT: usize = LANGUAGE_REGION_COUNT;
 const CLASSIFICATION_CONTEXT_COUNT: usize = REGION_COUNT * WRITING_MODE_COUNT;
-const VALID_REGION_MASK: u32 = (1 << REGION_COUNT) - 1;
-const VALID_WRITING_MODE_MASK: u32 = (1 << WRITING_MODE_COUNT) - 1;
 
 /// A class number in a provider's declaration.
 ///
@@ -66,7 +69,7 @@ impl ProviderRegionMask {
     }
 
     pub(crate) const fn all() -> Self {
-        Self(VALID_REGION_MASK)
+        Self(VALID_LANGUAGE_REGION_MASK)
     }
 
     pub(crate) const fn one(region: LanguageRegion) -> Self {
@@ -371,10 +374,44 @@ impl CompiledScriptSpacingTable {
         validate_proposal_size(&proposal)?;
 
         let class_count = proposal.class_count as u16;
+        let mut validated_range_classes = Vec::new();
+        validated_range_classes
+            .try_reserve_exact(proposal.ranges.len())
+            .map_err(|_| ScriptSpacingTableError::CompiledTableTooLarge)?;
+        for (range_index, range) in proposal.ranges.iter().copied().enumerate() {
+            validated_range_classes.push(validate_scalar_range(
+                range_index,
+                range,
+                proposal.class_count,
+            )?);
+        }
+        let range_overlap = find_contextual_scalar_overlap(proposal.ranges.iter().enumerate().map(
+            |(source_index, range)| ContextualScalarRange {
+                source_index,
+                first: range.start,
+                last_inclusive: range.end,
+                region_mask: range.region_mask.0,
+                writing_mode_mask: range.writing_mode_mask.0,
+            },
+        ))
+        .map_err(map_context_overlap_search_error)?;
+        if let Some(overlap) = range_overlap {
+            return Err(ScriptSpacingTableError::OverlappingScalarRanges {
+                first_range_index: overlap.first_source_index,
+                second_range_index: overlap.second_source_index,
+                region_code: overlap.region_code,
+                writing_mode: writing_mode_from_domain(overlap.writing_mode),
+            });
+        }
+
         let mut ranges_by_context: [Vec<ValidatedScalarRange>; CLASSIFICATION_CONTEXT_COUNT] =
             std::array::from_fn(|_| Vec::new());
-        for (range_index, range) in proposal.ranges.into_iter().enumerate() {
-            let class = validate_scalar_range(range_index, range, proposal.class_count)?;
+        for ((range_index, range), class) in proposal
+            .ranges
+            .into_iter()
+            .enumerate()
+            .zip(validated_range_classes)
+        {
             let validated_range = UnicodeScalarRange {
                 start: range.start,
                 end: range.end,
@@ -410,16 +447,6 @@ impl CompiledScriptSpacingTable {
                 context_ranges.sort_unstable_by_key(|entry| {
                     (entry.range.start, entry.range.end, entry.original_index)
                 });
-                for index in 1..context_ranges.len() {
-                    if context_ranges[index - 1].range.end >= context_ranges[index].range.start {
-                        return Err(ScriptSpacingTableError::OverlappingScalarRanges {
-                            first_range_index: context_ranges[index - 1].original_index,
-                            second_range_index: context_ranges[index].original_index,
-                            region_code: region_code as u8,
-                            writing_mode,
-                        });
-                    }
-                }
                 let start = ranges.len();
                 ranges.extend(context_ranges.iter().map(|entry| entry.range));
                 range_spans[context] = RangeSpan {
@@ -444,15 +471,22 @@ impl CompiledScriptSpacingTable {
                 action: validate_action(rule_index, rule.action)?,
             });
         }
-        rules.sort_unstable_by_key(|rule| (rule.key, rule.original_index));
-        for index in 1..rules.len() {
-            if rules[index - 1].key == rules[index].key {
-                return Err(ScriptSpacingTableError::DuplicatePairRules {
-                    first_rule_index: rules[index - 1].original_index,
-                    second_rule_index: rules[index].original_index,
-                });
-            }
+        let rule_overlap =
+            find_contextual_pair_overlap(rules.iter().map(|rule| ContextualPairKey {
+                source_index: rule.original_index,
+                left_class_id: u32::from(rule.key.left),
+                right_class_id: u32::from(rule.key.right),
+                region_mask: 1 << rule.key.region,
+                writing_mode_mask: 1 << rule.key.writing_mode.index(),
+            }))
+            .map_err(map_context_overlap_search_error)?;
+        if let Some(overlap) = rule_overlap {
+            return Err(ScriptSpacingTableError::DuplicatePairRules {
+                first_rule_index: overlap.first_source_index,
+                second_rule_index: overlap.second_source_index,
+            });
         }
+        rules.sort_unstable_by_key(|rule| (rule.key, rule.original_index));
 
         let slot_count = usize::from(class_count)
             .checked_mul(usize::from(class_count))
@@ -591,19 +625,22 @@ fn validate_scalar_range(
     range: UnicodeScalarRangeProposal,
     class_count: u32,
 ) -> Result<ScriptClassId, ScriptSpacingTableError> {
-    if range.start > range.end {
-        return Err(ScriptSpacingTableError::ReversedScalarRange { range_index });
+    match crate::spacing_table_domain::validate_scalar_range(range.start, range.end) {
+        Ok(()) => {}
+        Err(ScalarRangeDomainError::Reversed) => {
+            return Err(ScriptSpacingTableError::ReversedScalarRange { range_index })
+        }
+        Err(ScalarRangeDomainError::NonScalar) => {
+            return Err(ScriptSpacingTableError::NonScalarRange { range_index })
+        }
     }
-    if range.end > char::MAX as u32 || (range.start <= 0xdfff && range.end >= 0xd800) {
-        return Err(ScriptSpacingTableError::NonScalarRange { range_index });
-    }
-    if range.region_mask.0 == 0 || range.region_mask.0 & !VALID_REGION_MASK != 0 {
+    if !valid_nonzero_mask(range.region_mask.0, VALID_LANGUAGE_REGION_MASK) {
         return Err(ScriptSpacingTableError::InvalidRangeRegionMask {
             range_index,
             mask: range.region_mask.0,
         });
     }
-    if range.writing_mode_mask.0 == 0 || range.writing_mode_mask.0 & !VALID_WRITING_MODE_MASK != 0 {
+    if !valid_nonzero_mask(range.writing_mode_mask.0, VALID_WRITING_MODE_MASK) {
         return Err(ScriptSpacingTableError::InvalidRangeWritingModeMask {
             range_index,
             mask: range.writing_mode_mask.0,
@@ -637,10 +674,21 @@ fn translate_provider_class(
     class: ProviderScriptClassId,
     class_count: u32,
 ) -> Option<ScriptClassId> {
-    if class.0 == 0 || class.0 > class_count {
-        None
-    } else {
-        Some(ScriptClassId((class.0 - 1) as u16))
+    provider_class_index(class.0, class_count).map(|index| ScriptClassId(index as u16))
+}
+
+fn map_context_overlap_search_error(error: ContextOverlapSearchError) -> ScriptSpacingTableError {
+    match error {
+        ContextOverlapSearchError::AllocationFailed => {
+            ScriptSpacingTableError::CompiledTableTooLarge
+        }
+    }
+}
+
+fn writing_mode_from_domain(writing_mode: DomainWritingMode) -> WritingMode {
+    match writing_mode {
+        DomainWritingMode::Horizontal => WritingMode::Horizontal,
+        DomainWritingMode::Vertical => WritingMode::Vertical,
     }
 }
 

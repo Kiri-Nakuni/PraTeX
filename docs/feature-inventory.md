@@ -212,7 +212,7 @@ runtimeは別MIT projectを依存として使う。PraTeX側からMITのVaakへG
 | 状態 | 項目 | 現在地 |
 |---|---|---|
 | 設計のみ | run-local Vaak疑似callback | 特定のVaak実行が明示要求した時だけ有効にする方針だけ。常設callback表はない |
-| 部分的な内部基盤 | version付きWASM ABI | 実験[ABI 0.0](wasm-provider-abi-v0.md)で四operation、固定mailbox、capability、fuel、atomic fallbackを定義。0.0のversion・feature・capability・operation交渉に加え、固定64-byte envelope、section集合、reserved field、mailbox範囲、transport返値、lease上限のruntime非依存codecをsafe Rustで実装。module profile/export検査、runtime、affine lease、provider接続はない |
+| 部分的な内部基盤 | version付きWASM ABI | 実験[ABI 0.0](wasm-provider-abi-v0.md)で四operation、固定mailbox、capability、fuel、atomic fallbackを定義。0.0の交渉とruntime非依存wire codecに加え、`SpacingTableUpload`のhost-owned proposalをscalar、mask、重複key、有理長、tier、break/edge/penalty、件数・byteまで全件検証してcanonical候補だけを返すsafe Rust境界を実装。unit validator、module profile/export検査、runtime、affine lease、provider接続はない |
 | 部分 | PraTeX自身のWASI target | `wasm32-wasip1`へcheck・binary linkし、`pratex.wasm` / `rtex.wasm`を生成できる。現状はargs、stream、preopen filesystem、process exitを使うcommand moduleであり、runtime適合試験、子processなしresolver、host API/VFS、native DVI比較は未達。詳細は[WASM target監査](wasm-target-status.md) |
 | 設計中心 | script境界組版とregion R1〜R7 | 横組JFM wide glyphとBuiltIn最小spacing finalizerはproduction接続済み。汎用`ScriptClassId` dispatcher、RegionNode、Vaak table、WASM batchとR1〜R7はroadmap段階で、R0の`\pratexregion`以外は利用できない |
 | 設計のみ | IVS・外字・造字のidentity | inline Unicode scalarと`AtomRef`、namespaceつき外部文字、嘘字/TRON importer、variant graphの[設計](glyph-identity-roadmap.md)だけ。現在はIVS shapingも造字もない |
