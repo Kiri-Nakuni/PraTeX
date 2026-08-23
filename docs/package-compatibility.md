@@ -1,44 +1,51 @@
 # LaTeX class/package互換性の実測
 
 2026-08-24時点の結論は、`article`、最小`scrartcl`、`graphicx`、`xcolor`、
-`siunitx`、代表`prjsarticle`は同一のPraTeX生成`latex.fmt`からDVIまで到達する。
-一方、`hyperref`とTikZ/PGFには再現可能な未対応primitiveがある。`pxrubrica`は
-generic fallbackで最小文書が通るだけで、PraTeX-native対応とは数えない。
+`hyperref`、`siunitx`、代表`prjsarticle`は同一のPraTeX生成`latex.fmt`からDVIまで到達する。
+TikZ/PGFには再現可能な未対応primitiveがある。`pxrubrica`はgeneric fallbackで
+最小文書が通るだけで、PraTeX-native対応とは数えない。
 
 これは最小入力のload/compile smoke testである。package全API、DVI specialの後段driver、
 表示品質、LaTeX DVIの他engineとの一致、pTeX/upTeX互換、JLReq適合を保証しない。
 
 ## 固定した実行条件
 
-- PraTeX: source checkpoint `9a68851`を保存したrelease executable、3,390,464 bytes、
-  SHA-256 `4ba70b58c5b7e127cccf5a5bf07d79fe0627f157ae71d364b5c4340a99b86530`
-- `latex.fmt`: 上のPraTeX自身が公式資材から一度だけ生成、17,695,121 bytes、
-  SHA-256 `cfb4990020c3e39c4b660dcd2763b11fda34374cfe83eaf2257d1a5fd6707cb8`
+- PraTeX: `pdfmdfivesum file`に加え、並行中のraw string / virtual K作業も含む
+  2026-08-24の統合worktreeのrelease executable。pdfmd5差分単独のbuildではない。
+  3,429,376 bytes、SHA-256 `9d0af22211832e68d323dcf73641d8309d1f0c2730476c6682504f8314a957ee`
+- `latex.fmt`: 上のPraTeX自身が公式資材から一度だけ生成、17,698,559 bytes、
+  SHA-256 `0a1779f428675151633a10470cd174eebe2a0f3e87b9efff863e92dada1ebde7`
 - format: LaTeX2e 2026-06-01、L3 programming layer 2026-08-10、生成logの`!`は0件
 - 全probeは同じexecutableと同じ`latex.fmt`を使用し、DVI modeで実行した。
 - `graphicx`、`xcolor`、`hyperref`には`dvips` driverを明示した。`siunitx`にもDVI用
   color driverを明示した。PraTeXをpdfTeX、pTeX、upTeX等として偽装していない。
 
-共有`target/release/pratex.exe`は並行作業で更新され得るため、この測定では上記hashの
-保存binaryを使った。fmtとbinaryが一致しない場合の結果はこの表へ混ぜない。
+共有`target/release/pratex.exe`は並行作業で更新され得るため、runnerが実行時のbinary/fmt hashを
+`result.json`へ固定する。以前の表は最終runnerとは別の探索runのDVI hashを、固定条件へ
+誤って混ぜていた。保存済み
+`9a68851` binaryと上記統合binaryを、それぞれのbinaryが生成した対応fmtで再実行すると、
+従来成功していた7 probeのDVIは全fileでbyte単位に一致した。したがって最初の差分offsetも
+record意味差もない。両binary間で同一fmtを共用する追加実験は、raw string等によるfmt schema
+変更のため旧binaryが`Format error`で拒否した。上表は保存された最終runnerの再現値に統一し、
+以前の値が混入した文書provenance誤りを訂正した。
 
 ## 結果matrix
 
 | 対象 | 実測 | exit / `!` | DVI bytes / SHA-256 | 判定と最初の制限 |
 |---|---:|---:|---|---|
-| `prjsarticle` 0.1 | 到達 | 0 / 0 | 1,180 / `0ab165c189cf50cf6bea03b73aaee55d407415c0e51f5e4b6a6c2172daac7338` | repositoryの`upjisr-h` adapterを外付けし、`maketitle`、節、list、和欧混植を横組DVI化した限定smoke。JLReq完全対応ではない。 |
-| `article` 1.4n | 到達 | 0 / 0 | 432 / `748db4613cfc841ffff66e1cd0a423a74dbcc9c4bb86e38fb5f4cdaebf105990` | 欧文baseline。 |
-| `scrartcl` 3.49.2 | 到達 | 0 / 0 | 496 / `2da436e2758b3846ec9b83f21a60769bc66e5299f3cb8c4ee062d40769e6a668` | classを無改変でloadし、sectionをDVI化。KOMA-Script全体の互換性は未確認。 |
-| `graphicx` 1.2e | 到達 | 0 / 0 | 648 / `f8fea40ac47e62ad910a6a3a0c2e69b03127edbe91b1e8ce115b2fb326721c30` | `rotatebox`と`scalebox`のDVI special smoke。外部画像の探索・変換は未試験。 |
-| `xcolor` 3.02 | 到達 | 0 / 0 | 592 / `85de0d33cbc6f5cfd1ff8a228ca82559278b95fb45f8f3305d6d9aa1624273df` | 文字色と背景色のDVI special smoke。 |
-| `hyperref` 7.01r | blocker | 1 / 2 | なし | `begin{document}`で `Missing { inserted.`。展開stackは `pdf@filemdfivesum -> pdfmdfivesum file{...}`であり、PraTeXの`pdfmdfivesum`にfile形式がない。 |
+| `prjsarticle` 0.1 | 到達 | 0 / 0 | 1,180 / `1d4f72bf1a10fb90887937e728a6de37be6ad1efcbbe9196ce305ad4ac02de88` | repositoryの`upjisr-h` adapterを外付けし、`maketitle`、節、list、和欧混植を横組DVI化した限定smoke。JLReq完全対応ではない。 |
+| `article` 1.4n | 到達 | 0 / 0 | 432 / `868d392a535b054db9e5329a1dd03678d0503831b20d9a5b4ba9aa4fead402db` | 欧文baseline。 |
+| `scrartcl` 3.49.2 | 到達 | 0 / 0 | 496 / `bcf8881826166f9b021e7d29394213b0af7ebcbe2ef26c4dd577eed0e291602b` | classを無改変でloadし、sectionをDVI化。KOMA-Script全体の互換性は未確認。 |
+| `graphicx` 1.2e | 到達 | 0 / 0 | 648 / `f5dc83fa6438e00869c2fc4e3f0b865fed2ba6e3e38bfc16aa0f331ed841167f` | `rotatebox`と`scalebox`のDVI special smoke。外部画像の探索・変換は未試験。 |
+| `xcolor` 3.02 | 到達 | 0 / 0 | 592 / `1cc8deba184d0273ba38f5f7b0156052f67b843a315c3afee51f9f4183508624` | 文字色と背景色のDVI special smoke。 |
+| `hyperref` 7.01r | 到達 | 0 / 0 | 2,696 / `b875cb068bf4b52cb9c8939610059196a159c2552795639f2734fd8906dc2d0d` | linkとURIをDVI化。`pdfmdfivesum file{...}`がPraTeX resolver経由で動作し、従来のload blockerを解消した限定smoke。 |
 | TikZ/PGF 3.1.12 | blocker | 1 / 2 | なし | package load中に `eTeXrevision`が未定義で、`Package PGF Error: PGF requires etex in extended mode.`。 |
-| `siunitx` 3.5.5 | 到達 | 0 / 0 | 588 / `58bbb23e4a5a6cea6ec016d2700655d1bf27d7d436b2eb71827f1d9e321806a3` | `qty`と不確かさ付き`num`のsmoke。 |
-| `pxrubrica` 1.3e | fallbackのみ到達 | 0 / 0 | 412 / `d90cd2e2a9dafe8938374abdc5d0d8b491e3fb24de90f0e48077492603bc5cfe` | 正式な熟語ruby構文`ruby[j]{日本語}{に\|ほん\|ご}`は処理できたが、logは`PRATEX-PXRUBRICA-UNICODE-BRANCH=0`。native対応ではない。 |
+| `siunitx` 3.5.5 | 到達 | 0 / 0 | 588 / `293710fcd41be438117dc79b6cf5c25d5bd202c1b7b18f1f6742476b6e4f9e4d` | `qty`と不確かさ付き`num`のsmoke。 |
+| `pxrubrica` 1.3e | fallbackのみ到達 | 0 / 0 | 412 / `ae2f9462770683ca5d30d7342b13cbdd608a8556b27a5c457a6adc0464ed4b20` | 正式な熟語ruby構文`ruby[j]{日本語}{に\|ほん\|ご}`は処理できたが、logは`PRATEX-PXRUBRICA-UNICODE-BRANCH=0`。native対応ではない。 |
 
-`hyperref`については名前だけの`pdfmdfivesum`存在確認では不足する。packageが使用する
-`file{...}` scanner契約まで実装・試験する必要がある。TikZ/PGFについても`eTeXversion`だけでは
-gateを越えず、公開e-TeXの`eTeXrevision`契約が必要である。
+`hyperref`は名前だけの`pdfmdfivesum`存在確認では通らなかったが、packageが使用する
+`file{...}` scanner契約とfile byte列のMD5を実装して到達した。これは上表の最小文書に限る。
+TikZ/PGFは`eTeXversion`だけではgateを越えず、公開e-TeXの`eTeXrevision`契約が必要である。
 
 `pxrubrica`の既存Unicode/pTeX系branchは、`kchardef`、和文spacing、penalty等の
 engine固有契約を前提にする。engine identityやprimitiveを偽装するadapterは作らなかった。
@@ -76,6 +83,17 @@ pwsh -File tools/test-package-compat.ps1 `
 
 取得日は2026-08-23から2026-08-24。repositoryへはvendorしていない。基底format資材は
 次の公式CTAN archiveを使った。
+
+`\pdfmdfivesum file`のclean-room契約は、公開
+[pdfTeX manual](https://tug.ctan.org/systems/doc/pdftex/manual/pdftex-a.pdf)と公式TeX Live 2026
+Windows binaryのblack-box観測から固定した。観測に使った
+`pdftex.windows.tar.xz`は874,164 bytes、SHA-256
+`6794c3c173d1c3e9add63ed3d631b07312c208ed7d60dbed7764f588ce09ee6e`、
+bannerはpdfTeX 3.141592653-2.6-1.40.29 / kpathsea 6.4.2である。取得URLは
+`https://mirrors.ctan.org/systems/texlive/tlnet/archive/pdftex.windows.tar.xz`。keywordとfilename
+general textのmacro展開、UTF-8名、fileの全byte列に対する大文字MD5、不在・読取不能時の
+空展開を自作probeで観測した。PraTeX側はさらに、対になった外側quoteだけを除くこと、
+任意拡張子の直接相対pathでresolver子processを起動しないことをfocused testで固定した。
 
 | asset / version | URL | bytes | SHA-256 |
 |---|---|---:|---|

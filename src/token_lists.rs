@@ -382,9 +382,32 @@ fn scan_and_print_argument_for_convert_command(
             }
         }
         ConvertCommand::PdfMdFiveSum => {
-            let s = scan_general_text_as_string(scanner, eqtb, logger);
-            for b in crate::md5::md5(&s) {
-                string_printer.slow_print_str(format!("{b:02X}").as_bytes());
+            // pdfTeX's public syntax is
+            // `\pdfmdfivesum [file] <general text>`.  Keep the historical
+            // string form byte-for-byte, and only enter file lookup after the
+            // optional expanded keyword has been consumed.
+            let file_mode = scanner.scan_keyword(b"file", eqtb, logger);
+            let text = scan_general_text_as_string(scanner, eqtb, logger);
+            if file_mode {
+                // web2c accepts a matching outer quote pair around a file name.
+                // Strip it before the direct-path/resolver boundary as well, so
+                // quoted UTF-8 names do not require an external kpsewhich call.
+                let name = strip_matching_file_name_quotes(&text);
+                let logical_path =
+                    std::path::PathBuf::from(crate::os_string_from_bytes(name.to_vec()));
+                let digest = scanner
+                    .resolve_file_path(FileKind::Tex, &logical_path)
+                    .ok()
+                    .flatten()
+                    .and_then(|path| std::fs::File::open(path).ok())
+                    .and_then(|mut file| crate::md5::md5_reader(&mut file).ok());
+                // pdfTeX expands to an empty token list when lookup or reading
+                // fails.  In particular, this is not a TeX error.
+                if let Some(digest) = digest {
+                    print_md_five_digest(digest, string_printer);
+                }
+            } else {
+                print_md_five_sum(&text, string_printer);
             }
         }
         ConvertCommand::PdfStrCmp => {
@@ -445,6 +468,22 @@ fn scan_and_print_argument_for_convert_command(
         ConvertCommand::PraTeXRevision => {
             string_printer.slow_print_str(crate::version::PRATEX_REVISION.as_bytes());
         }
+    }
+}
+
+fn strip_matching_file_name_quotes(name: &[u8]) -> &[u8] {
+    name.strip_prefix(b"\"")
+        .and_then(|name| name.strip_suffix(b"\""))
+        .unwrap_or(name)
+}
+
+fn print_md_five_sum(input: &[u8], string_printer: &mut StringPrinter) {
+    print_md_five_digest(crate::md5::md5(input), string_printer);
+}
+
+fn print_md_five_digest(digest: [u8; 16], string_printer: &mut StringPrinter) {
+    for byte in digest {
+        string_printer.slow_print_str(format!("{byte:02X}").as_bytes());
     }
 }
 
@@ -552,6 +591,22 @@ mod tests {
         assert_eq!(
             the_raw_string_toks(&mut scanner, &mut eqtb, &mut logger),
             bytes.into_iter().map(Token::OtherChar).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn pdfmdfivesum_fileは両側が揃った引用符だけを除く() {
+        assert_eq!(
+            strip_matching_file_name_quotes(b"\"paired.tex\""),
+            b"paired.tex"
+        );
+        assert_eq!(
+            strip_matching_file_name_quotes(b"\"left.tex"),
+            b"\"left.tex"
+        );
+        assert_eq!(
+            strip_matching_file_name_quotes(b"right.tex\""),
+            b"right.tex\""
         );
     }
 

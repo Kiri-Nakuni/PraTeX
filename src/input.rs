@@ -9,6 +9,8 @@ mod macro_reader;
 mod pseudo_file;
 #[cfg(test)]
 mod pdffilesize_resolver_tests;
+#[cfg(test)]
+mod pdfmdfivesum_resolver_tests;
 mod scan_tokens;
 mod scanning;
 pub mod token_source;

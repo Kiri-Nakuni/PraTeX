@@ -251,11 +251,7 @@ $expectations = @{
     scrartcl = @{ Kind = "success"; Detail = "unmodified KOMA-Script class smoke" }
     graphicx = @{ Kind = "success"; Detail = "explicit dvips driver" }
     xcolor = @{ Kind = "success"; Detail = "explicit dvips driver" }
-    hyperref = @{
-        Kind = "known-blocker"
-        Detail = "pdfmdfivesum file form"
-        Required = @("Missing { inserted.", "pdf@filemdfivesum")
-    }
+    hyperref = @{ Kind = "success"; Detail = "links/URI DVI smoke; pdfmdfivesum file form" }
     tikz = @{
         Kind = "known-blocker"
         Detail = "missing eTeXrevision"
