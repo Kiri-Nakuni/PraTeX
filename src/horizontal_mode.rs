@@ -25,7 +25,7 @@ impl HorizontalMode {
 
     /// See 214.
     pub fn append_node(&mut self, node: Node, eqtb: &mut Eqtb) {
-        if matches!(node, Node::WideChar(_)) {
+        if node.contains_horizontal_japanese_glyph() {
             self.script_spacing.observe_japanese();
         }
         self.list.push(node);
@@ -33,7 +33,7 @@ impl HorizontalMode {
     }
 
     pub(crate) fn observe_appended_nodes(&mut self, nodes: &[Node]) {
-        if nodes.iter().any(|node| matches!(node, Node::WideChar(_))) {
+        if nodes.iter().any(Node::contains_horizontal_japanese_glyph) {
             self.script_spacing.observe_japanese();
         }
     }

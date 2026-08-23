@@ -5,15 +5,16 @@
 
 use super::planner::{
     BoundaryAtom, BoundaryContext, CompiledJfmPairSpacingTable, JapaneseBoundary,
-    JapaneseSpacingPlanner, JfmFontId, LatinBoundary, LayoutCharacterCode, PlannedSpacingAction,
-    PlannerJfmClassId, PtexSpacingState, ScriptSpacingListState,
+    JapaneseSpacingPlanner, JfmFontId, JfmGlueControl, JfmPairContinuity, LatinBoundary,
+    LayoutCharacterCode, PlannedSpacingAction, PlannerJfmClassId, PtexSpacingState,
+    ScriptSpacingListState, SpacingActionPhase,
 };
 use super::FixedGlue;
 use crate::eqtb::{Eqtb, SkipVariable};
 use crate::japanese_fonts::JapaneseFontIndex;
 use crate::nodes::{
-    AutomaticJapaneseGlue, GlueNode, GlueSpec, GlueType, KernNode, KernSubtype, LigatureNode, Node,
-    PenaltyNode, PenaltySubtype, WideCharNode,
+    AutomaticJapaneseGlue, GlueNode, GlueSpec, GlueType, HlistOrVlist, KernNode, KernSubtype,
+    LigatureNode, ListNode, Node, PenaltyNode, PenaltySubtype, WideCharNode,
 };
 
 use std::rc::Rc;
@@ -22,6 +23,24 @@ use std::rc::Rc;
 struct ObservedBoundary {
     atom: BoundaryAtom,
     japanese_font: Option<JapaneseFontIndex>,
+}
+
+#[derive(Clone, Copy)]
+struct BoundaryEndpoint {
+    boundary: ObservedBoundary,
+    hbox_edge: bool,
+}
+
+#[derive(Clone, Copy)]
+struct ObservedHboxEdges {
+    first: Option<ObservedBoundary>,
+    last: Option<ObservedBoundary>,
+}
+
+enum HboxEdgeScan {
+    Found(ObservedBoundary),
+    Empty,
+    Blocked,
 }
 
 /// list終端のK/X snapshotを使い、JFM/禁則/K/Xを同じ元境界へ一回だけ適用する。
@@ -51,20 +70,35 @@ fn finalize_horizontal_list(list: &mut Vec<Node>, eqtb: &Eqtb) {
             continue;
         }
 
-        if let Some(current) = observe_boundary(&node, eqtb) {
+        if let Some(current) = observe_glyph_boundary(&node, eqtb) {
+            let current = BoundaryEndpoint {
+                boundary: current,
+                hbox_edge: false,
+            };
             if let Some(left) = previous {
-                let jfm_pairs = pair_table_for_boundary(left, current, eqtb);
-                let plan = planner.plan_boundary(
-                    left.atom,
-                    current.atom,
-                    BoundaryContext::DEFAULT,
-                    &state,
-                    jfm_pairs,
-                );
-                rebuilt.extend(plan.actions().map(materialize_action));
+                append_boundary_spacing(&mut rebuilt, left, current, &planner, &state, eqtb);
             }
             previous = Some(current);
             rebuilt.push(node);
+        } else if let Some(edges) = observe_unshifted_hbox_edges(&node, eqtb) {
+            if let (Some(left), Some(first)) = (previous, edges.first) {
+                append_boundary_spacing(
+                    &mut rebuilt,
+                    left,
+                    BoundaryEndpoint {
+                        boundary: first,
+                        hbox_edge: true,
+                    },
+                    &planner,
+                    &state,
+                    eqtb,
+                );
+            }
+            rebuilt.push(node);
+            previous = edges.last.map(|boundary| BoundaryEndpoint {
+                boundary,
+                hbox_edge: true,
+            });
         } else if matches!(node, Node::Penalty(_)) {
             // 明示penaltyは文字境界を保つ。planner actionはこのnodeの後ろへ置かれる。
             rebuilt.push(node);
@@ -78,7 +112,48 @@ fn finalize_horizontal_list(list: &mut Vec<Node>, eqtb: &Eqtb) {
     *list = rebuilt;
 }
 
-fn observe_boundary(node: &Node, eqtb: &Eqtb) -> Option<ObservedBoundary> {
+fn append_boundary_spacing(
+    rebuilt: &mut Vec<Node>,
+    left: BoundaryEndpoint,
+    right: BoundaryEndpoint,
+    planner: &JapaneseSpacingPlanner,
+    state: &PtexSpacingState,
+    eqtb: &Eqtb,
+) {
+    let hbox_edge = left.hbox_edge || right.hbox_edge;
+    let context = if hbox_edge {
+        BoundaryContext {
+            jfm_continuity: JfmPairContinuity::Broken,
+            jfm_glue: JfmGlueControl::Inhibit,
+        }
+    } else {
+        BoundaryContext::DEFAULT
+    };
+    let jfm_pairs = (!hbox_edge)
+        .then(|| pair_table_for_boundary(left.boundary, right.boundary, eqtb))
+        .flatten();
+    let plan = planner.plan_boundary(
+        left.boundary.atom,
+        right.boundary.atom,
+        context,
+        state,
+        jfm_pairs,
+    );
+    if hbox_edge {
+        // 箱edgeで公式に確認できたのはK/Xだけ。JFM pairと禁則を推測で越境させない。
+        rebuilt.extend(
+            plan.actions_for_phase(SpacingActionPhase::ListFinalizer)
+                .map(|action| materialize_action(action, true)),
+        );
+    } else {
+        rebuilt.extend(
+            plan.actions()
+                .map(|action| materialize_action(action, false)),
+        );
+    }
+}
+
+fn observe_glyph_boundary(node: &Node, eqtb: &Eqtb) -> Option<ObservedBoundary> {
     match node {
         Node::Char(character) => Some(ObservedBoundary {
             atom: BoundaryAtom::Latin(LatinBoundary::new(
@@ -106,6 +181,64 @@ fn observe_boundary(node: &Node, eqtb: &Eqtb) -> Option<ObservedBoundary> {
         }
         _ => None,
     }
+}
+
+/// unshifted hboxだけを外側のK/X境界として要約する。
+///
+/// 公式binaryで、先頭の空hboxは読み飛ばす一方、先頭kernはedgeを遮ることを確認した。
+/// 未観測nodeを推測で透明にはせず、glyphまたはunshifted hboxだけを再帰する。
+fn observe_unshifted_hbox_edges(node: &Node, eqtb: &Eqtb) -> Option<ObservedHboxEdges> {
+    let Node::List(ListNode {
+        shift_amount: 0,
+        list: HlistOrVlist::Hlist(nodes),
+        ..
+    }) = node
+    else {
+        return None;
+    };
+    Some(ObservedHboxEdges {
+        first: match scan_hbox_edge(nodes, eqtb, false) {
+            HboxEdgeScan::Found(boundary) => Some(boundary),
+            HboxEdgeScan::Empty | HboxEdgeScan::Blocked => None,
+        },
+        last: match scan_hbox_edge(nodes, eqtb, true) {
+            HboxEdgeScan::Found(boundary) => Some(boundary),
+            HboxEdgeScan::Empty | HboxEdgeScan::Blocked => None,
+        },
+    })
+}
+
+fn scan_hbox_edge(nodes: &[Node], eqtb: &Eqtb, reverse: bool) -> HboxEdgeScan {
+    let visit = |node: &Node| {
+        if let Some(boundary) = observe_glyph_boundary(node, eqtb) {
+            return HboxEdgeScan::Found(boundary);
+        }
+        match node {
+            Node::List(ListNode {
+                shift_amount: 0,
+                list: HlistOrVlist::Hlist(nested),
+                ..
+            }) => scan_hbox_edge(nested, eqtb, reverse),
+            _ => HboxEdgeScan::Blocked,
+        }
+    };
+
+    if reverse {
+        for node in nodes.iter().rev() {
+            match visit(node) {
+                HboxEdgeScan::Empty => {}
+                result => return result,
+            }
+        }
+    } else {
+        for node in nodes {
+            match visit(node) {
+                HboxEdgeScan::Empty => {}
+                result => return result,
+            }
+        }
+    }
+    HboxEdgeScan::Empty
 }
 
 fn observe_ligature(ligature: &LigatureNode) -> Option<ObservedBoundary> {
@@ -151,7 +284,7 @@ fn is_automatic_spacing(node: &Node) -> bool {
     )
 }
 
-fn materialize_action(action: PlannedSpacingAction) -> Node {
+fn materialize_action(action: PlannedSpacingAction, material_kanji_skip: bool) -> Node {
     match action {
         PlannedSpacingAction::KinsokuPenalty { value } => {
             Node::Penalty(PenaltyNode::new_automatic_japanese(value))
@@ -161,9 +294,14 @@ fn materialize_action(action: PlannedSpacingAction) -> Node {
             subtype: KernSubtype::AutomaticJapaneseJfm,
             width,
         }),
-        PlannedSpacingAction::ImplicitKanjiSkip { glue, .. } => {
-            automatic_glue(AutomaticJapaneseGlue::VirtualKanjiSkip, glue)
-        }
+        PlannedSpacingAction::ImplicitKanjiSkip { glue, .. } => automatic_glue(
+            if material_kanji_skip {
+                AutomaticJapaneseGlue::MaterialKanjiSkip
+            } else {
+                AutomaticJapaneseGlue::VirtualKanjiSkip
+            },
+            glue,
+        ),
         PlannedSpacingAction::MaterialXKanjiSkip { glue, .. } => {
             automatic_glue(AutomaticJapaneseGlue::XKanjiSkip, glue)
         }

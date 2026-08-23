@@ -102,6 +102,21 @@ pub enum Node {
 }
 
 impl Node {
+    /// 横組listのfast gate用に、unshifted hbox内まで和文glyphの存在だけを見る。
+    ///
+    /// edgeとして使えるかの判断は中央spacing finalizerが行う。ここではASCII-only
+    /// listを誤ってskipしないことだけが目的なので、hbox内のbarrierは判定しない。
+    pub(crate) fn contains_horizontal_japanese_glyph(&self) -> bool {
+        match self {
+            Self::WideChar(_) => true,
+            Self::List(ListNode {
+                list: HlistOrVlist::Hlist(nodes),
+                ..
+            }) => nodes.iter().any(Self::contains_horizontal_japanese_glyph),
+            _ => false,
+        }
+    }
+
     /// TeX の node list introspection から観測できる node か。
     ///
     /// 直結する和文 glyph 間の `\kanjiskip` (K) は寸法・伸縮・改行・出力には
@@ -742,6 +757,8 @@ pub enum AutomaticJapaneseGlue {
     Jfm,
     /// 直結する和文 glyph 間だけの仮想 K。箱境界の material K には使わない。
     VirtualKanjiSkip,
+    /// unshifted hboxの和文edgeで必要になる、TeXから観測可能な実nodeのK。
+    MaterialKanjiSkip,
     XKanjiSkip,
 }
 
@@ -861,6 +878,7 @@ impl GlueNode {
                 logger.print_esc_str(match kind {
                     AutomaticJapaneseGlue::Jfm => b"pratexjfm",
                     AutomaticJapaneseGlue::VirtualKanjiSkip => b"kanjiskip",
+                    AutomaticJapaneseGlue::MaterialKanjiSkip => b"kanjiskip",
                     AutomaticJapaneseGlue::XKanjiSkip => b"xkanjiskip",
                 });
                 logger.print_char(b')');

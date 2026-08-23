@@ -89,10 +89,10 @@ hboxまたは段落を閉じた時点の最終状態でlist全体を再評価す
 - `\showbox`、`\showlists`、`\lastskip`へ現れない。
 - `\noautospacing`でも幅0の仮想境界は改行候補として残る。
 
-現production checkpointではcorrectnessを先に固定するため、Kにも
-`GlueType::AutomaticJapanese(KanjiSkip)`を持つ実nodeを使う。このため現段階のKは
-`\showbox`で観測でき、`\lastskip` / `\unskip`も最終契約と一致しない。由来を型で保持して
-再finalize時だけ除去できるようにし、意味試験を固定した後で仮想Kへ置き換える。
+現productionでは直結glyph間を`VirtualKanjiSkip`としてmaterializeし、寸法・改行・出力には
+使う一方、node introspectionと`\unskip`から隠す。箱境界のKは別variantの
+`MaterialKanjiSkip`であり、このvisibilityへ混ぜない。いずれも由来を型で保持し、
+再finalize時だけ除去する。
 
 Xは実glue nodeである。
 
@@ -111,10 +111,47 @@ penaltyを挟む和文–和文は
 - 和文–欧文ならX
 - `\raise` / `\lower`したboxは対象外
 
+根拠は[pTeX manual 2025-05-10版](https://tug.ctan.org/info/ptex-manual/ptex-manual.pdf)
+の`\kanjiskip`節と、2026-08-24にTeX Live 2026公式e-upTeX
+`3.141592653-p4.1.2-u2.02-251130-2.6`へ与えた自作最小入力である。binary archiveは
+`uptex.windows` revision 78020、SHA-256は
+`c878983da002f32a24a507680ccf00261a3761089ed324892668ded589bf9c0d`。
+
+| 入力（J=10pt和文、A=cmr10、K=4pt、X=3pt） | 幅 | `\showbox` |
+|---|---:|---|
+| `漢\hbox{字}` / `\hbox{漢}字` | 24pt | 箱外に実`\glue(\kanjiskip) 4pt` |
+| `A\hbox{漢}` / `\hbox{漢}A` | 20.50002pt | 箱外に実`\glue(\xkanjiskip) 3pt` |
+| `漢\hbox{A}` / `\hbox{A}漢` | 20.50002pt | 同上 |
+| `漢\raise1pt\hbox{字}` | 20pt | Kなし |
+| `漢\raise1pt\hbox{A}` | 17.50002pt | Xなし |
+| `漢\hbox{\hbox{}字}` | 24pt | 先頭の空hboxを越えてmaterial K |
+| `漢\hbox{\kern0pt 字}` | 20pt | 先頭kernがedgeを遮る |
+
+production sliceはglyphとunshifted hboxだけを再帰してedge summaryを作る。未観測nodeを
+推測で透明にせず、shifted hbox、vbox、明示kern/glue/rule等はedgeを遮る。箱edgeでは
+JFM pair・禁則を推測適用せずK/X finalizer actionだけを置く。Kはfmt往復可能でTeXから
+可視な`MaterialKanjiSkip`、直結glyph間は不可視な`VirtualKanjiSkip`のままである。
+
 `\unhbox` / `\unhcopy`後は、内側で自動生成したK/Xを
 外側listの最終値で再構成する。
 内側K=7/X=8、外側K=2/X=5なら、展開後はK=2/X=5になる。
 自動nodeと利用者が明示したglueを区別するprovenanceが必要である。
+
+### discretionary
+
+同じ公式binaryへpre/post/no-breakを独立に変えた入力を与えると、discは左右を単純に
+接続する透明nodeではなかった。
+
+- `漢\discretionary{}{}{}字`は20ptで、空discを越えるKはない。和欧の場合もXはない。
+- no-breakが`中`なら、左の`漢`から`中`へはKを置かず、`中`から右の`字`へだけ
+  material Kを置く。右が欧文ならmaterial Xになる。
+- 改行時も左のglyphからpre-break先頭へは置かず、post-break末尾から右のglyphへだけ置く。
+- pre/post/no-break内の直結和文glyph同士には通常の暗黙Kが効く。
+- no-breakとpost-breakのscriptを変えると、右境界に必要なactionも枝ごとに変わる。
+
+したがって単一の外側glueをdisc後へ置く実装は誤りである。現在のproductionは、空discを
+K/Xのbarrierとする確認済み部分だけを固定した。非空枝にはno-break/post-breakそれぞれの
+条件付きspacing eventと、packer・line breaker・DVIで同じ枝を選ぶ境界が必要なので未実装である。
 
 ### 方向bit
 
@@ -303,8 +340,9 @@ penalty 10000を置く。code point表はplanner一箇所にあり、consumerへ
 これは[JLReq 3.1.7](https://www.w3.org/TR/jlreq/#characters-not-starting-a-line)と
 [JLReq 3.1.8](https://www.w3.org/TR/jlreq/#characters-not-ending-a-line)の全class実装ではない。
 
-明示penaltyだけは文字境界に透明で、明示glue、kern、math、whatsit、list、rule、disc等は
-barrierである。自動JFM/K/X/禁則nodeはtyped provenanceを持ち、unbox後を含む再finalizeでは
+明示penaltyだけは文字境界に透明で、明示glue、kern、math、whatsit、rule、disc等は
+barrierである。listのうち確認済みunshifted hboxだけはedge summaryを使い、shifted hboxと
+vboxはbarrierのままにする。自動JFM/K/X/禁則nodeはtyped provenanceを持ち、unbox後を含む再finalizeでは
 それだけを除いて元境界から再生成する。hbox、段落、alignment cell、display math移行の
 `unsave` / pop前にsnapshotし、局所K/Xを失わない。
 
@@ -321,7 +359,7 @@ origin/mainのplain欧文DVI page body 183 bytesはbyte差分0で、公式CTAN T
    再適用する。利用者の明示glue/penaltyは除去しない。
 3. line breaker、packer、DVI/PDF backendは`ImplicitKanjiSkip`を同じ仮想glue eventとして読む。
    plain欧文DVI differentialを先に固定し、その後に和文event oracleを追加する。
-4. unshifted hboxのedge summary、disc三分岐、`\inhibitglue`、全JLReq文字class、縦組へ広げる。
+4. disc三分岐の条件付きevent、`\inhibitglue`、全JLReq文字class、縦組へ広げる。
 
 ## 9. commit順
 
@@ -356,8 +394,8 @@ origin/mainのplain欧文DVI page body 183 bytesはbyte差分0で、公式CTAN T
 
 ## 11. 残る黒箱課題
 
-- rule、kern、box等のJFM edge matrix
-- discretionaryのpre/post/no-breakとK/X/JFM
+- rule、kern、box末尾の非glyph node等のJFM/K/X edge matrix
+- discretionaryの枝別event表現、JFM class・禁則との順序
 - inline math、accent、ligature、language whatsit
 - 異なるJFM font間、方向変更、縦組
 - `\unskip`後のJFMとunbox再評価

@@ -5,7 +5,7 @@ use crate::input::InputStack;
 use crate::logger::Logger;
 use crate::math_mode::MathMode;
 use crate::nodes::noads::{ChoiceNode, Noad};
-use crate::nodes::{show_box_content, DiscNode, Node};
+use crate::nodes::{show_box_content, AutomaticJapaneseGlue, DiscNode, GlueNode, GlueType, Node};
 use crate::page_breaking::PageBuilder;
 use crate::print::Printer;
 use crate::vertical_mode::VerticalMode;
@@ -103,6 +103,22 @@ impl SemanticState {
         let node = self.cur_list_mut().pop();
         self.update_last_node_info(eqtb);
         node
+    }
+
+    /// `\unhcopy`済みlistの末尾boxを`\lastbox`で外した時、そのboxとの境界だけに
+    /// finalizerが置いたmaterial K/Xを一緒に除く。利用者glueと仮想Kは対象にしない。
+    pub(crate) fn remove_trailing_spacing_for_removed_box(&mut self, eqtb: &mut Eqtb) {
+        if matches!(
+            self.cur_list().last(),
+            Some(Node::Glue(GlueNode {
+                subtype: GlueType::AutomaticJapanese(
+                    AutomaticJapaneseGlue::MaterialKanjiSkip | AutomaticJapaneseGlue::XKanjiSkip
+                ),
+                ..
+            }))
+        ) {
+            self.pop_last(eqtb);
+        }
     }
 
     /// 内部 materialization を飛ばし、TeX から見える末尾 node を返す。
@@ -486,9 +502,10 @@ mod virtual_kanji_skip_tests {
     }
 
     #[test]
-    fn xとjfmは仮想kの可視性へ混ぜない() {
+    fn material_kとxとjfmは仮想kの可視性へ混ぜない() {
         for kind in [
             AutomaticJapaneseGlue::Jfm,
+            AutomaticJapaneseGlue::MaterialKanjiSkip,
             AutomaticJapaneseGlue::XKanjiSkip,
         ] {
             let node = glue(4, GlueType::AutomaticJapanese(kind));

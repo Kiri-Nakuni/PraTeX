@@ -6,8 +6,10 @@
 //! `uptex.windows` archiveのSHA-256は`docs/euptex-port-notes.md`記録済みの
 //! `c878983da002f32a24a507680ccf00261a3761089ed324892668ded589bf9c0d`。
 //! 直結和和Kはshow listへ出ず、箱寸法・再箱詰め・改行・DVI移動には効く一方、
-//! Xはmaterial glueとして表示される、という観測を以下へ固定する。公式でmaterialな
-//! 箱境界Kはこのsliceでは未実装であり、`VirtualKanjiSkip`とは別variantにする。
+//! Xはmaterial glueとして表示される、という観測を以下へ固定する。unshifted hboxの
+//! edgeに置くKは`MaterialKanjiSkip`として直結glyph間の`VirtualKanjiSkip`から分ける。
+//! discretionaryは左側を遮断し、no-break/post-break枝末尾から右側だけを接続するため、
+//! このsliceでは空枝がK/Xを接続しない契約だけをproduction回帰にする。
 
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
@@ -247,6 +249,92 @@ fn jfmと仮想kと実xはhlistへ一度だけ入り明示nodeを越えない() 
     assert!(log.contains("\\glue(\\xkanjiskip) 2.0"), "{log}");
     assert!(log.contains("\\penalty 50"), "{log}");
     assert!(log.contains("\\penalty 10000"), "{log}");
+}
+
+#[test]
+fn 上下移動しないhboxの和文edgeだけに実kとxを置く() {
+    let directory = prepare_directory("hbox edgeのmaterial KとX");
+    let source = format!(
+        "{}\\kanjiskip=4pt plus 1pt minus 2pt \\xkanjiskip=3pt
+         \\showboxbreadth=100 \\showboxdepth=10
+         \\setbox0=\\hbox{{あ\\hbox{{あ}}}}
+         \\setbox1=\\hbox{{\\hbox{{あ}}あ}}
+         \\setbox2=\\hbox{{A\\hbox{{あ}}}}
+         \\setbox3=\\hbox{{\\hbox{{あ}}A}}
+         \\setbox4=\\hbox{{あ\\hbox{{A}}}}
+         \\setbox5=\\hbox{{\\hbox{{A}}あ}}
+         \\setbox6=\\hbox{{あ\\raise1pt\\hbox{{あ}}}}
+         \\setbox7=\\hbox{{あ\\raise1pt\\hbox{{A}}}}
+         \\setbox8=\\hbox{{あ\\hbox{{\\hbox{{}}あ}}}}
+         \\setbox9=\\hbox{{あ\\hbox{{\\kern0pt あ}}}}
+         \\message{{[box-edge=\\the\\wd0/\\the\\wd1/\\the\\wd2/\\the\\wd3/\\the\\wd4/\\the\\wd5/\\the\\wd6/\\the\\wd7/\\the\\wd8/\\the\\wd9]}}
+         \\showbox0
+         \\setbox10=\\hbox{{\\unhcopy0\\setbox20=\\lastbox
+           \\message{{[K-lastbox=\\the\\lastskip/\\the\\lastnodetype]}}}}
+         \\kanjiskip=6pt \\setbox11=\\hbox{{\\unhcopy0}}
+         \\setbox12=\\hbox{{\\unhcopy2\\setbox21=\\lastbox
+           \\message{{[X-lastbox=\\the\\lastskip/\\the\\lastnodetype]}}}}
+         \\setbox13=\\hbox{{ああ}} \\showbox13
+         \\message{{[after-open=\\the\\wd10/\\the\\wd11/\\the\\wd12]}}
+         \\kanjiskip=4pt
+         \\setbox14=\\hbox{{あ\\hbox{{あ}}\\kern1pt\\vrule width1pt height1pt depth0pt}}
+         \\shipout\\box14
+         \\hsize=5pt \\parindent=0pt
+         \\pretolerance=-1 \\tolerance=10000 あ\\hbox{{あ}}\\par
+         \\message{{[box-edge-lines=\\the\\prevgraf]}}
+         \\end\n",
+        common_prefix()
+    );
+    std::fs::write(directory.join("t.tex"), source).unwrap();
+    let output = run_rtex(&directory, &["t.tex"]);
+    assert_success(&output, "hbox edgeのK/X試験を実行できなかった");
+    let log = joined_log(&directory, "t");
+    assert!(
+        log.contains(
+            "[box-edge=14.0pt/14.0pt/18.0pt/18.0pt/18.0pt/18.0pt/10.0pt/15.0pt/14.0pt/10.0pt]"
+        ),
+        "{log}"
+    );
+    assert!(
+        log.contains("\\glue(\\kanjiskip) 4.0 plus 1.0 minus 2.0"),
+        "{log}"
+    );
+    assert!(log.contains("[K-lastbox=0.0pt/0]"), "{log}");
+    assert!(log.contains("[X-lastbox=0.0pt/0]"), "{log}");
+    assert!(log.contains("[after-open=5.0pt/16.0pt/10.0pt]"), "{log}");
+    assert!(log.contains("[box-edge-lines=2]"), "{log}");
+    let direct = log
+        .split("> \\box13=")
+        .nth(1)
+        .expect("直結glyphのshowbox出力がある");
+    assert!(!direct.contains("\\glue(\\kanjiskip)"), "{direct}");
+    let (wide, rules) = first_page_events(&std::fs::read(directory.join("t.dvi")).unwrap());
+    assert_eq!(wide.len(), 2);
+    assert_eq!(wide[1].h, wide[0].h + 9 * 65_536);
+    assert_eq!(rules.len(), 1);
+    assert_eq!(rules[0].h, wide[0].h + 15 * 65_536);
+}
+
+#[test]
+fn 空discretionaryは左右のkとxを接続しない() {
+    let directory = prepare_directory("空discretionaryのKとX");
+    let source = format!(
+        "{}\\kanjiskip=4pt \\xkanjiskip=3pt
+         \\setbox0=\\hbox{{あ\\discretionary{{}}{{}}{{}}あ}}
+         \\setbox1=\\hbox{{あ\\discretionary{{}}{{}}{{}}A}}
+         \\setbox2=\\hbox{{A\\discretionary{{}}{{}}{{}}あ}}
+         \\message{{[empty-disc=\\the\\wd0/\\the\\wd1/\\the\\wd2]}}
+         \\end\n",
+        common_prefix()
+    );
+    std::fs::write(directory.join("t.tex"), source).unwrap();
+    let output = run_rtex(&directory, &["t.tex"]);
+    assert_success(
+        &output,
+        "空discretionaryのK/X barrier試験を実行できなかった",
+    );
+    let log = joined_log(&directory, "t");
+    assert!(log.contains("[empty-disc=10.0pt/15.0pt/15.0pt]"), "{log}");
 }
 
 #[test]

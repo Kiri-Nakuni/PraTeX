@@ -79,9 +79,10 @@ raw code表やJFM programを再解釈しない。異なるfont instance間では
 消さずに再生成する。
 
 ただしJFM/禁則も現段階ではlist-closeでmaterializeするcorrectness sliceであり、
-main loop中の`\unskip` / `\lastnodesubtype`のpTeX意味は未完成である。Kも最終形の仮想eventでなく
-由来付き実glueなので`\showbox`へ現れる。`xspcode`、`inhibitxspcode`、auto switch、
-`\inhibitglue`の公開面、box edge、disc、JLReqの全禁則classはまだ接続していない。
+main loop中の`\unskip` / `\lastnodesubtype`のpTeX意味は未完成である。直結glyph間Kは
+`VirtualKanjiSkip`としてnode introspectionから隠し、unshifted hbox境界Kは可視な
+`MaterialKanjiSkip`へ分けた。`xspcode`、`inhibitxspcode`、auto switchと箱edgeのK/Xは
+接続済みだが、`\inhibitglue`、discの非空三分岐、JLReqの全禁則classはまだ接続していない。
 
 ## TeX Live 2026黒箱オラクル
 
@@ -115,7 +116,7 @@ cargo test --release 'jfm::tests::配布jfm九十六件をすべて読む' --lib
 ## 残る接続
 
 - `\tfont`、縦組JFMのmetric解釈、方向つきwide nodeとDVI/PDF出力
-- JFM/禁則のmain-loop早期挿入、仮想K、xsp/inhibit/auto switch、box/disc境界
+- JFM/禁則のmain-loop早期挿入、disc非空三分岐の条件付きspacing境界
 - 4文字subsetを越える禁則、ぶら下げ、行長調整を含むJLReq規則
 - PDFの日本語font resource、OTF/TrueType、default-off RustyBuzz
 
@@ -158,3 +159,12 @@ node・sp座標・DVI意味をe-upTeXと比較して初めてpTeX相当P0の一�
 - CTAN TRIP両段exit 0、`tripos.tex`最小正規化後一致、DVI SHA-256
   `b20af20a1463c6846f0c4c1ce687cd6354ce1a5f65ee401507627570787ae9fe`
 - これはlist-close correctness checkpointで、main-loop JFM、仮想K、完全JLReq、縦組の完成ではない
+
+## 2026-08-24のhbox edge checkpoint
+
+- pTeX manual 2025-05-10版と公式e-upTeX TL2026自作probeで、unshifted hbox前後の
+  material K/X、raise/lower除外、nested/空hbox、先頭kernを確認した
+- 箱edge Kを`MaterialKanjiSkip`として直結glyph間の`VirtualKanjiSkip`から型で分離し、
+  show/lastbox、unhcopy再評価、fmt、line break、DVI座標へ接続した
+- 空discretionaryはK/Xを越境させない。非空discは左側を遮断し、no-break/post-break枝末尾から
+  右側だけを接続することを確認したが、枝別eventが必要なのでproduction未実装である

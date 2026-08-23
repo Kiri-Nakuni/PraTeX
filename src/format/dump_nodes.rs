@@ -535,6 +535,9 @@ impl Dumpable for GlueType {
                         AutomaticJapaneseGlue::Jfm => "AutomaticJapaneseJfm",
                         // fmt wire名は既存checkpointとの互換のため維持する。
                         AutomaticJapaneseGlue::VirtualKanjiSkip => "AutomaticJapaneseKanjiSkip",
+                        AutomaticJapaneseGlue::MaterialKanjiSkip => {
+                            "AutomaticJapaneseMaterialKanjiSkip"
+                        }
                         AutomaticJapaneseGlue::XKanjiSkip => "AutomaticJapaneseXKanjiSkip",
                     }
                 )?;
@@ -564,6 +567,9 @@ impl Dumpable for GlueType {
             "AutomaticJapaneseJfm" => Self::AutomaticJapanese(AutomaticJapaneseGlue::Jfm),
             "AutomaticJapaneseKanjiSkip" => {
                 Self::AutomaticJapanese(AutomaticJapaneseGlue::VirtualKanjiSkip)
+            }
+            "AutomaticJapaneseMaterialKanjiSkip" => {
+                Self::AutomaticJapanese(AutomaticJapaneseGlue::MaterialKanjiSkip)
             }
             "AutomaticJapaneseXKanjiSkip" => {
                 Self::AutomaticJapanese(AutomaticJapaneseGlue::XKanjiSkip)
@@ -1626,6 +1632,10 @@ mod tests {
             )),
             Node::Glue(GlueNode::new_automatic_japanese(
                 AutomaticJapaneseGlue::VirtualKanjiSkip,
+                spec.clone(),
+            )),
+            Node::Glue(GlueNode::new_automatic_japanese(
+                AutomaticJapaneseGlue::MaterialKanjiSkip,
                 spec.clone(),
             )),
             Node::Glue(GlueNode::new_automatic_japanese(

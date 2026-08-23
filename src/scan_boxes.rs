@@ -191,6 +191,7 @@ fn get_last_box(
         let last_node = nest.pop_last(eqtb);
         if let Some(last_node) = last_node {
             if let Node::List(mut list_node) = last_node {
+                nest.remove_trailing_spacing_for_removed_box(eqtb);
                 list_node.shift_amount = 0;
                 Some(list_node)
             } else {
