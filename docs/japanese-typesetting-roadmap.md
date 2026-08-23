@@ -150,16 +150,18 @@ base文字範囲とannotationの対応を知るsemantic nodeが必要である�
 ### 7. 割注
 
 engine-levelで扱う。用途名primitive `\warichu`を直接追加せず、内側二laneの行分割、均等化、
-本文複数行へのfragment、禁則、外側行分割との協調を表せる用途非依存の抽象にする。公開表面と
-内部nodeの案は次節で利用者決定を待つ。
+本文複数行へのfragment、禁則、外側行分割との協調を表せる用途非依存の抽象にする。内部nodeは
+次節の案Bに固定し、author向け表面はLaPraTeX macroとして後から接続する。
 
-## 縦中横・割注の抽象化候補（決定待ち）
+## 縦中横・割注の抽象化（案Bを採択）
+
+2026-08-23に利用者が案Bを選択した。案A/Cは再検討時にtrade-offを失わないため記録として残す。
 
 | 案 | 内部表現 | 縦中横 | 複数の本文行に跨る割注 | 難度・主なtrade-off |
 |---|---|---|---|---|
-| A | 属性付き原子的`InlineObject`だけ | 最短で実装可能 | 不可 | 低～中。固定boxとして既存line breakerへ載るが、割注は一外行内に閉じる |
-| **B（推奨）** | 固定`InlineObject`＋分割可能`InlineSubflow` | Aを第1段にする | 可能 | 高いが段階導入可能。割注候補を外側line breakerへ渡し、一般automatonのABIを早期固定しない |
-| C | 統一fragment automaton | 一遷移で表現 | 可能 | 最大。ruby等も一般化できる一方、state上限・枝刈り・fmt・ABIを初手から固定する |
+| A（不採択） | 属性付き原子的`InlineObject`だけ | 最短で実装可能 | 不可 | 低～中。固定boxとして既存line breakerへ載るが、割注は一外行内に閉じる |
+| **B（採択）** | 固定`InlineObject`＋分割可能`InlineSubflow` | Aを第1段にする | 可能 | 高いが段階導入可能。割注候補を外側line breakerへ渡し、一般automatonのABIを早期固定しない |
+| C（不採択） | 統一fragment automaton | 一遷移で表現 | 可能 | 最大。ruby等も一般化できる一方、state上限・枝刈り・fmt・ABIを初手から固定する |
 
 案BではTeX入力を後で再実行しない。入力は一度だけ実行して副作用を確定し、immutableな
 `OwnedParagraphIR`から`SubflowCandidate`を列挙する。標準候補生成はnativeでcallback 0、Vaakは
@@ -200,7 +202,7 @@ engine-levelで扱う。用途名primitive `\warichu`を直接追加せず、内
 1. P0の横・縦pTeX相当を完了する。
 2. `jsarticle`基本横組を通し、次に`jlreq`横組、最後にその縦組を通す。
 3. P1の優先行調整・class pair禁則・実font/IVSを先行実装する。
-4. 利用者が上の抽象案を決めた後、LaPraTeXがruby、圏点、縦中横、割注、版面gridをtyped core APIへ接続する。
+4. 採択済みの案BをB0からB3まで段階実装し、LaPraTeXがruby、圏点、縦中横、割注、版面gridをtyped core APIへ接続する。
 5. ja/zh-Hans/zh-Hant/ko/viの標準profileをcoreに追加し、同じ境界機構をCJKVへ一般化する。
 6. source provenanceと副作用journalを使い、incremental replayと実行結果ベースLSPへ接続する。
 

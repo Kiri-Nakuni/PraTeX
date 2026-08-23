@@ -28,7 +28,7 @@ PraTeXは、日本語組版、欧文組版、和欧混植をengine coreの一級
 
 1. **upTeX以上のW3C JLReq native対応**
    - 横組・縦組、JFM、和文font/node、和欧文間隔、禁則、行分割、箱、DVI/PDFを連続して扱う。
-   - 縦中横と割注もengine-levelで支える。ただし用途名primitiveを直足しせず、汎用的な方向・局所組版・複数行注の抽象化を先に利用者と決める。
+   - 縦中横と割注もengine-levelで支える。2026-08-23に案Bを採択し、縦中横は固定`InlineObject`、割注は分割可能な`InlineSubflow`とする。用途名primitiveは直足ししない。
    - 標準の日本語組版をVaak/WASM callbackへ逃がさない。
 2. **e-TeX拡張の完成**
    - 字句、内省、配列parameter、discard、表示、TeX--XeTのLR node・反転・出力まで含む。

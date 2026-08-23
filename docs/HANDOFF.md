@@ -266,7 +266,8 @@ Claude `82fa3a2`のLinux perf分解:
 4. LaTeXが次に要求した時点で`\scantokens`を設計どおり実装する。
 
 日本語の最低線は横組smokeではなくpTeX相当とJLReq native対応であり、縦組を含む。縦中横と
-割注はengine-levelの汎用抽象を使うが、公開表面は利用者が候補案を選ぶまで固定しない。
+割注は2026-08-23に案Bへ決定した。coreでは縦中横を固定`InlineObject`、割注を分割可能な
+`InlineSubflow`として扱い、用途名primitiveを直足ししない。
 
 ## 検証
 
