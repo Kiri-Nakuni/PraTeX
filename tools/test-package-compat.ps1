@@ -252,11 +252,7 @@ $expectations = @{
     graphicx = @{ Kind = "success"; Detail = "explicit dvips driver" }
     xcolor = @{ Kind = "success"; Detail = "explicit dvips driver" }
     hyperref = @{ Kind = "success"; Detail = "links/URI DVI smoke; pdfmdfivesum file form" }
-    tikz = @{
-        Kind = "known-blocker"
-        Detail = "missing eTeXrevision"
-        Required = @("PRATEX-COMPAT-eTeXrevision=missing", "PGF requires etex in extended mode")
-    }
+    tikz = @{ Kind = "success"; Detail = "triangle/node DVI smoke; eTeXrevision .6" }
     siunitx = @{ Kind = "success"; Detail = "explicit DVI color driver" }
     pxrubrica = @{ Kind = "success"; Detail = "generic fallback smoke; branch is reported" }
 }

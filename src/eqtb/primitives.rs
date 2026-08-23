@@ -1000,6 +1000,10 @@ impl Eqtb {
         self.primitive_expandable(b"detokenize", ExpandableCommand::Detokenize);
         self.primitive_expandable(b"unexpanded", ExpandableCommand::Unexpanded);
         self.primitive_expandable(
+            b"eTeXrevision",
+            ExpandableCommand::Convert(ConvertCommand::ETeXRevision),
+        );
+        self.primitive_expandable(
             b"pratexrevision",
             ExpandableCommand::Convert(ConvertCommand::PraTeXRevision),
         );

@@ -1,24 +1,30 @@
 # LaTeX class/package互換性の実測
 
 2026-08-24時点の結論は、`article`、最小`scrartcl`、`graphicx`、`xcolor`、
-`hyperref`、`siunitx`、代表`prjsarticle`は同一のPraTeX生成`latex.fmt`からDVIまで到達する。
-TikZ/PGFには再現可能な未対応primitiveがある。`pxrubrica`はgeneric fallbackで
-最小文書が通るだけで、PraTeX-native対応とは数えない。
+`hyperref`、TikZ/PGF、`siunitx`、代表`prjsarticle`は同一のPraTeX生成`latex.fmt`から
+DVIまで到達する。`pxrubrica`はgeneric fallbackで最小文書が通るだけで、
+PraTeX-native対応とは数えない。
 
 これは最小入力のload/compile smoke testである。package全API、DVI specialの後段driver、
 表示品質、LaTeX DVIの他engineとの一致、pTeX/upTeX互換、JLReq適合を保証しない。
 
 ## 固定した実行条件
 
-- PraTeX: `pdfmdfivesum file`に加え、並行中のraw string / virtual K作業も含む
-  2026-08-24の統合worktreeのrelease executable。pdfmd5差分単独のbuildではない。
-  3,429,376 bytes、SHA-256 `9d0af22211832e68d323dcf73641d8309d1f0c2730476c6682504f8314a957ee`
-- `latex.fmt`: 上のPraTeX自身が公式資材から一度だけ生成、17,698,559 bytes、
-  SHA-256 `0a1779f428675151633a10470cd174eebe2a0f3e87b9efff863e92dada1ebde7`
+- PraTeX: `pdfmdfivesum file`、raw string、virtual K、`eTeXrevision`と、並行中の
+  resolver/font lookup作業を含む2026-08-24の統合worktreeのrelease executable。
+  `eTeXrevision`差分単独のbuildではない。3,429,888 bytes、SHA-256
+  `13fe597ab50115b683677843fd3866e2afa0710a2760dad95a4a8b6487a890ff`
+- `latex.fmt`: 上のPraTeX自身が公式資材から一度だけ生成、17,698,581 bytes、
+  SHA-256 `ca5d8c97c62107ec1d69e93f7cab1c53587ac4c0e32fea7e85d15449a411055f`
 - format: LaTeX2e 2026-06-01、L3 programming layer 2026-08-10、生成logの`!`は0件
 - 全probeは同じexecutableと同じ`latex.fmt`を使用し、DVI modeで実行した。
 - `graphicx`、`xcolor`、`hyperref`には`dvips` driverを明示した。`siunitx`にもDVI用
   color driverを明示した。PraTeXをpdfTeX、pTeX、upTeX等として偽装していない。
+
+TikZの成功をrunnerの期待値へ反映した後、並行buildでrelease binaryのhashが
+`52b21c693a28283f92e0d9697da62dbb04316a840f1b4871260aca1b79cc6baf`へ更新されたため、
+上記prepared fmtとの再実行も行った。runnerはexit 0で、9 probeのDVI bytes/hashは上表の
+初回実測とすべて一致した。
 
 共有`target/release/pratex.exe`は並行作業で更新され得るため、runnerが実行時のbinary/fmt hashを
 `result.json`へ固定する。以前の表は最終runnerとは別の探索runのDVI hashを、固定条件へ
@@ -39,13 +45,14 @@ record意味差もない。両binary間で同一fmtを共用する追加実験�
 | `graphicx` 1.2e | 到達 | 0 / 0 | 648 / `f5dc83fa6438e00869c2fc4e3f0b865fed2ba6e3e38bfc16aa0f331ed841167f` | `rotatebox`と`scalebox`のDVI special smoke。外部画像の探索・変換は未試験。 |
 | `xcolor` 3.02 | 到達 | 0 / 0 | 592 / `1cc8deba184d0273ba38f5f7b0156052f67b843a315c3afee51f9f4183508624` | 文字色と背景色のDVI special smoke。 |
 | `hyperref` 7.01r | 到達 | 0 / 0 | 2,696 / `b875cb068bf4b52cb9c8939610059196a159c2552795639f2734fd8906dc2d0d` | linkとURIをDVI化。`pdfmdfivesum file{...}`がPraTeX resolver経由で動作し、従来のload blockerを解消した限定smoke。 |
-| TikZ/PGF 3.1.12 | blocker | 1 / 2 | なし | package load中に `eTeXrevision`が未定義で、`Package PGF Error: PGF requires etex in extended mode.`。 |
+| TikZ/PGF 3.1.12 | 到達 | 0 / 0 | 11,024 / `a8f854fe0176061fdb48dc1d656068a333e906cc872ef18f695f01f8fb5a9e03` | `eTeXrevision=.6`を公開契約どおり追加し、三角形とnodeのDVI smokeまで到達。TikZ/PGF全APIの互換性は未確認。 |
 | `siunitx` 3.5.5 | 到達 | 0 / 0 | 588 / `293710fcd41be438117dc79b6cf5c25d5bd202c1b7b18f1f6742476b6e4f9e4d` | `qty`と不確かさ付き`num`のsmoke。 |
 | `pxrubrica` 1.3e | fallbackのみ到達 | 0 / 0 | 412 / `ae2f9462770683ca5d30d7342b13cbdd608a8556b27a5c457a6adc0464ed4b20` | 正式な熟語ruby構文`ruby[j]{日本語}{に\|ほん\|ご}`は処理できたが、logは`PRATEX-PXRUBRICA-UNICODE-BRANCH=0`。native対応ではない。 |
 
 `hyperref`は名前だけの`pdfmdfivesum`存在確認では通らなかったが、packageが使用する
 `file{...}` scanner契約とfile byte列のMD5を実装して到達した。これは上表の最小文書に限る。
-TikZ/PGFは`eTeXversion`だけではgateを越えず、公開e-TeXの`eTeXrevision`契約が必要である。
+TikZ/PGFは`eTeXversion`だけではgateを越えなかったが、展開可能な
+`eTeXrevision=.6`の追加後は上表の限定smokeへ到達した。
 
 `pxrubrica`の既存Unicode/pTeX系branchは、`kchardef`、和文spacing、penalty等の
 engine固有契約を前提にする。engine identityやprimitiveを偽装するadapterは作らなかった。

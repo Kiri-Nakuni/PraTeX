@@ -362,6 +362,12 @@ fn scan_and_print_argument_for_convert_command(
             }
             string_printer.slow_print_str(logger.job_name.as_ref().unwrap().as_encoded_bytes());
         }
+        ConvertCommand::ETeXRevision => {
+            // The public e-TeX 2.0 contract is the expandable character
+            // string `.6`; this is deliberately separate from the integer
+            // internal quantity `\eTeXversion`.
+            string_printer.slow_print_str(b".6");
+        }
         // ==== pdfTeX 由来。**組版に触らない道具** ====
         //
         // expl3 が engine の見分けに使う。中身は文字列とハッシュだけである
@@ -607,6 +613,32 @@ mod tests {
         assert_eq!(
             strip_matching_file_name_quotes(b"right.tex\""),
             b"right.tex\""
+        );
+    }
+
+    #[test]
+    fn etexrevisionは引数を読まずピリオド6のother文字へ展開する() {
+        let (mut scanner, mut eqtb, mut logger) = 入力器を作る();
+        scanner.ins_list(vec![Token::Letter(b'X')], &eqtb, &mut logger);
+
+        conv_toks(
+            ConvertCommand::ETeXRevision,
+            &mut scanner,
+            &mut eqtb,
+            &mut logger,
+        );
+
+        assert_eq!(
+            scanner.get_token(&mut eqtb, &mut logger),
+            Token::OtherChar(b'.')
+        );
+        assert_eq!(
+            scanner.get_token(&mut eqtb, &mut logger),
+            Token::OtherChar(b'6')
+        );
+        assert_eq!(
+            scanner.get_token(&mut eqtb, &mut logger),
+            Token::Letter(b'X')
         );
     }
 

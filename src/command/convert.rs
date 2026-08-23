@@ -8,6 +8,8 @@ pub enum ConvertCommand {
     Meaning,
     FontName,
     JobName,
+    /// `\eTeXrevision` — e-TeX 2.0の公開revision文字列。
+    ETeXRevision,
     /// `\pratexrevision` — 末尾の零も保つPraTeX自身の版文字列。
     PraTeXRevision,
     // ==== pdfTeX 由来。**組版に触らない道具** ====
@@ -35,6 +37,7 @@ impl ConvertCommand {
             Self::Meaning => b"meaning",
             Self::FontName => b"fontname",
             Self::JobName => b"jobname",
+            Self::ETeXRevision => b"eTeXrevision",
             Self::PraTeXRevision => b"pratexrevision",
             Self::PdfFileSize => b"pdffilesize",
             Self::PdfMdFiveSum => b"pdfmdfivesum",

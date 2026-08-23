@@ -24,7 +24,7 @@ TeX--XeTは二つの整数parameterを保存できるだけで、**組版機能�
 | `\readline`、`\everyeof` | 実装 | `\readline`は実streamへ接続済み。実fileと`\scantokens`疑似fileの`\everyeof`は自然EOFだけで一度挿入し、`\endinput`では挿入しない。自然EOF内の行番号も試験済み |
 | `\scantokens` | 部分 | 未展開general textを一時fileなしのbounded疑似入力へ積む。生成時の`\newlinechar`、行ごとの`\endlinechar`、再分類、暗黙groupなし、入れ子走査、tracing snapshot、fmtをprocess試験済み。raw byte 10/13、二段診断context、資源超過、`\pausing`監査は残る |
 | 糊成分の照会と型変換 | 実装 | `\gluestretch`等4種と`\mutoglue`、`\gluetomu`を内部量へ接続。係数・次数・単位不一致回復・式・fmtを試験済み |
-| `\eTeXversion`、対話状態 | 部分 | `\eTeXversion=2`、`\interactionmode`、`\errorcontextlines`は動く。`\eTeXrevision`はない |
+| `\eTeXversion`、`\eTeXrevision`、対話状態 | 実装 | `\eTeXversion`は内部整数`2`、`\eTeXrevision`はother文字`.6`へ展開。`\interactionmode`、`\errorcontextlines`も実経路へ接続 |
 | `\lastnodetype` | 実装 | 空list、基本node型、page→nested box→page復帰をprocess試験済み |
 | font照会 | 部分 | `\iffontchar`は8-bit TFMへ接続済みだが、範囲外入力を黙って偽にし公開8-bit numberのerror/recoveryを通らない。`\fontcharwd/ht/dp/ic`もない |
 | parshape拡張 | 未実装 | `\parshapelength`、`\parshapeindent`、`\parshapedimen`がない |
@@ -63,7 +63,7 @@ left-to-right/right-to-left区間は公開意味論が異なるため、一つ�
    typed query境界から参照する。
 3. parshape照会とpenalty配列を局所代入、fmt、line breakingまで実装する。JLReqの段落処理も
    同じ保存・照会基盤を利用できるようにする。
-4. `\eTeXrevision`と`\middle`を補う。
+4. `\middle`を補う。
 5. discard保存、`\lastlinefit`、`\savinghyphcodes`、show/tracingを実処理へ接続する。
 6. TeX--XeTはrestricted hboxで方向node、LR stack、共通DVI/PDF shipoutまでを最初の縦sliceにし、
    次にparagraph、display、mathへ広げる。parameterだけ先に「対応済み」へ格上げしない。
@@ -79,3 +79,8 @@ error回復、fmt往復、DVI/PDFへの効果を該当機能ごとに試験し�
 - [The e-TeX Short Reference Manual](https://mirrors.ctan.org/systems/doc/etex/etex_man.pdf)
 - [e-TeX移植記録](etex-port-notes.md)
 - [TeXにない機能の実装一覧](feature-inventory.md)
+
+`\eTeXrevision`は公開manualの文字列契約と、TeX Live 2026のe-upTeX
+`p4.1.2-u2.02`に対する自作black-boxの`.6`展開を照合した。実装sourceや上流testは
+参照していない。照合binaryはCTAN tlnet `uptex.windows` revision 78020、
+archive SHA-256 `c878983da002f32a24a507680ccf00261a3761089ed324892668ded589bf9c0d`。

@@ -37,6 +37,15 @@ fn 版を答える() {
 }
 
 #[test]
+fn revisionはピリオド6へ展開しedefへ制御綴を残さない() {
+    let log = run_tex(
+        "e-TeX revision",
+        "\\edef\\revision{\\eTeXrevision}\n\\message{[\\meaning\\revision]}",
+    );
+    assert!(log.contains("[macro:->.6]"), "{log}");
+}
+
+#[test]
 fn pratexは自分の版だけを名乗る() {
     let log = run_tex(
         "PraTeX版",
