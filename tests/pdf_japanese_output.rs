@@ -179,6 +179,10 @@ fn 合成jfmの二文字をnamed_cid_pdfへ一続きで出す() {
         "/BaseFont /HeiseiMin-W3-UniJIS-UCS2-H",
         "/Encoding /UniJIS-UCS2-H",
         "/CIDSystemInfo << /Registry (Adobe) /Ordering (Japan1) /Supplement 4 >>",
+        "/ToUnicode 7 0 R",
+        "/CMapName /PraTeX-UniJIS-UCS2-ToUnicode",
+        "<0000> <D7FF> <0000>",
+        "<E000> <FFFF> <E000>",
         "/Font <<\n/F1 3 0 R\n/F2 6 0 R\n>>",
         "1 0 0 1 72 ",
         "1 0 0 1 76.98132 ",
@@ -188,6 +192,7 @@ fn 合成jfmの二文字をnamed_cid_pdfへ一続きで出す() {
     }
     assert_eq!(occurrences(&pdf, b"/Subtype /Type0"), 1);
     assert_eq!(occurrences(&pdf, b"/DescendantFonts ["), 1);
+    assert_eq!(occurrences(&pdf, b"/ToUnicode "), 1);
     assert_eq!(occurrences(&pdf, b"<3042> Tj"), 2);
     assert!(!text.contains("/W ["));
     assert!(!text.contains("/FontFile"));

@@ -38,6 +38,50 @@ impl NamedCidEncoding {
     pub(crate) const fn supplement(self) -> u8 {
         4
     }
+
+    /// Unicode scalarを、Type 0 content stringでこのpredefined CMapへ渡すcodeへ写す。
+    ///
+    /// `UniJIS-UCS2-H`はCIDそのものではなく、Unicode UCS-2 codeを入力に取る。
+    /// CIDはviewerがpredefined CMapを通して決めるので、ここでAdobe-Japan1のCIDを
+    /// 推測したり、Unicode scalarをCIDと同じdomainとして扱ったりしない。
+    pub(crate) fn encode_scalar(self, scalar: u32) -> Option<[u8; 2]> {
+        match self {
+            Self::UniJisUcs2H if scalar <= 0xffff && !(0xd800..=0xdfff).contains(&scalar) => {
+                Some((scalar as u16).to_be_bytes())
+            }
+            Self::UniJisUcs2H => None,
+        }
+    }
+
+    /// このencodingが受け取るcontent codeからUnicodeへ戻すPDF ToUnicode CMap。
+    ///
+    /// sourceはCIDではなく`encode_scalar`が作るUCS-2 codeである。surrogate帯を
+    /// codespaceから除外した二rangeを同じBMP scalarへ戻すことで、CID番号との
+    /// 誤った恒等写像を避ける。
+    pub(crate) const fn to_unicode_cmap(self) -> &'static [u8] {
+        match self {
+            Self::UniJisUcs2H => {
+                b"/CIDInit /ProcSet findresource begin\n\
+12 dict begin\n\
+begincmap\n\
+/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n\
+/CMapName /PraTeX-UniJIS-UCS2-ToUnicode def\n\
+/CMapType 2 def\n\
+2 begincodespacerange\n\
+<0000> <D7FF>\n\
+<E000> <FFFF>\n\
+endcodespacerange\n\
+2 beginbfrange\n\
+<0000> <D7FF> <0000>\n\
+<E000> <FFFF> <E000>\n\
+endbfrange\n\
+endcmap\n\
+CMapName currentdict /CMap defineresource pop\n\
+end\n\
+end"
+            }
+        }
+    }
 }
 
 /// 一つのJFM論理名へ結ぶ、非埋込みnamed CID fontの検査前profile。
@@ -585,6 +629,20 @@ EndProfile\n"
         assert_eq!(parsed.encoding().registry(), "Adobe");
         assert_eq!(parsed.encoding().ordering(), "Japan1");
         assert_eq!(parsed.encoding().supplement(), 4);
+    }
+
+    #[test]
+    fn unicode_scalarはcidでなくunijisの二byte入力codeへ写す() {
+        let encoding = NamedCidEncoding::UniJisUcs2H;
+        assert_eq!(encoding.encode_scalar(0x005c), Some([0x00, 0x5c]));
+        assert_eq!(encoding.encode_scalar(0x3042), Some([0x30, 0x42]));
+        assert_eq!(encoding.encode_scalar(0xd800), None);
+        assert_eq!(encoding.encode_scalar(0x1_0000), None);
+
+        let cmap = String::from_utf8_lossy(encoding.to_unicode_cmap());
+        assert!(cmap.contains("<0000> <D7FF> <0000>"));
+        assert!(cmap.contains("<E000> <FFFF> <E000>"));
+        assert!(!cmap.contains("<D800>"));
     }
 
     #[test]

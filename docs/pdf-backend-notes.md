@@ -29,7 +29,7 @@ PDF ReferenceはPDFを生成するsoftwareへ、必要なdata structureとoperat
 3. `output_backend.rs`: 組版木を一度だけ走査して表示eventを渡す境界。
 4. `pdf_backend.rs`: 同じeventをPDF座標・content operatorへ写すbackend。
 5. `font_resources/named_cid.rs`: 明示物理pathの一profileをboundedに読むhost境界。
-6. `pdf_cid_font.rs`: Type 0、CIDFontType0、FontDescriptorを組み立てる層。
+6. `pdf_cid_font.rs`: Type 0、CIDFontType0、FontDescriptor、ToUnicodeを組み立てる層。
 
 最小文書はCatalog、page-tree root、Page、Contentsの4 objectである。PageはParent、
 MediaBox、空でも明示するResources、Contentsを持つ。複数ページは出現順にKidsへ積み、
@@ -98,11 +98,14 @@ EndProfile
 BMP Unicode scalarだけを2-byte big-endian hex stringへする。非BMPとsurrogateは文字を
 書いたり位置を進めたりする前にtyped errorにする。JFM幅は次の`Tm`位置を決めるhost側の
 advanceにだけ使い、profileの`DefaultWidth`やPDF `/W`をJFMから推測しない。
+Type 0の`/ToUnicode`はCIDからの恒等写像ではない。contentへ書いたUCS-2 source codeから
+元のUTF-16BE scalarへ戻すCMapであり、`UniJIS-UCS2-H`と同じくsurrogate帯をcodespaceから
+除外する。Unicode--CID写像そのものは引き続きviewerのpredefined CMapだけが担う。
 
 JFM/TFMはmetricとclassを与えるだけで、outline、bitmap、Unicode--CID mappingを持たない。
 このsliceはFontFileを埋め込まないため、`BaseFont`を実装し`UniJIS-UCS2-H`を解決できるviewerで
 だけ意図した字形になる。Standard 14以外のnamed fontが常に利用できる保証はなく、portableな
-表示、text extraction、PDF/A適合を主張しない。内蔵profileのないJFMやJFM名不一致を
+表示、全extractor互換、PDF/A適合を主張しない。内蔵profileのないJFMやJFM名不一致を
 Courier/tofuへfallbackせず停止する。Repositoryへ第三者font資材は追加していない。
 
 実配布mapのresourceは順序と`<` / `<<` / `<[`を保つ配列として構文解析する。同じ行に
@@ -135,7 +138,8 @@ black-box fixtureを追加して広げる。
   `/Widths` と許可maskへ写し、文字をhex stringで出力する。
 - 横組JFMのwide glyphは明示profileがある時だけnamed CID resourceへ`<XXXX> Tj`で置く。
   同一pageで同じresourceを一回だけ登録し、各文字の絶対`Tm`差は渡されたJFM幅をspから
-  固定小数bpへ変換した値に一致する。
+  固定小数bpへ変換した値に一致する。BMP source codeは同じfontの`/ToUnicode`から
+  元Unicode scalarへ戻せる。
 - raw `\special` はcontent streamへ注入せず捨てる。
 
 最小LaTeX文書のCourier実測は1 page / 2169 bytes。Popplerとstrict pypdfが構造を読め、renderで
@@ -157,8 +161,9 @@ pdfTeXの省略時契約を優先して`/Flags 4`を出した。strict pypdfで�
 1 page / 32,834 bytesのPDF 1.4を描画した。
 
 合成横組JFMの「ああ」を10 pt font・各5 pt advanceで流すnamed CID process試験は、
-1 page / 1,254 bytesのPDF 1.4を生成した。strict `pypdf`で`/F1`と`/F2`、Type 0、
-CIDFontType0、`UniJIS-UCS2-H`、Adobe-Japan1 supplement 4、`/DW 1000`を再読込みし、
+1 page / 1,735 bytesのPDF 1.4を生成した。strict `pypdf`で`/F1`と`/F2`、Type 0、
+CIDFontType0、`UniJIS-UCS2-H`、Adobe-Japan1 supplement 4、`/DW 1000`、`/ToUnicode`を再読込みし、
+`pypdf`とPDFiumの独立した抽出でどちらも「ああ」へ戻ることを確認した。
 Poppler `pdfinfo`もpage treeを受理した。試験環境のPopplerにはprofileのnamed fontそのものが
 なく`MS-Mincho`へ代替して描画したため、render成功は指定fontの可搬性を示さない。合成JFMが
 意図的に全角字形へ半角advanceを与えるので、render上の二字は重なる。PDF contentの二つの
@@ -173,7 +178,7 @@ PDF primitive/font処理が完成したという意味ではない。
 2. `\pdfpagewidth` / `\pdfpageheight` 相当または認識済みpapersize specialで物理媒体を
    指定できるようにする。
 3. Type 1が揃ってから `\pdfoutput` を登録し、LaTeXのpdfTeX backend判定を有効にする。
-4. ToUnicode、run batching、TrueType、和文字形の埋込み、複数profile tableは独立した
+4. 汎用ToUnicode、run batching、TrueType、和文字形の埋込み、複数profile tableは独立した
    後続段階とする。今回のnamed CID profileを埋込みfontやOTFであるかのように扱わない。
 
 生の `\special` をPDF content streamへ注入してはならない。認識したspecialだけを専用の

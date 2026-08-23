@@ -1,4 +1,4 @@
-//! PDF 1.4の非埋込みType 0 / CIDFontType0 objectを組み立てる層。
+//! PDF 1.4の非埋込みType 0 / CIDFontType0 / ToUnicode objectを組み立てる層。
 //!
 //! Adobe *PDF Reference, Third Edition, version 1.4* の5.6節に従い、明示profileを
 //! `/Encoding /UniJIS-UCS2-H` とAdobe-Japan1-4のdescendantへ写す。JFMの幅は
@@ -38,6 +38,7 @@ pub(crate) struct PreparedPdfNamedCidFont {
     descendant_prefix: Vec<u8>,
     type0_base_font: Vec<u8>,
     encoding_name: &'static str,
+    to_unicode_cmap: &'static [u8],
 }
 
 /// Page resourceから参照する、書き込み済みType 0 fontの型付きhandle。
@@ -126,11 +127,12 @@ pub(crate) fn prepare_named_cid_font(
         descendant_prefix,
         type0_base_font,
         encoding_name: encoding.pdf_name(),
+        to_unicode_cmap: encoding.to_unicode_cmap(),
     })
 }
 
 impl PreparedPdfNamedCidFont {
-    /// FontDescriptor、CIDFontType0、Type0を一度ずつ書く。FontFileは作らない。
+    /// FontDescriptor、CIDFontType0、Type0、ToUnicodeを一度ずつ書く。FontFileは作らない。
     pub(crate) fn write<W: Write>(
         self,
         writer: &mut PdfWriter<W>,
@@ -138,6 +140,7 @@ impl PreparedPdfNamedCidFont {
         let descriptor = writer.reserve_object()?;
         let descendant = writer.reserve_object()?;
         let type0 = writer.reserve_object()?;
+        let to_unicode = writer.reserve_object()?;
 
         writer.write_object(descriptor, &self.descriptor_body)?;
 
@@ -145,13 +148,16 @@ impl PreparedPdfNamedCidFont {
         descendant_body.extend_from_slice(format!("{} 0 R\n>>", descriptor.number()).as_bytes());
         writer.write_object(descendant, &descendant_body)?;
 
+        writer.write_stream(to_unicode, b"", self.to_unicode_cmap)?;
+
         let mut type0_body = b"<<\n/Type /Font\n/Subtype /Type0\n/BaseFont ".to_vec();
         type0_body.extend_from_slice(&self.type0_base_font);
         type0_body.extend_from_slice(
             format!(
-                "\n/Encoding /{}\n/DescendantFonts [{} 0 R]\n>>",
+                "\n/Encoding /{}\n/DescendantFonts [{} 0 R]\n/ToUnicode {} 0 R\n>>",
                 self.encoding_name,
                 descendant.number(),
+                to_unicode.number(),
             )
             .as_bytes(),
         );
@@ -295,7 +301,7 @@ EndProfile\n";
     }
 
     #[test]
-    fn named_cidを三つの必須objectへ写す() {
+    fn named_cidとunicode逆写像を四objectへ写す() {
         let prepared = prepare_named_cid_font(&profile_with(None)).unwrap();
         let mut writer = PdfWriter::new(Vec::new()).unwrap();
         let font = prepared.write(&mut writer).unwrap();
@@ -321,6 +327,11 @@ EndProfile\n";
             "/BaseFont /HeiseiMin-W3-UniJIS-UCS2-H",
             "/Encoding /UniJIS-UCS2-H",
             "/DescendantFonts [2 0 R]",
+            "/ToUnicode 4 0 R",
+            "/CMapName /PraTeX-UniJIS-UCS2-ToUnicode",
+            "/CMapType 2",
+            "<0000> <D7FF> <0000>",
+            "<E000> <FFFF> <E000>",
         ] {
             assert!(text.contains(required), "missing {required}");
         }

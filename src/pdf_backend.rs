@@ -1,6 +1,8 @@
 use super::output_backend::{OutputFontDefinition, OutputFontKind, ShipoutBackend};
 use crate::font_resources::loader::{FontResourceError, Type1ResourceLoader};
-use crate::font_resources::named_cid::{NamedCidFontProfileLoader, NamedCidProfileError};
+use crate::font_resources::named_cid::{
+    NamedCidEncoding, NamedCidFontProfileLoader, NamedCidProfileError,
+};
 use crate::pdf_cid_font::{prepare_named_cid_font, PdfNamedCidFont};
 use crate::pdf_document::{
     PdfCoordinate, PdfCourierFont, PdfDocument, PdfDocumentError, PdfPage, PdfPageFont,
@@ -80,6 +82,7 @@ enum PdfFontState {
     Japanese {
         at_size: Scaled,
         named_cid: PdfNamedCidFont,
+        encoding: NamedCidEncoding,
     },
 }
 
@@ -278,14 +281,15 @@ impl<W: Write> PdfBackend<W> {
     fn named_cid_character_content(
         page: &PageState,
         magnification: Scaled,
-        character: u32,
+        source_code: [u8; 2],
         at_size: Scaled,
         resource_number: usize,
     ) -> Result<Vec<u8>, PdfBackendError> {
         let (x, y) = Self::page_position(page, magnification)?;
         let font_size = PdfCoordinate::from_scaled(at_size, magnification)?;
         Ok(format!(
-            "BT\n/F{resource_number} {font_size} Tf\n1 0 0 1 {x} {y} Tm\n<{character:04X}> Tj\nET\n"
+            "BT\n/F{resource_number} {font_size} Tf\n1 0 0 1 {x} {y} Tm\n<{:02X}{:02X}> Tj\nET\n",
+            source_code[0], source_code[1],
         )
         .into_bytes())
     }
@@ -474,6 +478,7 @@ impl<W: Write> ShipoutBackend for PdfBackend<W> {
                 PdfFontState::Japanese {
                     at_size: font.at_size,
                     named_cid,
+                    encoding: profile.encoding(),
                 }
             }
         };
@@ -570,8 +575,12 @@ impl<W: Write> ShipoutBackend for PdfBackend<W> {
             .fonts
             .get(&font_number)
             .ok_or(PdfBackendError::UndefinedFont(font_number))?;
-        let (at_size, named_cid) = match font {
-            PdfFontState::Japanese { at_size, named_cid } => (at_size, named_cid),
+        let (at_size, named_cid, encoding) = match font {
+            PdfFontState::Japanese {
+                at_size,
+                named_cid,
+                encoding,
+            } => (at_size, named_cid, encoding),
             PdfFontState::Byte { .. } => {
                 return Err(PdfBackendError::FontKindMismatch {
                     font_number,
@@ -592,6 +601,9 @@ impl<W: Write> ShipoutBackend for PdfBackend<W> {
                 character,
             });
         }
+        let source_code = encoding
+            .encode_scalar(character)
+            .expect("range checks and named CID encoding contract must agree");
 
         // ここまでと以下の計算をすべて済ませてからpage stateを変更する。失敗した
         // glyphがresource/content/位置のどれかだけを残すことはない。
@@ -603,7 +615,7 @@ impl<W: Write> ShipoutBackend for PdfBackend<W> {
         let content = Self::named_cid_character_content(
             page,
             self.magnification,
-            character,
+            source_code,
             at_size,
             resource_number,
         )?;
@@ -1262,6 +1274,8 @@ EndFontMetrics\n"
             "/Subtype /CIDFontType0",
             "/Encoding /UniJIS-UCS2-H",
             "/CIDSystemInfo << /Registry (Adobe) /Ordering (Japan1) /Supplement 4 >>",
+            "/ToUnicode 7 0 R",
+            "/CMapName /PraTeX-UniJIS-UCS2-ToUnicode",
             "/Font <<\n/F1 3 0 R\n/F2 6 0 R\n>>",
             "/F2 9.96264 Tf\n1 0 0 1 72 91.92528 Tm\n<3042> Tj",
             "/F2 9.96264 Tf\n1 0 0 1 76.98132 91.92528 Tm\n<65E5> Tj",
