@@ -47,14 +47,15 @@ sp座標、中央揃え、body開始位置、page数を固定する。plain欧�
 別gateである。
 
 oracleではtitle、author、date、bodyへそれぞれ`17sp x 23sp`、`19sp x 29sp`、
-`21sp x 31sp`、`31sp x 37sp`の固有ruleを置く。10pt・40emの本文を基準に、先頭側へ
-奇数の余り1spを与えた次の相対座標をexactに検査し、`±1sp`の許容は置かない。
+`21sp x 31sp`、`31sp x 37sp`の固有primitive ruleを置く。10pt・40emの本文を基準に、
+`c9bd240`統合後のPraTeXで実測した次のclass固有相対座標をexactに検査し、`±1sp`の
+許容は置かない。理想中心へ後から丸め直した値ではない。
 
 | marker | `h - body.h` | `body.v - v` |
 |---|---:|---:|
-| title | 13,107,192sp | 8,110,068sp |
-| author | 13,107,191sp | 5,160,945sp |
-| date | 13,107,190sp | 3,194,864sp |
+| title | 13,107,212sp | 8,110,068sp |
+| author | 13,107,211sp | 5,160,945sp |
+| date | 13,107,210sp | 3,194,864sp |
 
 DVIだけでは`set_char`が進めるTFM幅を復元できない。そのためfixtureは四つのmarkerより前に
 glyphを置かず、decoderはglyphが先行した場合に推測をせず失敗する。
@@ -75,14 +76,29 @@ pwsh -File tools/test-prjsarticle.ps1 `
 
 初回だけ`-Fetch`を明示する。offlineではcache欠落、hash不一致、異なるruntime fileの
 basename衝突をすべてfailにする。生成した`latex.fmt`、DVI、stdout/stderr、取得記録は
-一意な`WorkRoot`だけへ置く。2026-08-23の基点engineでは公式format生成まで通り、
-`\pratexversion`が未実装だったためclass入口で意図どおり停止した。identity枝をmergeした後に
-ignored testを次で有効化する。
+一意な`WorkRoot`だけへ置く。基点engineでは公式format生成まで通り、`\pratexversion`が
+未実装だったためclass入口で意図どおり停止した。`aa48367`のidentity枝をmergeした後は
+class入口とcompileを通り、1 page / 352 bytesのDVIを生成した。意味座標は上表と一致した。
+ignored testは次で有効化する。
 
 ```powershell
 $env:PRATEX_PRJSARTICLE_ASSET_CACHE = 'C:\temp\prjsarticle-assets'
 cargo test --release --locked --test prjsarticle -- --ignored --nocapture
 ```
+
+日本語glyph/JFM枝を取り込んだ後は、engine固有のfont選択だけを行うadapterをclassから分離し、
+代表和欧混植sampleも同じrunnerでcompileする。
+
+```powershell
+pwsh -File tools/test-prjsarticle.ps1 `
+  -AssetCache C:\temp\prjsarticle-assets `
+  -RtexPath target\release\pratex.exe `
+  -JapaneseAdapterPath C:\temp\pratex-jfm-test-adapter.tex `
+  -CompileSample
+```
+
+adapterは`prjsarticle-test-adapter.tex`という試験時の名前で隔離rootへコピーする。
+classや公式LaTeX sourceをpatchせず、他engine identityも定義しない。
 
 固定資材は次のとおり。archiveそのものはrepositoryへ入れない。
 

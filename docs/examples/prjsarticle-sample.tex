@@ -4,6 +4,8 @@
 % JFM/NFSS adapterが入ったformatでは、本文開始前に例えば
 % \pratexsetjapanesefonthook{<formatが提供する和文font選択命令>}
 % と設定する。別engineのversion primitiveを定義して分岐を偽装しない。
+% 自動試験ではadapterをclassから分離した次のfile名で置く。
+\InputIfFileExists{prjsarticle-test-adapter.tex}{}{}
 
 \title{PraTeXによる日本語とLatin textの混植}
 \author{PraTeX開発チーム}

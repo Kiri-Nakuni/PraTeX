@@ -7,8 +7,9 @@ PraTeX native class prjsarticle のCTAN互換formatとDVI oracleを隔離実行�
 一意な作業directoryへ展開します。TeX Liveやkpsewhichは子processとして呼びません。
 公式latex.ltxはopaqueな互換入力として実行するだけで、repositoryへvendorしません。
 
-このrunnerはPraTeX coreに \pratexversion と日本語glyph/JFM枝が入った後のgateです。
-他engineのversion primitiveや局所的な \pratexversion stand-inは定義しません。
+title oracleはPraTeX coreに \pratexversion が入った後のgateです。和欧混植sampleは
+日本語glyph/JFM枝とadapterが入った後に明示して実行します。他engineのversion primitiveや
+局所的な \pratexversion stand-inは定義しません。
 
 .PARAMETER Fetch
 不足archiveをmanifest記載の公式CTAN URLから取得します。指定しない場合はofflineで、
@@ -24,8 +25,12 @@ hash固定archiveを置くrepository外のcacheです。
 試すPraTeX/rtex executableです。省略時はrepositoryのrelease pratexを使います。
 
 .PARAMETER JapaneseAdapterPath
-将来のJFM/NFSS接続を行うPraTeX固有adapterです。このtitle oracle自体はruleだけなので
-不要です。adapterをclassや公式LaTeX sourceへ混ぜないため、別pathとして予約します。
+JFM/NFSS接続を行うPraTeX固有adapterです。このtitle oracle自体はruleだけなので不要です。
+adapterをclassや公式LaTeX sourceへ混ぜず、和欧混植sampleだけへ任意に読み込ませます。
+
+.PARAMETER CompileSample
+title oracleに加え、代表的な日本語/Latin混植sampleもcompileします。日本語glyph/JFM枝と
+JapaneseAdapterPathが用意できた段階で明示します。
 
 .EXAMPLE
 pwsh -File tools/test-prjsarticle.ps1 -Fetch -RtexPath target/release/pratex.exe
@@ -36,7 +41,8 @@ param(
     [string] $AssetCache,
     [string] $WorkRoot,
     [string] $RtexPath,
-    [string] $JapaneseAdapterPath
+    [string] $JapaneseAdapterPath,
+    [switch] $CompileSample
 )
 
 Set-StrictMode -Version Latest
@@ -204,7 +210,7 @@ function Expand-RuntimeArchive {
             $extension = [IO.Path]::GetExtension($entry.Name).ToLowerInvariant()
             $isRuntime = if ($Asset.runtime -eq "tex") {
                 $entry.FullName.StartsWith("tex/") -and
-                    $extension -in @(".tex", ".ltx", ".cfg", ".def", ".fd", ".clo", ".sty", ".txt", ".dat")
+                    $extension -in @(".tex", ".ltx", ".cfg", ".def", ".fd", ".cls", ".clo", ".sty", ".txt", ".dat")
             }
             elseif ($Asset.runtime -eq "tfm") {
                 $extension -eq ".tfm"
@@ -237,7 +243,12 @@ foreach ($asset in $manifest.assets) {
     }
 }
 
-foreach ($required in @($classPath, (Join-Path $fixtureRoot "hyphen.cfg"), (Join-Path $fixtureRoot "maketitle-oracle.tex"))) {
+foreach ($required in @(
+    $classPath,
+    (Join-Path $fixtureRoot "hyphen.cfg"),
+    (Join-Path $fixtureRoot "maketitle-oracle.tex"),
+    (Join-Path $repoRoot "docs/examples/prjsarticle-sample.tex")
+)) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
         throw "repository fixtureがありません: $required"
     }
@@ -323,6 +334,25 @@ if ($compileExit -ne 0 -or -not (Test-Path -LiteralPath $dviPath -PathType Leaf)
     throw "prjsarticle title oracleのcompileに失敗しました（exit $compileExit）。PraTeX identity/glyph枝を確認してください: $resultDir"
 }
 
+$sampleDviPath = $null
+if ($CompileSample) {
+    $sampleExit = Invoke-CapturedProcess -FilePath $RtexPath -Arguments @("--quiet", "--", "&latex", "prjsarticle-sample.tex") `
+        -WorkingDirectory $runDir `
+        -StandardOutputPath (Join-Path $resultDir "sample.stdout") `
+        -StandardErrorPath (Join-Path $resultDir "sample.stderr")
+    $sampleDviPath = Join-Path $runDir "prjsarticle-sample.dvi"
+    if ($sampleExit -ne 0 -or -not (Test-Path -LiteralPath $sampleDviPath -PathType Leaf)) {
+        throw "和欧混植sampleのcompileに失敗しました（exit $sampleExit）。Japanese glyph/JFM adapterを確認してください: $resultDir"
+    }
+}
+
+$sampleDviHash = if ($null -eq $sampleDviPath) {
+    $null
+}
+else {
+    (Get-FileHash -LiteralPath $sampleDviPath -Algorithm SHA256).Hash.ToLowerInvariant()
+}
+
 $record = [ordered]@{
     schema = 1
     fetched_at_utc = [DateTime]::UtcNow.ToString("o")
@@ -332,6 +362,8 @@ $record = [ordered]@{
     format_sha256 = (Get-FileHash -LiteralPath (Join-Path $runDir "latex.fmt") -Algorithm SHA256).Hash.ToLowerInvariant()
     dvi_path = $dviPath
     dvi_sha256 = (Get-FileHash -LiteralPath $dviPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    sample_dvi_path = $sampleDviPath
+    sample_dvi_sha256 = $sampleDviHash
 }
 $record | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $resultDir "source-record.json") -Encoding utf8NoBOM
 Write-Host "prjsarticle DVI oracleを生成しました: $dviPath"

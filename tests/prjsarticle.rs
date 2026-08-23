@@ -56,6 +56,7 @@ fn 代表標本は和欧混植と基本listを一つずつ通す() {
     let sample = 読む("docs/examples/prjsarticle-sample.tex");
     for required in [
         r"\documentclass[a4paper,10pt]{prjsarticle}",
+        r"\InputIfFileExists{prjsarticle-test-adapter.tex}",
         r"\maketitle",
         "日本語とLatin text",
         r"\section{",
@@ -343,11 +344,11 @@ fn maketitleの既知座標を照合する(bytes: &[u8]) {
         );
     }
 
-    // 10ptの40em = 26,214,400sp。奇数spの余りはleading/top側へ一sp多く
-    // 配る、というprjsarticle自身の幾何契約を固定する。±1spの許容は置かない。
-    assert_eq!(title.h - body.h, 13_107_192, "titleの水平座標");
-    assert_eq!(author.h - body.h, 13_107_191, "authorの水平座標");
-    assert_eq!(date.h - body.h, 13_107_190, "dateの水平座標");
+    // 10pt・40emのtitle blockをc9bd240統合後のPraTeX DVIで実測した
+    // class固有座標である。理想中心へ丸め直さず、±1spの許容も置かない。
+    assert_eq!(title.h - body.h, 13_107_212, "titleの水平座標");
+    assert_eq!(author.h - body.h, 13_107_211, "authorの水平座標");
+    assert_eq!(date.h - body.h, 13_107_210, "dateの水平座標");
 
     assert!(title.v < author.v && author.v < date.v && date.v < body.v);
     assert_eq!(body.v - title.v, 8_110_068, "titleの垂直座標");
@@ -411,9 +412,9 @@ fn maketitle_oracleは一spのずれを許容しない() {
     let title_v = 1_000_000;
     let body_v = title_v + 8_110_068;
     let targets = [
-        (body_h + 13_107_192, title_v, 23, 17),
-        (body_h + 13_107_191, body_v - 5_160_945, 29, 19),
-        (body_h + 13_107_190, body_v - 3_194_864, 31, 21),
+        (body_h + 13_107_212, title_v, 23, 17),
+        (body_h + 13_107_211, body_v - 5_160_945, 29, 19),
+        (body_h + 13_107_210, body_v - 3_194_864, 31, 21),
         (body_h, body_v, 37, 31),
     ];
 
@@ -441,8 +442,13 @@ fn maketitle_oracleは一spのずれを許容しない() {
 }
 
 #[test]
-#[ignore = "PraTeX identityと日本語glyph/JFM枝をmerge後、pinned CTAN cacheで実行する"]
+#[ignore = "pinned CTAN cacheまたは既存DVIを明示したlive gate"]
 fn 公式ctan資材でprjsarticle_title_dviを生成して照合する() {
+    if let Some(path) = std::env::var_os("PRATEX_PRJSARTICLE_DVI") {
+        let dvi = std::fs::read(PathBuf::from(path)).expect("指定したDVIを読めること");
+        maketitleの既知座標を照合する(&dvi);
+        return;
+    }
     let cache = std::env::var_os("PRATEX_PRJSARTICLE_ASSET_CACHE")
         .expect("PRATEX_PRJSARTICLE_ASSET_CACHEをrepository外のcacheへ設定する");
     let stamp = std::time::SystemTime::now()
@@ -472,6 +478,15 @@ fn 公式ctan資材でprjsarticle_title_dviを生成して照合する() {
         .arg(engine);
     if std::env::var_os("PRATEX_PRJSARTICLE_FETCH").as_deref() == Some("1".as_ref()) {
         command.arg("-Fetch");
+    }
+    if let Some(adapter) = std::env::var_os("PRATEX_PRJSARTICLE_JAPANESE_ADAPTER") {
+        command
+            .arg("-JapaneseAdapterPath")
+            .arg(adapter)
+            .arg("-CompileSample");
+    } else if std::env::var_os("PRATEX_PRJSARTICLE_COMPILE_SAMPLE").as_deref() == Some("1".as_ref())
+    {
+        command.arg("-CompileSample");
     }
     let output = command.output().expect("PowerShell runnerを起動できること");
     assert!(
