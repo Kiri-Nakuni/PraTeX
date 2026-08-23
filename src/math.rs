@@ -847,7 +847,12 @@ fn do_first_pass_processing(
             FirstPassNode::DoneNode(node)
         }
         // These are not allowed in a math list
-        Node::Char(_) | Node::List(_) | Node::Ligature(_) | Node::Math(_) | Node::Unset(_) => {
+        Node::Char(_)
+        | Node::WideChar(_)
+        | Node::List(_)
+        | Node::Ligature(_)
+        | Node::Math(_)
+        | Node::Unset(_) => {
             panic!("These Nodes should never appear in a math list")
         }
     }

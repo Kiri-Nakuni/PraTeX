@@ -1,4 +1,4 @@
-use super::output_backend::{OutputFontDefinition, ShipoutBackend};
+use super::output_backend::{OutputFontDefinition, OutputFontKind, ShipoutBackend};
 use crate::font_resources::loader::{FontResourceError, Type1ResourceLoader};
 use crate::pdf_document::{PdfCoordinate, PdfCourierFont, PdfDocument, PdfDocumentError, PdfPage};
 use crate::pdf_font::{
@@ -355,6 +355,9 @@ impl<W: Write> ShipoutBackend for PdfBackend<W> {
     }
 
     fn define_font(&mut self, font: OutputFontDefinition<'_>) -> Result<(), Self::Error> {
+        if font.kind == OutputFontKind::Japanese {
+            return Err(PdfBackendError::JapaneseGlyphUnsupported);
+        }
         if font.at_size <= 0 {
             return Err(PdfBackendError::InvalidFontSize {
                 font_number: font.font_number,
@@ -478,6 +481,10 @@ impl<W: Write> ShipoutBackend for PdfBackend<W> {
         Ok(())
     }
 
+    fn set_wide_char(&mut self, _character: u32, _width: Scaled) -> Result<(), Self::Error> {
+        Err(PdfBackendError::JapaneseGlyphUnsupported)
+    }
+
     fn set_rule(&mut self, height: Scaled, width: Scaled) -> Result<(), Self::Error> {
         let magnification = self.magnification;
         let page = self.current_page_mut()?;
@@ -567,6 +574,7 @@ pub(crate) enum PdfBackendError {
     },
     UndefinedFont(u32),
     NoCurrentFont,
+    JapaneseGlyphUnsupported,
     CharacterOutsideEmbeddedFont {
         font_number: u32,
         character: u8,
@@ -617,6 +625,9 @@ impl fmt::Display for PdfBackendError {
             ),
             Self::UndefinedFont(font) => write!(formatter, "undefined PDF font number {font}"),
             Self::NoCurrentFont => formatter.write_str("no current PDF font"),
+            Self::JapaneseGlyphUnsupported => formatter.write_str(
+                "Japanese wide glyph output is not connected to the PDF backend yet",
+            ),
             Self::CharacterOutsideEmbeddedFont {
                 font_number,
                 character,
@@ -680,7 +691,7 @@ mod tests {
     use crate::font_resources::loader::FontResourceLoader;
     use crate::font_resources::map::EmbedPolicy;
     use crate::font_resources::type1::Type1FontProgram;
-    use crate::output::output_backend::{OutputFontDefinition, ShipoutBackend};
+    use crate::output::output_backend::{OutputFontDefinition, OutputFontKind, ShipoutBackend};
     use crate::pdf_document::PdfDocumentError;
     use crate::pdf_font::{
         prepare_type1_font, MissingStemVPolicy, PdfFontError, PdfType1FontRequest,
@@ -845,6 +856,7 @@ EndFontMetrics\n"
 
     fn font_definition(font_number: u32, at_size: Scaled) -> OutputFontDefinition<'static> {
         OutputFontDefinition {
+            kind: OutputFontKind::Byte,
             font_number,
             checksum: 0,
             at_size,

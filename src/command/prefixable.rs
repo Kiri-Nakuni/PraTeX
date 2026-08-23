@@ -25,6 +25,9 @@ use crate::hyphenation::Hyphenator;
 use crate::input::Scanner;
 use crate::input_streams::{read_line_toks, read_toks};
 use crate::integer::{Integer, IntegerExt};
+use crate::japanese_fonts::{
+    load_japanese_font_info, JapaneseFontError, JapaneseFontIndex, JapaneseFontInfo,
+};
 use crate::logger::InteractionMode;
 use crate::logger::Logger;
 use crate::main_control::report_illegal_case;
@@ -74,6 +77,8 @@ pub enum PrefixableCommand {
     DefFamily(MathFontSize),
     SetFont(FontIndex),
     DefFont,
+    SetJapaneseFont(Option<JapaneseFontIndex>),
+    DefJapaneseFont,
     Register(ValueType),
     Arith(ArithCommand),
     Prefix(Prefix),
@@ -130,7 +135,7 @@ impl PrefixableCommand {
             &Self::DefFont => Some(InternalCommand::Toks(ToksCommand::DefFont)),
             &Self::Register(value_type) => Some(InternalCommand::Register(value_type)),
             Self::InteractionMode => Some(InternalCommand::InteractionMode),
-            Self::Arith(_)
+            Self::SetJapaneseFont(_) | Self::DefJapaneseFont | Self::Arith(_)
             | Self::Prefix(_)
             | Self::Let
             | Self::FutureLet
@@ -176,6 +181,8 @@ impl PrefixableCommand {
             }
             &Self::SetFont(font_index) => print_font(&fonts[font_index as usize], printer),
             Self::DefFont => printer.print_esc_str(b"font"),
+            Self::SetJapaneseFont(_) => printer.print_esc_str(b"pratexjfontselect"),
+            Self::DefJapaneseFont => printer.print_esc_str(b"pratexjfont"),
             Self::Register(value_type) => match value_type {
                 ValueType::Int => printer.print_esc_str(b"count"),
                 ValueType::Dimen => printer.print_esc_str(b"dimen"),
@@ -269,6 +276,11 @@ impl Dumpable for PrefixableCommand {
                 font_index.dump(target)?;
             }
             Self::DefFont => writeln!(target, "DefFont")?,
+            Self::SetJapaneseFont(font_index) => {
+                writeln!(target, "SetJapaneseFont")?;
+                font_index.dump(target)?;
+            }
+            Self::DefJapaneseFont => writeln!(target, "DefJapaneseFont")?,
             Self::Register(value_type) => {
                 writeln!(target, "Register")?;
                 value_type.dump(target)?;
@@ -384,6 +396,8 @@ impl Dumpable for PrefixableCommand {
                 Ok(Self::SetFont(font_index))
             }
             "DefFont" => Ok(Self::DefFont),
+            "SetJapaneseFont" => Ok(Self::SetJapaneseFont(Option::undump(lines)?)),
+            "DefJapaneseFont" => Ok(Self::DefJapaneseFont),
             "Register" => {
                 let value_type = ValueType::undump(lines)?;
                 Ok(Self::Register(value_type))
@@ -646,6 +660,12 @@ pub fn prefixed_command(
             eqtb.font_define(FontVariable::CurFont, font_index, global)
         }
         PrefixableCommand::DefFont => new_font(global, scanner, eqtb, logger),
+        PrefixableCommand::SetJapaneseFont(font_index) => {
+            eqtb.japanese_font_define(font_index, global)
+        }
+        PrefixableCommand::DefJapaneseFont => {
+            new_japanese_font(global, scanner, eqtb, logger)
+        }
         PrefixableCommand::Register(value_type) => {
             store_in_register(value_type, global, scanner, eqtb, logger)
         }
@@ -1160,6 +1180,138 @@ fn new_font(global: bool, scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut L
     eqtb.control_sequences.set(font_id, command);
     eqtb.variable_levels.set(font_id.to_variable(), level);
     eqtb.control_sequences.set_text(font_id, &t);
+}
+
+/// PraTeX nativeの横組JFM font定義。`\jfont`はこの同一決定箇所へのaliasである。
+fn new_japanese_font(global: bool, scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Logger) {
+    if logger.job_name.is_none() {
+        logger.open_log_file(&scanner.input_stack, eqtb);
+    }
+    let cs = get_r_token(scanner, eqtb, logger);
+    let empty_selection = Command::Unexpandable(UnexpandableCommand::Prefixable(
+        PrefixableCommand::SetJapaneseFont(None),
+    ));
+    eqtb.cs_define(cs, empty_selection, global);
+    scanner.scan_optional_equals(eqtb, logger);
+    let file_name = scanner.scan_file_name(eqtb, logger);
+    let mut path = PathBuf::from(os_string_from_bytes(file_name));
+    path.set_extension("");
+    let size_specification = scan_font_size_specification(scanner, eqtb, logger);
+    let font_index = japanese_font_had_already_been_loaded(
+        &path,
+        size_specification,
+        &eqtb.japanese_fonts,
+    )
+    .or_else(|| {
+        read_japanese_font_info(
+            cs,
+            &path,
+            size_specification,
+            scanner,
+            eqtb,
+            logger,
+        )
+    });
+    eqtb.control_sequences.set(
+        cs,
+        Command::Unexpandable(UnexpandableCommand::Prefixable(
+            PrefixableCommand::SetJapaneseFont(font_index),
+        )),
+    );
+}
+
+fn japanese_font_had_already_been_loaded(
+    path: &Path,
+    size_specification: Scaled,
+    fonts: &[JapaneseFontInfo],
+) -> Option<JapaneseFontIndex> {
+    fonts.iter().enumerate().find_map(|(position, font)| {
+        let requested_size = if size_specification > 0 {
+            size_specification
+        } else {
+            xn_over_d(font.design_size, -size_specification, 1000).ok()?
+        };
+        if font.same_identity(path, requested_size) {
+            JapaneseFontIndex::from_position(position)
+        } else {
+            None
+        }
+    })
+}
+
+fn read_japanese_font_info(
+    cs: ControlSequence,
+    path: &Path,
+    size_specification: Scaled,
+    scanner: &mut Scanner,
+    eqtb: &mut Eqtb,
+    logger: &mut Logger,
+) -> Option<JapaneseFontIndex> {
+    let Some(font_index) = JapaneseFontIndex::from_position(eqtb.japanese_fonts.len()) else {
+        report_japanese_font_error(
+            cs,
+            path,
+            size_specification,
+            JapaneseFontError::TooManyFonts,
+            scanner,
+            eqtb,
+            logger,
+        );
+        return None;
+    };
+    let size = if size_specification > 0 {
+        SizeIndicator::AtSize(size_specification)
+    } else {
+        SizeIndicator::Factor((-size_specification) as u32)
+    };
+    match load_japanese_font_info(path, size, scanner) {
+        Ok(font) => {
+            eqtb.japanese_fonts.push(font);
+            Some(font_index)
+        }
+        Err(error) => {
+            report_japanese_font_error(
+                cs,
+                path,
+                size_specification,
+                error,
+                scanner,
+                eqtb,
+                logger,
+            );
+            None
+        }
+    }
+}
+
+fn report_japanese_font_error(
+    cs: ControlSequence,
+    path: &Path,
+    size_specification: Scaled,
+    error: JapaneseFontError,
+    scanner: &mut Scanner,
+    eqtb: &mut Eqtb,
+    logger: &mut Logger,
+) {
+    logger.print_err("Japanese font ");
+    cs.sprint_cs(eqtb, logger);
+    logger.print_char(b'=');
+    logger.print_file_name(path);
+    if size_specification > 0 {
+        logger.print_str(" at ");
+        logger.print_scaled(size_specification);
+        logger.print_str("pt");
+    } else if size_specification != -1000 {
+        logger.print_str(" scaled ");
+        logger.print_int(-size_specification);
+    }
+    logger.print_str(" not loaded: ");
+    logger.print_str(&error.to_string());
+    let help = &[
+        "PraTeX accepts a bounded horizontal JFM through this primitive.",
+        "Vertical JFM and OTF shaping are not enabled by this horizontal slice.",
+    ];
+    logger.error(help, scanner, eqtb);
 }
 
 /// See 1258.

@@ -707,6 +707,15 @@ impl Eqtb {
             UnexpandableCommand::Prefixable(PrefixableCommand::DefFont),
         );
         self.primitive_unexpandable(
+            b"pratexjfont",
+            UnexpandableCommand::Prefixable(PrefixableCommand::DefJapaneseFont),
+        );
+        // 公開JFM仕様と同じ横組font定義の範囲だけの互換alias。
+        self.primitive_unexpandable(
+            b"jfont",
+            UnexpandableCommand::Prefixable(PrefixableCommand::DefJapaneseFont),
+        );
+        self.primitive_unexpandable(
             b"fontdimen",
             UnexpandableCommand::Prefixable(PrefixableCommand::FontDimen),
         );

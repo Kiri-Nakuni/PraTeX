@@ -527,6 +527,22 @@ impl<T: Write> DviWriter<T> {
         self.dvi_out(c)
     }
 
+    /// Unicode wide glyphをDVIのunsigned big-endian `set2` / `set3`で出す。
+    pub fn set_wide_char(&mut self, character: u32) -> DviWriterResult {
+        debug_assert!(character <= 0x10_ffff);
+        let bytes = character.to_be_bytes();
+        if character <= 0xffff {
+            self.dvi_out(SET2)?;
+            self.dvi_out(bytes[2])?;
+            self.dvi_out(bytes[3])
+        } else {
+            self.dvi_out(SET3)?;
+            self.dvi_out(bytes[1])?;
+            self.dvi_out(bytes[2])?;
+            self.dvi_out(bytes[3])
+        }
+    }
+
     /// Sets a font.
     /// Taken from 621.
     pub fn set_font(&mut self, font_number: u32) -> DviWriterResult {
@@ -649,6 +665,8 @@ const ID_BYTE: u8 = 2;
 
 // From 586.
 const SET1: u8 = 128;
+const SET2: u8 = 129;
+const SET3: u8 = 130;
 const SET_RULE: u8 = 132;
 const PUT_RULE: u8 = 137;
 const BOP: u8 = 139;
@@ -674,9 +692,7 @@ const POST_POST: u8 = 249;
 
 #[cfg(test)]
 mod test {
-    use super::DviWriter;
-    use super::YZOption;
-    use super::DOWN1;
+    use super::{DviWriter, YZOption, DOWN1};
 
     #[test]
     fn write_big_endian_number() {
@@ -714,6 +730,16 @@ mod test {
         ];
         let found: Vec<YZOption> = dw.down_stack.iter().map(|x| x.option).collect();
         assert_eq!(found, expected);
+    }
+
+    #[test]
+    fn 和文unicodeは符号位置の幅に応じset二とset三を使う() {
+        let mut target = vec![];
+        let mut writer = DviWriter::new_with_bufsize(&mut target, 8);
+        writer.set_wide_char(0x3042).unwrap();
+        writer.set_wide_char(0x01f600).unwrap();
+        writer.flush().unwrap();
+        assert_eq!(target, [129, 0x30, 0x42, 130, 0x01, 0xf6, 0x00]);
     }
 }
 

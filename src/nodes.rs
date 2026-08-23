@@ -4,11 +4,14 @@ use crate::dimension::{is_running, scan_normal_dimen, Dimension, NULL_FLAG};
 use crate::eqtb::Eqtb;
 use crate::eqtb::{ControlSequence, FontIndex, InsertionIndex, MarkClassIndex, SkipVariable};
 use crate::input::Scanner;
+use crate::japanese_fonts::JapaneseFontIndex;
+use crate::jfm::JfmClassId;
 use crate::logger::Logger;
 use crate::print::{Printer, MAX_PRINT_LINE};
 use crate::round;
 use crate::scaled::{nx_plus_y, ArithError, Scaled, UNITY};
 use crate::token_lists::{show_token_list, RcTokenList};
+use crate::token::print_uptex_code_point;
 use noads::{ChoiceNode, Noad, StyleNode};
 
 use std::ops::{AddAssign, Neg};
@@ -79,6 +82,7 @@ mod glue_ratio_tests {
 #[cfg_attr(test, derive(PartialEq))]
 pub enum Node {
     Char(CharNode),
+    WideChar(WideCharNode),
     List(ListNode),
     Rule(RuleNode),
     Ins(InsNode),
@@ -102,6 +106,7 @@ impl Node {
     pub fn precedes_break(&self) -> bool {
         match self {
             Self::Char(_)
+            | Self::WideChar(_)
             | Self::List(_)
             | Self::Rule(_)
             | Self::Ins(_)
@@ -122,6 +127,7 @@ impl Node {
     pub fn precedes_vertical_break(&self) -> bool {
         match self {
             Self::Char(_)
+            | Self::WideChar(_)
             | Self::List(_)
             | Self::Rule(_)
             | Self::Ins(_)
@@ -139,6 +145,7 @@ impl Node {
     pub fn is_discardable(&self) -> bool {
         match self {
             Self::Char(_)
+            | Self::WideChar(_)
             | Self::List(_)
             | Self::Rule(_)
             | Self::Ins(_)
@@ -171,6 +178,7 @@ impl Node {
     ) {
         match self {
             Node::Char(char_node) => char_node.display(eqtb, logger),
+            Node::WideChar(char_node) => char_node.display(logger),
             Node::List(list_node) => {
                 list_node.display(indent_str, depth_max, breadth_max, eqtb, logger)
             }
@@ -214,6 +222,28 @@ pub struct CharNode {
     pub height: Dimension,
     pub depth: Dimension,
     pub italic: Dimension,
+}
+
+/// Unicode identityとJFM class/metricを和文fontに結びつけた横組glyph node。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WideCharNode {
+    pub(crate) font_index: JapaneseFontIndex,
+    pub(crate) character: u32,
+    pub(crate) class: JfmClassId,
+    pub(crate) width: Dimension,
+    pub(crate) height: Dimension,
+    pub(crate) depth: Dimension,
+    pub(crate) italic: Dimension,
+}
+
+impl WideCharNode {
+    fn display(&self, logger: &mut Logger) {
+        logger.print_esc_str(b"pratexwideglyph");
+        logger.print_char(b' ');
+        print_uptex_code_point(self.character, logger);
+        logger.print_str(" class ");
+        logger.print_int(i32::from(self.class.number()));
+    }
 }
 
 impl CharNode {
@@ -1184,6 +1214,9 @@ pub fn short_display(node_list: &[Node], eqtb: &Eqtb, logger: &mut Logger) {
                     logger.font_in_short_display = char_node.font_index;
                 }
                 logger.print(char_node.character);
+            }
+            Node::WideChar(char_node) => {
+                print_uptex_code_point(char_node.character, logger);
             }
             Node::List(_)
             | Node::Ins(_)

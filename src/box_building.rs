@@ -27,7 +27,7 @@ use crate::nodes::noads::{
 use crate::nodes::{
     show_box_content, AdjustNode, CharNode, DiscNode, GlueNode, GlueSpec, GlueType, HlistOrVlist,
     InsNode, KernNode, KernSubtype, LeaderKind, LigatureNode, ListNode, MarkNode, Node,
-    PenaltyNode, RuleNode,
+    PenaltyNode, RuleNode, WideCharNode,
 };
 use crate::output::Output;
 use crate::packaging::{
@@ -418,7 +418,12 @@ fn prune_current_list(
 ) {
     for pos in 0..list.len() {
         match &list[pos] {
-            Node::Char(_) | Node::List(_) | Node::Rule(_) | Node::Kern(_) | Node::Ligature(_) => {}
+            Node::Char(_)
+            | Node::WideChar(_)
+            | Node::List(_)
+            | Node::Rule(_)
+            | Node::Kern(_)
+            | Node::Ligature(_) => {}
             _ => {
                 logger.print_err("Improper discretionary list");
                 let help = &["Discretionary lists must contain only boxes and kerns."];
@@ -945,8 +950,9 @@ pub fn unpackage(
 /// See 1113.
 pub fn append_italic_correction(hmode: &mut HorizontalMode, eqtb: &mut Eqtb) {
     if let Some(last_node) = hmode.list.last() {
-        if let &Node::Char(CharNode { italic, .. }) | &Node::Ligature(LigatureNode { italic, .. }) =
-            last_node
+        if let &Node::Char(CharNode { italic, .. })
+        | &Node::WideChar(WideCharNode { italic, .. })
+        | &Node::Ligature(LigatureNode { italic, .. }) = last_node
         {
             let mut kern_node = KernNode::new(italic);
             kern_node.subtype = KernSubtype::Explicit;

@@ -30,7 +30,7 @@ use crate::mode_independent::{
 use crate::nodes::noads::{Noad, NormalNoad, OverNoad, StyleNode, UnderNoad};
 use crate::nodes::{
     DimensionOrder, GlueNode, GlueSpec, GlueType, HigherOrderDimension, KernNode, ListNode, Node,
-    PenaltyNode, RuleNode,
+    PenaltyNode, RuleNode, WideCharNode,
 };
 use crate::output::Output;
 use crate::packaging::scan_spec;
@@ -140,7 +140,7 @@ pub fn main_control(
                     continue;
                 }
                 UnexpandableCommand::CjkChar(c) => {
-                    report_cjk_typesetting_unavailable(c, scanner, eqtb, logger)
+                    append_cjk_character(hmode, c, scanner, eqtb, logger)
                 }
                 UnexpandableCommand::LatinUcsChar(c) => {
                     report_latin_ucs_typesetting_unavailable(c, scanner, eqtb, logger)
@@ -168,7 +168,7 @@ pub fn main_control(
                             continue;
                         }
                         UnexpandableCommand::CjkChar(c) => {
-                            report_cjk_typesetting_unavailable(c, scanner, eqtb, logger);
+                            append_cjk_character(hmode, c, scanner, eqtb, logger);
                             continue;
                         }
                         UnexpandableCommand::LatinUcsChar(c) => {
@@ -495,7 +495,23 @@ pub fn main_control(
                     delete_last(remove_item, nest, scanner, eqtb, logger)
                 }
                 UnexpandableCommand::CjkChar(c) => {
-                    report_cjk_typesetting_unavailable(c, scanner, eqtb, logger)
+                    if eqtb.cur_japanese_font().is_none() {
+                        report_cjk_typesetting_unavailable(c, scanner, eqtb, logger);
+                    } else {
+                        // 横組fontを選んだ和文は、欧文文字と同じく外部vertical modeから
+                        // paragraphを開始し、horizontal main loopでWideCharへする。
+                        scanner.back_input(token, eqtb, logger);
+                        new_graf(
+                            true,
+                            hyphenator,
+                            page_builder,
+                            output,
+                            nest,
+                            scanner,
+                            eqtb,
+                            logger,
+                        );
+                    }
                 }
                 UnexpandableCommand::LatinUcsChar(c) => {
                     report_latin_ucs_typesetting_unavailable(c, scanner, eqtb, logger)
@@ -1225,9 +1241,38 @@ fn insert_dollar_sign(token: Token, scanner: &mut Scanner, eqtb: &mut Eqtb, logg
     scanner.ins_error(math_shift, help, eqtb, logger);
 }
 
-/// CJK token自体は既に一文字として保持できるが、JFMと和文nodeを入れる前に
-/// byte文字へ分解して組版すると、後から直せない誤ったDVIを作ってしまう。
-/// この段階では一文字を明示的に捨て、処理は続ける。
+fn append_cjk_character(
+    hmode: &mut crate::horizontal_mode::HorizontalMode,
+    token: CjkToken,
+    scanner: &mut Scanner,
+    eqtb: &mut Eqtb,
+    logger: &mut Logger,
+) {
+    let Some(font_index) = eqtb.cur_japanese_font() else {
+        report_cjk_typesetting_unavailable(token, scanner, eqtb, logger);
+        return;
+    };
+    let code_point = token.code_point();
+    let Some(font) = eqtb.japanese_fonts.get(font_index.position()) else {
+        report_cjk_typesetting_unavailable(token, scanner, eqtb, logger);
+        return;
+    };
+    let metrics = font.metrics_for_unicode(code_point);
+    hmode.append_node(
+        Node::WideChar(WideCharNode {
+            font_index,
+            character: code_point,
+            class: metrics.class,
+            width: metrics.width,
+            height: metrics.height,
+            depth: metrics.depth,
+            italic: metrics.italic,
+        }),
+        eqtb,
+    );
+}
+
+/// current横組JFMがない時は、Unicodeをbyte分解せず従来の明示診断を保つ。
 fn report_cjk_typesetting_unavailable(
     token: CjkToken,
     scanner: &mut Scanner,
@@ -1239,8 +1284,7 @@ fn report_cjk_typesetting_unavailable(
     token.print_utf8(logger);
     logger.print_str("' was ignored)");
     let help = &[
-        "This engine can preserve this Unicode token, but its JFM and",
-        "Japanese character node support have not been enabled yet.",
+        "Select a bounded horizontal JFM with \\pratexjfont before this character.",
         "I'll ignore this character and continue without splitting it into bytes.",
     ];
     logger.error(help, scanner, eqtb)

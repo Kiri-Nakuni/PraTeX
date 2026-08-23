@@ -6,7 +6,7 @@ use crate::nodes::{
     AdjustNode, CharNode, CloseNode, DimensionOrder, DiscNode, GlueNode, GlueRatio, GlueSign,
     GlueSpec, GlueType, HigherOrderDimension, HlistOrVlist, InsNode, KernNode, KernSubtype,
     LanguageNode, LeaderKind, LigatureNode, ListNode, MarkNode, MathNode, MathNodeKind, Node,
-    OpenNode, PenaltyNode, RuleNode, SpecialNode, UnsetNode, WhatsitNode, WriteNode,
+    OpenNode, PenaltyNode, RuleNode, SpecialNode, UnsetNode, WhatsitNode, WideCharNode, WriteNode,
 };
 
 use std::io::Write;
@@ -17,6 +17,10 @@ impl Dumpable for Node {
         match self {
             Self::Char(char_node) => {
                 writeln!(target, "Char")?;
+                char_node.dump(target)?;
+            }
+            Self::WideChar(char_node) => {
+                writeln!(target, "WideChar")?;
                 char_node.dump(target)?;
             }
             Self::List(list_node) => {
@@ -93,6 +97,10 @@ impl Dumpable for Node {
             "Char" => {
                 let char_node = CharNode::undump(lines)?;
                 Ok(Self::Char(char_node))
+            }
+            "WideChar" => {
+                let char_node = WideCharNode::undump(lines)?;
+                Ok(Self::WideChar(char_node))
             }
             "List" => {
                 let list_node = ListNode::undump(lines)?;
@@ -188,6 +196,30 @@ impl Dumpable for CharNode {
             height,
             depth,
             italic,
+        })
+    }
+}
+
+impl Dumpable for WideCharNode {
+    fn dump(&self, target: &mut impl Write) -> Result<(), std::io::Error> {
+        self.font_index.dump(target)?;
+        self.character.dump(target)?;
+        self.class.dump(target)?;
+        self.width.dump(target)?;
+        self.height.dump(target)?;
+        self.depth.dump(target)?;
+        self.italic.dump(target)
+    }
+
+    fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
+        Ok(Self {
+            font_index: Dumpable::undump(lines)?,
+            character: Dumpable::undump(lines)?,
+            class: Dumpable::undump(lines)?,
+            width: Dumpable::undump(lines)?,
+            height: Dumpable::undump(lines)?,
+            depth: Dumpable::undump(lines)?,
+            italic: Dumpable::undump(lines)?,
         })
     }
 }
