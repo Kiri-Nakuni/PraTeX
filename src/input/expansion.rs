@@ -402,29 +402,80 @@ fn initiate_input_from_file(
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProtectedMacroExpansion {
+    Expand,
+    Preserve,
+}
+
+/// 展開可能tokenを進め、指定した境界で止まる。
+///
+/// 通常走査とalignmentの特殊な先読みが別々にmacro展開を実装すると、
+/// `\protected`を片方だけで見落とす。macro、`\endtemplate`、その他の展開命令を
+/// 進める判断はここだけに置き、呼出側は保護macroを停止点にするかだけを選ぶ。
+fn get_x_command_and_token(
+    protected_macro_expansion: ProtectedMacroExpansion,
+    scanner: &mut Scanner,
+    eqtb: &mut Eqtb,
+    logger: &mut Logger,
+) -> (Command, Token) {
+    loop {
+        let (command, token) = scanner.get_next(false, eqtb, logger);
+        match command {
+            Command::Unexpandable(_) => return (command, token),
+            Command::Expandable(ExpandableCommand::EndTemplate) => {
+                let command = UnexpandableCommand::Endv;
+                let token = Token::CSToken {
+                    cs: ControlSequence::FrozenEndv,
+                };
+                return (Command::Unexpandable(command), token);
+            }
+            Command::Expandable(ExpandableCommand::Macro(macro_call))
+                if protected_macro_expansion == ProtectedMacroExpansion::Preserve
+                    && macro_call.protected =>
+            {
+                return (
+                    Command::Expandable(ExpandableCommand::Macro(macro_call)),
+                    token,
+                );
+            }
+            Command::Expandable(ExpandableCommand::Macro(macro_call)) => {
+                macro_expand(macro_call, token, scanner, eqtb, logger)
+            }
+            Command::Expandable(expandable_command) => {
+                expand(expandable_command, token, scanner, eqtb, logger);
+            }
+        }
+    }
+}
+
 /// See 380.
 pub fn get_x_token(
     scanner: &mut Scanner,
     eqtb: &mut Eqtb,
     logger: &mut Logger,
 ) -> (UnexpandableCommand, Token) {
+    let (command, token) =
+        get_x_command_and_token(ProtectedMacroExpansion::Expand, scanner, eqtb, logger);
+    let Command::Unexpandable(unexpandable_command) = command else {
+        unreachable!("normal expansion cannot stop at an expandable command")
+    };
+    (unexpandable_command, token)
+}
+
+/// e-TeX alignmentの`\noalign` / `\omit`先読み。
+///
+/// 空白と通常macroは展開して進むが、保護macroは通常の行・欄入力として返す。
+pub(crate) fn get_next_non_blank_x_token_for_alignment(
+    scanner: &mut Scanner,
+    eqtb: &mut Eqtb,
+    logger: &mut Logger,
+) -> (Command, Token) {
     loop {
-        let (command, token) = scanner.get_next(false, eqtb, logger);
-        match command {
-            Command::Unexpandable(unexpandable_command) => return (unexpandable_command, token),
-            Command::Expandable(ExpandableCommand::Macro(macro_call)) => {
-                macro_expand(macro_call, token, scanner, eqtb, logger)
-            }
-            Command::Expandable(ExpandableCommand::EndTemplate) => {
-                let command = UnexpandableCommand::Endv;
-                let token = Token::CSToken {
-                    cs: ControlSequence::FrozenEndv,
-                };
-                return (command, token);
-            }
-            Command::Expandable(expandable_command) => {
-                expand(expandable_command, token, scanner, eqtb, logger);
-            }
+        let (command, token) =
+            get_x_command_and_token(ProtectedMacroExpansion::Preserve, scanner, eqtb, logger);
+        if !matches!(command, Command::Unexpandable(UnexpandableCommand::Spacer)) {
+            return (command, token);
         }
     }
 }

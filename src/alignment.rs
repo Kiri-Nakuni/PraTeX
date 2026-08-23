@@ -9,7 +9,7 @@ use crate::error::fatal_error;
 use crate::glue::scan_glue;
 use crate::horizontal_mode::{HorizontalMode, HorizontalModeType};
 use crate::hyphenation::Hyphenator;
-use crate::input::expansion::expand;
+use crate::input::expansion::{expand, get_next_non_blank_x_token_for_alignment};
 use crate::input::token_source::{AlignCommand, TokenSourceType};
 use crate::input::{InputStack, Scanner, ScannerStatus};
 use crate::logger::Logger;
@@ -88,23 +88,24 @@ impl AlignState {
         logger: &mut Logger,
     ) {
         scanner.align_state = 1_000_000;
-        let (mut unexpandable_command, mut token) =
-            scanner.get_next_non_blank_non_call_token(eqtb, logger);
+        let (mut command, mut token) =
+            get_next_non_blank_x_token_for_alignment(scanner, eqtb, logger);
         // We want to ignore any \crcr here.
-        while let UnexpandableCommand::CarRet { weak: true } = unexpandable_command {
+        while let Command::Unexpandable(UnexpandableCommand::CarRet { weak: true }) = command {
             scanner.align_state = 1_000_000;
-            (unexpandable_command, token) = scanner.get_next_non_blank_non_call_token(eqtb, logger);
+            (command, token) = get_next_non_blank_x_token_for_alignment(scanner, eqtb, logger);
         }
-        match unexpandable_command {
-            UnexpandableCommand::NoAlign => {
+        match command {
+            Command::Unexpandable(UnexpandableCommand::NoAlign) => {
                 scanner.scan_left_brace(eqtb, logger);
                 eqtb.new_save_level(GroupType::NoAlign, &scanner.input_stack, logger);
                 if let RichMode::Vertical(_) = nest.mode() {
                     normal_paragraph(eqtb, logger);
                 }
             }
-            UnexpandableCommand::RightBrace(_)
-            | UnexpandableCommand::LatinUcsRightBrace(_) => {
+            Command::Unexpandable(
+                UnexpandableCommand::RightBrace(_) | UnexpandableCommand::LatinUcsRightBrace(_),
+            ) => {
                 let mut alignment = self.alignments.pop().unwrap();
                 scanner.align_state = alignment.prev_align_state;
                 alignment.fin_align(
@@ -119,7 +120,7 @@ impl AlignState {
             }
             _ => {
                 let alignment = self.alignments.last_mut().unwrap();
-                alignment.init_row(unexpandable_command, token, nest, scanner, eqtb, logger);
+                alignment.init_row(command, token, nest, scanner, eqtb, logger);
             }
         }
     }
@@ -573,7 +574,7 @@ impl Alignment {
     /// See 786.
     fn init_row(
         &mut self,
-        unexpandable_command: UnexpandableCommand,
+        command: Command,
         token: Token,
         nest: &mut SemanticState,
         scanner: &mut Scanner,
@@ -601,7 +602,7 @@ impl Alignment {
         nest.tail_push(Node::Glue(left_glue), eqtb);
         self.cur_column = 0;
         self.init_span(0, nest, &scanner.input_stack, eqtb, logger);
-        self.init_col(unexpandable_command, token, scanner, eqtb, logger);
+        self.init_col(command, token, scanner, eqtb, logger);
     }
 
     /// See 787.
@@ -631,14 +632,14 @@ impl Alignment {
     /// See 788. and 789.
     fn init_col(
         &mut self,
-        unexpandable_command: UnexpandableCommand,
+        command: Command,
         token: Token,
         scanner: &mut Scanner,
         eqtb: &mut Eqtb,
         logger: &mut Logger,
     ) {
         let cur_record = &mut self.preamble.columns[self.cur_column];
-        if let UnexpandableCommand::Omit = unexpandable_command {
+        if let Command::Unexpandable(UnexpandableCommand::Omit) = command {
             self.omitting_templates = true;
             scanner.align_state = 0;
 
@@ -707,7 +708,7 @@ impl Alignment {
             );
         }
         scanner.align_state = 1_000_000;
-        let (command, token) = scanner.get_next_non_blank_non_call_token(eqtb, logger);
+        let (command, token) = get_next_non_blank_x_token_for_alignment(scanner, eqtb, logger);
         self.cur_column += 1;
         self.init_col(command, token, scanner, eqtb, logger);
         false
