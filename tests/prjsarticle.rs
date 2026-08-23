@@ -7,16 +7,19 @@ fn 読む(path: &str) -> String {
 }
 
 #[test]
-fn 既定日本語packageはpratex固有hookだけへ固定十ptのjfmを接続する() {
+fn 既定日本語packageは十pt基線とnfss_sizeをpratex固有hookへ接続する() {
     let package = 読む("tex/latex/pratex/pratex-japanese.sty");
     for required in [
         r"\ifdefined\pratexversion",
         r"\ifdefined\pratexjfont",
         r"\pratexjfont\pratexdefaultjapanesefont=upjisr-h at 10pt",
         r"\pratexdefaultjapanesefont",
+        r"\number\dimexpr\f@size pt\relax",
+        r"\newcommand\pratexselectdefaultjapanesefont",
+        r"\AddToHook{cmd/selectfont/after}",
         r"\ifdefined\pratexsetjapanesefonthook",
-        r"\pratexsetjapanesefonthook{\pratexdefaultjapanesefont}",
-        r"\AtBeginDocument{\pratexdefaultjapanesefont}",
+        r"\pratexsetjapanesefonthook{\pratexselectdefaultjapanesefont}",
+        r"\AtBeginDocument{\pratexselectdefaultjapanesefont}",
     ] {
         assert!(
             package.contains(required),
@@ -44,7 +47,10 @@ fn 既定日本語packageはpratex固有hookだけへ固定十ptのjfmを接続�
     let package_load = class
         .find(r"\RequirePackage{pratex-japanese}")
         .expect("classが既定日本語packageを読むこと");
-    assert!(hook < package_load, "packageはhook定義後に読まなければならない");
+    assert!(
+        hook < package_load,
+        "packageはhook定義後に読まなければならない"
+    );
 
     let adapter = 読む("docs/examples/prjsarticle-upjisr-h-adapter.tex");
     assert!(adapter.contains(r"\pratexjfont\PratexJapanese=upjisr-h at 10pt"));
@@ -56,10 +62,15 @@ fn 既定日本語packageはpratex固有hookだけへ固定十ptのjfmを接続�
     assert!(scrartcl.contains("日本語"));
 
     let docs = 読む("docs/prjsarticle.md");
-    for limitation in ["固定10pt", "NFSS", "20.0pt", "JFM file was not found"] {
+    for contract in [
+        "10pt selector",
+        "NFSS",
+        "20.0pt/20.0pt/20.0pt",
+        "JFM file was not found",
+    ] {
         assert!(
-            docs.contains(limitation),
-            "固定sizeの既知制限が文書化されていない: {limitation}"
+            docs.contains(contract),
+            "NFSS/JFM契約が文書化されていない: {contract}"
         );
     }
 }

@@ -18,7 +18,8 @@ package分岐を偽装しない。初版engine identityとして次をPraTeX cor
 
 classは次のPraTeX固有hookを定義した後、公式LaTeX互換track用の
 `pratex-japanese` packageを読み込む。このpackageはTeX Liveの`upjisr-h at 10pt`を
-既定fontとして登録する。formatへJFMを埋め込まず、LaPraTeXを名乗らない。
+既定の10pt selectorとして登録し、NFSSが選んだ現在sizeごとのJFMへ接続する。
+formatへJFMを埋め込まず、LaPraTeXを名乗らない。
 
 - `\pratexsetjapanesefonthook{...}`
 - `\pratexsetlatinfonthook{...}`
@@ -27,10 +28,11 @@ classは次のPraTeX固有hookを定義した後、公式LaTeX互換track用の
 これらはengine identityを作るAPIではない。pTeX互換名をclass側で補うadapterも置かない。
 文書が後から`\pratexsetjapanesefonthook`を呼べば、その明示adapterが既定hookへ後勝ちする。
 
-初版packageはNFSSと和文font sizeを連動しない。`\small`、`\normalsize`、`\Large`で
-Latin font sizeが変わっても、和文JFMは10ptのままである。公式CTAN runtimeで「日本」の
-box幅が三つとも20.0ptになることを実測している。family/series、任意JFM、縦組を含む
-NFSS接続は後続sliceとする。
+packageはNFSSの`\f@size`をspへ正規化し、同じsizeの綴りを一つのglobal JFM cacheへ
+まとめる。font選択自体は現在groupに従うので、`{\small ...}`の終了後は外側の和文sizeへ
+戻る。初期sliceでは`\normalsize`、`\small`、`\Large`の「日本」が
+`20.0pt/20.0pt/20.0pt`に固定されていたが、現在はLatin側のNFSS sizeと同じ比率で変化する。
+family/series、任意JFMを含む一般の和文NFSS modelと縦組は後続sliceである。
 
 `upjisr-h.tfm`を置かない隔離runtimeでは、package読込み位置で先に
 `Japanese font ...=upjisr-h at 10.0pt not loaded: JFM file was not found`と診断することも
@@ -45,7 +47,7 @@ NFSS接続は後続sliceとする。
 `set2` / `set3`、明示profileによる非埋込みnamed CID PDFまで接続済みである。classを通常の
 和欧混植文書として使うには、現在は次の境界が残る。
 
-1. 固定10pt packageをNFSSのsize/family/seriesと任意JFMへ一般化すること。
+1. 現在のNFSS size接続をfamily/seriesと任意JFMへ一般化すること。
 2. box/disc境界とmain-loop早期spacingを完成すること。
 3. 4文字subsetを越えるJLReq禁則、和文widow処理、縦組を加えること。
 4. PDFへ和文字形を埋め、ToUnicodeとfont subsetを持つportableな出力にすること。

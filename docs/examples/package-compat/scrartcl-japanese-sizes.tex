@@ -1,0 +1,12 @@
+\documentclass{scrartcl}
+\usepackage{pratex-japanese}
+
+\begin{document}
+\setbox0=\hbox{日本}
+{\small\global\setbox1=\hbox{日本}}
+\setbox2=\hbox{日本}
+{\Large\global\setbox3=\hbox{日本}}
+\typeout{PRATEX-JFM-NFSS-WIDTHS=\the\wd0/\the\wd1/\the\wd2/\the\wd3}
+
+通常の日本語。{\small 小さい日本語。}{\Large 大きい日本語。}通常へ戻る。
+\end{document}

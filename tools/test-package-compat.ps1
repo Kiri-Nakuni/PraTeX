@@ -43,6 +43,7 @@ $ErrorActionPreference = "Stop"
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $sampleRoot = Join-Path $repoRoot "docs/examples/package-compat"
 $classPath = Join-Path $repoRoot "tex/latex/pratex/prjsarticle.cls"
+$japanesePackagePath = Join-Path $repoRoot "tex/latex/pratex/pratex-japanese.sty"
 $adapterPath = Join-Path $repoRoot "docs/examples/prjsarticle-upjisr-h-adapter.tex"
 $stubHyphenPath = Join-Path $repoRoot "tests/fixtures/prjsarticle/hyphen.cfg"
 $utf8 = [Text.UTF8Encoding]::new($false)
@@ -149,7 +150,7 @@ if (-not [string]::IsNullOrWhiteSpace($PreparedFormatPath)) {
         throw "生成済みlatex.fmtがありません: $PreparedFormatPath"
     }
 }
-foreach ($requiredRepoFile in @($classPath, $adapterPath)) {
+foreach ($requiredRepoFile in @($classPath, $japanesePackagePath, $adapterPath)) {
     if (-not (Test-Path -LiteralPath $requiredRepoFile -PathType Leaf)) {
         throw "repository側の試験資材がありません: $requiredRepoFile"
     }
@@ -188,12 +189,14 @@ foreach ($runtimeFile in $runtimeFiles) {
 }
 
 Copy-Item -LiteralPath $classPath -Destination (Join-Path $runDir "prjsarticle.cls") -Force
+Copy-Item -LiteralPath $japanesePackagePath `
+    -Destination (Join-Path $runDir "pratex-japanese.sty") -Force
 Copy-Item -LiteralPath $adapterPath `
     -Destination (Join-Path $runDir "prjsarticle-test-adapter.tex") -Force
 
 $probeNames = @(
-    "prjsarticle", "article", "scrartcl", "graphicx", "xcolor",
-    "hyperref", "tikz", "siunitx", "pxrubrica"
+    "prjsarticle", "article", "scrartcl", "scrartcl-japanese-sizes",
+    "graphicx", "xcolor", "hyperref", "tikz", "siunitx", "pxrubrica"
 )
 foreach ($probeName in $probeNames) {
     $source = Join-Path $sampleRoot ($probeName + ".tex")
@@ -249,6 +252,11 @@ $expectations = @{
     prjsarticle = @{ Kind = "success"; Detail = "PraTeX native class/JFM横組smoke" }
     article = @{ Kind = "success"; Detail = "LaTeX baseline" }
     scrartcl = @{ Kind = "success"; Detail = "unmodified KOMA-Script class smoke" }
+    "scrartcl-japanese-sizes" = @{
+        Kind = "success"
+        Detail = "KOMA-Script NFSS size is forwarded to horizontal JFM"
+        Required = @("PRATEX-JFM-NFSS-WIDTHS=21.9pt/20.0pt/21.9pt/28.79999pt")
+    }
     graphicx = @{ Kind = "success"; Detail = "explicit dvips driver" }
     xcolor = @{ Kind = "success"; Detail = "explicit dvips driver" }
     hyperref = @{ Kind = "success"; Detail = "links/URI DVI smoke; pdfmdfivesum file form" }
@@ -290,6 +298,11 @@ foreach ($probeName in $probeNames) {
     $status = "pass"
     if ($expectation.Kind -eq "success") {
         $matched = $processResult.ExitCode -eq 0 -and $errorCount -eq 0 -and $dviBytes -gt 0
+        if ($expectation.ContainsKey("Required")) {
+            foreach ($requiredText in $expectation.Required) {
+                $matched = $matched -and $combined.Contains($requiredText)
+            }
+        }
         if (-not $matched) {
             $status = "unexpected-failure"
         }
@@ -315,6 +328,15 @@ foreach ($probeName in $probeNames) {
         }
         else {
             $extra = "unicode-branch=unreported"
+        }
+    }
+    elseif ($probeName -eq "scrartcl-japanese-sizes") {
+        $widthMatch = [regex]::Match($combined, "PRATEX-JFM-NFSS-WIDTHS=([^\r\n]+)")
+        if ($widthMatch.Success) {
+            $extra = "widths=" + $widthMatch.Groups[1].Value
+        }
+        else {
+            $extra = "widths=unreported"
         }
     }
     if (-not $matched) {

@@ -8,7 +8,7 @@
 
 \NeedsTeXFormat{LaTeX2e}[2023-11-01]
 \ProvidesPackage{pratex-japanese}
-  [2026/08/24 v0.1 PraTeX horizontal Japanese JFM initializer]
+  [2026/08/24 v0.2 PraTeX horizontal Japanese JFM initializer]
 
 \ifdefined\pratexversion\else
   \PackageError{pratex-japanese}
@@ -24,17 +24,46 @@
   \expandafter\endinput
 \fi
 
-% The first compatibility slice deliberately has one fixed metric and size.
-% NFSS size changes do not yet select matching Japanese font instances.
+% Keep the original 10pt selector as the compatibility baseline.  The NFSS
+% bridge below reuses it for every spelling of 10pt and creates one additional
+% JFM instance for each distinct scaled-point size.
 \pratexjfont\pratexdefaultjapanesefont=upjisr-h at 10pt
 \pratexdefaultjapanesefont
+
+\edef\pratex@jfontsizekey{\number\dimexpr10pt\relax}
+\expandafter\global\expandafter\let
+  \csname pratex@jfont@\pratex@jfontsizekey\endcsname
+  \pratexdefaultjapanesefont
+
+% NFSS exposes its selected size as a decimal point value in \f@size.  Use its
+% exact scaled-point value as the cache key so that 10, 10.0, and equivalent
+% dimension expressions cannot consume separate Japanese font slots.
+\newcommand\pratexselectdefaultjapanesefont{%
+  \edef\pratex@jfontsizekey{\number\dimexpr\f@size pt\relax}%
+  \ifcsname pratex@jfont@\pratex@jfontsizekey\endcsname
+  \else
+    \expandafter\global\expandafter\pratexjfont
+      \csname pratex@jfont@\pratex@jfontsizekey\endcsname
+      =upjisr-h at \dimexpr\f@size pt\relax
+  \fi
+  \csname pratex@jfont@\pratex@jfontsizekey\endcsname}
 
 % PraTeX-native classes may own their document-start font policy.  A general
 % LaTeX class gets the same selector directly through the public LaTeX hook.
 \ifdefined\pratexsetjapanesefonthook
-  \pratexsetjapanesefonthook{\pratexdefaultjapanesefont}
+  \pratexsetjapanesefonthook{\pratexselectdefaultjapanesefont}
 \else
-  \AtBeginDocument{\pratexdefaultjapanesefont}
+  \AtBeginDocument{\pratexselectdefaultjapanesefont}
 \fi
+
+% Re-evaluate the Japanese size whenever NFSS changes the Latin font.  Resolve
+% the class hook at execution time so that an explicit document adapter still
+% wins over this package default without engine impersonation.
+\AddToHook{cmd/selectfont/after}{%
+  \ifdefined\pratexjapanesefonthook
+    \pratexjapanesefonthook
+  \else
+    \pratexselectdefaultjapanesefont
+  \fi}
 
 \endinput
