@@ -17,7 +17,8 @@
 % 直接 count[5] と書けるが、&= で明示的な host alias を作ることもできる。
 \count101=\directvaak{
   var registers : i32 array alias &= count;
-  registers[5] += 1;
+  let previous : i32 := registers[5];
+  registers[5] := previous + 1;
   registers[5]
 }
 

@@ -103,3 +103,20 @@ fn 静的誤りは検査段階と位置と本文を記録して零へ展開す�
     assert!(!joined.contains("static error(s) before running"), "{log}");
     assert!(joined.contains("[result=0]"), "{log}");
 }
+
+#[test]
+fn 配布するplain用例はdirectvaakのletとvarとhost別名を実行できる() {
+    // INITEX試験器でも意味を固定できるよう、plain向け説明行だけを除いて同じ本文を走らせる。
+    // 実際のplain.fmt＋Computer ModernによるDVI生成はexamples/README.mdの手順で行う。
+    let body = include_str!("../examples/plain-vaak.tex")
+        .lines()
+        .filter(|line| !line.trim_start().starts_with('%'))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let log = run_tex("配布plain用例", &body);
+    assert!(
+        log.replace('\n', "")
+            .contains("[plain-vaak answer=43;alias=22;host=22]"),
+        "{log}"
+    );
+}
