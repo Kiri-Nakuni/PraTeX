@@ -490,3 +490,96 @@ fn 縦組jfmは横組primitiveで黙って選ばれない() {
     );
     assert!(!directory.join("t.dvi").exists());
 }
+
+/// TeX Liveのbinaryと配布fontはrepositoryへ入れず、black-box oracleとして明示指定する。
+///
+/// 必須:
+/// - `PRATEX_DVIPDFMX`: `dvipdfmx` executable
+/// - `PRATEX_UPJISR_H_TFM`: 公式`upjisr-h.tfm`
+///
+/// 任意:
+/// - `PRATEX_UPJISR_H_VF`: 公式`upjisr-h.vf`。指定時は作業directoryへcopyする
+/// - `PRATEX_DVIPDFMX_MAP`: `dvipdfmx -f`で読ませる和文font map
+#[test]
+#[ignore = "公式TeX Liveのdvipdfmxとupjisr-h.tfm/vfを外部に必要とするblack-box照合"]
+fn 公式dvipdfmxがfont256のset2をtype0和文glyphへ変換する() {
+    let dvipdfmx = std::env::var_os("PRATEX_DVIPDFMX")
+        .expect("PRATEX_DVIPDFMXに公式dvipdfmx executableを指定する");
+    let jfm = std::env::var_os("PRATEX_UPJISR_H_TFM")
+        .expect("PRATEX_UPJISR_H_TFMに公式upjisr-h.tfmを指定する");
+    let directory = prepare_directory("公式dvipdfmx");
+    std::fs::copy(jfm, directory.join("upjisr-h.tfm"))
+        .expect("公式upjisr-h.tfmを作業directoryへcopyできなかった");
+    if let Some(vf) = std::env::var_os("PRATEX_UPJISR_H_VF") {
+        std::fs::copy(vf, directory.join("upjisr-h.vf"))
+            .expect("公式upjisr-h.vfを作業directoryへcopyできなかった");
+    }
+    std::fs::write(
+        directory.join("t.tex"),
+        "\\catcode123=1\n\\catcode125=2\n\\batchmode\n\
+         \\pratexjfont\\J=upjisr-h at 10pt\n\\J\n\\kcatcode\"3042=16\n\
+         \\setbox0=\\hbox{あ}\n\\shipout\\box0\n\\end\n",
+    )
+    .unwrap();
+
+    let output = run_rtex(&directory, &["t.tex"]);
+    assert_success(&output, "公式JFMでPraTeX DVIを生成できなかった");
+    let events = parse_first_page(&std::fs::read(directory.join("t.dvi")).unwrap());
+    assert_eq!(
+        events.wide,
+        [WideEvent {
+            opcode: 129,
+            character: 0x3042,
+            font: Some(256),
+            h: events.wide[0].h,
+        }]
+    );
+
+    let mut command = Command::new(dvipdfmx);
+    command.args(["-vv", "-z", "0"]);
+    if let Some(map) = std::env::var_os("PRATEX_DVIPDFMX_MAP") {
+        command.arg("-f").arg(map);
+    }
+    let driver_output = command
+        .args(["-o", "t.pdf", "t.dvi"])
+        .current_dir(&directory)
+        .output()
+        .expect("公式dvipdfmxを起動できなかった");
+    assert_success(
+        &driver_output,
+        "PraTeX DVIを公式dvipdfmxでPDFへ変換できなかった",
+    );
+
+    let mut driver_log = driver_output.stdout;
+    driver_log.extend_from_slice(&driver_output.stderr);
+    assert!(
+        driver_log
+            .windows(b"upjisr-h".len())
+            .any(|part| part == b"upjisr-h"),
+        "dvipdfmxがupjisr-hを読んだ証跡がない: {}",
+        String::from_utf8_lossy(&driver_log)
+    );
+    assert!(
+        driver_log
+            .windows(b"Type0".len())
+            .any(|part| part == b"Type0")
+            || driver_log
+                .windows(b"CIDFont".len())
+                .any(|part| part == b"CIDFont"),
+        "dvipdfmxが和文Type0/CID fontを生成していない: {}",
+        String::from_utf8_lossy(&driver_log)
+    );
+
+    // `-z 0`でcontent streamの圧縮を無効にし、和文だけのpageに
+    // text-showing operatorが実在することを確認する。
+    let pdf = std::fs::read(directory.join("t.pdf")).expect("dvipdfmxがt.pdfを生成しなかった");
+    assert!(
+        pdf.windows(b"/Type0".len()).any(|part| part == b"/Type0"),
+        "PDFにType0 font dictionaryがない"
+    );
+    assert!(
+        pdf.windows(b"TJ".len()).any(|part| part == b"TJ")
+            || pdf.windows(b"Tj".len()).any(|part| part == b"Tj"),
+        "PDF page contentに和文glyphのtext-showing operatorがない"
+    );
+}
