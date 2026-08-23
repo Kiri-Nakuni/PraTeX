@@ -920,6 +920,7 @@ impl Eqtb {
         self.primitive_unexpandable(b"badness", UnexpandableCommand::Badness);
         // ==== e-TeX / pdfTeX の問い合わせ ====
         self.primitive_unexpandable(b"eTeXversion", UnexpandableCommand::ETeXVersion);
+        self.primitive_unexpandable(b"pratexversion", UnexpandableCommand::PraTeXVersion);
         self.primitive_unexpandable(
             b"pdfshellescape",
             UnexpandableCommand::PdfShellEscape,

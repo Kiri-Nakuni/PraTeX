@@ -5,14 +5,15 @@
 | | 担当 | 触る場所 |
 |---|---|---|
 | **Codex** | **PraTeX（この版方、package名は`rtex`）** | `src/` `docs/` `tests/` `tools/` |
-| Claude | [Vaak](https://git.trap.jp/Suima/vaak.git)（別版方） | Vaak の中だけ |
+| **Codex** | PraTeX埋込みに必要なVaak公開境界 | Vaakの`codex2/pratex-embedding-api`だけ |
+| Claude | Vaakの意味論判断（利用可能な時） | Vaak の中だけ |
 
 PraTeX は `Cargo.toml` から **`../vaak`** をpath dependencyとして使う。
 PraTeX側が必要とするAPIは `src/vaak.rs`、`docs/vaak-embedding-api-design.md`、
 `for_CLAUDE.md` に契約として残し、Vaak側の変更はClaudeに伝える。
 
-通常作業の枝は **`codex2/<目的>`** とする。現在の作業枝は
-`codex2/jlreq-script-spacing`、基点は `6ce8315` である。
+通常作業の枝は **`codex2/<目的>`** とする。現在の統合枝は
+`codex2/jlreq-script-spacing`である。2026-08-23のpush済みroot checkpointは`aa48367`。
 `main`は歴史的基点として触らない。`full`へ直接実装はせず、focused test、全release、必要な
 TRIP/DVI・PDF意味比較を通して十分に固まった機能checkpointを`codex2/*`から順次mergeする。
 設計文書だけ、production未接続、既知の意味退行があるsliceは`full`へ送らない。
@@ -40,12 +41,16 @@ PraTeXは、日本語組版、欧文組版、和欧混植をengine coreの一級
 4. **Vaakとの統合とversion付きWASM ABI**
    - 高頻度の単純規則は登録時に検証し、host-owned tableへcompileする。
    - 複雑で低頻度の規則だけをbounded batchとしてWASMへ渡す。
-5. **safe Rustの範囲での性能調整**
-   - 先に意味・出力・TRIP・fixtureを固定し、変更前後を同じ条件で測る。
-   - DVI出力modeでは、同一入力・同一TeX tree・同等のDVI意味でupLaTeXの実行時間の**1.2倍未満**をhard gateとする。
-6. **PDF直接出力とOTF対応**
-   - 同じ優先度で進める。ただし先にJFM/TFMだけで和文・欧文・混植の出力を生成できる基線を完成する。
+5. **主要LaTeX packageのPraTeX-native対応**
+   - `graphicx` / `xcolor`、`hyperref`、`siunitx`、`tikz`、PraTeX用にpatchした`pxrubrica`の順を基準にする。
+   - 他engineのversion primitiveを生やして検査を通さない。PraTeX固有検出と個別feature契約を使う。
+6. **PDF直接出力**
+   - JFM/TFMだけで和文・欧文・混植を出せる基線の次に完成させる。OTF対応より先である。
+7. **OTF対応**
    - OTF shapingはdefault-offのRustyBuzz接続を第一候補とする。
+8. **safe Rustの範囲での性能調整**
+   - 当面は機能完成を優先して後回し。ただし退行を測れるfixtureは各sliceで残す。
+   - 最終gateは、同一入力・同一TeX tree・同等のDVI意味でupLaTeXの実行時間の**1.2倍未満**。
 
 TeX Live/kpathsea互換探索は全段に必要な横断基盤である。file lookupごとに外部`kpsewhich`を
 起動する実装を最終形にしない。run全体で一つのTeX treeを固定し、`texmf.cnf`、path展開、
@@ -104,7 +109,7 @@ PraTeX自身の通常実装には`unsafe`を書かない。optional依存は採�
 3. OTF/TrueType loaderとdefault-off RustyBuzzは同じ境界へ後付けする。
 4. OTFの有無でJFM/TFM経路や標準JLReqの意味を変えない。
 
-PDF直接出力とOTF対応は同順位だが、どちらもJFM/TFM基線を飛び越えない。
+PDF直接出力をOTF対応より先に行う。どちらもJFM/TFM基線を飛び越えない。
 
 ---
 
@@ -132,6 +137,10 @@ e-TeX、pTeX、upTeX、e-upTeX、pdfTeX、XeTeX、LuaTeXの実装sourceや上流
 このマシンにはTeX Liveがない。black-boxや互換試験に必要な公式資材はCTAN等の公式配布元から
 一時領域へ取得し、URL、版、取得日、SHA-256を記録する。repositoryへ無断でvendorしない。
 
+PraTeXをpTeX、upTeX、pdfTeX、XeTeX、LuaTeXとして偽装しない。native検出は読み取り専用の
+`\pratexversion`をカノンとし、必要ならPraTeX固有feature queryを追加する。互換primitiveを
+個別に持つことと、engine全体を名乗ることを混同しない。
+
 ---
 
 ## 実装の作法
@@ -158,6 +167,11 @@ cargo test --release --locked --no-fail-fast
 同日の公式CTAN TRIPも両段exit 0、`tripos.tex`一致、DVI hashは既知正常値
 `b20af20a1463c6846f0c4c1ce687cd6354ce1a5f65ee401507627570787ae9fe`を維持した。
 このmachineにはDVItypeが無いため、今回のrecord意味比較はhash一致で代替している。
+
+plain formatの欧文DVIは`origin/main`のrTeXにopcode・座標を含めて完全回帰させる。
+TRIP再現用の単精度`glue_set`境界は`trip` featureだけへ閉じ込める。通常版の基準fixtureでは
+2026-08-23にpage body 183 bytesの差分0を確認した。LaTeX DVIの完全回帰は`latex.ltx`を
+LaPraTeX用に適合させるまでは要求しない。
 
 性能gateは機能完成後に一度だけ測るものではない。JFM/TFM接続、spacing finalizer、縦組、
 provider registry、resolver、OTF等の主要sliceごとに、探索、fmt読込み、字句化、組版、DVI出力を
@@ -191,6 +205,8 @@ provider registry、resolver、OTF等の主要sliceごとに、探索、fmt読�
   `\rawstringdef`、`\therawstring`、専用`\showthe`、storage、fmt、production testは未実装。
   font mapが生byteを保存する既存処理は、このregister機能の実装ではない。
 - JFM reader/modelは実装済みだが、`\jfont`/`\tfont`、scale、wide node、出力へ未接続。
+- plain formatで`\directvaak`、`\vaakdef`、`let` / `var`、host aliasを使う実行例は
+  `examples/plain-vaak.tex`。静的失敗はprepare段階・行・桁・診断本文を表示して0へ展開する。
 - PDF直接出力、Type 1全埋込み、`ls-R`/`kpsewhich` resolverは部分実装済み。
 - 現resolverは曖昧・stale・未対応pathでone-shot `kpsewhich`へ戻る。これは移行実装であり、
   通常lookupの最終設計ではない。
@@ -204,7 +220,9 @@ provider registry、resolver、OTF等の主要sliceごとに、探索、fmt読�
 4. JFM/K/X/禁則を中央finalizerとmain loopへ接続し、横組から縦組へ進む。
 5. kpathsea互換resolverをrun-global化し、native path解決を広げて通常の子process呼出しをなくす。
 6. LaTeXが実際に要求した境界で`\scantokens`等のe-TeX残件を設計どおり実装する。
-7. Vaak table uploadとversion付きWASM ABIは、内部表現を固定した段階から並行して適合試験を作る。
+7. PraTeX-native package adapterを順に通し、PDF直接出力をOTFより先に完成する。
+8. Vaak table uploadとversion付きWASM ABIは、内部表現を固定した段階から並行して適合試験を作る。
+9. WASM target自体のcompile実験と性能調整は、横組みcheckpoint後に行う。
 
 `\kanjiskip` / `\xkanjiskip`をLaTeX検出だけ通すstubにしない。INITEX既定0、代入、群、
 `\globaldefs`、算術、内部量、表示、fmtを既存glue経路へ通し、その後の実spacingへ連続して接続する。

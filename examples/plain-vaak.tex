@@ -1,0 +1,34 @@
+% PraTeX の plain format で Vaak bridge を使う最小文書。
+% 実行例:
+%   pratex "&plain" examples/plain-vaak.tex
+
+% \vaakdef は定義時に Vaak program を検査・組み立てし、呼出し時には再利用する。
+% let と var は \directvaak / \vaakdef の中で通常どおり使える。
+\count5=21
+\count6=1
+\vaakdef\vaakanswer{
+  let base : i32 := count[5];
+  var doubled : i32 := base * 2;
+  doubled + count[6]
+}
+\count100=\vaakanswer
+
+% count と dimen は起動時から host 値として見えている。
+% 直接 count[5] と書けるが、&= で明示的な host alias を作ることもできる。
+\count101=\directvaak{
+  var registers : i32 array alias &= count;
+  let previous : i32 := registers[5];
+  registers[5] := previous + 1;
+  registers[5]
+}
+
+\message{[plain-vaak answer=\the\count100;alias=\the\count101;host=\the\count5]}
+
+\shipout\vbox{
+  \hbox{PraTeX plain format with Vaak}
+  \vskip 6pt
+  \hbox{vaakdef result: \the\count100}
+  \hbox{host alias result: \the\count101}
+  \hbox{host count[5] after writeback: \the\count5}
+}
+\end

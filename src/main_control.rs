@@ -359,6 +359,7 @@ pub fn main_control(
                 | UnexpandableCommand::LastSkip
                 | UnexpandableCommand::Badness
                 | UnexpandableCommand::ETeXVersion
+                | UnexpandableCommand::PraTeXVersion
                 | UnexpandableCommand::PdfShellEscape
                 | UnexpandableCommand::CurrentGroupLevel
                 | UnexpandableCommand::CurrentGroupType
@@ -641,6 +642,7 @@ pub fn main_control(
                 | UnexpandableCommand::LastSkip
                 | UnexpandableCommand::Badness
                 | UnexpandableCommand::ETeXVersion
+                | UnexpandableCommand::PraTeXVersion
                 | UnexpandableCommand::PdfShellEscape
                 | UnexpandableCommand::CurrentGroupLevel
                 | UnexpandableCommand::CurrentGroupType
@@ -1070,6 +1072,7 @@ pub fn main_control(
                 | UnexpandableCommand::LastSkip
                 | UnexpandableCommand::Badness
                 | UnexpandableCommand::ETeXVersion
+                | UnexpandableCommand::PraTeXVersion
                 | UnexpandableCommand::PdfShellEscape
                 | UnexpandableCommand::CurrentGroupLevel
                 | UnexpandableCommand::CurrentGroupType

@@ -20,12 +20,18 @@ use std::rc::Rc;
 
 pub type GlueRatio = f64;
 
-/// Box に保存する glue ratio へ、公式 TRIP の DVI で観測される単精度境界を置く。
+/// Box に保存する glue ratio を求める。
 ///
-/// 商を求めるまでの既存の倍精度計算と、出力時に glue を累積する倍精度計算は変えない。
+/// 公式 TRIP は TeX の単精度境界を要求する一方、通常版は元の rTeX と同じ
+/// 倍精度を保つ。TRIP の再現条件を通常の DVI へ漏らさない。
 pub(crate) fn make_glue_ratio(numerator: Dimension, denominator: Dimension) -> GlueRatio {
     debug_assert_ne!(denominator, 0);
-    f64::from((f64::from(numerator) / f64::from(denominator)) as f32)
+    let ratio = f64::from(numerator) / f64::from(denominator);
+    if cfg!(feature = "trip") {
+        f64::from(ratio as f32)
+    } else {
+        ratio
+    }
 }
 
 #[cfg(test)]
@@ -37,6 +43,7 @@ mod glue_ratio_tests {
         base + round(ratio * f64::from(cumulative_glue))
     }
 
+    #[cfg(feature = "trip")]
     #[test]
     fn tripで残った二つの移動量は保存時の単精度丸めで一致する() {
         let page10_full_precision = 638_162_529_f64 / 65_536_f64;
@@ -56,6 +63,18 @@ mod glue_ratio_tests {
         let page15_ratio = make_glue_ratio(406_532_792, 131_072);
         assert_eq!(page15_ratio, 3_101.599_121_093_75);
         assert_eq!(movement(655_360, page15_ratio, 65_536), 203_921_760);
+    }
+
+    #[cfg(not(feature = "trip"))]
+    #[test]
+    fn 通常版は元のrtexと同じ倍精度の移動量を保つ() {
+        let page10_ratio = make_glue_ratio(638_162_529, 65_536);
+        assert_eq!(page10_ratio, 638_162_529_f64 / 65_536_f64);
+        assert_eq!(movement(1_179_648, page10_ratio, 65_536), 639_342_177);
+
+        let page15_ratio = make_glue_ratio(406_532_792, 131_072);
+        assert_eq!(page15_ratio, 406_532_792_f64 / 131_072_f64);
+        assert_eq!(movement(655_360, page15_ratio, 65_536), 203_921_756);
     }
 }
 
