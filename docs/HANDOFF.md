@@ -1,6 +1,6 @@
 # PraTeX 作業引継ぎ
 
-更新: 2026-08-23（`codex2/japanese-glyph-dvi`）
+更新: 2026-08-23（`codex2/jlreq-script-spacing`、checkpoint `4f832b1`）
 
 この文書は、現在の Codex セッションから別のエージェントへ作業が移っても、
 検証済みの境界と未commitの作業を失わないための生きた引継ぎである。
@@ -9,9 +9,9 @@
 ## 最初に守ること
 
 1. リポジトリ直下の `AGENTS.md` を最初から最後まで読む。
-2. 現在の枝は `codex2/japanese-glyph-dvi`。`main`と歴史的`full`を汚さない。
-3. 基点は統合checkpoint `6ce8315`。作業中のK/X、spacing、文書更新を無関係な差分として
-   差し戻さない。
+2. 現在の統合枝は `codex2/jlreq-script-spacing`。`main`と歴史的`full`を汚さない。
+3. push済み基点は `4f832b1`。作業中のK/X、spacing、文書更新を無関係な差分として
+   差し戻さない。横組JFM focused枝は統合済みである。
 4. 通常実装と性能調整はsafe Rustだけで行う。
 5. pTeX/upTeX/e-TeX/pdfTeXの実装sourceや上流testを移植しない。公開manual、公開file format、
    自作最小入力による公式binaryの黒箱観測から独立実装する。
@@ -20,11 +20,14 @@
 
 ## 枝と共有状態
 
-- 枝: `codex2/japanese-glyph-dvi`
-- 統合済み基点: `codex2/jlreq-script-spacing`の`c9bd240`（歴史的基点は`6ce8315`）
+- 枝: `codex2/jlreq-script-spacing`
+- push済み統合checkpoint: `4f832b1`（歴史的基点は`6ce8315`）
 - 基点のrelease全suite: **564 passed、0 failed、6 ignored**（Vaak `89804b4`）
-- 現在の作業枝release全suite: **594 passed、0 failed、6 ignored**
+- 現在の統合枝release全suite: **618 passed、0 failed、7 ignored**
 - 直近の共有commit:
+  - `4f832b1`: 横組JFMからwide glyphとDVIまでを統合
+  - `6d4ff82`: 完成前の版1を避け、`0.1.0-dev`とrelease gateを分離
+  - `e57a4f6`: `prjsarticle`と`\maketitle`の実DVI基準を統合
   - `d2807f8`: 選択済み横組JFMの和文を段落開始時にも保持
   - `41408dd`: `c9bd240`までのVaak・plain回帰を横組glyph枝へ統合
   - `be719da`: 横組JFMをtyped current font、wide node、DVIまで接続
@@ -39,6 +42,12 @@
 - 性能枝 `codex/perf-wsl-euptex-safe` は `9bb6023`までpush済みで、現在は停止中
 - Claudeの連絡枝 `origin/claude/for-codex` は `82fa3a2`まで確認済み
 - Vaak `origin/codex/main` は `64ccf4e`まで確認済み
+- Vaakの壊れていた`full`は`codex2/full`の`7c5ccd7`で修復済み。release全suiteは
+  **727 passed、0 failed、1 ignored**で、GPL側のPraTeX sourceは一行も移していない。
+
+WASM module importとnamespaceの基本方針は
+[`wasm-module-import-v0.1.md`](wasm-module-import-v0.1.md)を一次資料とする。ABI 0.0は
+spacing/unit providerだけを扱い、任意control sequenceの実行ABIは未決定の別仕様である。
 
 ## 完了済み: upTeX `latin_ucs` とUnicode pattern
 

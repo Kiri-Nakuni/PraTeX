@@ -37,9 +37,14 @@ WASM providerはdefault-offであり、利用者・出版社固有のprofileを�
 - [拡張可能な文字分類器](character-classifier-extension.md)
 - [文字・異体字・造字の内部表現](glyph-identity-roadmap.md)
 - [JLReq native roadmap](japanese-typesetting-roadmap.md)
+- [WASM module import・名前空間仕様 0.1](wasm-module-import-v0.1.md)
 
 PraTeXと内蔵VaakのRust API、Vaak source language、PraTeX phase ABI、外向きWASM ABIは別の
 version domainである。
+
+本書はprovider operationとwireを定める。TeX sourceからのmodule activation、source-order、
+namespace alias、group/global、transaction、fmt拒否はmodule import仕様0.1が定める。
+ABI 0.0は任意control sequence実行を持たず、その実行ABIは引き続き別仕様である。
 
 | 境界 | version |
 |---|---|

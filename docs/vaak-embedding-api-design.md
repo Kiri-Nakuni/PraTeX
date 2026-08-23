@@ -5,6 +5,8 @@
 
 外向きWASM境界の固定mailbox、wire schema、capability、fuel、atomic fallbackは
 [WASM provider ABI 0.0](wasm-provider-abi-v0.md)で別version domainとして定義する。
+TeX sourceからのmodule import、namespace、source-order、group/global、transactionは
+[WASM module import・名前空間仕様 0.1](wasm-module-import-v0.1.md)が所有する。
 
 ## 1. 結論と適用範囲
 
@@ -235,6 +237,10 @@ phase の正確な前後関係、TeX の output routine と group/save stack が
 前に計画を返す phase であり、標準 line breaking 自体を Vaak へ移さない。
 
 ### 4.5 複数 policy の順序
+
+この節の`before` / `after` graphは**内蔵Vaak phase providerだけ**に適用する。外向きWASM
+module importには適用しない。外向きWASM v1は一hook/profile一active provider、またはTeXから
+明示選択したnamed profileに限り、source-order importを隠れたgraphで並べ替えない。
 
 各登録は `provider_key`、`before[]`、`after[]`、`priority`、`signature` を持つ。登録時に依存 graph を
 検査し、cycle と欠けた必須依存を error にする。同順位の最終 tie は RunEpoch 内の明示登録順とする。

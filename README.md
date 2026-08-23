@@ -149,6 +149,7 @@ packageは実装の資料として写さず、互換性を測る外部入力と�
 - [各地域・組版文化の文字サイズ単位調査](docs/international-typographic-units.md)
 - [明示登録Vaak phaseと低頻度WASM bulk](docs/vaak-embedding-api-design.md)
 - [外向きWASM provider ABI 0.0](docs/wasm-provider-abi-v0.md)
+- [WASM module import・名前空間仕様 0.1](docs/wasm-module-import-v0.1.md)
 - [監視/incremental実行/package取得/LSP](docs/incremental-tooling-roadmap.md)
 - [LaPraTeX](docs/lapratex-roadmap.md)
 

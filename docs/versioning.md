@@ -17,8 +17,9 @@
    annotation、色、metadata、抽出Unicodeと主要package回帰を含む。
 5. OTF/TrueTypeをfont選択、metric、cmap、埋込みまで実装する。標準の和欧組版はshapingへ
    依存させず、RustyBuzzは既定offの明示機能とする。
-6. Vaak API、WASM ABI、WASM module systemを完成させる。WASM module systemの意味論は
-   専用サブチャットで承認された仕様を一次資料とし、PraTeX側で別仕様を先回りして作らない。
+6. Vaak API、WASM ABI、WASM module systemを完成させる。WASM module systemは
+   [import・名前空間仕様0.1](wasm-module-import-v0.1.md)を一次資料とし、別途未決定の
+   control sequence実行ABIをPraTeX側で先回りして作らない。
 7. PraTeX自身をWASM targetへcompileし、定めた適合suiteを実行できるようにする。
 
 この一覧はrelease gateであって、実装順を強制するものではない。各領域の詳細な合格条件は

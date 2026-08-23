@@ -14,12 +14,15 @@ JLReqの標準的な日本語組版も一級機能としてengine内に置く。
 依存先にせず、利用者・出版社固有のprofileまたは実験的な低頻度処理を**明示要求した時だけ**
 差し替える境界に限る。既定日本語paragraphのcallback回数は0を条件とする。
 
-現在あるのはUTF-8 CJK token、`\kcatcode`、typed `LanguageRegion`、`\kanjiskip` / `\xkanjiskip`
-の通常glue parameter面と、独立したbounded JFM
-reader/modelまでである。JFMは横11／縦9、24-bit raw文字code、u8 class、skip、再配置、
-256超glue/kern indexを検査し、class対programをload時に直接表へcompileする。まだ和文fontへ
-接続していないため、和文glyph node、間隔、禁則、方向、和文出力は未実装であり、CJK tokenは
-組版時に捨てられる。
+現在はUTF-8 CJK token、`\kcatcode`、typed `LanguageRegion`、`\kanjiskip` / `\xkanjiskip`
+の通常glue parameter面に加え、boundedな横組JFMを`\pratexjfont`（同じ意味の範囲だけ`\jfont`
+alias）で定義・選択できる。current和文font、JFM class付き`WideCharNode`、`zw` / `zh`、
+DVI `set2` / `set3`まで一続きに接続したため、選択済み横組JFMがあればCJK tokenを捨てずに
+横組DVIへ出せる。JFM readerは横11／縦9、24-bit raw文字code、u8 class、skip、再配置、
+256超glue/kern indexを検査し、class対programをload時に直接表へcompileする。
+
+まだ未接続なのはJFM pair adjustment、K/X自動空白、禁則、`\tfont`と縦組、PDF和文glyphである。
+したがって現状はP0aの横組DVI最小sliceであり、P0全体や「日本語組版対応」の完了ではない。
 
 `\kanjiskip` / `\xkanjiskip`の実spacing、JFMとのhybrid、暗黙K、
 script-pair拡張のclean-room設計は

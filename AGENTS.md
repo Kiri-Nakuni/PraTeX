@@ -13,7 +13,7 @@ PraTeX側が必要とするAPIは `src/vaak.rs`、`docs/vaak-embedding-api-desig
 `for_CLAUDE.md` に契約として残し、Vaak側の変更はClaudeに伝える。
 
 通常作業の枝は **`codex2/<目的>`** とする。現在の統合枝は
-`codex2/jlreq-script-spacing`であり、2026-08-23のpush済みroot checkpointは`c9bd240`。
+`codex2/jlreq-script-spacing`であり、2026-08-23のpush済みroot checkpointは`4f832b1`。
 横組JFM glyphのfocused枝は`codex2/japanese-glyph-dvi`で、そのcheckpointを取り込み済みである。
 `main`は歴史的基点として触らない。`full`へ直接実装はせず、focused test、全release、必要な
 TRIP/DVI・PDF意味比較を通して十分に固まった機能checkpointを`codex2/*`から順次mergeする。
@@ -148,8 +148,9 @@ PraTeXをpTeX、upTeX、pdfTeX、XeTeX、LuaTeXとして偽装しない。native
 実時刻、pdfTeX相当PDF、OTF、Vaak API、WASM ABI/module system、PraTeX自身のWASM targetが
 すべて完成するまで`\pratexversion`は0であり、bannerも版1を名乗らない。完成後の版は
 `1`, `1.1`, `1.11`, `1.110`, `1.1100`, … と末尾の零を保ち、
-`1 +`リウヴィル定数へ収束させる。WASM module systemは専用サブチャットの承認仕様を待ち、
-こちらで意味論を捏造しない。
+`1 +`リウヴィル定数へ収束させる。WASM module systemは
+`docs/wasm-module-import-v0.1.md`を一次資料とする。control sequence実行ABIはなお別途策定であり、
+import/namespace仕様から推測して補わない。
 
 ---
 
@@ -172,8 +173,8 @@ cargo test --release --locked --no-fail-fast
 `6ce8315`を手元のVaak `89804b4`と組み合わせた基準は
 **564 passed、0 failed、6 ignored**。ignoredは実TeX Live、配布JFM、doctestの手動照合である。
 機能追加ではfocused testを先に通し、その後に全release、必要ならTRIPとDVI/PDF意味比較を行う。
-現在のK/X、script spacing、TeXXeT fmt、横組JFM glyph sliceを含む作業枝は
-**594 passed、0 failed、6 ignored**（2026-08-23）である。
+現在のK/X、script spacing、TeXXeT fmt、横組JFM glyph、開発版識別、`prjsarticle` sliceを含む
+統合枝は **618 passed、0 failed、7 ignored**（2026-08-23）である。
 同日の公式CTAN TRIPも両段exit 0、`tripos.tex`一致、DVI hashは既知正常値
 `b20af20a1463c6846f0c4c1ce687cd6354ce1a5f65ee401507627570787ae9fe`を維持した。
 このmachineにはDVItypeが無いため、今回のrecord意味比較はhash一致で代替している。
@@ -183,9 +184,10 @@ TRIP再現用の単精度`glue_set`境界は`trip` featureだけへ閉じ込め�
 2026-08-23にpage body 183 bytesの差分0を確認した。LaTeX DVIの完全回帰は`latex.ltx`を
 LaPraTeX用に適合させるまでは要求しない。
 
-性能gateは機能完成後に一度だけ測るものではない。JFM/TFM接続、spacing finalizer、縦組、
-provider registry、resolver、OTF等の主要sliceごとに、探索、fmt読込み、字句化、組版、DVI出力を
-分けて測る。外部process時間をPraTeX本体から隠さず、cold/warmとhit/missを同じfixtureで記録する。
+upLaTeX比1.2未満の最終gateは維持するが、現在は日本語組版の意味論と回帰を優先し、性能最適化は
+後回しである。主要sliceで安価に取れる基準値は残してよいが、正しさの実装を止めてtuningへ
+移らない。再開時は探索、fmt読込み、字句化、組版、DVI出力を分け、外部process時間を隠さず、
+cold/warmとhit/missを同じfixtureで測る。
 
 ### 既知の落とし穴
 

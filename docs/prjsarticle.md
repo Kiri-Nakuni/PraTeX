@@ -26,14 +26,13 @@ formatまたはPraTeX adapterは、次のclass固有hookへfont選択命令を�
 
 ## production出力までのengine依存
 
-2026-08-23の基点`dd1d775`にはclassが利用する`\kanjiskip`、`\xkanjiskip`、`zw`はあるが、
-次は未接続である。
+2026-08-23の統合枝では、横組JFM/TFMからwide glyph nodeとDVI `set2` / `set3`まで接続済みで
+ある。classを通常の和欧混植文書として使うには、次がなお必要である。
 
-1. `CjkToken`からJFM/TFM metric付きwide glyph nodeを作ること。
-2. classの日本語font hookから選べるPraTeX nativeなJFM/NFSS adapter。
-3. wide glyphをDVI `set2` / `set3` eventへ出すこと。
-4. K/X tableを中央spacing finalizerへ接続し、段落へ自動挿入すること。
-5. 実用品質には`xspcode`/`inhibitxspcode`、禁則、和文widow処理を加えること。
+1. classの日本語font hookから選べるPraTeX nativeなJFM/NFSS adapter。
+2. K/X tableとJFM pair adjustmentを中央spacing finalizerへ接続し、段落へ自動挿入すること。
+3. PDF backendへ和文glyph resourceを明示登録し、wide glyph eventを出力すること。
+4. 実用品質には`xspcode`/`inhibitxspcode`、禁則、和文widow処理を加えること。
 
 標準日本語組版をVaak/WASM callbackへ逃がさない。classのfont hookは組版判断を行わず、
 engineが所有するfont/glyph境界を選択するだけである。
