@@ -180,3 +180,47 @@ fn formatを読み直してもscantokensの意味を保つ() {
     assert!(log.contains("[\\scantokens]"), "{log}");
     assert!(log.contains("[FMT-SCAN]"), "{log}");
 }
+
+#[test]
+fn scantokensは二重上付き記法を再解釈する() {
+    let log = run_tex(
+        "double-superscript",
+        "\\catcode`\\@=13
+         \\def@{\\message{[CARET]}}
+         \\catcode`\\^=12
+         \\def\\payload{^^40}
+         \\catcode`\\^=7
+         \\expandafter\\scantokens\\expandafter{\\payload}",
+    );
+    assert!(log.contains("[CARET]"), "{log}");
+}
+
+#[test]
+fn newlinecharは生成時に固定しendlinecharは各行で読む() {
+    let log = run_tex(
+        "line-characters",
+        "\\catcode`\\@=13
+         \\def@{\\message{[OLD-END]}}
+         \\catcode`\\!=13
+         \\def!{\\message{[NEW-END]}}
+         \\newlinechar=`\\|
+         \\endlinechar=`\\@
+         \\scantokens{\\endlinechar=`\\!|\\relax}",
+    );
+    assert!(log.contains("[OLD-END] [NEW-END]"), "{log}");
+}
+
+#[test]
+fn 入れ子の疑似入力は行番号とeveryeofを独立させる() {
+    let log = run_tex(
+        "nested-lines",
+        "\\newlinechar=`\\|
+         \\everyeof{\\message{[EOF:\\the\\inputlineno]}}
+         \\scantokens{\\message{[OUTER-1]}\\scantokens{\\message{[INNER]}}|\\message{[OUTER-2]}}
+         \\message{[AFTER]}",
+    );
+    assert!(
+        log.contains("[OUTER-1] [INNER] [EOF:2] [OUTER-2] [EOF:3] [AFTER]"),
+        "{log}"
+    );
+}

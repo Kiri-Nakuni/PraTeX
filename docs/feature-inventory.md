@@ -45,15 +45,16 @@
 | 部分 | 内省 `\currentgrouplevel`、`\currentgrouptype`、`\currentiflevel`、`\currentiftype`、`\currentifbranch` | e-TeX番号で現在のgroupと条件状態を返す基本経路はあるが、`\unless`で開始した条件の`\currentiftype`が負にならない |
 | 実装 | `\lastnodetype` | node種類の追跡と内部整数化に加え、page→nested list→pageの復帰を保持する。空list、基本node型、page状態のfocused testを持つ |
 | 実装 | `\eTeXversion` | 内部整数として`2`を返す |
-| 部分 | `\everyeof` | 実fileの自然EOFだけで一度挿入し、`\endinput`では挿入しない。自然EOF内の次論理行番号も試験済み。`\scantokens`疑似fileは未達 |
+| 実装 | `\everyeof` | 実fileと`\scantokens`疑似fileの自然EOFだけで一度挿入し、`\endinput`では挿入しない。自然EOF内の次論理行番号も試験済み |
+| 部分 | `\scantokens` | 未展開general textを`\escapechar` / `\newlinechar`で文字化したtyped疑似fileへ積み、読取時catcode/kcatcodeと行ごとの`\endlinechar`で再字句化する。暗黙groupを作らず、`\everyeof`、`\endinput`、行番号、fmt、開始時のtracing snapshotを試験済み。raw byte 10/13、二段診断context、資源超過、`\pausing`監査は残る |
 | 実装 | `\readline` | `\read`と同じstreamから一行を読み、空白だけcatcode 10、その他をcatcode 12としてmacroへ定義する |
 | 実装 | `\interactionmode` | 0〜3を読み書きし、batch/nonstop/scroll/errorstopを実際のlogger状態へ反映する |
 | 実装 | register 0〜32767 | `count`、`dimen`、`skip`、`muskip`、`toks`、`box`の6種。0〜255は密、上位は使用分だけの疎storage。`\insert`は0〜254、box 255は別用途のまま |
 | 実装 | mark class 0〜32767 | `\marks`、`\topmarks`、`\firstmarks`、`\botmarks`、`\splitfirstmarks`、`\splitbotmarks`。page遷移、`\vsplit`、fmtを含む |
 | 実装 | 糊成分の照会と型変換 | `\gluestretch`、`\glueshrink`、`\gluestretchorder`、`\glueshrinkorder`、`\mutoglue`、`\gluetomu`。normal/fil/fill/filll、負値、零係数、数式糊の回復、fmtを扱う |
-| 表面のみ | tracing register | `\tracingassigns`、`\tracinggroups`、`\tracingifs`、`\tracingscantokens`、`\tracingnesting`は値の代入・group・fmtだけ。対応するtrace出力は未接続 |
+| 部分 | tracing register | `\tracingscantokens`は疑似fileの開始時に判定し、値が途中で変わっても対応する括弧を閉じる。他の`\tracingassigns`、`\tracinggroups`、`\tracingifs`、`\tracingnesting`は値の代入・group・fmtだけ |
 | 表面のみ | 組版制御register | `\predisplaydirection`、`\lastlinefit`、`\savingvdiscards`、`\savinghyphcodes`、`\TeXXeTstate`は値を保持するだけで、組版・discard保存・TeX--XeT動作は未接続。`\TeXXeTstate`だけはfmt読込時0へ戻す |
-| 未実装 | 疑似入力と表示 | `\scantokens`（[clean-room設計済み](scantokens-design.md)）、`\showtokens`、`\showgroups`、`\showifs`、`\eTeXrevision` |
+| 未実装 | 拡張表示 | `\showtokens`、`\showgroups`、`\showifs`、`\eTeXrevision` |
 | 未実装 | font・段落・math照会 | `\fontcharwd/ht/dp/ic`、`\parshapelength/indent/dimen`、`\middle` |
 | 未実装 | penalty配列とdiscard | `\interlinepenalties`、`\clubpenalties`、`\widowpenalties`、`\displaywidowpenalties`、`\pagediscards`、`\splitdiscards` |
 | 未実装 | TeX--XeT組版 | `\beginL`/`\endL`/`\beginR`/`\endR`、LR node/stack、区間反転、line packing、DVI/PDF shipout |
@@ -64,7 +65,8 @@
 [式試験](../tests/etexexpr.rs)、
 [mark試験](../tests/etex_marks.rs)、
 [糊成分試験](../tests/etex_glue.rs)、
-[糊変換試験](../tests/etex_glue_conversion.rs) である。仕様からの書き直し方は
+[糊変換試験](../tests/etex_glue_conversion.rs)、
+[`\scantokens`試験](../tests/etex_scantokens.rs) である。仕様からの書き直し方は
 [e-TeX移植記録](etex-port-notes.md)、完全性とTeX--XeTの監査は
 [e-TeXとTeX--XeTの対応状況](etex-texxet-status.md) に記録している。
 
@@ -216,9 +218,9 @@ runtimeは別MIT projectを依存として使う。PraTeX側からMITのVaakへG
 | 未実装 | `^^^^hhhh`、`^^^^^^hhhhhh` | TeX82の`^^`だけ。XeTeX/LuaTeX型の4/6 caret Unicode入力はない |
 | 未実装 | Web2C TCX input translation | `--translate-file`、`%& -translate-file`、`-8bit`、TCXの`xord/xchr/xprn`三表はまだない。既定UTF-8と分けたlegacy input profileは[文字identity roadmap](glyph-identity-roadmap.md)で設計のみ |
 | 未実装 | OTF/TrueTypeとRustyBuzz | dependencyもbackendもない。JFM/TFM出力基線後にdefault-offで接続し、PraTeX側はsafe Rust、依存のlicense・unsafe利用・binary sizeを採用前に監査する |
-| 未実装 | 完全なe-TeX | `\eTeXrevision`、`\scantokens`、`\showtokens`、`\showgroups`、`\showifs`、`\middle`、`\fontcharwd/ht/dp/ic`、`\parshapelength/indent/dimen`、各種penalty配列、`\pagediscards`、`\splitdiscards`、`\beginL/\endL/\beginR/\endR`などが残る |
+| 未実装 | 完全なe-TeX | `\eTeXrevision`、`\showtokens`、`\showgroups`、`\showifs`、`\middle`、`\fontcharwd/ht/dp/ic`、`\parshapelength/indent/dimen`、各種penalty配列、`\pagediscards`、`\splitdiscards`、`\beginL/\endL/\beginR/\endR`などが残る |
 | 部分 | 横組・縦組の日本語組版 | 横組JFM font、wide node、JFM pair、実node K/X、4文字禁則、box/line幅、DVI glyphまでのBuiltIn最小基線を実装。main-loop JFM、仮想K、完全JLReq、方向node、縦組が残る |
-| 未実装 | class/package互換の完成 | `jsarticle`、`jlreq`、`ltjsarticle`、`hyperref`を実用的に処理する保証はない |
+| 部分 | class/package互換 | 最小`article`に加え、公式KOMA-Script 3.49.2の最小`scrartcl`をerror 0のDVIまで実測。`jsarticle`、`jlreq`、`ltjsarticle`、`hyperref`を実用的に処理する保証はない |
 
 文字分類の実装済み境界と未実装部分は
 [拡張可能な文字分類器](character-classifier-extension.md) に分離している。

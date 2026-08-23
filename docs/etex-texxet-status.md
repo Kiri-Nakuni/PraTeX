@@ -4,8 +4,8 @@
 
 ## 結論
 
-PraTeXはe-TeXのmacro処理・拡張register・class別mark・式をかなり実装しているが、
-**e-TeX完全対応ではない**。組版、表示、discard、penalty配列、疑似入力に未実装が残る。
+PraTeXはe-TeXのmacro処理・拡張register・class別mark・式・typed疑似入力をかなり実装しているが、
+**e-TeX完全対応ではない**。組版、表示、discard、penalty配列に未実装が残る。
 TeX--XeTは二つの整数parameterを保存できるだけで、**組版機能としては未実装**である。
 
 この文書の「実装」は、primitive名が登録されているだけでなく、本来の処理へ接続され、
@@ -21,7 +21,8 @@ TeX--XeTは二つの整数parameterを保存できるだけで、**組版機能�
 | group/if内省 | 部分 | `\currentgroup*`、`\currentif*`は基本動作する。unless符号、複雑な入れ子、`\showgroups`、`\showifs`が残る |
 | 拡張register 0--32767 | 実装 | count/dimen/skip/muskip/toks/boxの局所・大域・別名・fmtを試験済み |
 | class別mark 0--32767 | 実装 | page遷移、`\vsplit`、class 0互換、fmtを試験済み |
-| `\readline`、`\everyeof` | 部分 | `\readline`は実streamへ接続済み。実fileの`\everyeof`は自然EOFだけで一度挿入し、`\endinput`では挿入しない。自然EOF内の行番号も試験済み。`\scantokens`疑似fileは未達 |
+| `\readline`、`\everyeof` | 実装 | `\readline`は実streamへ接続済み。実fileと`\scantokens`疑似fileの`\everyeof`は自然EOFだけで一度挿入し、`\endinput`では挿入しない。自然EOF内の行番号も試験済み |
+| `\scantokens` | 部分 | 未展開general textを一時fileなしのbounded疑似入力へ積む。生成時の`\newlinechar`、行ごとの`\endlinechar`、再分類、暗黙groupなし、入れ子走査、tracing snapshot、fmtをprocess試験済み。raw byte 10/13、二段診断context、資源超過、`\pausing`監査は残る |
 | 糊成分の照会と型変換 | 実装 | `\gluestretch`等4種と`\mutoglue`、`\gluetomu`を内部量へ接続。係数・次数・単位不一致回復・式・fmtを試験済み |
 | `\eTeXversion`、対話状態 | 部分 | `\eTeXversion=2`、`\interactionmode`、`\errorcontextlines`は動く。`\eTeXrevision`はない |
 | `\lastnodetype` | 実装 | 空list、基本node型、page→nested box→page復帰をprocess試験済み |
@@ -30,7 +31,7 @@ TeX--XeTは二つの整数parameterを保存できるだけで、**組版機能�
 | penalty配列 | 未実装 | `\interlinepenalties`、`\clubpenalties`、`\widowpenalties`、`\displaywidowpenalties`がない |
 | discard list | 未実装 | `\pagediscards`、`\splitdiscards`がない。`\savingvdiscards`は値だけを保存する |
 | math | 部分 | `\left`、`\right`はTeX82経路。e-TeXの`\middle`は未実装 |
-| tracing/show | 表面のみ／未実装 | tracing parameterは値だけ。`\showtokens`、`\showgroups`、`\showifs`と対応trace出力がない |
+| tracing/show | 部分／未実装 | `\tracingscantokens`は実出力へ接続済み。他のtracing parameterは値だけで、`\showtokens`、`\showgroups`、`\showifs`と対応trace出力がない |
 | その他の組版制御 | 表面のみ | `\lastlinefit`、`\savinghyphcodes`は処理本体へ未接続 |
 
 fmtの表現があることと、読み戻した値が全ての後段へ効くことは分けて検査する。現在の
@@ -58,16 +59,13 @@ left-to-right/right-to-left区間は公開意味論が異なるため、一つ�
 日本語組版を優先しつつ、後で同じ基盤を作り直さない順序を採る。
 
 1. `\currentiftype`のunless符号、protected alignment、`\iffontchar`回復、TeXXeT format既定offを直す。
-2. 実fileで分離済みの自然EOFと`\endinput`をtyped疑似入力へ広げ、
-   [`\scantokens`をboundedなvirtual input sourceとして実装](scantokens-design.md)し、
-   `\everyeof`、`\tracingscantokens`、nested token走査を一箇所へ接続する。
-3. `\fontchar*`を8-bit TFM専用APIにせず、TFM、将来のJFM、Unicode font metricを同じ
+2. `\fontchar*`を8-bit TFM専用APIにせず、TFM、将来のJFM、Unicode font metricを同じ
    typed query境界から参照する。
-4. parshape照会とpenalty配列を局所代入、fmt、line breakingまで実装する。JLReqの段落処理も
+3. parshape照会とpenalty配列を局所代入、fmt、line breakingまで実装する。JLReqの段落処理も
    同じ保存・照会基盤を利用できるようにする。
-5. `\eTeXrevision`と`\middle`を補う。
-6. discard保存、`\lastlinefit`、`\savinghyphcodes`、show/tracingを実処理へ接続する。
-7. TeX--XeTはrestricted hboxで方向node、LR stack、共通DVI/PDF shipoutまでを最初の縦sliceにし、
+4. `\eTeXrevision`と`\middle`を補う。
+5. discard保存、`\lastlinefit`、`\savinghyphcodes`、show/tracingを実処理へ接続する。
+6. TeX--XeTはrestricted hboxで方向node、LR stack、共通DVI/PDF shipoutまでを最初の縦sliceにし、
    次にparagraph、display、mathへ広げる。parameterだけ先に「対応済み」へ格上げしない。
 
 完全対応の完了条件は、公開e-TeX manualの全primitiveを一覧照合し、通常実行、group、

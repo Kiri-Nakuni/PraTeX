@@ -11,7 +11,8 @@ PraTeXは、tyti氏によるTeX82のRust再実装`rtex`を基礎に、現代的�
 ## 現在できること
 
 - TeX82の中核、formatの生成・読込み、DVI出力
-- e-TeXおよびpdfTeXの原始命令の一部
+- e-TeXおよびpdfTeXの原始命令の一部。e-TeXの`\scantokens`は一時fileを使わない
+  typed疑似入力として、動的catcode再走査、`\everyeof`、行番号、fmtまで接続済み
 - 他engineの版番号へ偽装しないPraTeX固有の識別子。開発中は
   `\pratexversion=0`、`\pratexrevision=0.1.0-dev`で、完成前に版1を名乗らない
 - `-output-format=pdf`による外部DVI driverを必要としないPDF直接出力
@@ -61,7 +62,13 @@ subset未実装中は意図的に拒否します。
 固定幅の実物`cmtt10.pfb`でも、map flags省略時の`/Flags 4`とPFB由来`/StemV 69`を確認して
 おり、AFMからflagsを暗黙に作り直しません。
 
-TRIPではDVIの全999 recordを復号した意味比較が公式結果と一致しています。ただし、
+公式KOMA-Script 3.49.2、Babel 26.9、hyph-utf8の英語patternによる標準英語構成を使った
+最小`scrartcl`も、無改変のclassでexit 0、log error 0、1 page / 332 bytesのDVIまで確認して
+います。検証用`language.dat`だけは英語と三つのaliasを列挙して生成したものです。
+`\scantokens`を持たない旧binaryではclass読込み中に未定義7件から77 errorsへ連鎖していました。
+
+`\scantokens` code checkpoint直前に得たTRIP DVIのhashは、独立decoderで全999 recordの
+意味差0を確認した既知正常値と一致しています。ただし、
 banner、診断、容量、拡張された範囲などのlog差まで解消したという意味ではありません。
 比較の条件と残差は [docs/trip-testing.md](docs/trip-testing.md) に記録しています。
 
@@ -71,27 +78,120 @@ PraTeX用に独立実装している途中なので、同じ完全回帰をま�
 
 ## 構築と実行
 
-Rust toolchainを用意し、このリポジトリのルートで実行します。
+Rust toolchainと通常のTeX Liveを用意し、`cargo`、`kpsewhich`、`dvipdfmx`へPATHを通します。
+PraTeXとVaakは同じ親directoryへ置いてください。`Cargo.toml`は兄弟directoryの`../vaak`を
+参照します。このリポジトリのルートで次を実行します。
 
 ```console
-cargo build --release --bin pratex
-cargo run --release --bin pratex -- '&plain' file.tex
+cargo build --release --locked --bin pratex
+cargo run --release --locked --bin pratex -- --quiet -- plain.tex '\dump'
+cargo run --release --locked --bin pratex -- --quiet -- '&plain' file.tex
 ```
+
+二行目がTeX Liveの`plain.tex`を探索し、同じPraTeX binary用の`plain.fmt`を現在directoryへ
+生成します。TeX Liveが配布する別engine用の`plain.fmt`をそのまま読み込ませないでください。
 
 既定の実行対象も`pratex`です。
 
 ```console
-cargo run --release -- '&plain' file.tex
+cargo run --release --locked -- '&plain' file.tex
 ```
 
 移行のため、従来名の`rtex` binaryもaliasとして残しています。
 
 ```console
-cargo run --release --bin rtex -- '&plain' file.tex
+cargo run --release --locked --bin rtex -- '&plain' file.tex
 ```
 
-format、TFM、LaTeX一式、fontは同梱していません。例えば`plain.fmt`を作るには、利用する
-`plain.tex`、`hyphen.tex`、TFMをローカルのTeX環境などから用意してください。
+TeX Live側のformat、TFM/JFM、標準LaTeX class・package、fontは同梱していません。
+PraTeX固有の`prjsarticle.cls`と実行例はrepositoryにあります。PraTeXはTeX Liveの`ls-R`と
+`kpsewhich`を段階的に利用して探索します。primitiveを追加・変更したPraTeXで古いformatを
+使わず、同じbinaryで作り直してください。現在format探索はlocal優先なので、生成した
+`latex.fmt`と文書は同じ作業directoryへ置くのが確実です。
+
+### 日本語横組みを実際に試す
+
+現在の通常経路は、TeX Liveの`upjisr-h.tfm`を使うDVI出力です。次のPowerShell例は
+PraTeX用`prjsarticle`、実行例、最小adapterを一時作業directoryへ揃え、現在のbinaryで
+`latex.fmt`を生成してから和欧混植文書を処理します。
+
+```powershell
+# 必要なTeX Live資材を先に確認する。
+kpsewhich latex.ltx
+kpsewhich hyphen.cfg
+kpsewhich upjisr-h.tfm
+kpsewhich upjisr-h.vf
+kpsewhich tcrm1000.tfm
+
+$repo = (Resolve-Path .).Path
+$pratex = (Resolve-Path target\release\pratex.exe).Path
+$demo = Join-Path ([IO.Path]::GetTempPath()) `
+  ("pratex-demo-" + [Guid]::NewGuid().ToString("N"))
+New-Item -ItemType Directory $demo | Out-Null
+
+Copy-Item -LiteralPath (Join-Path $repo 'tex\latex\pratex\prjsarticle.cls') `
+  -Destination $demo -Force
+Copy-Item -LiteralPath (Join-Path $repo 'docs\examples\prjsarticle-sample.tex') `
+  -Destination $demo -Force
+Copy-Item -LiteralPath (Join-Path $repo 'docs\examples\prjsarticle-upjisr-h-adapter.tex') `
+  -Destination (Join-Path $demo 'prjsarticle-test-adapter.tex') -Force
+Copy-Item -LiteralPath (Join-Path $repo 'docs\examples\upjisr-h.cidprofile') `
+  -Destination $demo -Force
+
+Push-Location $demo
+try {
+  # 同じbinaryでformatを作る。latex.fmtがこのdirectoryへ生成される。
+  & $pratex --quiet -- latex.ltx
+  if ($LASTEXITCODE -ne 0) { throw 'latex.fmt generation failed' }
+
+  # 日本語横組DVI。通常はこちらを組版確認の基準にする。
+  & $pratex --quiet -- '&latex' prjsarticle-sample.tex
+  if ($LASTEXITCODE -ne 0) { throw 'PraTeX DVI generation failed' }
+  dvipdfmx -o prjsarticle-sample-from-dvi.pdf prjsarticle-sample.dvi
+  if ($LASTEXITCODE -ne 0) { throw 'dvipdfmx failed' }
+
+  # 実験的な直接PDF。制約は直後の説明を参照する。
+  & $pratex --quiet --output-format=pdf `
+    --pdf-japanese-cid-profile=upjisr-h.cidprofile `
+    -- '&latex' prjsarticle-sample.tex
+  if ($LASTEXITCODE -ne 0) { throw 'PraTeX direct PDF generation failed' }
+} finally {
+  Pop-Location
+}
+```
+
+adapterは`\pratexjfont`でJFMを読み、`prjsarticle`の本文開始hookから和文fontを選びます。
+現段階の直接PDFは和文字形を埋め込まず、`HeiseiMin-W3`と`UniJIS-UCS2-H`を解決できる
+viewerに依存し、ToUnicodeも持ちません。可搬な表示確認にはDVIとTeX Liveの`dvipdfmx`を
+使ってください。
+
+### `scrartcl`の最小確認
+
+同じPowerShell sessionを続け、KOMA-ScriptもTeX Live側にあることを確認して、上で生成した
+同じ`latex.fmt`を使います。この
+最小例は上記の公式assetによる標準英語構成で、KOMA-Script 3.49.2のerror 0 DVIまで実測して
+います。
+
+```powershell
+kpsewhich scrartcl.cls
+kpsewhich keyval.sty
+Copy-Item -LiteralPath (Join-Path $repo 'docs\examples\scrartcl-minimal.tex') `
+  -Destination $demo -Force
+
+Push-Location $demo
+try {
+  & $pratex --quiet -- '&latex' scrartcl-minimal.tex
+  if ($LASTEXITCODE -ne 0) { throw 'scrartcl compilation failed' }
+} finally {
+  Pop-Location
+}
+```
+
+TeX Liveの標準`hyphen.cfg`を使ってformatを生成してください。試験専用の空の
+`tests/fixtures/prjsarticle/hyphen.cfg`はlanguage patternを意図的に持たないため、一般の
+KOMA-Script確認には使えません。
+終了code、log error、非空DVIまで自動検査する自己完結runnerは
+`pwsh -File tools/test-scrartcl.ps1 -PraTeXPath target/release/pratex.exe`です。
 
 ### 主な実行option
 
@@ -121,13 +221,20 @@ TeX Live探索の対応範囲、WSL境界、性能値は
 通常の回帰試験はsafe Rustのrelease buildで走らせます。
 
 ```console
-cargo test --release
+cargo test --release --locked --no-fail-fast
 ```
 
 PowerShell 7がある環境では、TRIP runnerも実行できます。
 
 ```powershell
 pwsh -File tools/run-trip.ps1
+```
+
+TeX Liveの標準言語設定で`latex.fmt`を作り直し、実物のKOMA-Scriptをerror 0まで検査する
+smoke runnerは次です。生成物はrepository外の一意な作業directoryへ置きます。
+
+```powershell
+pwsh -File tools/test-scrartcl.ps1 -PraTeXPath target/release/pratex.exe
 ```
 
 TRIP資材やLaTeX互換性確認用のCTAN資産はrepositoryへvendorしません。必要な試験でだけ

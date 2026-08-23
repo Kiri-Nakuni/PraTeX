@@ -1,11 +1,13 @@
 # `\scantokens` 疑似入力の設計
 
-更新: 2026-08-22
+更新: 2026-08-23
 
 ## 目的と状態
 
 この文書は、e-TeX の `\scantokens` を PraTeX へクリーンルーム実装するための
-意味論と所有境界を固定する。現在は**設計・黒箱監査まで完了、実装前**である。
+意味論と所有境界を固定する。2026-08-23にtyped疑似入力、自然EOF、fmt、tracingまで
+実装し、KOMA-Scriptが必要とする動的catcode再走査を実物で確認した。下の一覧のうち
+raw byte、診断context、資源超過などの未充足試験と`\pausing`の黒箱監査は引き続き残る。
 
 `\scantokens` は単なる `\detokenize` と token の差し戻しではない。未展開の
 general text を文字列へ戻した後、その文字列を file と同じ字句経路へ入れる。
@@ -239,7 +241,8 @@ shutdown のいずれでも一度だけ破棄する。実 file を疑似 source 
 生成は token 数と出力 byte 数に対して O(n)、各行を `LineLexer` の所有 `Vec<u8>` へ渡す
 コピーも全体で O(n) とする。`Vec<Vec<u8>>`、先頭からの `drain`、行ごとの全残量コピーは避ける。
 
-`Vec::push` が process OOM になるまで任せない。run-local `InputLimits` に少なくとも次を置く。
+`Vec::push` が process OOM になるまで任せない。最終的なrun-local `InputLimits` に少なくとも
+次を置く。
 
 ```text
 max_scantokens_bytes_per_source
@@ -257,6 +260,11 @@ source を積む時に live budget を加算し、EOF、強制終了、shutdown 
 明示し、CLI、daemon、将来のincremental実行でもrunごとに固定する。元の general text を
 収める `Vec<Token>` は既存 scanner の資源であるため、この budget が process 全体の完全な
 メモリ上限ではないことも記録する。
+
+2026-08-23の最初のproduction sliceは、専用moduleに明示した16 MiB/source、100万行/source、
+64 MiB/liveの固定上限を使う。`checked_add`、`try_reserve`、終了時charge回収は接続済みだが、
+共通run-local `InputLimits`とCLI/daemonからの設定は未実装である。固定値を互換仕様とはせず、
+構成可能にする時も一runの途中で値を変えない。
 
 ## performance 境界
 
@@ -318,24 +326,24 @@ process-level試験のログは79桁で折り返されるため、既存 `join_l
 raw byte、空行、line iterator は unit test、EOF、context、fmt、入れ子は process-level test に
 分ける。
 
-## 実装を分ける commit
+## 実装履歴と残件
 
-安全にreviewできる単位は次の三つである。commit文は作業内容でなく、意味を分ける理由を書く。
+安全にreviewできる単位を次の三つに分けた。commit文は作業内容でなく、意味を分ける理由を書く。
 
-1. `自然EOFだけをフックにする：endinputと行番号を実入力で分離する`
+1. **完了 (`1d54445`)** `自然EOFだけをフックにする：endinputと行番号を実入力で分離する`
 
    実 file の `force_eof` と自然 EOF を分け、自然 EOF 行番号、外側 source の context 行番号を
    先に直す。疑似 source が誤った既存意味を共有するのを防ぐ。
 
-2. `再字句化を実fileへ逃がさない：型付き疑似入力を入力stackへ統合する`
+2. **完了 (`d90e98f`)** `KOMAが動的分類で再走査するため疑似入力を型付きで積む`
 
    typed buffer、`PseudoFile`、primitive、nested scan、`\everyeof`、trace、fmt、focused test を
    一緒に入れる。名前だけ存在する半実装の primitive を commit 間に残さない。
 
-3. `疑似入力の互換境界を推測に戻さない：観測と資源上限を記録する`
+3. **進行中** `疑似入力の互換境界を推測に戻さない：観測と資源上限を記録する`
 
    この設計、clean-room観測、機能一覧、資源上限、既知の全体token-memory境界を更新する。
 
-各 code commit 後に focused test、`cargo test --release --locked --no-fail-fast`、TRIP の
-normalized差分を確認する。`\scantokens` は TeX82 にないため、TRIP の意味差分を増やしては
-ならない。
+focused test、plain欧文DVI回帰、全releaseは通過済みである。TRIPはこのcode checkpoint後には
+未再実施であり、次の統合gateでnormalized差分を再確認する。`\scantokens` はTeX82にないため、
+TRIPの意味差分を増やしてはならない。

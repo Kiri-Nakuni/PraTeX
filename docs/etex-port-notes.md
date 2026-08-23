@@ -24,10 +24,11 @@ token-list input source を積む。読み終えた後に元のファイル入�
 通常どおり閉じる。この順なら既存のrunaway検査は `\everyeof` の後になる。
 
 子ファイルを読む統合試験で、本文の後、閉じ括弧がログへ出る前に一度だけ実行される
-ことを固定した。実fileでは自然EOFと`\endinput`によるforce EOFを分離し、後者では
-`\everyeof`を挿入しない。自然EOFの読取試行ではsource-local行番号を次の論理行へ進める。
-`\scantokens`の疑似fileはまだ未接続である。過去のLaTeX停止点やrelease件数は現在地の
-判定に使わず、[e-TeX/TeX--XeT監査](etex-texxet-status.md)を優先する。
+ことを固定した。実fileと`\scantokens`疑似fileでは自然EOFと`\endinput`によるforce EOFを
+分離し、後者では`\everyeof`を挿入しない。自然EOFの読取試行ではsource-local行番号を次の
+論理行へ進める。疑似fileはtyped bufferから通常の行字句器へ逐次入り、入れ子・fmtも試験済み。
+過去のLaTeX停止点やrelease件数は現在地の判定に使わず、
+[e-TeX/TeX--XeT監査](etex-texxet-status.md)を優先する。
 
 ## `\readline`
 

@@ -21,11 +21,12 @@
 ## 枝と共有状態
 
 - 枝: `codex2/jlreq-script-spacing`
-- 日本語CID PDF統合前のpush済みcheckpoint: `0f3c51e`（歴史的基点は`6ce8315`）
+- push済み`\scantokens` code checkpoint: `d90e98f`（歴史的基点は`6ce8315`）
 - 日本語CID PDFの検証済み元commit: `8035d1c`
 - 基点のrelease全suite: **564 passed、0 failed、6 ignored**（Vaak `89804b4`）
-- 現在の統合枝release全suite: **652 passed、0 failed、7 ignored**
+- 現在の統合枝release全suite: **665 passed、0 failed、7 ignored**
 - 直近の共有commit:
+  - `d90e98f`: KOMAが必要とする`\scantokens`をtyped疑似入力へ接続
   - `9118097`: JFM/K/X/最小禁則finalizerを実hlistへ統合
   - `801784a`: PraTeX自身のWASI target生成結果と未達ABI境界を統合
   - `51b1e95`: 横組JFM glyphのnamed CID PDF基線を統合
@@ -282,23 +283,44 @@ engine内部IDを分け、標準日本語ではVaak/WASM call 0、組版中のal
 
 Unicode差分も`src/eqtb.rs`を触るため、安全なcheckpointを優先して同じcommitへ収めた。
 
-## 完了済み設計: `\scantokens`
+## 完了済みproduction slice: `\scantokens`と最小`scrartcl`
 
-状態: **設計commit・push済み、code未着手**。
+状態: **`d90e98f`で実装・commit・push済み**。
 
 - 文書: `docs/scantokens-design.md`
-- commit: `eda7dd1`
+- 設計commit: `eda7dd1`
+- 実装commit: `d90e98f`
 
-次のcodeは三段に分ける。
+実装済みの境界:
 
-1. **済み:** 実fileの自然EOFと`\endinput`を分離し、自然EOF内の行番号を次の論理行へ進める。
-   外側context行番号の複雑な入れ子診断は疑似input接続時にも再検査する。
-2. raw byte 10/13と論理改行を分けたtyped疑似inputを既存input stackへ統合する。
-3. clean-room観測、資源上限、機能一覧を同期する。
+- general textは`nested_scan_toks`で未展開のまま取り、外側の`def_ref`を壊さない。
+- 文字byteと論理改行を分けた`PseudoText`を既存`LineLexer`へ一行ずつ渡す。
+- `newlinechar`は生成時、`endlinechar`は各行読取時、catcode/kcatcodeは再字句化時の現在値を使う。
+- 暗黙groupを作らず、KOMAが行う先頭`\endgroup`後の同一行`#`再分類を許す。
+- 実fileと疑似fileの自然EOFだけで`\everyeof`を一度挿入し、`\endinput`では挿入しない。
+- nested line number、tracing開始時snapshot、fmt往復、16 MiB/source・100万行/source・
+  64 MiB/liveの明示上限を持つ。
 
-疑似入力を一時fileへ書かず、単一byte buffer＋行末offsetで所有する。`\everyeof`は自然EOFだけ、
-`\endinput`では発火しない。`newlinechar`は生成時、`endlinechar`は各行読取時である。
-詳細と20個の必須回帰は設計文書を読むこと。
+公式KOMA-Script 3.49.2、Babel 26.9、hyph-utf8英語patternと試験生成した英語aliasの
+`language.dat`で、無改変`scrartcl`最小文書はexit 0、logの`^!` 0件、DVI 1 page / 332 bytes。
+DVIのSHA-256は`d1d2085d21aaf95eb135e3e17f7bda2177c2417efcd5dde19f9b57749622eed5`。
+旧binaryは`\scantokens`未定義7件から77 errors・36 pagesへ崩れた。新実装を空の
+`tests/fixtures/prjsarticle/hyphen.cfg`で試すと`\languagename`未定義由来の36 errorsだけが残るため、
+このstubをKOMA gateへ使わない。TeX Live前提runnerは`tools/test-scrartcl.ps1`。
+
+2026-08-23取得の追加CTAN資材は次である。`language.dat`だけは`english`と
+`usenglish` / `USenglish` / `american` aliasの4行を試験側で生成し、公式assetとは数えない。
+
+| asset | bytes | SHA-256 |
+|---|---:|---|
+| [KOMA-Script 3.49.2](https://mirrors.ctan.org/install/macros/latex/contrib/koma-script.tds.zip) | 9,470,014 | `a9d25d9dbdf7b43842bcb94b6fcef18762d4d7730583c019494b4f5e50995993` |
+| [latex-graphics 2026-06-01](https://mirrors.ctan.org/install/macros/latex/required/latex-graphics.tds.zip) | 3,088,829 | `285842279287adea831ec9019f3b766d91a89d4ee742bcb436ebe7982ad2e684` |
+| [Babel/base 26.9](https://mirrors.ctan.org/install/macros/latex/required/babel-base.tds.zip) | 4,071,520 | `4ad3c8e93a20b9dc3ee1437f3063098bab5168abc3e06350900229bd1fefed8b` |
+| [hyph-utf8 2026-02-21](https://mirrors.ctan.org/install/language/hyph-utf8.tds.zip) | 4,737,241 | `d4768692494d8e9b8585cdd8a64edec43c9b9310af55c7414a7004c56ef855fc` |
+
+未完了なのはraw byte 10/13、二段error context、実fileを挟む入れ子、資源超過、`\pausing`の
+追加black-boxと、固定上限を共通run-local `InputLimits`へ移す構成面である。詳細な20項目は
+設計文書を読むこと。
 
 ## 完了済み実験: `ls-R`のsafe Rust表現
 
@@ -362,7 +384,7 @@ Claude `82fa3a2`のLinux perf分解:
    LaTeXのpTeX分岐を再測定する。
 2. JFM/禁則をmain-loop早期挿入へ移し、仮想Kとbox/disc境界を完成する。
 3. `\tfont`と縦組metric/node/outputを追加し、spacingと禁則を横組から縦組へ広げる。
-4. LaTeXが次に要求した時点で`\scantokens`を設計どおり実装する。
+4. `\currentiftype`、protected alignment、font照会、penalty/discard/show等のe-TeX残件を進める。
 
 日本語の最低線は横組smokeではなくpTeX相当とJLReq native対応であり、縦組を含む。縦中横と
 割注は2026-08-23に案Bへ決定した。coreでは縦中横を固定`InlineObject`、割注を分割可能な
@@ -385,7 +407,7 @@ pwsh -NoProfile -File tools/run-trip.ps1
 
 2026-08-23の既知正常値（TRIPは統合したspacing元枝で実測）:
 
-- 現在の統合枝release: 652 passed、0 failed、7 ignored
+- 現在の統合枝release: 665 passed、0 failed、7 ignored
 - TRIP Stage1/Stage2 exit 0
 - `tripos.tex`正規化後一致
 - DVI SHA-256: `b20af20a1463c6846f0c4c1ce687cd6354ce1a5f65ee401507627570787ae9fe`

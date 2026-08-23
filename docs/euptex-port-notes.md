@@ -143,14 +143,14 @@ U+2E7F 以下でも `15..20` と表示される。この回復も回帰試験へ
 | 1b | 疎レジスタ（0–32767） | **済**（低位密＋高位疎、6種、挿入番号は別型） |
 | 1c | e-TeX のmark class（0–32767） | **済**（class 0は従来状態、非0は疎表、pageと`\vsplit`） |
 | 1d | e-TeX の糊成分問い合わせと型変換 | **済**（伸縮の係数と次数、`\mutoglue` / `\gluetomu`、通常糊・数式糊・式・fmt） |
-| 2 | e-TeX の**字句系** | **一部済**（`\detokenize` `\unexpanded` `\readline` `\protected` `\everyeof`。`\scantokens` は未） |
+| 2 | e-TeX の**字句系** | **一部済**（`\detokenize` `\unexpanded` `\readline` `\protected` `\everyeof` `\scantokens`。拡張表示等は未） |
 | 3 | e-TeX の**内省** | **一部済**（`\currentgroup*` `\currentif*` `\lastnodetype` `\iffontchar`。`\fontchar*` `\showgroups` `\showtokens` 等は未） |
 | 4a | **Unicode block 分類表と `\kcatcode`**（代入・group・fmtまで） | **済**（U+10FFFFまで） |
 | 4b | **UTF-8 字句解析と CJK文字 token**（`16`〜`20`を一文字一token、分類をtokenへ固定） | **済**（typed制御綴、条件・展開・表示・fmtまで。JFM/文字nodeは後段） |
 | 4c | **Unicode欧文 token とpattern alphabet**（`14`を一文字一token、cat/lc/uc/sf・case・active・fmt・hyphen trieまで） | **済**（U+0080〜U+2E7F。wide font nodeとnamespaced Unicode active生成は後段） |
-| 5 | **JFM**（和文フォントの寸法表）と `\jfont` | **進行中**（公開仕様だけによるbounded reader、横/縦・24-bit code・現行glue/kern拡張・直接class対表まで。font選択とscale接続は未） |
-| 6 | **Unicode 文字 node と DVI `set2` / `set3`** | 未 |
-| 7 | **`\kanjiskip` / `\xkanjiskip`** とscript class対spacing | **着手**（通常glue parameter面とfmtまで。自動挿入、xsp/inhibit、JFM接続は未） |
+| 5 | **JFM**（和文フォントの寸法表）と `\jfont` | **横組一部済**（bounded reader、24-bit code、選択sizeへのscale、current和文font、class対glue/kernまで。縦組と完全互換は未） |
+| 6 | **Unicode 文字 node と DVI `set2` / `set3`** | **横組一部済**（wide node、line/box、DVI glyphと座標まで。縦組は未） |
+| 7 | **`\kanjiskip` / `\xkanjiskip`** とscript class対spacing | **横組一部済**（通常glue parameter、fmt、JFM pair優先、K/X自動挿入まで。xsp/inhibit/auto switch、仮想K、box/disc境界は未） |
 | 8 | **禁則**（`\prebreakpenalty` / `\postbreakpenalty` / `\inhibitxspcode`） | 未 |
 | 9 | **縦組**（dir ノード） | 未。**ここが一番遠い** |
 
@@ -159,10 +159,9 @@ U+2E7F 以下でも `15..20` と表示される。この回復も回帰試験へ
 `dehypht-x-2024-02-28.pat`の`.buß3`に対する`Nonletter`である。一時的な空`hyphen.cfg`で
 pattern読込みだけを隔離すると、無改変`latex.ltx`はerror 0で`latex.fmt`をdumpした。
 段4cでこの`.buß3`自体は解消した。通常のLaTeX wrapperが参照する`\kanjiskip`は、一級の
-glue parameterとして追加したためpTeX分岐へ入る検出面は整った。TeX Liveを持たない現在環境で
-公式資材を用いた再測定と、script class対の実spacing、JFM接続は次段である。
-ASCIIの`ushyph1.tex`だけでformatを作れた過去の測定と、通常TeX Live探索でUnicode patternを
-読めない現状を混同しない。
+glue parameterとして追加したためpTeX分岐へ入る検出面は整った。その後、公式CTAN資材で
+無改変`latex.ltx`のfmt生成をerror 0まで再測定し、script class対の横組spacingとJFM接続も
+最小production経路へ入れた。完全JLReq、xsp/inhibit、縦組はなお次段である。
 
 `.buß3`を通す最小条件は`LatinUcs`をUTF-8 byte列へ戻さない一文字token、Unicode cat/lccode表、
 Unicode文字を扱うpattern alphabet/trie、byte数でなく文字数を数える上限である。実段落の

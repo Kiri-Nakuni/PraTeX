@@ -13,9 +13,10 @@ PraTeX側が必要とするAPIは `src/vaak.rs`、`docs/vaak-embedding-api-desig
 `for_CLAUDE.md` に契約として残し、Vaak側の変更はClaudeに伝える。
 
 通常作業の枝は **`codex2/<目的>`** とする。現在の統合枝は
-`codex2/jlreq-script-spacing`であり、2026-08-23のpush済みroot checkpointは`4f832b1`。
+`codex2/jlreq-script-spacing`であり、2026-08-23のpush済み`\scantokens` code checkpointは
+`d90e98f`。
 横組JFM glyphのfocused枝は`codex2/japanese-glyph-dvi`で、そのcheckpointを取り込み済みである。
-横組JFM/K/X/最小禁則のproduction finalizerは`codex2/japanese-spacing-finalizer`で検証する。
+横組JFM/K/X/最小禁則のproduction finalizerも`9118097`で取り込み済みである。
 `main`は歴史的基点として触らない。`full`へ直接実装はせず、focused test、全release、必要な
 TRIP/DVI・PDF意味比較を通して十分に固まった機能checkpointを`codex2/*`から順次mergeする。
 設計文書だけ、production未接続、既知の意味退行があるsliceは`full`へ送らない。
@@ -175,11 +176,12 @@ cargo test --release --locked --no-fail-fast
 **564 passed、0 failed、6 ignored**。ignoredは実TeX Live、配布JFM、doctestの手動照合である。
 機能追加ではfocused testを先に通し、その後に全release、必要ならTRIPとDVI/PDF意味比較を行う。
 現在のK/X、script spacing、TeXXeT fmt、横組JFM glyph、開発版識別、`prjsarticle` slice、
-BuiltIn最小spacing finalizer、named CID PDF、実時刻、WASI target監査を含む統合枝は
-**652 passed、0 failed、7 ignored**（2026-08-23）である。
-同日の公式CTAN TRIPも両段exit 0、`tripos.tex`一致、DVI hashは既知正常値
+BuiltIn最小spacing finalizer、named CID PDF、実時刻、WASI target監査、`\scantokens`と
+追加回帰を含む統合枝は **665 passed、0 failed、7 ignored**（2026-08-23）である。
+`\scantokens` code checkpoint前に同日実施した公式CTAN TRIPは両段exit 0、`tripos.tex`一致、
+DVI hashは既知正常値
 `b20af20a1463c6846f0c4c1ce687cd6354ce1a5f65ee401507627570787ae9fe`を維持した。
-このmachineにはDVItypeが無いため、今回のrecord意味比較はhash一致で代替している。
+このmachineにはDVItypeが無いため、その測定時のrecord意味比較はhash一致で代替している。
 
 plain formatの欧文DVIは`origin/main`のrTeXにopcode・座標を含めて完全回帰させる。
 TRIP再現用の単精度`glue_set`境界は`trip` featureだけへ閉じ込める。通常版の基準fixtureでは
@@ -199,6 +201,10 @@ cold/warmとhit/missを同じfixtureで測る。
 4. `GroupType`は並び順で写さない。PraTeXにはTeXにない`AlignEntry`がある。
 5. logは79桁で折り返す。試験照合には`join_log`を使う。
 6. fmtへrun-local provider ID、pointer、WASM handle、cache世代を保存しない。
+7. `\scantokens`の疑似入力は暗黙groupを作らず、同じ行の途中でも現在のcatcodeを使って
+   逐次再字句化する。引数を一括tokenizeしたり、一時fileへ逃がしたりしない。
+8. `tests/fixtures/prjsarticle/hyphen.cfg`はlanguage patternを意図的に省いた試験stubである。
+   KOMA-ScriptのgateにはTeX Liveの標準`hyphen.cfg`を使い、同じbinaryでfmtを再生成する。
 
 ---
 
@@ -215,15 +221,17 @@ cold/warmとhit/missを同じfixtureで測る。
   横組BuiltIn最小finalizerはJFM pair、K/X、`、。）（`の4文字禁則を由来付き実nodeとして
   hbox、段落、alignment、line break、DVIへ接続する。JFM/禁則もlist-close、Kも可視glueの
   correctness checkpointであり、xsp/inhibit/auto switch、仮想K、box/disc境界は未実装。
-- `\readline`、`\interactionmode`、mark class、糊成分・型変換は実装済み。`\everyeof`は
-  実fileの自然EOFだけで一度発火し、`\endinput`では発火しない。`\scantokens`疑似fileは未接続。
+- `\readline`、`\interactionmode`、mark class、糊成分・型変換は実装済み。`\scantokens`は
+  boundedなtyped疑似fileとして接続済みで、実file・疑似fileとも`\everyeof`は自然EOFだけで
+  一度発火し、`\endinput`では発火しない。fmtとKOMA-Scriptの動的catcode経路も試験済み。
 - `\TeXXeTstate`はfmt読込時0へ戻るが、LR組版自体は未実装。
 - 生文字列registerは`docs/raw-string-registers.md`に契約があるだけで、`\rawstring`、
   `\rawstringdef`、`\therawstring`、専用`\showthe`、storage、fmt、production testは未実装。
   font mapが生byteを保存する既存処理は、このregister機能の実装ではない。
 - 横組JFMはbounded loader、TeX互換scale、current和文font、`\pratexjfont`と意味が一致する
   範囲の`\jfont` alias、`zw`/`zh`、wide node、class pair、DVI `set2`/`set3`まで接続済み。
-  `\tfont`、縦組、main-loop JFM/完全禁則、PDF和文glyphは未接続。
+  `\tfont`、縦組、main-loop JFM/完全禁則は未接続。PDF和文glyphは明示named CID profileを
+  使う非埋込みBMP最小経路だけ接続済みで、portableな字形表示ではない。
 - plain formatで`\directvaak`、`\vaakdef`、`let` / `var`、host aliasを使う実行例は
   `examples/plain-vaak.tex`。静的失敗はprepare段階・行・桁・診断本文を表示して0へ展開する。
 - PDF直接出力、Type 1全埋込み、`ls-R`/`kpsewhich` resolverは部分実装済み。
@@ -238,7 +246,8 @@ cold/warmとhit/missを同じfixtureで測る。
 3. compile済み汎用script class対tableをlist単位dispatcherと中央finalizerへ接続する。
 4. `\tfont`と縦組metric/node/outputを追加し、JFM/K/X/禁則を横組から縦組へ広げる。
 5. kpathsea互換resolverをrun-global化し、native path解決を広げて通常の子process呼出しをなくす。
-6. LaTeXが実際に要求した境界で`\scantokens`等のe-TeX残件を設計どおり実装する。
+6. `\currentiftype`のunless符号、protected alignment、font照会、penalty/discard/showなどの
+   e-TeX残件を公開仕様どおり実装する。
 7. PraTeX-native package adapterを順に通し、PDF直接出力をOTFより先に完成する。
 8. Vaak table uploadとversion付きWASM ABIは、内部表現を固定した段階から並行して適合試験を作る。
 9. WASM target自体のcompile実験と性能調整は、横組みcheckpoint後に行う。

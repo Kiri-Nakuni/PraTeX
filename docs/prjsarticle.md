@@ -26,13 +26,14 @@ formatまたはPraTeX adapterは、次のclass固有hookへfont選択命令を�
 
 ## production出力までのengine依存
 
-2026-08-23の統合枝では、横組JFM/TFMからwide glyph nodeとDVI `set2` / `set3`まで接続済みで
-ある。classを通常の和欧混植文書として使うには、次がなお必要である。
+2026-08-23の統合枝では、横組JFM/TFMからwide glyph node、JFM/K/X finalizer、DVI
+`set2` / `set3`、明示profileによる非埋込みnamed CID PDFまで接続済みである。classを通常の
+和欧混植文書として使うには、現在は次の境界が残る。
 
-1. classの日本語font hookから選べるPraTeX nativeなJFM/NFSS adapter。
-2. K/X tableとJFM pair adjustmentを中央spacing finalizerへ接続し、段落へ自動挿入すること。
-3. PDF backendへ和文glyph resourceを明示登録し、wide glyph eventを出力すること。
-4. 実用品質には`xspcode`/`inhibitxspcode`、禁則、和文widow処理を加えること。
+1. classの日本語font hookへJFMを選ぶPraTeX native adapterをformat側で標準提供すること。
+2. `xspcode` / `inhibitxspcode` / auto switch、仮想K、box/disc境界を完成すること。
+3. 4文字subsetを越えるJLReq禁則、和文widow処理、縦組を加えること。
+4. PDFへ和文字形を埋め、ToUnicodeとfont subsetを持つportableな出力にすること。
 
 標準日本語組版をVaak/WASM callbackへ逃がさない。classのfont hookは組版判断を行わず、
 engineが所有するfont/glyph境界を選択するだけである。
@@ -98,6 +99,10 @@ pwsh -File tools/test-prjsarticle.ps1 `
 
 adapterは`prjsarticle-test-adapter.tex`という試験時の名前で隔離rootへコピーする。
 classや公式LaTeX sourceをpatchせず、他engine identityも定義しない。
+
+ただし現在の固定asset manifestには`uptex-fonts`のJFMと`tcrm1000.tfm`がまだなく、上の
+`-CompileSample`だけでは代表sampleを自己完結して実行できない。実物を試す現行手順は
+repositoryのadapterとTeX Liveの`upjisr-h.tfm`を使う[README](../README.md)を優先する。
 
 固定資材は次のとおり。archiveそのものはrepositoryへ入れない。
 
