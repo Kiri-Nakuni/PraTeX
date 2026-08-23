@@ -390,10 +390,15 @@ Claude `82fa3a2`のLinux perf分解:
 
 ## LaTeXと日本語組版の次順
 
-1. 固定10ptの`pratex-japanese`をNFSSのsize/family/seriesと任意JFMへ一般化する。
-2. JFM/禁則をmain-loop早期挿入へ移し、box edgeのmaterial Kとdisc境界を完成する。
-3. `\tfont`と縦組metric/node/outputを追加し、spacingと禁則を横組から縦組へ広げる。
-4. `\currentiftype`、font照会、penalty/discard/show等のe-TeX残件を進める。
+`968d1e7`で`pratex-japanese`を和文encoding/family/series/shape、exact JFM shape、
+NFSS size cache、従属欧文relationへ一般化した。Declareはglobal、Setはgroup-local、Useは
+次の`\selectfont`一回だけで、`prjsarticle`のbody/title/headingは通常hook列でなくこの宣言面を使う。
+size function、shape substitution、縦組directionとpLaTeX互換名はまだない。
+
+1. JFM/禁則をmain-loop早期挿入へ移し、box edgeのmaterial Kとdisc境界を完成する。
+2. `\tfont`と縦組metric/node/outputを追加し、spacingと禁則を横組から縦組へ広げる。
+3. discard/show/tracing等のe-TeX残件とTeX--XeTのLR組版を進める。
+4. 同一corpusでhot pathを測り、意味を変えないsafe Rustの性能改善をcheckpointごとに入れる。
 
 日本語の最低線は横組smokeではなくpTeX相当とJLReq native対応であり、縦組を含む。縦中横と
 割注は2026-08-23に案Bへ決定した。coreでは縦中横を固定`InlineObject`、割注を分割可能な

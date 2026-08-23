@@ -74,9 +74,13 @@ font load時に、検証済みJFM programの全class対を選択sizeへscaleし�
 raw code表やJFM programを再解釈しない。異なるfont instance間ではclass対表を横断せずKへ戻る。
 
 2026-08-23のproduction checkpointでは、JFM glue/kern、`\kanjiskip`、`\xkanjiskip`、
-4文字だけのBuiltIn禁則をhbox、段落、alignment cell、line breaking、DVI座標へ接続した。
+4文字のBuiltIn禁則をhbox、段落、alignment cell、line breaking、DVI座標へ接続した。
 自動nodeはJFM/K/X/禁則ごとのprovenanceを持ち、unbox後の再finalizeで利用者の明示nodeを
 消さずに再生成する。
+
+2026-08-24には禁則表をW3C JLReq Table 2とAppendix A.1/A.2から選んだ`、。`と横組括弧
+12対へ広げた。ASCII括弧、欧文引用符、guillemet、縦組限定文字はこのbounded subsetへ
+混ぜない。完全なJLReq文字class、main-loop早期挿入、box/disc境界は引き続き未実装である。
 
 ただしJFM/禁則も現段階ではlist-closeでmaterializeするcorrectness sliceであり、
 main loop中の`\unskip` / `\lastnodesubtype`のpTeX意味は未完成である。直結glyph間Kは
@@ -117,7 +121,7 @@ cargo test --release 'jfm::tests::配布jfm九十六件をすべて読む' --lib
 
 - `\tfont`、縦組JFMのmetric解釈、方向つきwide nodeとDVI/PDF出力
 - JFM/禁則のmain-loop早期挿入、disc非空三分岐の条件付きspacing境界
-- 4文字subsetを越える禁則、ぶら下げ、行長調整を含むJLReq規則
+- 現在の句読点＋横組括弧12対を越える禁則、ぶら下げ、行長調整を含むJLReq規則
 - PDFの日本語font resource、OTF/TrueType、default-off RustyBuzz
 
 横組glyphと最小spacingが一頁出ることも日本語組版対応を意味しない。上記を横・縦とも接続し、black-boxの

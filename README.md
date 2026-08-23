@@ -262,10 +262,13 @@ try {
 }
 ```
 
-`pratex-japanese`は一般classをPraTeX上で横組JFMへ接続する明示packageです。初版は
-`upjisr-h at 10pt`だけを選ぶため、NFSSの`\small`、`\large`、`\Large`などを使っても
-和文glyphは10ptのままです。実測でも「日本」のbox幅は三サイズとも20.0ptでした。
-自動的なJFMサイズ追随、family/series対応、縦組font選択は未実装です。
+`pratex-japanese`は一般classをPraTeX上で横組JFMへ接続する明示packageです。和文側にも
+encoding / family / series / shapeの独立した属性を持ち、宣言したJFMをNFSSの現在sizeへ
+exact spで追随させます。同じJFMとsizeはcacheを共有し、group終了後は外側の和文属性へ戻ります。
+また、和文属性から欧文NFSS属性を選ぶPraTeX固有のrelation font APIを持ちます。
+`prjsarticle`の本文・表題・見出しはこの宣言面を使い、和文hookと欧文hookを手続き的に並べません。
+現段階ではexact shape宣言だけで、NFSSのsize function、shape substitution、縦組font選択は
+未実装です。公開APIと制約は[prjsarticleの設計](docs/prjsarticle.md)を参照してください。
 `upjisr-h.tfm`が探索できない場合は、文書中のCJK文字を処理する前にpackage読込み位置で
 `JFM file was not found`と診断します。
 
@@ -348,8 +351,8 @@ packageは実装の資料として写さず、互換性を測る外部入力と�
 ## 未完成の領域
 
 - e-TeXおよびpdfTeX原始命令の残りと、広範なclass/packageを処理するLaTeX2e互換性
-- `\tfont`と縦組JFM、JFM/禁則のmain-loop早期挿入、仮想K、
-  4文字subsetを越えるJLReq禁則、box/disc境界、縦組PDF和文glyph
+- `\tfont`と縦組JFM、JFM/禁則のmain-loop早期挿入、box/disc境界、
+  現在の句読点と横組括弧12対を越えるJLReq禁則、縦組PDF和文glyph
 - 埋込み和文font、OTF／TrueType、ToUnicode、font subsetを含むportableなPDF font処理
 - `texmf.cnf`、全path expression、alias、`mktex*`を含むkpathseaの完全な互換性
 - `jsarticle`、`jlreq`、`ltjsarticle`、`hyperref`を実用的に動かすための互換層

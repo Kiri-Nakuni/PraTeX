@@ -218,7 +218,7 @@ cold/warmとhit/missを同じfixtureで測る。
   LaTeX2e 2026-06-01と`expl3-code.tex`を完走し、`latex.fmt`をerror 0でdumpした。
   これは一般のclass/package互換性やLaTeX DVIの完全回帰を保証しない。
 - `\kanjiskip` / `\xkanjiskip`の通常glue parameter面と、検証済みscript class対tableは実装済み。
-  横組BuiltIn最小finalizerはJFM pair、K/X、`、。）（「」`の6文字禁則を由来付き実nodeとして
+  横組BuiltIn最小finalizerはJFM pair、K/X、`、。`とJLReq由来の横組括弧12対の禁則を由来付き実nodeとして
   hbox、段落、alignment、line break、DVIへ接続する。auto switch、`xspcode`、
   `inhibitxspcode`はtyped eqtb、群・`globaldefs`、fmt、中央finalizerへ接続済み。直結和文glyph間の
   Kは公式e-upTeXのblack-box結果に合わせた仮想nodeとなり、寸法・改行・DVIには効く一方、
@@ -230,12 +230,16 @@ cold/warmとhit/missを同じfixtureで測る。
   Close/Open spacing、fmt/error回復をprocess試験する。`\scantokens`はboundedな
   typed疑似fileとして接続済みで、実file・疑似fileとも`\everyeof`は自然EOFだけで
   一度発火し、`\endinput`では発火しない。fmtとKOMA-Scriptの動的catcode経路も試験済み。
+- `\interlinepenalties`、`\clubpenalties`、`\widowpenalties`、
+  `\displaywidowpenalties`は局所／大域代入、内部照会、fmt、通常段落とdisplay直前の
+  post-line-break nodeまで接続済み。discard保存は未実装。
 - `\TeXXeTstate`はfmt読込時0へ戻るが、LR組版自体は未実装。
 - 外向きWASM provider ABI 0.0は、version range、required/optional feature、capability、
   operationのruntime非依存交渉を`src/wasm_provider_abi.rs`へ、固定envelope、section集合、
   mailbox範囲、transport返値、lease上限のbyte codecを`src/wasm_wire_v0.rs`へ実装した。
   `SpacingTableUpload`はscalar/mask/class/context重複の共通domain validator、有理数長さ、
-  tier/break/edge/penalty/reason、atomic candidate交換の最初のsliceを持つ。
+  tier/break/edge/penalty/reason、atomic candidate交換に加え、canonical候補を共通native表へ
+  compileするsealed境界を持つ。runtimeからの登録とdispatcher接続はまだない。
   module profile、export検査、affine lease、runtime、provider registrationは未実装であり、
   TeX sourceから自己承認する経路はない。標準日本語はこの境界を通らずcallback 0回を維持する。
 - 生文字列registerは`\rawstring`、`\rawstringdef`、`\therawstring`、専用`\showthe`、
@@ -244,7 +248,9 @@ cold/warmとhit/missを同じfixtureで測る。
   literal/file producerと`\the\rawstring`のLF/CRLF契約は未実装なので、`\therawstring`と混同しない。
 - 横組JFMはbounded loader、TeX互換scale、current和文font、`\pratexjfont`と意味が一致する
   範囲の`\jfont` alias、`zw`/`zh`、wide node、class pair、DVI `set2`/`set3`まで接続済み。
-  `pratex-japanese`はNFSSの`\f@size`をexact spでJFM at-sizeへ渡し、群復元とsize cacheを持つ。
+  `pratex-japanese`は和文encoding/family/series/shapeとJFM shape宣言、NFSS sizeのexact-sp cache、
+  和文tupleから欧文NFSS tupleを一回だけ選ぶrelation fontを持つ。`prjsarticle`の通常font roleは
+  この宣言面を使い、手続き的な和欧hook列を使わない。
   `\tfont`、縦組、main-loop JFM/完全禁則は未接続。PDF和文glyphは明示named CID profileを
   使う非埋込みBMP最小経路だけ接続済みで、portableな字形表示ではない。
 - plain formatで`\directvaak`、`\vaakdef`、`let` / `var`、host aliasを使う実行例は
@@ -263,7 +269,7 @@ cold/warmとhit/missを同じfixtureで測る。
 2. compile済み汎用script class対tableをlist単位dispatcherと中央finalizerへ接続する。
 3. `\tfont`と縦組metric/node/outputを追加し、JFM/K/X/禁則を横組から縦組へ広げる。
 4. kpathsea互換resolverをrun-global化し、native path解決を広げて通常の子process呼出しをなくす。
-5. penalty配列、discard保存、show/tracing、`\lastlinefit`、`\savinghyphcodes`、
+5. discard保存、show/tracing、`\lastlinefit`、`\savinghyphcodes`、
    TeX--XeTのLR node・反転・DVI/PDF出力といったe-TeX残件を公開仕様どおり実装する。
 6. PraTeX-native package adapterを順に通し、PDF直接出力をOTFより先に完成する。
 7. Vaak table uploadとversion付きWASM ABIは、内部表現を固定した段階から並行して適合試験を作る。
