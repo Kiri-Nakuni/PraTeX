@@ -391,8 +391,8 @@ fn scan_and_print_argument_for_convert_command(
             }
         }
         ConvertCommand::PdfCreationDate => {
-            // **時刻は固定である**（rtex は 1776 年 7 月 4 日正午に止めてある）
-            string_printer.slow_print_str(b"D:17760704120000+00'00'");
+            let creation_date = eqtb.run_date_time().pdf_creation_date();
+            string_printer.slow_print_str(creation_date.as_bytes());
         }
         ConvertCommand::PraTeXRevision => {
             string_printer.slow_print_str(crate::version::PRATEX_REVISION.as_bytes());

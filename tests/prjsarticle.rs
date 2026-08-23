@@ -100,6 +100,13 @@ fn asset_manifestは取得物をhashとlicenseで固定する() {
     assert!(runner.contains("repository外"));
     assert!(!runner.contains(r"\def\pratexversion"));
     assert!(!runner.contains("Get-Command kpsewhich"));
+    assert!(runner.contains("SOURCE_DATE_EPOCH"));
+    assert!(runner.contains("runtime-date-maketitle.tex"));
+
+    let runtime_date = 読む("tests/fixtures/prjsarticle/runtime-date-maketitle.tex");
+    assert!(runtime_date.contains(r"\typeout{PRATEX-LATEX-DATE:\@date}"));
+    assert!(runtime_date.contains(r"\maketitle"));
+    assert!(!runtime_date.contains(r"\date{"));
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
