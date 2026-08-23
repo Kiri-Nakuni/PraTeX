@@ -8,7 +8,7 @@
 
 \NeedsTeXFormat{LaTeX2e}[2023-11-01]
 \ProvidesClass{prjsarticle}
-  [2026/08/23 v0.1 PraTeX native horizontal Japanese article]
+  [2026/08/24 v0.2 PraTeX native horizontal Japanese article]
 
 % Do not impersonate another engine to enter its package branches.
 % PraTeX owns this identity primitive.  Presence identifies the engine;
@@ -48,6 +48,10 @@
   \gdef\pratexlatinfonthook{#1}}
 \newcommand\pratexsetjapanesefonthook[1]{%
   \gdef\pratexjapanesefonthook{#1}}
+% TeX Live's upjisr-h is the explicit compatibility default.  Loading this
+% after the hook definition lets the package register without engine
+% impersonation.  A document adapter may still replace the hook afterwards.
+\RequirePackage{pratex-japanese}
 \newcommand\pratexbodyfont{%
   \pratexlatinfonthook\pratexjapanesefonthook}
 \newcommand\pratexheadingfont{%

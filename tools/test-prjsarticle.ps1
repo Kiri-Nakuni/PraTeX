@@ -8,7 +8,7 @@ PraTeX native class prjsarticle のCTAN互換formatとDVI oracleを隔離実行�
 公式latex.ltxはopaqueな互換入力として実行するだけで、repositoryへvendorしません。
 
 title oracleはPraTeX coreに \pratexversion が入った後のgateです。和欧混植sampleは
-日本語glyph/JFM枝とadapterが入った後に明示して実行します。他engineのversion primitiveや
+classが読み込むpratex-japanese packageを使います。他engineのversion primitiveや
 局所的な \pratexversion stand-inは定義しません。
 
 .PARAMETER Fetch
@@ -25,9 +25,9 @@ hash固定archiveを置くrepository外のcacheです。
 試すPraTeX/rtex executableです。省略時はrepositoryのrelease pratexを使います。
 
 .PARAMETER JapaneseAdapterPath
-JFM/NFSS接続を行うPraTeX固有adapterです。このtitle oracle自体はruleだけなので不要です。
-adapterをclassや公式LaTeX sourceへ混ぜず、和欧混植sampleだけへ任意に読み込ませます。
-CompileSample指定時に省略するとrepositoryのupjisr-h最小adapterを使います。
+既定のupjisr-h 10ptを別のfont hookへ置き換えるPraTeX固有adapterです。
+このtitle oracleと通常のCompileSampleには不要です。classや公式LaTeX sourceへ混ぜず、
+和欧混植sampleの任意fileから既定hookを後勝ちで置き換えます。
 
 .PARAMETER CompileSample
 title oracleに加え、代表的な日本語/Latin混植sampleもcompileします。日本語glyph/JFM枝と
@@ -56,8 +56,8 @@ $ErrorActionPreference = "Stop"
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $manifestPath = Join-Path $repoRoot "tests-support/prjsarticle/assets.json"
 $classPath = Join-Path $repoRoot "tex/latex/pratex/prjsarticle.cls"
+$japanesePackagePath = Join-Path $repoRoot "tex/latex/pratex/pratex-japanese.sty"
 $fixtureRoot = Join-Path $repoRoot "tests/fixtures/prjsarticle"
-$defaultJapaneseAdapterPath = Join-Path $repoRoot "docs/examples/prjsarticle-upjisr-h-adapter.tex"
 
 function Test-IsWithinPath {
     param(
@@ -262,11 +262,11 @@ foreach ($asset in $manifest.assets) {
 
 foreach ($required in @(
     $classPath,
+    $japanesePackagePath,
     (Join-Path $fixtureRoot "hyphen.cfg"),
     (Join-Path $fixtureRoot "maketitle-oracle.tex"),
     (Join-Path $fixtureRoot "runtime-date-maketitle.tex"),
-    (Join-Path $repoRoot "docs/examples/prjsarticle-sample.tex"),
-    $defaultJapaneseAdapterPath
+    (Join-Path $repoRoot "docs/examples/prjsarticle-sample.tex")
 )) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
         throw "repository fixtureがありません: $required"
@@ -277,9 +277,6 @@ foreach ($required in @(
 $adapter = $null
 if (-not [string]::IsNullOrWhiteSpace($JapaneseAdapterPath)) {
     $adapter = [IO.Path]::GetFullPath($JapaneseAdapterPath)
-}
-elseif ($CompileSample) {
-    $adapter = $defaultJapaneseAdapterPath
 }
 if ($null -ne $adapter) {
     if (-not (Test-Path -LiteralPath $adapter -PathType Leaf)) {
@@ -425,7 +422,7 @@ if ($CompileSample) {
         -StandardErrorPath (Join-Path $resultDir "sample.stderr")
     $sampleDviPath = Join-Path $runDir "prjsarticle-sample.dvi"
     if ($sampleExit -ne 0) {
-        throw "和欧混植sampleのcompileに失敗しました（exit $sampleExit）。Japanese glyph/JFM adapterを確認してください: $resultDir"
+        throw "和欧混植sampleのcompileに失敗しました（exit $sampleExit）。Japanese glyph/JFM packageまたは明示hookを確認してください: $resultDir"
     }
     Assert-NonEmptyFile -Path $sampleDviPath -Phase "和欧混植sample"
     Assert-CleanLog -Path (Join-Path $runDir "prjsarticle-sample.log") -Phase "和欧混植sample"

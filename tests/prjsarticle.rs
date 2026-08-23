@@ -7,6 +7,64 @@ fn 読む(path: &str) -> String {
 }
 
 #[test]
+fn 既定日本語packageはpratex固有hookだけへ固定十ptのjfmを接続する() {
+    let package = 読む("tex/latex/pratex/pratex-japanese.sty");
+    for required in [
+        r"\ifdefined\pratexversion",
+        r"\ifdefined\pratexjfont",
+        r"\pratexjfont\pratexdefaultjapanesefont=upjisr-h at 10pt",
+        r"\pratexdefaultjapanesefont",
+        r"\ifdefined\pratexsetjapanesefonthook",
+        r"\pratexsetjapanesefonthook{\pratexdefaultjapanesefont}",
+        r"\AtBeginDocument{\pratexdefaultjapanesefont}",
+    ] {
+        assert!(
+            package.contains(required),
+            "既定日本語package契約が欠けている: {required}"
+        );
+    }
+    for forbidden in [
+        r"\pdftexversion",
+        r"\luatexversion",
+        r"\XeTeXversion",
+        r"\epTeXversion",
+        r"\pTeXversion",
+        r"\upTeXversion",
+    ] {
+        assert!(
+            !package.contains(forbidden),
+            "日本語packageが他engine identityへ依存している: {forbidden}"
+        );
+    }
+
+    let class = 読む("tex/latex/pratex/prjsarticle.cls");
+    let hook = class
+        .find(r"\newcommand\pratexsetjapanesefonthook")
+        .expect("classが日本語font hookを定義すること");
+    let package_load = class
+        .find(r"\RequirePackage{pratex-japanese}")
+        .expect("classが既定日本語packageを読むこと");
+    assert!(hook < package_load, "packageはhook定義後に読まなければならない");
+
+    let adapter = 読む("docs/examples/prjsarticle-upjisr-h-adapter.tex");
+    assert!(adapter.contains(r"\pratexjfont\PratexJapanese=upjisr-h at 10pt"));
+    assert!(adapter.contains(r"\pratexsetjapanesefonthook{\PratexJapanese}"));
+
+    let scrartcl = 読む("docs/examples/scrartcl-minimal.tex");
+    assert!(scrartcl.contains(r"\documentclass{scrartcl}"));
+    assert!(scrartcl.contains(r"\usepackage{pratex-japanese}"));
+    assert!(scrartcl.contains("日本語"));
+
+    let docs = 読む("docs/prjsarticle.md");
+    for limitation in ["固定10pt", "NFSS", "20.0pt", "JFM file was not found"] {
+        assert!(
+            docs.contains(limitation),
+            "固定sizeの既知制限が文書化されていない: {limitation}"
+        );
+    }
+}
+
+#[test]
 fn classは明示的なpratex_identityだけを要求する() {
     let class = 読む("tex/latex/pratex/prjsarticle.cls");
     assert!(class.contains(r"\ifdefined\pratexversion"));
@@ -109,7 +167,8 @@ fn asset_manifestは取得物をhashとlicenseで固定する() {
     assert!(!runner.contains("Get-Command kpsewhich"));
     assert!(runner.contains("SOURCE_DATE_EPOCH"));
     assert!(runner.contains("runtime-date-maketitle.tex"));
-    assert!(runner.contains("prjsarticle-upjisr-h-adapter.tex"));
+    assert!(runner.contains("pratex-japanese.sty"));
+    assert!(!runner.contains("defaultJapaneseAdapterPath"));
 
     let runtime_date = 読む("tests/fixtures/prjsarticle/runtime-date-maketitle.tex");
     assert!(runtime_date.contains(r"\typeout{PRATEX-LATEX-DATE:\@date}"));

@@ -1,10 +1,9 @@
 % PraTeXの横組日本語classの代表入力。
 \documentclass[a4paper,10pt]{prjsarticle}
 
-% JFM/NFSS adapterが入ったformatでは、本文開始前に例えば
-% \pratexsetjapanesefonthook{<formatが提供する和文font選択命令>}
-% と設定する。別engineのversion primitiveを定義して分岐を偽装しない。
-% 自動試験ではadapterをclassから分離した次のfile名で置く。
+% classはpratex-japanese packageからupjisr-h 10ptを既定選択する。
+% 別JFMを試す時だけ、次の任意adapterがhookを後から置き換える。
+% 別engineのversion primitiveを定義して分岐を偽装しない。
 \InputIfFileExists{prjsarticle-test-adapter.tex}{}{}
 
 \title{PraTeXによる日本語とLatin textの混植}

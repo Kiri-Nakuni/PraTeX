@@ -16,13 +16,26 @@ package分岐を偽装しない。初版engine identityとして次をPraTeX cor
 - 将来の個別能力には、`\pratexfeature{japanese-horizontal-glyph-dvi}`が0または
   契約versionを返す低頻度queryを推奨する。
 
-formatまたはPraTeX adapterは、次のclass固有hookへfont選択命令を登録する。
+classは次のPraTeX固有hookを定義した後、公式LaTeX互換track用の
+`pratex-japanese` packageを読み込む。このpackageはTeX Liveの`upjisr-h at 10pt`を
+既定fontとして登録する。formatへJFMを埋め込まず、LaPraTeXを名乗らない。
 
 - `\pratexsetjapanesefonthook{...}`
 - `\pratexsetlatinfonthook{...}`
 - `\pratexjapanesefonthook` / `\pratexlatinfonthook`
 
 これらはengine identityを作るAPIではない。pTeX互換名をclass側で補うadapterも置かない。
+文書が後から`\pratexsetjapanesefonthook`を呼べば、その明示adapterが既定hookへ後勝ちする。
+
+初版packageはNFSSと和文font sizeを連動しない。`\small`、`\normalsize`、`\Large`で
+Latin font sizeが変わっても、和文JFMは10ptのままである。公式CTAN runtimeで「日本」の
+box幅が三つとも20.0ptになることを実測している。family/series、任意JFM、縦組を含む
+NFSS接続は後続sliceとする。
+
+`upjisr-h.tfm`を置かない隔離runtimeでは、package読込み位置で先に
+`Japanese font ...=upjisr-h at 10.0pt not loaded: JFM file was not found`と診断することも
+実測した。これはCJK文字へ到達後の`CJK typesetting needs a Japanese font metric`とは別で、
+資材探索失敗とcurrent和文font未選択を混同しない。
 
 ## production出力までのengine依存
 
@@ -30,8 +43,8 @@ formatまたはPraTeX adapterは、次のclass固有hookへfont選択命令を�
 `set2` / `set3`、明示profileによる非埋込みnamed CID PDFまで接続済みである。classを通常の
 和欧混植文書として使うには、現在は次の境界が残る。
 
-1. classの日本語font hookへJFMを選ぶPraTeX native adapterをformat側で標準提供すること。
-2. `xspcode` / `inhibitxspcode` / auto switch、仮想K、box/disc境界を完成すること。
+1. 固定10pt packageをNFSSのsize/family/seriesと任意JFMへ一般化すること。
+2. box/disc境界とmain-loop早期spacingを完成すること。
 3. 4文字subsetを越えるJLReq禁則、和文widow処理、縦組を加えること。
 4. PDFへ和文字形を埋め、ToUnicodeとfont subsetを持つportableな出力にすること。
 
@@ -86,8 +99,8 @@ $env:PRATEX_PRJSARTICLE_ASSET_CACHE = 'C:\temp\prjsarticle-assets'
 cargo test --release --locked --test prjsarticle -- --ignored --nocapture
 ```
 
-日本語glyph/JFM枝を取り込んだ後は、engine固有のfont選択だけを行うadapterをclassから分離し、
-代表和欧混植sampleも同じrunnerでcompileする。
+日本語glyph/JFM枝を取り込んだ後は、classが`pratex-japanese`を読み、代表和欧混植sampleも
+追加adapter無しで同じrunnerからcompileする。
 
 ```powershell
 pwsh -File tools/test-prjsarticle.ps1 `
@@ -96,10 +109,10 @@ pwsh -File tools/test-prjsarticle.ps1 `
   -CompileSample
 ```
 
-adapterは`prjsarticle-test-adapter.tex`という試験時の名前で隔離rootへコピーする。
-classや公式LaTeX sourceをpatchせず、他engine identityも定義しない。
-`-CompileSample`でadapterを省略した場合はrepositoryの`upjisr-h`最小adapterを使う。別JFMを
-試す時だけ`-JapaneseAdapterPath`を明示する。通常利用者がTeX Liveで試す手順は
+別JFMを試す時だけ、明示したadapterを`prjsarticle-test-adapter.tex`という試験時の名前で
+隔離rootへコピーする。adapterはclassや公式LaTeX sourceをpatchせず、他engine identityも
+定義しない。`-CompileSample`だけなら既定packageを使い、`-JapaneseAdapterPath`を指定した
+場合だけhookを後勝ちで置き換える。通常利用者がTeX Liveで試す手順は
 [README](../README.md)にある。
 
 2026-08-23に上の自己完結経路を公式CTAN資材だけで再実行し、format、title oracle、実時刻date、

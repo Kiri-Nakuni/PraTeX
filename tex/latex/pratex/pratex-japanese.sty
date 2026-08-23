@@ -1,0 +1,40 @@
+%% pratex-japanese.sty -- explicit horizontal JFM initializer for PraTeX
+%%
+%% Copyright (C) 2026 PraTeX contributors
+%% SPDX-License-Identifier: GPL-3.0-only
+%%
+%% This package belongs to the official-LaTeX compatibility track.  It is not
+%% LaPraTeX and does not change the identity of either the format or engine.
+
+\NeedsTeXFormat{LaTeX2e}[2023-11-01]
+\ProvidesPackage{pratex-japanese}
+  [2026/08/24 v0.1 PraTeX horizontal Japanese JFM initializer]
+
+\ifdefined\pratexversion\else
+  \PackageError{pratex-japanese}
+    {PraTeX identity primitive \string\pratexversion\space is missing}
+    {Run this package with PraTeX.  Do not define another engine's version
+     primitive or a local stand-in for \string\pratexversion.}
+  \expandafter\endinput
+\fi
+\ifdefined\pratexjfont\else
+  \PackageError{pratex-japanese}
+    {PraTeX Japanese font primitive \string\pratexjfont\space is missing}
+    {Use a PraTeX build with horizontal JFM support.}
+  \expandafter\endinput
+\fi
+
+% The first compatibility slice deliberately has one fixed metric and size.
+% NFSS size changes do not yet select matching Japanese font instances.
+\pratexjfont\pratexdefaultjapanesefont=upjisr-h at 10pt
+\pratexdefaultjapanesefont
+
+% PraTeX-native classes may own their document-start font policy.  A general
+% LaTeX class gets the same selector directly through the public LaTeX hook.
+\ifdefined\pratexsetjapanesefonthook
+  \pratexsetjapanesefonthook{\pratexdefaultjapanesefont}
+\else
+  \AtBeginDocument{\pratexdefaultjapanesefont}
+\fi
+
+\endinput

@@ -65,14 +65,16 @@ subset未実装中は意図的に拒否します。
 
 公式KOMA-Script 3.49.2、Babel 26.9、hyph-utf8の英語patternによる標準英語構成を使った
 最小`scrartcl`も、無改変のclassでexit 0、log error 0、1 page / 332 bytesのDVIまで確認して
-います。検証用`language.dat`だけは英語と三つのaliasを列挙して生成したものです。
+います。検証用`language.dat`だけは英語と三つのaliasを列挙して生成したものです。さらに
+明示的な`pratex-japanese` packageを読み込む和欧混植例は、同じ公式runtimeでerror 0、
+1 page / 588 bytesのDVIまで実測しています。
 `\scantokens`を持たない旧binaryではclass読込み中に未定義7件から77 errorsへ連鎖していました。
 
 同じPraTeX生成`latex.fmt`での主要package実測は
 [docs/package-compatibility.md](docs/package-compatibility.md)に固定しています。2026-08-24時点では
-`article`、`scrartcl`、`graphicx`、`xcolor`、`siunitx`、代表`prjsarticle`が最小DVIへ到達し、
-`pxrubrica`はgeneric fallback smokeだけです。`hyperref`とTikZ/PGFの具体的blockerも同じ表に
-診断signature付きで記録しています。
+`article`、`scrartcl`、`graphicx`、`xcolor`、`hyperref`、TikZ/PGF、`siunitx`、
+代表`prjsarticle`が最小DVIへ到達しています。`pxrubrica`はgeneric fallback smokeだけです。
+これは各packageの限定入力であり、全APIや実用文書の互換性を保証しません。
 
 `\scantokens` code checkpoint直前に得たTRIP DVIのhashは、独立decoderで全999 recordの
 意味差0を確認した既知正常値と一致しています。ただし、
@@ -111,7 +113,8 @@ cargo run --release --locked --bin rtex -- '&plain' file.tex
 ```
 
 TeX Live側のformat、TFM/JFM、標準LaTeX class・package、fontは同梱していません。
-PraTeX固有の`prjsarticle.cls`と実行例はrepositoryにあります。PraTeXはTeX Liveの`ls-R`と
+PraTeX固有の`prjsarticle.cls`、`pratex-japanese.sty`と実行例はrepositoryにあります。
+PraTeXはTeX Liveの`ls-R`と
 `kpsewhich`を段階的に利用して探索します。primitiveを追加・変更したPraTeXで古いformatを
 使わず、同じbinaryで作り直してください。現在format探索はlocal優先なので、生成した
 `latex.fmt`と文書は同じ作業directoryへ置くのが確実です。
@@ -119,7 +122,7 @@ PraTeX固有の`prjsarticle.cls`と実行例はrepositoryにあります。PraTe
 ### 日本語横組みを実際に試す
 
 現在の通常経路は、TeX Liveの`upjisr-h.tfm`を使うDVI出力です。次のPowerShell例は
-PraTeX用`prjsarticle`、実行例、最小adapterを一時作業directoryへ揃え、現在のbinaryで
+PraTeX用`prjsarticle`、`pratex-japanese`、実行例を一時作業directoryへ揃え、現在のbinaryで
 `latex.fmt`を生成してから和欧混植文書を処理します。
 
 ```powershell
@@ -138,10 +141,10 @@ New-Item -ItemType Directory $demo | Out-Null
 
 Copy-Item -LiteralPath (Join-Path $repo 'tex\latex\pratex\prjsarticle.cls') `
   -Destination $demo -Force
+Copy-Item -LiteralPath (Join-Path $repo 'tex\latex\pratex\pratex-japanese.sty') `
+  -Destination $demo -Force
 Copy-Item -LiteralPath (Join-Path $repo 'docs\examples\prjsarticle-sample.tex') `
   -Destination $demo -Force
-Copy-Item -LiteralPath (Join-Path $repo 'docs\examples\prjsarticle-upjisr-h-adapter.tex') `
-  -Destination (Join-Path $demo 'prjsarticle-test-adapter.tex') -Force
 Copy-Item -LiteralPath (Join-Path $repo 'docs\examples\upjisr-h.cidprofile') `
   -Destination $demo -Force
 
@@ -167,7 +170,10 @@ try {
 }
 ```
 
-adapterは`\pratexjfont`でJFMを読み、`prjsarticle`の本文開始hookから和文fontを選びます。
+`prjsarticle`はhookを定義した後で`pratex-japanese`を読みます。このpackageが
+`\pratexjfont`で`upjisr-h at 10pt`を定義し、本文開始hookから和文fontを選びます。
+別JFMを試す場合だけ、`docs/examples/prjsarticle-upjisr-h-adapter.tex`と同じ形で
+`\pratexsetjapanesefonthook`を後から上書きできます。
 現段階の直接PDFは和文字形を埋め込まず、`HeiseiMin-W3`と`UniJIS-UCS2-H`を解決できる
 viewerに依存し、ToUnicodeも持ちません。可搬な表示確認にはDVIとTeX Liveの`dvipdfmx`を
 使ってください。
@@ -182,7 +188,11 @@ viewerに依存し、ToUnicodeも持ちません。可搬な表示確認にはDV
 ```powershell
 kpsewhich scrartcl.cls
 kpsewhich keyval.sty
+kpsewhich upjisr-h.tfm
+kpsewhich upjisr-h.vf
 Copy-Item -LiteralPath (Join-Path $repo 'docs\examples\scrartcl-minimal.tex') `
+  -Destination $demo -Force
+Copy-Item -LiteralPath (Join-Path $repo 'tex\latex\pratex\pratex-japanese.sty') `
   -Destination $demo -Force
 
 Push-Location $demo
@@ -193,6 +203,13 @@ try {
   Pop-Location
 }
 ```
+
+`pratex-japanese`は一般classをPraTeX上で横組JFMへ接続する明示packageです。初版は
+`upjisr-h at 10pt`だけを選ぶため、NFSSの`\small`、`\large`、`\Large`などを使っても
+和文glyphは10ptのままです。実測でも「日本」のbox幅は三サイズとも20.0ptでした。
+自動的なJFMサイズ追随、family/series対応、縦組font選択は未実装です。
+`upjisr-h.tfm`が探索できない場合は、文書中のCJK文字を処理する前にpackage読込み位置で
+`JFM file was not found`と診断します。
 
 TeX Liveの標準`hyphen.cfg`を使ってformatを生成してください。試験専用の空の
 `tests/fixtures/prjsarticle/hyphen.cfg`はlanguage patternを意図的に持たないため、一般の

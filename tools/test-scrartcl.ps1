@@ -1,10 +1,11 @@
 <#
 .SYNOPSIS
-TeX Live の標準資材で PraTeX の scrartcl 最小文書を隔離実行します。
+TeX Live の標準資材で PraTeX の scrartcl 日本語最小文書を隔離実行します。
 
 .DESCRIPTION
 kpsewhich が選ぶ通常の TeX Live treeを使い、指定した PraTeX executable自身で
-latex.fmtを新しく生成してから docs/examples/scrartcl-minimal.tex をDVIへ処理します。
+latex.fmtを新しく生成し、明示的なpratex-japanese packageを使う
+docs/examples/scrartcl-minimal.texをDVIへ処理します。
 archiveの取得やrepositoryへの資材の複製は行いません。
 
 .PARAMETER PraTeXPath
@@ -28,6 +29,7 @@ $ErrorActionPreference = "Stop"
 
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $sourcePath = Join-Path $repoRoot "docs/examples/scrartcl-minimal.tex"
+$packagePath = Join-Path $repoRoot "tex/latex/pratex/pratex-japanese.sty"
 $stubHyphenPath = Join-Path $repoRoot "tests/fixtures/prjsarticle/hyphen.cfg"
 $runningOnWindows = [Runtime.InteropServices.RuntimeInformation]::IsOSPlatform(
     [Runtime.InteropServices.OSPlatform]::Windows
@@ -76,6 +78,9 @@ function Test-SamePath {
 if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) {
     throw "scrartcl sampleがありません: $sourcePath"
 }
+if (-not (Test-Path -LiteralPath $packagePath -PathType Leaf)) {
+    throw "PraTeX Japanese packageがありません: $packagePath"
+}
 if (-not (Test-Path -LiteralPath $stubHyphenPath -PathType Leaf)) {
     throw "拒否対象の試験用hyphen.cfgを識別できません: $stubHyphenPath"
 }
@@ -123,6 +128,7 @@ $runDir = Join-Path $sessionRoot "run"
 $resultDir = Join-Path $sessionRoot "result"
 New-Item -ItemType Directory -Path $runDir, $resultDir | Out-Null
 Copy-Item -LiteralPath $sourcePath -Destination $runDir
+Copy-Item -LiteralPath $packagePath -Destination $runDir
 
 $kpseCommand = Get-Command kpsewhich -CommandType Application -ErrorAction SilentlyContinue
 if ($null -eq $kpseCommand) {
@@ -193,7 +199,10 @@ function Resolve-KpseFile {
 }
 
 $resolvedFiles = @{}
-foreach ($name in @("latex.ltx", "hyphen.cfg", "scrartcl.cls", "keyval.sty")) {
+foreach ($name in @(
+    "latex.ltx", "hyphen.cfg", "scrartcl.cls", "keyval.sty",
+    "upjisr-h.tfm", "upjisr-h.vf"
+)) {
     $resolvedFiles[$name] = Resolve-KpseFile -Name $name
 }
 
@@ -296,6 +305,7 @@ if (-not (Test-Path -LiteralPath $dviPath -PathType Leaf) -or
     throw "scrartclの非空DVIが生成されませんでした: $dviPath"
 }
 
-Write-Host "scrartcl smoke testに成功しました: $dviPath"
+Write-Host "scrartcl日本語smoke testに成功しました: $dviPath"
 Write-Host "TeX Live hyphen.cfg: $resolvedHyphen"
+Write-Host "TeX Live JFM: $($resolvedFiles['upjisr-h.tfm'])"
 Write-Host "実行記録: $resultDir"
