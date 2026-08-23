@@ -231,11 +231,15 @@ engine内部IDを分け、標準日本語ではVaak/WASM call 0、組版中のal
   byte/wide font種別不一致はtyped errorにする。tofuや他engine偽装へfallbackしない。
 - JFM幅はhostの現在位置だけを進める。CID fontの`/DW`はprofile明示値で、JFMから`/W`を
   捏造しない。2 glyphの絶対`Tm`差をspからの固定小数変換で試験する。
+- Type 0 fontは、contentへ書いたBMP UCS-2 source codeを元のUTF-16BE scalarへ戻す
+  `/ToUnicode` CMapを持つ。CIDとの恒等写像は使わず、surrogate帯を除外する。pypdfと
+  PDFiumで「ああ」へ抽出できることを独立確認した。
 - Courierは`/F1`を保ち、Type 1とnamed CIDを同じfirst-use resource列へ置くため番号衝突しない。
   同一pageのCID resourceは一回だけ登録する。
 - JFM/TFMにはoutline、bitmap、CID mappingがない。FontFileを埋め込まないこのsliceの表示は
-  profileのBaseFontとpredefined CMapを解決できるviewerに依存し、portableな表示・抽出を
-  保証しない。OTF/RustyBuzz、embedded font、WASM module意味はこのsliceへ入れていない。
+  profileのBaseFontとpredefined CMapを解決できるviewerに依存し、portableな字形表示や
+  全extractor互換を保証しない。OTF/RustyBuzz、embedded font、WASM module意味はこのsliceへ
+  入れていない。
 - focused oracleは`src/font_resources/named_cid.rs`、`src/pdf_cid_font.rs`、
   `src/pdf_backend.rs`、`src/pdf_document.rs`と`tests/pdf_japanese_output.rs`にある。
 

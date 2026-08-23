@@ -88,11 +88,11 @@
 | 実装 | `\pdfshellescape` | 読み取り専用内部整数。PraTeXはshell escapeを提供しないため常に`0`で、processを起動しない |
 | 部分 | PDF 1.4直接出力 | `-output-format=pdf` / `--output-format=pdf`。page tree、rule、printable ASCIIの暫定Courier表示、明示mapによるType 1全埋込み、明示profileによる横組JFM/BMPの非埋込みType 0/CIDFontType0まで。外部DVI driverなしでfileを閉じられる |
 | 部分 | `--pdf-font-map` | 明示したmapだけでType 1埋込みを有効化する。実配布mapの複数resourceと分離markerを未使用entryごと拒まず、選択TFMだけを検査する。`<<font.pfb`の全埋込みだけを受け、`<font.pfb`のsubset要求を勝手に全埋込みへ変えない |
-| 部分 | `--pdf-japanese-cid-profile` | 明示物理pathから一JFM用profileを64 KiB上限で一回だけ読み、JFM名一致時だけ`UniJIS-UCS2-H` / Adobe-Japan1-4へ結ぶ。BMP限定、FontFile/ToUnicodeなしでviewer依存。profileなし・名不一致・非BMPをtofuへfallbackしない |
+| 部分 | `--pdf-japanese-cid-profile` | 明示物理pathから一JFM用profileを64 KiB上限で一回だけ読み、JFM名一致時だけ`UniJIS-UCS2-H` / Adobe-Japan1-4へ結ぶ。BMP source codeを元Unicodeへ戻す限定`/ToUnicode`を持つがFontFileはなく表示はviewer依存。profileなし・名不一致・非BMPをtofuへfallbackしない |
 | 実装 | Type 1 FontDescriptor fallback | mapのflags省略は公開pdfTeX契約の既定値4。AFMの`StdVW`省略時はPFB eexecを実行せずstream復号し、Private辞書の値だけを`StemV`へ使う。固定値推測はしない |
 
 PDF直接出力はpdfTeX互換を名乗れる段階ではない。`\pdfoutput`、page-size primitive、PDF
-object/link/destination/image primitive、font subset、ToUnicode、TrueType/OpenType、埋込みCID font、
+object/link/destination/image primitive、font subset、汎用ToUnicode、TrueType/OpenType、埋込みCID font、
 OTF shapingは未実装である。現在のnamed CIDはJFM幅で位置を進めるだけで字形を埋め込まず、
 表示はviewer側BaseFontに依存する。詳しい境界は
 [pdfTeX互換層](pdftex-port-notes.md)、

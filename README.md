@@ -19,7 +19,8 @@ PraTeXは、tyti氏によるTeX82のRust再実装`rtex`を基礎に、現代的�
 - PDFへの暫定的なStandard 14 font出力と、明示したmapによるType 1 font全埋込み。実配布
   `pdftex.map`の複数resource構文、flags既定値、PFB Private `StdVW` fallbackまで読める
 - 明示した一つのprofileで、横組JFMのBMP wide glyphを非埋込みType 0/CIDFontType0と
-  `UniJIS-UCS2-H`へ出す最小PDF基線。字形は埋め込まず、表示はviewer側fontに依存する
+  `UniJIS-UCS2-H`へ出す最小PDF基線。BMP source code用の`/ToUnicode`を持つが、字形は
+  埋め込まず、表示はviewer側fontに依存する
 - UTF-8入力からのCJK一文字token。`catcode`側をカノンとし、`kcatcode`の公開番号を
   互換viewとして意味へ写す文字分類基盤
 - `\kanjiskip` / `\xkanjiskip`の通常glue parameter面、`\autospacing` / `\autoxspacing`の
@@ -197,8 +198,10 @@ dvipdfmx -o prjsarticle-sample-from-dvi.pdf prjsarticle-sample.dvi
 直接PDFでは、既定JFM `upjisr-h`を内蔵CID profileへ結ぶため追加optionは要りません。
 別JFMだけは`--pdf-japanese-cid-profile=PATH`で対応するprofileを明示してください。
 現段階の直接PDFは和文字形を埋め込まず、`HeiseiMin-W3`と`UniJIS-UCS2-H`を解決できる
-viewerに依存し、ToUnicodeも持ちません。可搬な表示確認にはDVIとTeX Liveの`dvipdfmx`を
-使ってください。
+viewerに依存します。BMP source codeを元のUnicodeへ戻す`/ToUnicode`は持ち、pypdfと
+PDFiumで抽出を確認していますが、字形表示の可搬性や全extractorとの互換性はまだありません。
+Viewer固有の非表示とDVI/PDF生成不良を混同しないため、可搬な表示確認にはDVIとTeX Liveの
+`dvipdfmx`も使ってください。
 
 文書またはformatが和文fontを明示選択していない場合も、PraTeXは最初のCJK文字でだけ
 `upjisr-h at 10pt`を遅延して選びます。これはplainや一般classで「TFMはあるのにcurrent
@@ -298,7 +301,8 @@ PDF backendの現在の範囲と制約は
 JFM/TFMには文字幅やclassはあっても、outline、bitmap、CID対応表はありません。このため
 既定`upjisr-h` profileと`--pdf-japanese-cid-profile`の経路は字形を埋め込まず、指定したBaseFontと
 `UniJIS-UCS2-H`を実装するviewer環境でだけ意図した和文表示になります。portableな字形表示や
-抽出を保証する機能ではなく、内蔵profileのないJFMをtofuへ黙ってfallbackすることもありません。
+全extractor互換を保証する機能ではありません。限定BMP経路には`/ToUnicode`がありますが、
+内蔵profileのないJFMをtofuへ黙ってfallbackすることもありません。
 TeX Live探索の対応範囲、WSL境界、性能値は
 [docs/kpathsea-port-notes.md](docs/kpathsea-port-notes.md) に記録しています。
 
