@@ -271,6 +271,11 @@ plannerは既存の自動actionを入力に取らない純粋関数なので、�
 同じ元境界を再評価すれば冪等である。JFM/禁則はmain loop phaseだけ、K/Xは最終値を使う
 list finalizer phaseだけをconsumerが適用する。
 
+`PtexSpacingState`には`ptex-spacing-state-v1`の版付きfmt codecがあり、auto switch、K/X、
+256要素xsp表、sparse inhibit/禁則表を全成分往復する。undumpは0--3、Unicode scalar、
+glue寸法、疎表上限、entryの昇順・一意性を検証してからstateを公開する。現時点ではeqtb本体へ
+fieldを追加していないので、このcodecが通常fmtへ書かれるとはまだ主張しない。
+
 ASCII-only listは`ScriptSpacingListState::needs_script_spacing=false`のままになり、
 `finalize_if_needed`はcallbackを呼ばない。このgateをprofile dispatch、JFM表引き、provider選択、
 出力event生成のすべてより前に置く。したがって従来のplain欧文経路にはcallback、table lookup、

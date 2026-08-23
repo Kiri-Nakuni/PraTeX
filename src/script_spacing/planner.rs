@@ -5,11 +5,16 @@
 //! 再評価しても、planner 自身は重複 node を作らない。
 
 use super::FixedGlue;
+use crate::dimension::MAX_DIMEN;
+use crate::format::{Dumpable, FormatError};
 use crate::nodes::{DimensionOrder, GlueSpec, HigherOrderDimension};
+
+use std::io::Write;
 
 pub(crate) const MAX_INHIBIT_XSP_CODES: usize = 1_024;
 pub(crate) const MAX_KINSOKU_CODES: usize = 1_024;
 pub(crate) const MAX_JFM_CLASSES: u16 = 256;
+const PTEX_SPACING_STATE_DUMP_HEADER: &str = "ptex-spacing-state-v1";
 
 /// `\xspcode` / `\inhibitxspcode` の公開値が許可する遷移方向。
 ///
@@ -457,6 +462,217 @@ impl PtexSpacingState {
 impl Default for PtexSpacingState {
     fn default() -> Self {
         Self::initex()
+    }
+}
+
+impl Dumpable for XspCode {
+    fn dump(&self, target: &mut impl Write) -> Result<(), std::io::Error> {
+        self.0.dump(target)
+    }
+
+    fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
+        let value = u8::undump(lines)?;
+        Self::from_public_integer(i32::from(value)).map_err(|_| FormatError::ParseError)
+    }
+}
+
+impl Dumpable for LayoutCharacterCode {
+    fn dump(&self, target: &mut impl Write) -> Result<(), std::io::Error> {
+        self.0.dump(target)
+    }
+
+    fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
+        Self::from_public_integer(u32::undump(lines)?).map_err(|_| FormatError::ParseError)
+    }
+}
+
+impl Dumpable for XspCodeTable {
+    fn dump(&self, target: &mut impl Write) -> Result<(), std::io::Error> {
+        self.values.dump(target)
+    }
+
+    fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
+        Ok(Self {
+            values: <[XspCode; 256]>::undump(lines)?,
+        })
+    }
+}
+
+impl Dumpable for InhibitXspCodeEntry {
+    fn dump(&self, target: &mut impl Write) -> Result<(), std::io::Error> {
+        self.character.dump(target)?;
+        self.value.dump(target)
+    }
+
+    fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
+        Ok(Self {
+            character: LayoutCharacterCode::undump(lines)?,
+            value: XspCode::undump(lines)?,
+        })
+    }
+}
+
+impl Dumpable for InhibitXspCodeTable {
+    fn dump(&self, target: &mut impl Write) -> Result<(), std::io::Error> {
+        self.entries.len().dump(target)?;
+        for entry in &self.entries {
+            entry.dump(target)?;
+        }
+        Ok(())
+    }
+
+    fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
+        let len = usize::undump(lines)?;
+        if len > MAX_INHIBIT_XSP_CODES {
+            return Err(FormatError::ParseError);
+        }
+        let mut entries = Vec::with_capacity(len);
+        for _ in 0..len {
+            let entry = InhibitXspCodeEntry::undump(lines)?;
+            if entry.value == XspCode::BOTH
+                || entries
+                    .last()
+                    .is_some_and(|previous: &InhibitXspCodeEntry| {
+                        previous.character >= entry.character
+                    })
+            {
+                return Err(FormatError::ParseError);
+            }
+            entries.push(entry);
+        }
+        Ok(Self { entries })
+    }
+}
+
+impl Dumpable for KinsokuPosition {
+    fn dump(&self, target: &mut impl Write) -> Result<(), std::io::Error> {
+        writeln!(
+            target,
+            "{}",
+            match self {
+                Self::Before => "Before",
+                Self::After => "After",
+            }
+        )
+    }
+
+    fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
+        match lines.next().ok_or(FormatError::IncompleteFile)? {
+            "Before" => Ok(Self::Before),
+            "After" => Ok(Self::After),
+            _ => Err(FormatError::ParseError),
+        }
+    }
+}
+
+impl Dumpable for KinsokuEntry {
+    fn dump(&self, target: &mut impl Write) -> Result<(), std::io::Error> {
+        self.character.dump(target)?;
+        self.position.dump(target)?;
+        self.value.dump(target)
+    }
+
+    fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
+        Ok(Self {
+            character: LayoutCharacterCode::undump(lines)?,
+            position: KinsokuPosition::undump(lines)?,
+            value: i32::undump(lines)?,
+        })
+    }
+}
+
+impl Dumpable for KinsokuPenaltyTable {
+    fn dump(&self, target: &mut impl Write) -> Result<(), std::io::Error> {
+        self.entries.len().dump(target)?;
+        for entry in &self.entries {
+            entry.dump(target)?;
+        }
+        Ok(())
+    }
+
+    fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
+        let len = usize::undump(lines)?;
+        if len > MAX_KINSOKU_CODES {
+            return Err(FormatError::ParseError);
+        }
+        let mut entries = Vec::with_capacity(len);
+        for _ in 0..len {
+            let entry = KinsokuEntry::undump(lines)?;
+            if entry.value == 0
+                || entries
+                    .last()
+                    .is_some_and(|previous: &KinsokuEntry| previous.character >= entry.character)
+            {
+                return Err(FormatError::ParseError);
+            }
+            entries.push(entry);
+        }
+        Ok(Self { entries })
+    }
+}
+
+impl Dumpable for FixedGlue {
+    fn dump(&self, target: &mut impl Write) -> Result<(), std::io::Error> {
+        self.width.dump(target)?;
+        self.stretch.dump(target)?;
+        self.shrink.dump(target)
+    }
+
+    fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
+        let glue = Self {
+            width: i32::undump(lines)?,
+            stretch: HigherOrderDimension::undump(lines)?,
+            shrink: HigherOrderDimension::undump(lines)?,
+        };
+        if [glue.width, glue.stretch.value, glue.shrink.value]
+            .into_iter()
+            .all(|value| (-MAX_DIMEN..=MAX_DIMEN).contains(&value))
+        {
+            Ok(glue)
+        } else {
+            Err(FormatError::ParseError)
+        }
+    }
+}
+
+impl Dumpable for AutoSpacingState {
+    fn dump(&self, target: &mut impl Write) -> Result<(), std::io::Error> {
+        self.kanji.dump(target)?;
+        self.xkanji.dump(target)
+    }
+
+    fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
+        Ok(Self {
+            kanji: bool::undump(lines)?,
+            xkanji: bool::undump(lines)?,
+        })
+    }
+}
+
+impl Dumpable for PtexSpacingState {
+    fn dump(&self, target: &mut impl Write) -> Result<(), std::io::Error> {
+        writeln!(target, "{PTEX_SPACING_STATE_DUMP_HEADER}")?;
+        self.auto.dump(target)?;
+        self.kanji_skip.dump(target)?;
+        self.xkanji_skip.dump(target)?;
+        self.xsp_codes.dump(target)?;
+        self.inhibit_xsp_codes.dump(target)?;
+        self.penalties.dump(target)
+    }
+
+    fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
+        let header = lines.next().ok_or(FormatError::IncompleteFile)?;
+        if header != PTEX_SPACING_STATE_DUMP_HEADER {
+            return Err(FormatError::ParseError);
+        }
+        Ok(Self {
+            auto: AutoSpacingState::undump(lines)?,
+            kanji_skip: FixedGlue::undump(lines)?,
+            xkanji_skip: FixedGlue::undump(lines)?,
+            xsp_codes: XspCodeTable::undump(lines)?,
+            inhibit_xsp_codes: InhibitXspCodeTable::undump(lines)?,
+            penalties: KinsokuPenaltyTable::undump(lines)?,
+        })
     }
 }
 
@@ -1090,17 +1306,24 @@ mod tests {
             vec![PlannedSpacingAction::JfmGlue { glue: glue(33) }]
         );
 
-        let broken = BoundaryContext {
-            jfm_continuity: JfmPairContinuity::Broken,
-            jfm_glue: JfmGlueControl::Allow,
-        };
-        assert_eq!(
-            actions(planner.plan_boundary(left, right, broken, &state, Some(&table))),
-            vec![PlannedSpacingAction::ImplicitKanjiSkip {
-                glue: glue(10),
-                active: true,
-            }]
-        );
+        for context in [
+            BoundaryContext {
+                jfm_continuity: JfmPairContinuity::Broken,
+                jfm_glue: JfmGlueControl::Allow,
+            },
+            BoundaryContext {
+                jfm_continuity: JfmPairContinuity::Continuous,
+                jfm_glue: JfmGlueControl::Inhibit,
+            },
+        ] {
+            assert_eq!(
+                actions(planner.plan_boundary(left, right, context, &state, Some(&table))),
+                vec![PlannedSpacingAction::ImplicitKanjiSkip {
+                    glue: glue(10),
+                    active: true,
+                }]
+            );
+        }
     }
 
     #[test]
@@ -1336,6 +1559,47 @@ mod tests {
     }
 
     #[test]
+    fn xspとinhibitとswitchもlist終端の最終値を使う() {
+        let planner = JapaneseSpacingPlanner::built_in_ptex();
+        let left = japanese('漢', 1, 1, 0);
+        let right = latin('A');
+        let mut state = state();
+
+        state
+            .xsp_codes_mut()
+            .set(b'A' as u32, XspCode::NONE)
+            .unwrap();
+        assert!(planner
+            .plan_boundary(left, right, BoundaryContext::DEFAULT, &state, None)
+            .is_empty());
+
+        state
+            .xsp_codes_mut()
+            .set(b'A' as u32, XspCode::BOTH)
+            .unwrap();
+        state
+            .inhibit_xsp_codes_mut()
+            .set(LayoutCharacterCode::from_scalar('漢'), XspCode::NONE)
+            .unwrap();
+        assert!(planner
+            .plan_boundary(left, right, BoundaryContext::DEFAULT, &state, None)
+            .is_empty());
+
+        state
+            .inhibit_xsp_codes_mut()
+            .set(LayoutCharacterCode::from_scalar('漢'), XspCode::BOTH)
+            .unwrap();
+        state.auto_mut().set_xkanji(false);
+        assert_eq!(
+            actions(planner.plan_boundary(left, right, BoundaryContext::DEFAULT, &state, None)),
+            vec![PlannedSpacingAction::MaterialXKanjiSkip {
+                glue: FixedGlue::ZERO,
+                active: false,
+            }]
+        );
+    }
+
+    #[test]
     fn 純欧文listはplanner_callbackも表引きも起動しない() {
         let mut list = ScriptSpacingListState::default();
         for character in "plain TeX 123".chars() {
@@ -1412,5 +1676,83 @@ mod tests {
             LayoutCharacterCode::from_public_integer(0x11_0000),
             Err(PtexSpacingCodecError::NonUnicodeCharacter(0x11_0000))
         );
+    }
+
+    #[test]
+    fn ptex間隔stateを版付きfmtで全成分往復する() {
+        let mut state = state();
+        state.auto = AutoSpacingState::new(false, true);
+        state.set_kanji_skip(FixedGlue::from_parts(
+            11,
+            HigherOrderDimension {
+                order: DimensionOrder::Fil,
+                value: 12,
+            },
+            HigherOrderDimension {
+                order: DimensionOrder::Fill,
+                value: 13,
+            },
+        ));
+        state.set_xkanji_skip(FixedGlue::from_parts(
+            14,
+            HigherOrderDimension {
+                order: DimensionOrder::Filll,
+                value: 15,
+            },
+            HigherOrderDimension {
+                order: DimensionOrder::Fil,
+                value: 16,
+            },
+        ));
+        state
+            .xsp_codes_mut()
+            .set(b'+' as u32, XspCode::JAPANESE_TO_LATIN)
+            .unwrap();
+        state
+            .inhibit_xsp_codes_mut()
+            .set(
+                LayoutCharacterCode::from_scalar('。'),
+                XspCode::LATIN_TO_JAPANESE,
+            )
+            .unwrap();
+        state
+            .penalties_mut()
+            .set_post(LayoutCharacterCode::from_scalar('（'), 10_000)
+            .unwrap();
+
+        let mut dumped = Vec::new();
+        state.dump(&mut dumped).unwrap();
+        let text = String::from_utf8(dumped).unwrap();
+        let mut lines = text.lines();
+        let loaded = PtexSpacingState::undump(&mut lines).unwrap();
+        assert_eq!(loaded, state);
+        assert_eq!(lines.next(), None);
+    }
+
+    #[test]
+    fn fmtは不正codecと巨大疎表と非昇順entryを拒む() {
+        let mut bad_xsp = "4".lines();
+        assert!(matches!(
+            XspCode::undump(&mut bad_xsp),
+            Err(FormatError::ParseError)
+        ));
+
+        let too_many = (MAX_INHIBIT_XSP_CODES + 1).to_string();
+        assert!(matches!(
+            InhibitXspCodeTable::undump(&mut too_many.lines()),
+            Err(FormatError::ParseError)
+        ));
+
+        let mut descending = "2\n12290\n1\n12289\n2".lines();
+        assert!(matches!(
+            InhibitXspCodeTable::undump(&mut descending),
+            Err(FormatError::ParseError)
+        ));
+
+        let mut wrong_header = "ptex-spacing-state-v0".lines();
+        assert!(matches!(
+            PtexSpacingState::undump(&mut wrong_header),
+            Err(FormatError::ParseError)
+        ));
     }
 }
