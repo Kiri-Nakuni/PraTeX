@@ -27,6 +27,7 @@ hash固定archiveを置くrepository外のcacheです。
 .PARAMETER JapaneseAdapterPath
 JFM/NFSS接続を行うPraTeX固有adapterです。このtitle oracle自体はruleだけなので不要です。
 adapterをclassや公式LaTeX sourceへ混ぜず、和欧混植sampleだけへ任意に読み込ませます。
+CompileSample指定時に省略するとrepositoryのupjisr-h最小adapterを使います。
 
 .PARAMETER CompileSample
 title oracleに加え、代表的な日本語/Latin混植sampleもcompileします。日本語glyph/JFM枝と
@@ -56,6 +57,7 @@ $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $manifestPath = Join-Path $repoRoot "tests-support/prjsarticle/assets.json"
 $classPath = Join-Path $repoRoot "tex/latex/pratex/prjsarticle.cls"
 $fixtureRoot = Join-Path $repoRoot "tests/fixtures/prjsarticle"
+$defaultJapaneseAdapterPath = Join-Path $repoRoot "docs/examples/prjsarticle-upjisr-h-adapter.tex"
 
 function Test-IsWithinPath {
     param(
@@ -263,7 +265,8 @@ foreach ($required in @(
     (Join-Path $fixtureRoot "hyphen.cfg"),
     (Join-Path $fixtureRoot "maketitle-oracle.tex"),
     (Join-Path $fixtureRoot "runtime-date-maketitle.tex"),
-    (Join-Path $repoRoot "docs/examples/prjsarticle-sample.tex")
+    (Join-Path $repoRoot "docs/examples/prjsarticle-sample.tex"),
+    $defaultJapaneseAdapterPath
 )) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
         throw "repository fixtureがありません: $required"
@@ -271,8 +274,14 @@ foreach ($required in @(
     Copy-Item -LiteralPath $required -Destination $runDir -Force
 }
 
+$adapter = $null
 if (-not [string]::IsNullOrWhiteSpace($JapaneseAdapterPath)) {
     $adapter = [IO.Path]::GetFullPath($JapaneseAdapterPath)
+}
+elseif ($CompileSample) {
+    $adapter = $defaultJapaneseAdapterPath
+}
+if ($null -ne $adapter) {
     if (-not (Test-Path -LiteralPath $adapter -PathType Leaf)) {
         throw "PraTeX Japanese adapterがありません: $adapter"
     }
@@ -334,22 +343,55 @@ function Invoke-CapturedProcess {
     }
 }
 
+function Assert-CleanLog {
+    param(
+        [Parameter(Mandatory)] [string] $Path,
+        [Parameter(Mandatory)] [string] $Phase
+    )
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        throw "$Phase logが生成されませんでした: $Path"
+    }
+    $errorLine = Get-Content -LiteralPath $Path | Where-Object { $_ -match '^!' } |
+        Select-Object -First 1
+    if ($null -ne $errorLine) {
+        throw "$Phase logにTeX errorがあります: $errorLine`n$Path"
+    }
+}
+
+function Assert-NonEmptyFile {
+    param(
+        [Parameter(Mandatory)] [string] $Path,
+        [Parameter(Mandatory)] [string] $Phase
+    )
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf) -or
+        (Get-Item -LiteralPath $Path).Length -eq 0) {
+        throw "${Phase}の非空fileが生成されませんでした: $Path"
+    }
+}
+
 $formatExit = Invoke-CapturedProcess -FilePath $RtexPath -Arguments @("--quiet", "--", "latex.ltx") `
     -WorkingDirectory $runDir `
     -StandardOutputPath (Join-Path $resultDir "format.stdout") `
     -StandardErrorPath (Join-Path $resultDir "format.stderr")
-if ($formatExit -ne 0 -or -not (Test-Path -LiteralPath (Join-Path $runDir "latex.fmt") -PathType Leaf)) {
+$formatPath = Join-Path $runDir "latex.fmt"
+if ($formatExit -ne 0) {
     throw "公式latex.ltxからのformat生成に失敗しました（exit $formatExit）: $resultDir"
 }
+Assert-NonEmptyFile -Path $formatPath -Phase "format"
+Assert-CleanLog -Path (Join-Path $runDir "latex.log") -Phase "format"
 
 $compileExit = Invoke-CapturedProcess -FilePath $RtexPath -Arguments @("--quiet", "--", "&latex", "maketitle-oracle.tex") `
     -WorkingDirectory $runDir `
     -StandardOutputPath (Join-Path $resultDir "compile.stdout") `
     -StandardErrorPath (Join-Path $resultDir "compile.stderr")
 $dviPath = Join-Path $runDir "maketitle-oracle.dvi"
-if ($compileExit -ne 0 -or -not (Test-Path -LiteralPath $dviPath -PathType Leaf)) {
+if ($compileExit -ne 0) {
     throw "prjsarticle title oracleのcompileに失敗しました（exit $compileExit）。PraTeX identity/glyph枝を確認してください: $resultDir"
 }
+Assert-NonEmptyFile -Path $dviPath -Phase "prjsarticle title oracle"
+Assert-CleanLog -Path (Join-Path $runDir "maketitle-oracle.log") -Phase "prjsarticle title oracle"
 
 $runtimeDateExit = Invoke-CapturedProcess -FilePath $RtexPath -Arguments @("--quiet", "--", "&latex", "runtime-date-maketitle.tex") `
     -WorkingDirectory $runDir `
@@ -357,11 +399,11 @@ $runtimeDateExit = Invoke-CapturedProcess -FilePath $RtexPath -Arguments @("--qu
     -StandardErrorPath (Join-Path $resultDir "runtime-date.stderr")
 $runtimeDateDviPath = Join-Path $runDir "runtime-date-maketitle.dvi"
 $runtimeDateLogPath = Join-Path $runDir "runtime-date-maketitle.log"
-if ($runtimeDateExit -ne 0 -or
-    -not (Test-Path -LiteralPath $runtimeDateDviPath -PathType Leaf) -or
-    -not (Test-Path -LiteralPath $runtimeDateLogPath -PathType Leaf)) {
+if ($runtimeDateExit -ne 0) {
     throw "LaTeX既定dateのmaketitle compileに失敗しました（exit $runtimeDateExit）: $resultDir"
 }
+Assert-NonEmptyFile -Path $runtimeDateDviPath -Phase "LaTeX date oracle"
+Assert-CleanLog -Path $runtimeDateLogPath -Phase "LaTeX date oracle"
 $runtimeDateLog = Get-Content -Raw -LiteralPath $runtimeDateLogPath
 $expectedClock = "PRATEX-CLOCK:{0}-{1}-{2}/{3}" -f `
     $epochDate.Year, $epochDate.Month, $epochDate.Day, ($epochDate.Hour * 60 + $epochDate.Minute)
@@ -382,9 +424,11 @@ if ($CompileSample) {
         -StandardOutputPath (Join-Path $resultDir "sample.stdout") `
         -StandardErrorPath (Join-Path $resultDir "sample.stderr")
     $sampleDviPath = Join-Path $runDir "prjsarticle-sample.dvi"
-    if ($sampleExit -ne 0 -or -not (Test-Path -LiteralPath $sampleDviPath -PathType Leaf)) {
+    if ($sampleExit -ne 0) {
         throw "和欧混植sampleのcompileに失敗しました（exit $sampleExit）。Japanese glyph/JFM adapterを確認してください: $resultDir"
     }
+    Assert-NonEmptyFile -Path $sampleDviPath -Phase "和欧混植sample"
+    Assert-CleanLog -Path (Join-Path $runDir "prjsarticle-sample.log") -Phase "和欧混植sample"
 }
 
 $sampleDviHash = if ($null -eq $sampleDviPath) {
@@ -401,7 +445,7 @@ $record = [ordered]@{
     engine_sha256 = (Get-FileHash -LiteralPath $RtexPath -Algorithm SHA256).Hash.ToLowerInvariant()
     source_date_epoch = $SourceDateEpoch
     assets = $verifiedAssets
-    format_sha256 = (Get-FileHash -LiteralPath (Join-Path $runDir "latex.fmt") -Algorithm SHA256).Hash.ToLowerInvariant()
+    format_sha256 = (Get-FileHash -LiteralPath $formatPath -Algorithm SHA256).Hash.ToLowerInvariant()
     dvi_path = $dviPath
     dvi_sha256 = (Get-FileHash -LiteralPath $dviPath -Algorithm SHA256).Hash.ToLowerInvariant()
     runtime_date_dvi_sha256 = (Get-FileHash -LiteralPath $runtimeDateDviPath -Algorithm SHA256).Hash.ToLowerInvariant()

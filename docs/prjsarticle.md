@@ -93,16 +93,20 @@ cargo test --release --locked --test prjsarticle -- --ignored --nocapture
 pwsh -File tools/test-prjsarticle.ps1 `
   -AssetCache C:\temp\prjsarticle-assets `
   -RtexPath target\release\pratex.exe `
-  -JapaneseAdapterPath C:\temp\pratex-jfm-test-adapter.tex `
   -CompileSample
 ```
 
 adapterは`prjsarticle-test-adapter.tex`という試験時の名前で隔離rootへコピーする。
 classや公式LaTeX sourceをpatchせず、他engine identityも定義しない。
+`-CompileSample`でadapterを省略した場合はrepositoryの`upjisr-h`最小adapterを使う。別JFMを
+試す時だけ`-JapaneseAdapterPath`を明示する。通常利用者がTeX Liveで試す手順は
+[README](../README.md)にある。
 
-ただし現在の固定asset manifestには`uptex-fonts`のJFMと`tcrm1000.tfm`がまだなく、上の
-`-CompileSample`だけでは代表sampleを自己完結して実行できない。実物を試す現行手順は
-repositoryのadapterとTeX Liveの`upjisr-h.tfm`を使う[README](../README.md)を優先する。
+2026-08-23に上の自己完結経路を公式CTAN資材だけで再実行し、format、title oracle、実時刻date、
+代表和欧混植sampleの全logがerror 0になった。title DVIは352 bytes、代表sample DVIは
+2356 bytesで、sampleのSHA-256は
+`df5b9ff7f1510777f52a15fb5cc6b068e46441475b9ac75c47382a4c02920dce`である。runnerは終了codeだけで
+成功扱いせず、各logの`!`行と空のfmt/DVIも拒否する。
 
 固定資材は次のとおり。archiveそのものはrepositoryへ入れない。
 
@@ -110,9 +114,11 @@ repositoryのadapterとTeX Liveの`upjisr-h.tfm`を使う[README](../README.md)�
 |---|---|---|---|
 | latex-base | 2026-06-01 | `424bcbab851723495397f0542db8722a68917f31d9f28055ebc65baa7ed35336` | LPPL-1.3c-or-later |
 | l3kernel | 2026-08-10 | `342e0ac756b418d095a23eb37aa771a4df3d27db396d43c9e911e0ab9e138aca` | LPPL-1.3c |
-| unicode-data | 1.19 (2025-09-26) | `ef541913356b94a2ed0795e41609b8108db4edf0227080151b865c3a4963c895` | LPPL-1.3c-or-later / Unicode data terms |
+| unicode-data | 1.20 (2026-08-07) | `ef541913356b94a2ed0795e41609b8108db4edf0227080151b865c3a4963c895` | LPPL-1.3c-or-later / Unicode data terms |
 | cm-tfm | 2026-08-23 CTAN snapshot | `9c0f99fa34c7d801c40f6b5ff60bc28f200e8ef6ffb2fe75e54ca835c67fc04c` | Knuth License |
 | latex-fonts | 2026-08-23 CTAN snapshot | `4e73240c4037643a7ef7c353bedd4a10cf0e180d851c54f1e68fda4397f33936` | LPPL-1.2 |
+| uptex-fonts | 2025-02-18 | `d187b57c3abb5a31380b6798f0d374712a97dafccd1e33476fe6485008736a91` | BSD-3-Clause |
+| ec | 1.0、2026-08-23 CTAN snapshot | `364ea6dc4c05ca49833c31f8bb510bd7cd94142e8e934c59df48a950695c9ed4` | Free license not otherwise listed |
 
 ## jsclasses調査と権利
 

@@ -80,13 +80,20 @@ fn asset_manifestは取得物をhashとlicenseで固定する() {
         "l3kernel.tds.zip",
         "342e0ac756b418d095a23eb37aa771a4df3d27db396d43c9e911e0ab9e138aca",
         "unicode-data.tds.zip",
+        "1.20 (2026-08-07)",
         "ef541913356b94a2ed0795e41609b8108db4edf0227080151b865c3a4963c895",
         "cm-tfm.zip",
         "9c0f99fa34c7d801c40f6b5ff60bc28f200e8ef6ffb2fe75e54ca835c67fc04c",
         "latex-fonts.zip",
         "4e73240c4037643a7ef7c353bedd4a10cf0e180d851c54f1e68fda4397f33936",
+        "uptex-fonts.tds.zip",
+        "d187b57c3abb5a31380b6798f0d374712a97dafccd1e33476fe6485008736a91",
+        "ec.zip",
+        "364ea6dc4c05ca49833c31f8bb510bd7cd94142e8e934c59df48a950695c9ed4",
         "LPPL-1.3c-or-later",
         "Knuth License",
+        "BSD-3-Clause",
+        "Free license not otherwise listed",
     ] {
         assert!(
             manifest.contains(required),
@@ -102,6 +109,7 @@ fn asset_manifestは取得物をhashとlicenseで固定する() {
     assert!(!runner.contains("Get-Command kpsewhich"));
     assert!(runner.contains("SOURCE_DATE_EPOCH"));
     assert!(runner.contains("runtime-date-maketitle.tex"));
+    assert!(runner.contains("prjsarticle-upjisr-h-adapter.tex"));
 
     let runtime_date = 読む("tests/fixtures/prjsarticle/runtime-date-maketitle.tex");
     assert!(runtime_date.contains(r"\typeout{PRATEX-LATEX-DATE:\@date}"));

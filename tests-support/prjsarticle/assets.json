@@ -6,7 +6,7 @@
       "id": "latex-base",
       "version": "2026-06-01",
       "archive": "latex-base.tds.zip",
-      "url": "https://mirrors.ctan.org/install/macros/latex/base/latex-base.tds.zip",
+      "url": "https://mirrors.ctan.org/install/macros/latex/latex-base.tds.zip",
       "bytes": 49711384,
       "sha256": "424bcbab851723495397f0542db8722a68917f31d9f28055ebc65baa7ed35336",
       "license": "LPPL-1.3c-or-later",
@@ -24,9 +24,9 @@
     },
     {
       "id": "unicode-data",
-      "version": "1.19 (2025-09-26)",
+      "version": "1.20 (2026-08-07)",
       "archive": "unicode-data.tds.zip",
-      "url": "https://mirrors.ctan.org/install/macros/latex/required/unicode-data.tds.zip",
+      "url": "https://mirrors.ctan.org/install/macros/generic/unicode-data.tds.zip",
       "bytes": 635350,
       "sha256": "ef541913356b94a2ed0795e41609b8108db4edf0227080151b865c3a4963c895",
       "license": "LPPL-1.3c-or-later AND Unicode-DFS-2016",
@@ -50,6 +50,26 @@
       "bytes": 46802,
       "sha256": "4e73240c4037643a7ef7c353bedd4a10cf0e180d851c54f1e68fda4397f33936",
       "license": "LPPL-1.2",
+      "runtime": "tfm"
+    },
+    {
+      "id": "uptex-fonts",
+      "version": "2025-02-18",
+      "archive": "uptex-fonts.tds.zip",
+      "url": "https://mirrors.ctan.org/install/fonts/uptex-fonts.tds.zip",
+      "bytes": 4961904,
+      "sha256": "d187b57c3abb5a31380b6798f0d374712a97dafccd1e33476fe6485008736a91",
+      "license": "BSD-3-Clause",
+      "runtime": "tfm"
+    },
+    {
+      "id": "ec",
+      "version": "1.0 (CTAN snapshot 2026-08-23)",
+      "archive": "ec.zip",
+      "url": "https://mirrors.ctan.org/fonts/ec.zip",
+      "bytes": 1378646,
+      "sha256": "364ea6dc4c05ca49833c31f8bb510bd7cd94142e8e934c59df48a950695c9ed4",
+      "license": "Free license not otherwise listed",
       "runtime": "tfm"
     }
   ]
