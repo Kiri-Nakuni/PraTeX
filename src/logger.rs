@@ -1,9 +1,9 @@
 use crate::eqtb::{Eqtb, FontIndex, TokenListVariable};
 use crate::error::{fatal_error, jump_out};
-use crate::format::{Dumpable, FORMAT_EXTENSION, FormatError};
+use crate::format::{Dumpable, FormatError, FORMAT_EXTENSION};
 use crate::input::{InputStack, Scanner};
 use crate::print::pseudo::PseudoPrinter;
-use crate::print::{MAX_PRINT_LINE, Printer, cannot_be_printed, to_hex_char};
+use crate::print::{cannot_be_printed, to_hex_char, Printer, MAX_PRINT_LINE};
 use crate::semantic_nest::Mode;
 use crate::token_lists::token_show;
 use crate::{open_out, os_string_from_bytes, read_line};
@@ -22,6 +22,10 @@ pub struct Logger {
     /// CLIが選んだ、自動進捗だけを端末から隠すrun-scoped policy。
     /// fmtには保存せず、TeXのprint selectorである`terminal_logging`とも混ぜない。
     quiet: bool,
+    /// CLIの`-halt-on-error`。fmtへ保存せず、runの最初のTeX errorだけに効く。
+    halt_on_error: bool,
+    /// initial/virginはbuild全体でなくrunごとに選ぶ。fmtへは保存しない。
+    initial_mode: bool,
     pub term_offset: usize,
     pub log_file: Option<BufWriter<File>>,
     pub file_offset: usize,
@@ -76,6 +80,8 @@ impl Logger {
             interaction,
             terminal_logging: true,
             quiet: false,
+            halt_on_error: false,
+            initial_mode: false,
             term_offset: 0,
             file_offset: 0,
             log_file: None,
@@ -116,6 +122,27 @@ impl Logger {
     /// 起動時のCLI policyを、fmtから復元したLoggerへ適用する。
     pub fn set_quiet(&mut self, quiet: bool) {
         self.quiet = quiet;
+    }
+
+    /// fmtから復元したinteractionより後で、CLIのerror policyを適用する。
+    pub fn apply_cli_error_policy(
+        &mut self,
+        interaction: Option<InteractionMode>,
+        halt_on_error: bool,
+    ) {
+        if let Some(interaction) = interaction {
+            self.interaction = interaction;
+            self.error_count = 0;
+        }
+        self.halt_on_error = halt_on_error;
+    }
+
+    pub fn set_initial_mode(&mut self, initial_mode: bool) {
+        self.initial_mode = initial_mode;
+    }
+
+    pub fn is_initial_mode(&self) -> bool {
+        self.initial_mode
     }
 
     /// banner以外の自動進捗をtranscriptへ残し、quiet時だけ端末から隠す。
@@ -283,6 +310,16 @@ pub enum InteractionMode {
 }
 
 impl InteractionMode {
+    pub(crate) fn from_cli_name(value: &str) -> Option<Self> {
+        match value {
+            "batchmode" => Some(Self::Batch),
+            "nonstopmode" => Some(Self::Nonstop),
+            "scrollmode" => Some(Self::Scroll),
+            "errorstopmode" => Some(Self::ErrorStop),
+            _ => None,
+        }
+    }
+
     pub fn as_str(&self) -> &[u8] {
         match self {
             Self::Batch => b"batchmode",
@@ -414,6 +451,10 @@ impl Logger {
         self.history = History::ErrorMessageIssued;
         self.print_char(b'.');
         scanner.input_stack.show_context(self, eqtb);
+        if self.halt_on_error {
+            self.put_help_message_on_transcript_file(help, eqtb);
+            jump_out(self);
+        }
         if self.interaction == InteractionMode::ErrorStop {
             self.get_users_advice(help, scanner, eqtb);
         } else {

@@ -1,5 +1,7 @@
 //! TeXへ渡す入力行から、rtex自身の少数のoptionだけを分ける。
 
+use crate::logger::InteractionMode;
+
 use std::ffi::{OsStr, OsString};
 use std::fmt;
 
@@ -19,8 +21,24 @@ impl OutputFormat {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ImmediateAction {
+    Help,
+    Version,
+}
+
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) struct ParsedArguments {
+    /// TeX engineを起動せず、CLI自身が答えて終了する指定。
+    pub(crate) immediate_action: Option<ImmediateAction>,
+    /// fmtに保存された値より後で適用する、run-scoped interaction指定。
+    pub(crate) interaction: Option<InteractionMode>,
+    /// Web2C互換の明示format selector。先頭の`&fmt`があればそちらが優先する。
+    pub(crate) format_name: Option<OsString>,
+    /// initial engineを明示的に選び、format dumpを可能にする。
+    pub(crate) ini: bool,
+    /// 最初の回復可能TeX errorでprocessを失敗終了させる。
+    pub(crate) halt_on_error: bool,
     pub(crate) output_format: OutputFormat,
     /// Type 1 埋込みを明示的に有効にする map の論理名または物理 path。
     pub(crate) pdf_font_map: Option<OsString>,
@@ -63,13 +81,28 @@ fn strip_os_prefix(value: &OsStr, prefix: &str) -> Option<OsString> {
         .map(OsString::from)
 }
 
-/// web2c系で一般的な `-output-format=pdf` と、そのlong-option表記を読む。
+fn parse_interaction(value: &OsStr) -> Result<InteractionMode, RunOptionError> {
+    let Some(value) = value.to_str() else {
+        return Err(RunOptionError::UnknownInteractionMode(
+            value.to_string_lossy().into_owned(),
+        ));
+    };
+    InteractionMode::from_cli_name(value)
+        .ok_or_else(|| RunOptionError::UnknownInteractionMode(value.to_owned()))
+}
+
+/// Web2C互換optionとPraTeX固有optionをTeXの最初の入力行から分ける。
 ///
-/// rtexが知らない引数は従来どおりTeXの最初の入力行へ残す。`--` より後ろもすべて
-/// TeXへ渡すので、optionに似たファイル名や制御綴も失わない。
+/// `--` より前の未知のdash始まりは綴り違いを黙ってTeXへ流さず、明示errorにする。
+/// `--` より後ろはすべてTeXへ渡すので、optionに似たファイル名や制御綴も失わない。
 pub(crate) fn parse_arguments(
     arguments: impl IntoIterator<Item = OsString>,
 ) -> Result<ParsedArguments, RunOptionError> {
+    let mut immediate_action = None;
+    let mut interaction = None;
+    let mut format_name = None;
+    let mut ini = false;
+    let mut halt_on_error = false;
     let mut output_format = OutputFormat::Dvi;
     let mut pdf_font_map = None;
     let mut pdf_japanese_cid_profile = None;
@@ -84,6 +117,56 @@ pub(crate) fn parse_arguments(
             continue;
         }
         if parsing_options {
+            if argument == "--help" || argument == "-help" {
+                immediate_action = Some(ImmediateAction::Help);
+                continue;
+            }
+            if argument == "--version" || argument == "-version" {
+                immediate_action = Some(ImmediateAction::Version);
+                continue;
+            }
+            if argument == "-ini" || argument == "--ini" {
+                ini = true;
+                continue;
+            }
+            if argument == "-halt-on-error" || argument == "--halt-on-error" {
+                halt_on_error = true;
+                continue;
+            }
+            if let Some(value) =
+                strip_os_prefix(&argument, "-fmt=").or_else(|| strip_os_prefix(&argument, "--fmt="))
+            {
+                if value.is_empty() {
+                    return Err(RunOptionError::MissingFormatName);
+                }
+                format_name = Some(value);
+                continue;
+            }
+            if argument == "-fmt" || argument == "--fmt" {
+                let value = arguments
+                    .next()
+                    .filter(|value| !value.is_empty())
+                    .ok_or(RunOptionError::MissingFormatName)?;
+                format_name = Some(value);
+                continue;
+            }
+            if let Some(value) = strip_os_prefix(&argument, "-interaction=")
+                .or_else(|| strip_os_prefix(&argument, "--interaction="))
+            {
+                if value.is_empty() {
+                    return Err(RunOptionError::MissingInteractionMode);
+                }
+                interaction = Some(parse_interaction(&value)?);
+                continue;
+            }
+            if argument == "-interaction" || argument == "--interaction" {
+                let value = arguments
+                    .next()
+                    .filter(|value| !value.is_empty())
+                    .ok_or(RunOptionError::MissingInteractionMode)?;
+                interaction = Some(parse_interaction(&value)?);
+                continue;
+            }
             if argument == "--quiet" {
                 quiet = true;
                 continue;
@@ -138,6 +221,9 @@ pub(crate) fn parse_arguments(
                 pdf_japanese_cid_profile = Some(value);
                 continue;
             }
+            if strip_os_prefix(&argument, "-").is_some() {
+                return Err(RunOptionError::UnknownOption(argument));
+            }
         }
         tex_arguments.push(argument);
     }
@@ -150,6 +236,11 @@ pub(crate) fn parse_arguments(
     }
 
     Ok(ParsedArguments {
+        immediate_action,
+        interaction,
+        format_name,
+        ini,
+        halt_on_error,
         output_format,
         pdf_font_map,
         pdf_japanese_cid_profile,
@@ -160,6 +251,10 @@ pub(crate) fn parse_arguments(
 
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) enum RunOptionError {
+    MissingFormatName,
+    MissingInteractionMode,
+    UnknownInteractionMode(String),
+    UnknownOption(OsString),
     MissingOutputFormat,
     UnknownOutputFormat(String),
     MissingPdfFontMap,
@@ -171,6 +266,19 @@ pub(crate) enum RunOptionError {
 impl fmt::Display for RunOptionError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::MissingFormatName => formatter.write_str("missing value for -fmt"),
+            Self::MissingInteractionMode => {
+                formatter.write_str("missing value for -interaction")
+            }
+            Self::UnknownInteractionMode(mode) => write!(
+                formatter,
+                "unknown interaction mode `{mode}` (expected batchmode, nonstopmode, scrollmode, or errorstopmode)"
+            ),
+            Self::UnknownOption(option) => write!(
+                formatter,
+                "unknown option `{}` (use `--` before TeX input that begins with `-`)",
+                option.to_string_lossy()
+            ),
             Self::MissingOutputFormat => formatter.write_str("missing value for -output-format"),
             Self::UnknownOutputFormat(format) => {
                 write!(
@@ -194,7 +302,8 @@ impl fmt::Display for RunOptionError {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_arguments, OutputFormat, RunOptionError};
+    use super::{parse_arguments, ImmediateAction, OutputFormat, RunOptionError};
+    use crate::logger::InteractionMode;
     use std::ffi::OsString;
 
     fn strings(values: &[&str]) -> Vec<OsString> {
@@ -207,8 +316,66 @@ mod tests {
         assert_eq!(parsed.output_format, OutputFormat::Dvi);
         assert_eq!(parsed.pdf_font_map, None);
         assert_eq!(parsed.pdf_japanese_cid_profile, None);
+        assert_eq!(parsed.immediate_action, None);
+        assert_eq!(parsed.interaction, None);
+        assert_eq!(parsed.format_name, None);
+        assert!(!parsed.ini);
+        assert!(!parsed.halt_on_error);
         assert!(!parsed.quiet);
         assert_eq!(parsed.tex_arguments, strings(&["&plain", "hello.tex"]));
+    }
+
+    #[test]
+    fn helpとversionは一重二重dashのどちらでも選べる() {
+        for (argument, expected) in [
+            ("-help", ImmediateAction::Help),
+            ("--help", ImmediateAction::Help),
+            ("-version", ImmediateAction::Version),
+            ("--version", ImmediateAction::Version),
+        ] {
+            let parsed = parse_arguments(strings(&[argument])).unwrap();
+            assert_eq!(parsed.immediate_action, Some(expected));
+            assert!(parsed.tex_arguments.is_empty());
+        }
+    }
+
+    #[test]
+    fn interactionの四modeを結合値と分離値で選べる() {
+        for (name, expected) in [
+            ("batchmode", InteractionMode::Batch),
+            ("nonstopmode", InteractionMode::Nonstop),
+            ("scrollmode", InteractionMode::Scroll),
+            ("errorstopmode", InteractionMode::ErrorStop),
+        ] {
+            for arguments in [
+                strings(&[&format!("-interaction={name}"), "hello.tex"]),
+                strings(&["--interaction", name, "hello.tex"]),
+            ] {
+                let parsed = parse_arguments(arguments).unwrap();
+                assert_eq!(parsed.interaction, Some(expected));
+                assert_eq!(parsed.tex_arguments, strings(&["hello.tex"]));
+            }
+        }
+    }
+
+    #[test]
+    fn fmtはos文字列を結合値と分離値で保つ() {
+        for arguments in [
+            strings(&["-fmt=形式/latex", "hello.tex"]),
+            strings(&["--fmt", "形式/latex", "hello.tex"]),
+        ] {
+            let parsed = parse_arguments(arguments).unwrap();
+            assert_eq!(parsed.format_name, Some(OsString::from("形式/latex")));
+            assert_eq!(parsed.tex_arguments, strings(&["hello.tex"]));
+        }
+    }
+
+    #[test]
+    fn iniとhalt_on_errorをrun_policyとして選べる() {
+        let parsed = parse_arguments(strings(&["-ini", "--halt-on-error", "hello.tex"])).unwrap();
+        assert!(parsed.ini);
+        assert!(parsed.halt_on_error);
+        assert_eq!(parsed.tex_arguments, strings(&["hello.tex"]));
     }
 
     #[test]
@@ -262,12 +429,16 @@ mod tests {
     }
 
     #[test]
-    fn quietに似た綴りを勝手にoptionにしない() {
+    fn 未知のdash始まりをtex入力へ黙って流さない() {
         for value in ["-quiet", "--quiet=true"] {
-            let parsed = parse_arguments(strings(&[value])).unwrap();
-            assert!(!parsed.quiet);
-            assert_eq!(parsed.tex_arguments, strings(&[value]));
+            assert_eq!(
+                parse_arguments(strings(&[value])),
+                Err(RunOptionError::UnknownOption(OsString::from(value)))
+            );
         }
+
+        let parsed = parse_arguments(strings(&["--", "-quiet", "hello.tex"])).unwrap();
+        assert_eq!(parsed.tex_arguments, strings(&["-quiet", "hello.tex"]));
     }
 
     #[test]
@@ -370,6 +541,28 @@ mod tests {
         assert_eq!(
             parse_arguments(strings(&["--output-format"])),
             Err(RunOptionError::MissingOutputFormat)
+        );
+        assert_eq!(
+            parse_arguments(strings(&["-interaction=dialogmode"])),
+            Err(RunOptionError::UnknownInteractionMode(
+                "dialogmode".to_owned()
+            ))
+        );
+        assert_eq!(
+            parse_arguments(strings(&["--interaction="])),
+            Err(RunOptionError::MissingInteractionMode)
+        );
+        assert_eq!(
+            parse_arguments(strings(&["-interaction"])),
+            Err(RunOptionError::MissingInteractionMode)
+        );
+        assert_eq!(
+            parse_arguments(strings(&["-fmt="])),
+            Err(RunOptionError::MissingFormatName)
+        );
+        assert_eq!(
+            parse_arguments(strings(&["--fmt"])),
+            Err(RunOptionError::MissingFormatName)
         );
     }
 

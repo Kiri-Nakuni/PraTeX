@@ -93,7 +93,7 @@ PraTeXとVaakは同じ親directoryへ置いてください。`Cargo.toml`は兄�
 
 ```console
 cargo build --release --locked --bin pratex
-cargo run --release --locked --bin pratex -- --quiet -- plain.tex '\dump'
+cargo run --release --locked --bin pratex -- --quiet -ini -- plain.tex '\dump'
 cargo run --release --locked --bin pratex -- --quiet -- '&plain' file.tex
 ```
 
@@ -274,6 +274,12 @@ KOMA-Script確認には使えません。
 
 | option | 意味 |
 |---|---|
+| `--help` | engineを起動せず、実装済みoptionのusageを表示する |
+| `--version` | engineを起動せず、release gate未達を反映した開発版bannerを表示する |
+| `-fmt=<name>` | `<name>.fmt`を読む。command line先頭の`&fmt`があればそちらを優先する |
+| `-ini` | initial engineを選び、format生成を可能にする |
+| `-interaction=<mode>` | `batchmode`, `nonstopmode`, `scrollmode`, `errorstopmode`から選ぶ |
+| `-halt-on-error` | 最初のTeX errorで回復を打ち切り、失敗終了する |
 | `-output-format=dvi` / `--output-format=dvi` | DVIを出力する（既定） |
 | `-output-format=pdf` / `--output-format=pdf` | PDFを直接出力する |
 | `--pdf-font-map=<map>` | PDF出力でmapを指定し、対応するType 1 fontを埋め込む |
@@ -283,6 +289,8 @@ KOMA-Script確認には使えません。
 
 `--quiet`でも、文書が明示した`\message`や`\write16`、エラー、prompt、明示したtracingは
 残ります。これはTeX文書の観測可能な出力まで捨てるbatch modeではありません。
+値の空白分離、未知optionの扱い、`--`境界、未実装Web2C optionを含む正確な対応表は
+[docs/cli-options.md](docs/cli-options.md)を参照してください。
 
 PDF backendの現在の範囲と制約は
 [docs/pdf-backend-notes.md](docs/pdf-backend-notes.md) を参照してください。

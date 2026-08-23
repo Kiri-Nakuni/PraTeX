@@ -32,6 +32,7 @@ use crate::japanese_fonts::{
 use crate::logger::InteractionMode;
 use crate::logger::Logger;
 use crate::main_control::report_illegal_case;
+use crate::os_string_from_bytes;
 use crate::output::Output;
 use crate::page_breaking::PageBuilder;
 use crate::print::string::StringPrinter;
@@ -44,7 +45,6 @@ use crate::script_spacing::planner::{
 };
 use crate::semantic_nest::{RichMode, SemanticState};
 use crate::token::Token;
-use crate::{os_string_from_bytes, INIT};
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -967,7 +967,7 @@ pub fn prefixed_command(
         }
         // From 1252.
         PrefixableCommand::Patterns => {
-            if INIT {
+            if logger.is_initial_mode() {
                 hyphenator.new_patterns(token, scanner, eqtb, logger);
             } else {
                 logger.print_err("Patterns can be loaded only by INITEX");

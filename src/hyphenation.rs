@@ -8,7 +8,6 @@ use crate::logger::Logger;
 use crate::nodes::{
     CharNode, DiscNode, KernNode, KernSubtype, LigatureNode, MathNodeKind, Node, WhatsitNode,
 };
-use crate::INIT;
 pub use hyph_table::Hyphenator;
 
 use std::convert::TryFrom;
@@ -28,7 +27,7 @@ impl Hyphenator {
         eqtb: &mut Eqtb,
         logger: &mut Logger,
     ) -> Vec<Node> {
-        self.initialize_for_hyphenating_paragraph();
+        self.initialize_for_hyphenating_paragraph(logger.is_initial_mode());
 
         let mut hyphenated_hlist = Vec::new();
         let mut nodes = hlist.into_iter();
@@ -95,8 +94,8 @@ impl Hyphenator {
     }
 
     /// See 891.
-    fn initialize_for_hyphenating_paragraph(&mut self) {
-        if INIT && self.trie.is_none() {
+    fn initialize_for_hyphenating_paragraph(&mut self, initial_mode: bool) {
+        if initial_mode && self.trie.is_none() {
             self.init_trie();
         }
         self.cur_lang = self.init_cur_lang;

@@ -72,7 +72,7 @@ use main_control::main_control;
 use output::Output;
 use page_breaking::PageBuilder;
 use print::Printer;
-use run_options::{parse_arguments, OutputFormat, ParsedArguments};
+use run_options::{parse_arguments, ImmediateAction, OutputFormat, ParsedArguments};
 use semantic_nest::SemanticState;
 
 use std::ffi::{OsStr, OsString};
@@ -114,20 +114,41 @@ pub(crate) fn os_str_to_bytes(value: &OsStr) -> Vec<u8> {
     }
 }
 
-// We use a global flag for now to indicate whether this version is INITEX.
-const INIT: bool = true;
-
 type InitialEngineState = (Logger, Hyphenator, Box<Eqtb>);
+
+const CLI_HELP: &str = concat!(
+    "Usage: pratex [OPTION]... [TEXNAME[.tex]] [MORE-INPUT]\n",
+    "       pratex [OPTION]... \\TEX-INPUT\n",
+    "\n",
+    "Web2C-compatible options implemented by PraTeX:\n",
+    "  --help                       display this help and exit\n",
+    "  --version                    display the version and exit\n",
+    "  -fmt=NAME                    use NAME.fmt (a leading &NAME takes priority)\n",
+    "  -ini                         use the initial engine, for dumping formats\n",
+    "  -interaction=MODE            batchmode, nonstopmode, scrollmode, or errorstopmode\n",
+    "  -halt-on-error               stop at the first TeX error\n",
+    "\n",
+    "PraTeX options:\n",
+    "  -output-format=FORMAT        dvi or pdf (default: dvi)\n",
+    "  --pdf-font-map=PATH          Type 1 map used by direct PDF output\n",
+    "  --pdf-japanese-cid-profile=PATH\n",
+    "                               named CID profile used by direct PDF output\n",
+    "  --quiet                      hide automatic progress, not document output\n",
+    "  --                           pass all following arguments to TeX input\n",
+);
 
 /// fmt選択中の大きな戻り値をheapへ移してから`tex_main`へ返す。
 #[inline(never)]
-fn load_selected_format(format_name: Option<OsString>) -> Result<Box<InitialEngineState>, ()> {
-    if let Some(format_name) = format_name {
-        load_hyphenator_and_eqtb_from_specified_format_file(format_name)
-    } else if !INIT {
-        load_hyphenator_and_eqtb_from_default_format_file()
-    } else {
+fn load_selected_format(
+    format_name: Option<OsString>,
+    initial_mode: bool,
+) -> Result<Box<InitialEngineState>, ()> {
+    if initial_mode {
         Ok(initialize_initex())
+    } else if let Some(format_name) = format_name {
+        load_hyphenator_and_eqtb_from_specified_format_file(format_name)
+    } else {
+        load_hyphenator_and_eqtb_from_default_format_file()
     }
 }
 
@@ -147,28 +168,43 @@ pub fn tex_main() -> Result<(), ()> {
     let arguments = parse_arguments(std::env::args_os().skip(1)).map_err(|error| {
         eprintln!("pratex: {error}");
     })?;
+    if let Some(action) = arguments.immediate_action {
+        match action {
+            ImmediateAction::Help => print!("{CLI_HELP}"),
+            ImmediateAction::Version => println!("{BANNER}"),
+        }
+        return Ok(());
+    }
     let run_date_time = runtime_clock::RunDateTime::capture().map_err(|error| {
         eprintln!("pratex: {error}");
     })?;
 
+    // Start the input
+    let (line_format_name, first_line, first_non_space_pos) =
+        read_format_name_and_first_line(&arguments);
+    // Web2Cの公開順位どおり、最初の非option引数`&fmt`を`-fmt`より優先する。
+    let format_name = line_format_name.or_else(|| arguments.format_name.clone());
+    // PraTeXには配布時に固定されたdefault fmtがまだない。selectorがないrunは、既存の
+    // source実行互換を保ってinitial engineへ入る。明示fmtの有無ではvirginと区別できる。
+    let initial_mode = arguments.ini || format_name.is_none();
+
     if !arguments.quiet {
-        if INIT {
+        if initial_mode {
             println!("{BANNER} (INITEX)");
         } else {
-            println!("{BANNER} (no format preloaded)");
+            println!("{BANNER}");
         }
     }
 
-    // Start the input
-    let (format_name, first_line, first_non_space_pos) =
-        read_format_name_and_first_line(&arguments);
-
-    let engine = load_selected_format(format_name)?;
+    let engine = load_selected_format(format_name, initial_mode)?;
     run_loaded_engine(
         arguments.output_format,
         arguments.pdf_font_map,
         arguments.pdf_japanese_cid_profile,
         arguments.quiet,
+        arguments.interaction,
+        arguments.halt_on_error,
+        initial_mode,
         first_line,
         first_non_space_pos,
         run_date_time,
@@ -183,6 +219,9 @@ fn run_loaded_engine(
     pdf_font_map: Option<OsString>,
     pdf_japanese_cid_profile: Option<OsString>,
     quiet: bool,
+    interaction: Option<InteractionMode>,
+    halt_on_error: bool,
+    initial_mode: bool,
     mut first_line: Vec<u8>,
     first_non_space_pos: usize,
     run_date_time: runtime_clock::RunDateTime,
@@ -190,6 +229,8 @@ fn run_loaded_engine(
 ) -> ! {
     let (mut logger, mut hyphenator, mut eqtb) = *engine;
     logger.set_quiet(quiet);
+    logger.set_initial_mode(initial_mode);
+    logger.apply_cli_error_policy(interaction, halt_on_error);
 
     // We set history to this value before initialization
     // and set it to spotless once initialization succeeded.
@@ -239,7 +280,14 @@ fn run_loaded_engine(
     );
 
     // Now we are done and only need to clean-up after ourselves.
-    final_cleanup(dumping, &hyphenator, &mut scanner, &mut eqtb, &mut logger);
+    final_cleanup(
+        dumping,
+        initial_mode,
+        &hyphenator,
+        &mut scanner,
+        &mut eqtb,
+        &mut logger,
+    );
     close_files_and_terminate(0, &hyphenator, &nest, output, &scanner, &eqtb, &mut logger);
 }
 
@@ -335,6 +383,7 @@ fn get_first_input_line_from_arguments(
 /// See 1335.
 fn final_cleanup(
     dumping: bool,
+    initial_mode: bool,
     hyphenator: &Hyphenator,
     scanner: &mut Scanner,
     eqtb: &mut Eqtb,
@@ -372,7 +421,7 @@ fn final_cleanup(
         }
     }
     if dumping {
-        if INIT {
+        if initial_mode {
             store_fmt_file(hyphenator, &scanner.input_stack, eqtb, logger);
         } else {
             logger.print_nl_str("(\\dump is performed only by INITEX)");
