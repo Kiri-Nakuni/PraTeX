@@ -162,7 +162,7 @@ fn materialize_action(action: PlannedSpacingAction) -> Node {
             width,
         }),
         PlannedSpacingAction::ImplicitKanjiSkip { glue, .. } => {
-            automatic_glue(AutomaticJapaneseGlue::KanjiSkip, glue)
+            automatic_glue(AutomaticJapaneseGlue::VirtualKanjiSkip, glue)
         }
         PlannedSpacingAction::MaterialXKanjiSkip { glue, .. } => {
             automatic_glue(AutomaticJapaneseGlue::XKanjiSkip, glue)

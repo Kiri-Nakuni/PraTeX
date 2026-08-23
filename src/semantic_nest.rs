@@ -105,6 +105,20 @@ impl SemanticState {
         node
     }
 
+    /// 内部 materialization を飛ばし、TeX から見える末尾 node を返す。
+    pub(crate) fn last_tex_observable(&self) -> Option<&Node> {
+        Node::last_tex_observable(self.cur_list())
+    }
+
+    /// TeX から見える末尾だけを除去する。仮想 K は list に残し、次の中央
+    /// finalization で元の glyph 境界から再評価させる。
+    pub(crate) fn remove_last_tex_observable(&mut self, eqtb: &mut Eqtb) -> Option<Node> {
+        let index = Node::last_tex_observable_index(self.cur_list())?;
+        let node = self.cur_list_mut().remove(index);
+        self.update_last_node_info(eqtb);
+        Some(node)
+    }
+
     pub fn cur_list_is_empty(&self) -> bool {
         self.cur_list().is_empty()
     }
@@ -115,7 +129,7 @@ impl SemanticState {
         if self.depth() == 0 && self.base_list().is_empty() {
             eqtb.restore_last_node_from_page();
         } else {
-            eqtb.update_last_node_info(self.cur_list().last());
+            eqtb.update_last_node_info(self.last_tex_observable());
         }
     }
 
@@ -406,5 +420,79 @@ fn show_auxiliary_field(layer: &SemanticLevel, eqtb: &Eqtb, logger: &mut Logger)
         RichMode::Vertical(vmode) => vmode.show_fields(logger),
         RichMode::Horizontal(hmode) => hmode.show_fields(logger),
         RichMode::Math(mmode) => mmode.show_fields(eqtb, logger),
+    }
+}
+
+#[cfg(test)]
+mod virtual_kanji_skip_tests {
+    use super::SemanticState;
+    use crate::eqtb::Eqtb;
+    use crate::nodes::{AutomaticJapaneseGlue, GlueNode, GlueSpec, GlueType, Node};
+    use crate::script_spacing::finalizer::finalize_horizontal_list_if_needed;
+    use crate::script_spacing::planner::ScriptSpacingListState;
+    use std::rc::Rc;
+
+    fn glue(width: i32, subtype: GlueType) -> Node {
+        Node::Glue(GlueNode {
+            subtype,
+            glue_spec: Rc::new(GlueSpec {
+                width,
+                stretch: Default::default(),
+                shrink: Default::default(),
+            }),
+        })
+    }
+
+    #[test]
+    fn 仮想kが物理末尾でも利用者glueだけを除去する() {
+        let mut nest = SemanticState::new();
+        let mut eqtb = Eqtb::new();
+        nest.tail_push(glue(7, GlueType::Normal), &mut eqtb);
+        nest.tail_push(
+            glue(
+                4,
+                GlueType::AutomaticJapanese(AutomaticJapaneseGlue::VirtualKanjiSkip),
+            ),
+            &mut eqtb,
+        );
+
+        assert!(matches!(
+            nest.last_tex_observable(),
+            Some(Node::Glue(GlueNode {
+                subtype: GlueType::Normal,
+                ..
+            }))
+        ));
+        assert!(matches!(
+            nest.remove_last_tex_observable(&mut eqtb),
+            Some(Node::Glue(GlueNode {
+                subtype: GlueType::Normal,
+                ..
+            }))
+        ));
+        assert!(nest.last_tex_observable().is_none());
+        assert!(matches!(
+            nest.cur_list().as_slice(),
+            [Node::Glue(GlueNode {
+                subtype: GlueType::AutomaticJapanese(AutomaticJapaneseGlue::VirtualKanjiSkip),
+                ..
+            })]
+        ));
+
+        let mut list_state = ScriptSpacingListState::default();
+        list_state.observe_japanese();
+        finalize_horizontal_list_if_needed(nest.cur_list_mut(), list_state, &eqtb);
+        assert!(nest.cur_list().is_empty());
+    }
+
+    #[test]
+    fn xとjfmは仮想kの可視性へ混ぜない() {
+        for kind in [
+            AutomaticJapaneseGlue::Jfm,
+            AutomaticJapaneseGlue::XKanjiSkip,
+        ] {
+            let node = glue(4, GlueType::AutomaticJapanese(kind));
+            assert!(node.is_tex_observable(), "kind={kind:?}");
+        }
     }
 }

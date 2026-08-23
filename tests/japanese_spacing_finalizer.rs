@@ -1,6 +1,13 @@
 //! 横組JFM/K/X/禁則を、実hlist・line break・DVIへ一回だけ接続する回帰。
 //!
 //! JFM/TFMは公開file formatだけから合成し、他engineのsourceや上流testを使わない。
+//! 2026-08-24には公開pTeX manual 2025-05-10と、TeX Live 2026の公式e-upTeX
+//! `3.141592653-p4.1.2-u2.02-251130-2.6`を自作入力だけで照合した。使用した
+//! `uptex.windows` archiveのSHA-256は`docs/euptex-port-notes.md`記録済みの
+//! `c878983da002f32a24a507680ccf00261a3761089ed324892668ded589bf9c0d`。
+//! 直結和和Kはshow listへ出ず、箱寸法・再箱詰め・改行・DVI移動には効く一方、
+//! Xはmaterial glueとして表示される、という観測を以下へ固定する。公式でmaterialな
+//! 箱境界Kはこのsliceでは未実装であり、`VirtualKanjiSkip`とは別variantにする。
 
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
@@ -188,7 +195,7 @@ fn common_prefix() -> &'static str {
 }
 
 #[test]
-fn jfmとkとxは実hlistへ一度だけ入り明示nodeを越えない() {
+fn jfmと仮想kと実xはhlistへ一度だけ入り明示nodeを越えない() {
     let directory = prepare_directory("hlistとbarrier");
     let source = format!(
         "{}\\kanjiskip=1pt plus .5pt minus .25pt
@@ -236,13 +243,41 @@ fn jfmとkとxは実hlistへ一度だけ入り明示nodeを越えない() {
         "{log}"
     );
     assert!(log.contains("\\kern-2.5 (PraTeX JFM)"), "{log}");
-    assert!(
-        log.contains("\\glue(\\kanjiskip) 1.0 plus 0.5 minus 0.25"),
-        "{log}"
-    );
+    assert!(!log.contains("\\glue(\\kanjiskip)"), "{log}");
     assert!(log.contains("\\glue(\\xkanjiskip) 2.0"), "{log}");
     assert!(log.contains("\\penalty 50"), "{log}");
     assert!(log.contains("\\penalty 10000"), "{log}");
+}
+
+#[test]
+fn 仮想kは利用者glueから隠れ寸法と再箱詰めには効く() {
+    let directory = prepare_directory("仮想Kの可視性");
+    let source = format!(
+        "{}\\kanjiskip=4pt plus 1pt minus 2pt \\xkanjiskip=3pt
+         \\showboxbreadth=100 \\showboxdepth=10
+         \\setbox0=\\hbox{{ああ\\message{{[pair-tail=\\the\\lastskip/\\the\\lastnodetype]}}}}
+         \\showbox0
+         \\kanjiskip=6pt \\setbox1=\\hbox{{\\unhcopy0}}
+         \\kanjiskip=4pt \\setbox2=\\hbox{{ああ\\hskip7pt\\unskip
+           \\message{{[after-unskip=\\the\\lastskip/\\the\\lastnodetype]}}}}
+         \\showbox2
+         \\setbox3=\\hbox{{あA}} \\showbox3
+         \\message{{[virtual-widths=\\the\\wd0/\\the\\wd1/\\the\\wd2/\\the\\wd3]}}
+         \\end\n",
+        common_prefix()
+    );
+    std::fs::write(directory.join("t.tex"), source).unwrap();
+    let output = run_rtex(&directory, &["t.tex"]);
+    assert_success(&output, "仮想Kの利用者可視性試験を実行できなかった");
+    let log = joined_log(&directory, "t");
+    assert!(log.contains("[pair-tail=0.0pt/0]"), "{log}");
+    assert!(log.contains("[after-unskip=0.0pt/0]"), "{log}");
+    assert!(
+        log.contains("[virtual-widths=14.0pt/16.0pt/14.0pt/18.0pt]"),
+        "{log}"
+    );
+    assert!(!log.contains("\\glue(\\kanjiskip)"), "{log}");
+    assert!(log.contains("\\glue(\\xkanjiskip) 3.0"), "{log}");
 }
 
 #[test]
@@ -430,6 +465,25 @@ fn jfm_glueはdvi上の次glyphとrule座標へ一度だけ効く() {
 }
 
 #[test]
+fn 仮想kはdviの次glyph座標へ一度だけ効く() {
+    let directory = prepare_directory("仮想KのDVI座標");
+    let source = format!(
+        "{}\\kanjiskip=4pt
+         \\setbox0=\\hbox{{ああ}} \\shipout\\box0 \\end\n",
+        common_prefix()
+    );
+    std::fs::write(directory.join("t.tex"), source).unwrap();
+    let output = run_rtex(&directory, &["t.tex"]);
+    assert_success(&output, "仮想KのDVI座標試験を実行できなかった");
+    let (wide, rules) = first_page_events(&std::fs::read(directory.join("t.dvi")).unwrap());
+    assert_eq!(wide.len(), 2);
+    assert_eq!(wide[0].character, 0x3042);
+    assert_eq!(wide[1].character, 0x3042);
+    assert_eq!(wide[1].h, wide[0].h + 9 * 65_536);
+    assert!(rules.is_empty());
+}
+
+#[test]
 fn fmtから戻したkとjfm対表がproduction_finalizerへ届く() {
     let directory = prepare_directory("fmt spacing");
     let make = format!(
@@ -470,7 +524,10 @@ fn 自動間隔switchと許可表はhbox終端の現在値を使い群ごとに�
     );
     std::fs::write(directory.join("t.tex"), source).unwrap();
     let output = run_rtex(&directory, &["t.tex"]);
-    assert_success(&output, "自動間隔switchと許可表のhbox試験を実行できなかった");
+    assert_success(
+        &output,
+        "自動間隔switchと許可表のhbox試験を実行できなかった",
+    );
     let log = joined_log(&directory, "t");
     assert!(log.contains("[values=3/3]"), "{log}");
     assert!(
@@ -554,9 +611,7 @@ fn inhibitxspcodeの局所消去は復元枠を予約しglobal追加に消費さ
         common_prefix()
     );
     for code_point in 0x4000_u32..0x4400 {
-        source.push_str(&format!(
-            "\\global\\inhibitxspcode\"{code_point:X}=0\n"
-        ));
+        source.push_str(&format!("\\global\\inhibitxspcode\"{code_point:X}=0\n"));
     }
     source.push_str(
         "}\\message{[reservation=\\the\\inhibitxspcode\"3042/\\the\\inhibitxspcode\"4000/\\the\\inhibitxspcode\"43FF]}
@@ -570,6 +625,10 @@ fn inhibitxspcodeの局所消去は復元枠を予約しglobal追加に消費さ
     assert!(log.contains("Too many inhibitxspcode entries"), "{log}");
     assert!(log.contains("[reservation=0/0/3]"), "{log}");
     assert!(log.contains("[reserved-target=1]"), "{log}");
-    assert_eq!(log.matches("Too many inhibitxspcode entries").count(), 1, "{log}");
+    assert_eq!(
+        log.matches("Too many inhibitxspcode entries").count(),
+        1,
+        "{log}"
+    );
     assert!(!log.contains("panicked at"), "{log}");
 }

@@ -874,12 +874,12 @@ pub fn delete_last(
 ) {
     if eqtb.mode() == Mode::Vertical && nest.cur_list_is_empty() {
         apologize_for_inability_to_do_operation(remove_item, scanner, eqtb, logger);
-    } else if let Some(last_node) = nest.cur_list().last() {
+    } else if let Some(last_node) = nest.last_tex_observable() {
         if let (&Node::Penalty(_), RemoveItem::Penalty)
         | (&Node::Kern(_), RemoveItem::Kern)
         | (&Node::Glue(_), RemoveItem::Glue) = (last_node, remove_item)
         {
-            nest.pop_last(eqtb);
+            nest.remove_last_tex_observable(eqtb);
         }
     }
 }

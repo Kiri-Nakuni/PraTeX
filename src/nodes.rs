@@ -102,6 +102,35 @@ pub enum Node {
 }
 
 impl Node {
+    /// TeX の node list introspection から観測できる node か。
+    ///
+    /// 直結する和文 glyph 間の `\kanjiskip` (K) は寸法・伸縮・改行・出力には
+    /// 効くが、利用者が挿入した glue node ではない。内部では中央 finalizer が
+    /// glue として materialize しても、`\showbox` / `\showlists` / `\lastskip` /
+    /// `\lastnodetype` / `\unskip` からは仮想境界として隠す。
+    ///
+    /// X、JFM pair glue、将来の箱境界 material K は実 node なので、この判定へ
+    /// 混ぜない。
+    pub(crate) fn is_tex_observable(&self) -> bool {
+        !matches!(
+            self,
+            Self::Glue(GlueNode {
+                subtype: GlueType::AutomaticJapanese(AutomaticJapaneseGlue::VirtualKanjiSkip),
+                ..
+            })
+        )
+    }
+
+    /// 物理的に materialize された仮想 node を飛ばし、TeX から見える末尾を返す。
+    pub(crate) fn last_tex_observable(nodes: &[Self]) -> Option<&Self> {
+        nodes.iter().rfind(|node| node.is_tex_observable())
+    }
+
+    /// `last_tex_observable` と同じ境界で、末尾の位置を返す。
+    pub(crate) fn last_tex_observable_index(nodes: &[Self]) -> Option<usize> {
+        nodes.iter().rposition(Self::is_tex_observable)
+    }
+
     /// See 148.
     pub fn precedes_break(&self) -> bool {
         match self {
@@ -711,7 +740,8 @@ pub enum GlueType {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AutomaticJapaneseGlue {
     Jfm,
-    KanjiSkip,
+    /// 直結する和文 glyph 間だけの仮想 K。箱境界の material K には使わない。
+    VirtualKanjiSkip,
     XKanjiSkip,
 }
 
@@ -830,7 +860,7 @@ impl GlueNode {
                 logger.print_char(b'(');
                 logger.print_esc_str(match kind {
                     AutomaticJapaneseGlue::Jfm => b"pratexjfm",
-                    AutomaticJapaneseGlue::KanjiSkip => b"kanjiskip",
+                    AutomaticJapaneseGlue::VirtualKanjiSkip => b"kanjiskip",
                     AutomaticJapaneseGlue::XKanjiSkip => b"xkanjiskip",
                 });
                 logger.print_char(b')');
@@ -1260,6 +1290,9 @@ impl Clone for UnsetNode {
 /// See 174. and 175.
 pub fn short_display(node_list: &[Node], eqtb: &Eqtb, logger: &mut Logger) {
     for node in node_list {
+        if !node.is_tex_observable() {
+            continue;
+        }
         match node {
             Node::Char(char_node) => {
                 if char_node.font_index != logger.font_in_short_display {
@@ -1355,6 +1388,9 @@ pub fn show_node_list(
     }
     let mut n = 0;
     for node in node_list {
+        if !node.is_tex_observable() {
+            continue;
+        }
         logger.print_ln();
         print_indentation(indent_str, logger);
         n += 1;

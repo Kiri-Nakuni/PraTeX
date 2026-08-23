@@ -64,7 +64,7 @@ impl HorizontalMode {
     /// Updates the condensed info about the last node of the current list that we keep in the
     /// Eqtb.
     pub fn update_last_node_info(&mut self, eqtb: &mut Eqtb) {
-        eqtb.update_last_node_info(self.list.last());
+        eqtb.update_last_node_info(Node::last_tex_observable(&self.list));
     }
 }
 
