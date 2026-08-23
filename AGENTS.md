@@ -13,7 +13,7 @@ PraTeX側が必要とするAPIは `src/vaak.rs`、`docs/vaak-embedding-api-desig
 `for_CLAUDE.md` に契約として残し、Vaak側の変更はClaudeに伝える。
 
 通常作業の枝は **`codex2/<目的>`** とする。現在の統合枝は
-`codex2/jlreq-script-spacing`であり、2026-08-24のpush済みHEADは`161e2d0`。
+`codex2/jlreq-script-spacing`であり、2026-08-24のpush済み実装checkpointは`3a4aaaf`。
 `\detokenize`から`\scantokens`、横組JFM glyph、K/X/finalizer、JLReqの最小禁則、
 直接PDFのnamed CIDと限定`/ToUnicode`、WASM ABI 0.0のwire/domain境界、
 e-TeX `\middle`まで取り込み済みである。
@@ -52,7 +52,8 @@ PraTeXは、日本語組版、欧文組版、和欧混植をengine coreの一級
 7. **OTF対応**
    - OTF shapingはdefault-offのRustyBuzz接続を第一候補とする。
 8. **safe Rustの範囲での性能調整**
-   - 当面は機能完成を優先して後回し。ただし退行を測れるfixtureは各sliceで残す。
+   - 機能完成を優先するが、利用者測定でhot pathが見えた箇所は意味回帰を固定して並行に調整する。
+   - 局所A/Bの改善をend-to-end gate達成と読み替えない。
    - 最終gateは、同一入力・同一TeX tree・同等のDVI意味でupLaTeXの実行時間の**1.2倍未満**。
 
 TeX Live/kpathsea互換探索は全段に必要な横断基盤である。file lookupごとに外部`kpsewhich`を
@@ -188,10 +189,12 @@ TRIP再現用の単精度`glue_set`境界は`trip` featureだけへ閉じ込め�
 2026-08-23にpage body 183 bytesの差分0を確認した。LaTeX DVIの完全回帰は`latex.ltx`を
 LaPraTeX用に適合させるまでは要求しない。
 
-upLaTeX比1.2未満の最終gateは維持するが、現在は日本語組版の意味論と回帰を優先し、性能最適化は
-後回しである。主要sliceで安価に取れる基準値は残してよいが、正しさの実装を止めてtuningへ
-移らない。再開時は探索、fmt読込み、字句化、組版、DVI出力を分け、外部process時間を隠さず、
-cold/warmとhit/missを同じfixtureで測る。
+upLaTeX比1.2未満の最終gateは維持するが、正しさの実装を止めてtuningへ移らない。
+`22a8bdd` / `3a4aaaf`ではfmt collectionの初期予約をuntrustedな宣言長から切り離し、
+Windowsのwarm A/Bでwallを7.31--15.26%短縮した。これは利用者のLinux end-to-end 9.14 sを
+再測定した値ではなく、差の解消を意味しない。48標本のraw値は
+`docs/benchmarks/fmt-bounded-reservation-20260824.csv`にある。探索、fmt読込み、字句化、組版、
+DVI出力を分け、外部process時間を隠さず、cold/warmとhit/missを同じfixtureで測る。
 
 ### 既知の落とし穴
 
@@ -249,8 +252,10 @@ cold/warmとhit/missを同じfixtureで測る。
 - 横組JFMはbounded loader、TeX互換scale、current和文font、`\pratexjfont`と意味が一致する
   範囲の`\jfont` alias、`zw`/`zh`、wide node、class pair、DVI `set2`/`set3`まで接続済み。
   `pratex-japanese`は和文encoding/family/series/shapeとJFM shape宣言、NFSS sizeのexact-sp cache、
-  和文tupleから欧文NFSS tupleを一回だけ選ぶrelation fontを持つ。`prjsarticle`の通常font roleは
-  この宣言面を使い、手続き的な和欧hook列を使わない。
+  和文tupleから欧文NFSS tupleを一回だけ選ぶrelation fontを持つ。relation fontは標準NFSS本体
+  ではなくpLaTeXがNFSS上へ加えた拡張の意味を、PraTeX固有名で実装したもの。publicなUseは
+  document body用で、preambleの次回`\selectfont`へ保留する契約はない。JFM宣言は横組exactだけ。
+  `prjsarticle`の通常font roleはこの宣言面を使い、手続き的な和欧hook列を使わない。
   `\tfont`、縦組、main-loop JFM/完全禁則は未接続。PDF和文glyphは明示named CID profileを
   使う非埋込みBMP最小経路だけ接続済みで、portableな字形表示ではない。
 - plain formatで`\directvaak`、`\vaakdef`、`let` / `var`、host aliasを使う実行例は

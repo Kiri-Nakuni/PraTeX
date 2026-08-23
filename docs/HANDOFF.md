@@ -1,6 +1,6 @@
 # PraTeX 作業引継ぎ
 
-更新: 2026-08-23（統合枝 `codex2/jlreq-script-spacing`）
+更新: 2026-08-24（統合枝 `codex2/jlreq-script-spacing`）
 
 この文書は、現在の Codex セッションから別のエージェントへ作業が移っても、
 検証済みの境界と未commitの作業を失わないための生きた引継ぎである。
@@ -21,11 +21,16 @@
 ## 枝と共有状態
 
 - 枝: `codex2/jlreq-script-spacing`
+- push済み実装checkpoint: `3a4aaaf`
 - push済み`\scantokens` code checkpoint: `d90e98f`（歴史的基点は`6ce8315`）
 - 日本語CID PDFの検証済み元commit: `8035d1c`
 - 基点のrelease全suite: **564 passed、0 failed、6 ignored**（Vaak `89804b4`）
-- 現在の統合枝release全suite: **665 passed、0 failed、7 ignored**
+- 最新の記録済みrelease全suite: `161e2d0`で**808 passed、0 failed、9 ignored**。
+  それ以後のNFSS・fmt予約checkpointを含む全releaseは引継ぎ時に改めて実行する。
 - 直近の共有commit:
+  - `3a4aaaf`: fmt予約A/Bを再検証できるraw標本と予約上限を固定
+  - `22a8bdd`: fmt復元collectionの再確保をboundedな初期予約で削減
+  - `00dc469`: relation消費と和文JFM同期を初期化時期に依存しない境界へ修正
   - `d90e98f`: KOMAが必要とする`\scantokens`をtyped疑似入力へ接続
   - `9118097`: JFM/K/X/最小禁則finalizerを実hlistへ統合
   - `801784a`: PraTeX自身のWASI target生成結果と未達ABI境界を統合
@@ -45,7 +50,8 @@
   - `fb58687`: Unicode欧文の契約とLaTeX停止理由
   - `d0b6f46`: `\kanjiskip` / `\xkanjiskip` core設計
   - `565c0d3`: Unicode欧文token、u16 hyphen trie、`\lastnodetype` page状態
-- 性能枝 `codex/perf-wsl-euptex-safe` は `9bb6023`までpush済みで、現在は停止中
+- 旧性能枝 `codex/perf-wsl-euptex-safe` は `9bb6023`までpush済みで停止中。新しいfmt予約の
+  checkpointは統合枝の`22a8bdd` / `3a4aaaf`に入った
 - Claudeの連絡枝 `origin/claude/for-codex` は `82fa3a2`まで確認済み
 - Vaak `origin/codex/main` は `64ccf4e`まで確認済み
 - Vaakの壊れていた`full`は`codex2/full`の`7c5ccd7`で修復済み。release全suiteは
@@ -388,12 +394,31 @@ Claude `82fa3a2`のLinux perf分解:
   runtime非依存で実装した。Vaakのprepared APIやportable ABIとは別version domainであり、
   module parser/runtime/affine lease/provider接続はまだない。
 
-## LaTeXと日本語組版の次順
+## NFSS/relation font checkpoint
 
 `968d1e7`で`pratex-japanese`を和文encoding/family/series/shape、exact JFM shape、
-NFSS size cache、従属欧文relationへ一般化した。Declareはglobal、Setはgroup-local、Useは
-次の`\selectfont`一回だけで、`prjsarticle`のbody/title/headingは通常hook列でなくこの宣言面を使う。
-size function、shape substitution、縦組directionとpLaTeX互換名はまだない。
+NFSS size cache、従属欧文relationへ一般化し、`00dc469`でrelation保留の漏れとJFM同期時期を
+修正した。relation fontは標準NFSS本体でなくpLaTeXがNFSS上へ加えた拡張の意味を、互換名を
+生やさずPraTeX固有名で実装する。Declareはglobal、Setはgroup-local、Useはdocument bodyの
+次の`\selectfont`一回だけで、preambleからpre-document選択へ保留する用法は未対応。
+`prjsarticle`のbody/title/headingはその場でrelationを消費してから選択する。JFM宣言は横組exact
+だけで、size function、shape substitution、縦組directionとpLaTeX互換名はまだない。
+
+## 完了済み性能checkpoint: fmt collectionのbounded予約
+
+`22a8bdd` / `3a4aaaf`は、untrustedなfmt宣言長をそのままcapacityにせず、一般の`Vec`と
+`HashMap`へ4,096要素またはpayload換算64 KiBまでの初期予約を行う。Windows x86_64、release
+LTO、17,446,628 byteの同一`latex.fmt`を使ったwarm交互A/B各8回では、formatだけ、空`article`、
+300段落のwall中央値が7.31--15.26%、Eqtb復元が14.28--18.95%短縮し、300段落のDVI/log hashは
+一致した。48標本のraw値は
+[`benchmarks/fmt-bounded-reservation-20260824.csv`](benchmarks/fmt-bounded-reservation-20260824.csv)
+に固定した。
+
+これはWindowsの平坦化cacheを使ったwarm内部A/Bであり、利用者のLinux TeX Live tree、
+`mainpra.tex`三回、`dvipdfmx`一回を含む9.14 sの再測定ではない。従ってLinuxの190%差を
+解消したとは扱わず、次は同一corpusでengineとdriver、外部processを分けて測る。
+
+## LaTeXと日本語組版の次順
 
 1. JFM/禁則をmain-loop早期挿入へ移し、box edgeのmaterial Kとdisc境界を完成する。
 2. `\tfont`と縦組metric/node/outputを追加し、spacingと禁則を横組から縦組へ広げる。
@@ -406,7 +431,7 @@ size function、shape substitution、縦組directionとpLaTeX互換名はまだ�
 
 ## 検証
 
-Unicode/lastnodetypeのcheckpoint後、次はまず現状確認から始める。
+`00dc469` / `3a4aaaf`のcheckpoint後、次はまず現状確認から始める。
 
 ```powershell
 cargo test --release --locked --test kanjiskip
@@ -419,9 +444,9 @@ cargo test --release --locked --no-fail-fast
 pwsh -NoProfile -File tools/run-trip.ps1
 ```
 
-2026-08-23の既知正常値（TRIPは統合したspacing元枝で実測）:
+2026-08-24の既知正常値（TRIPは統合したspacing元枝で実測）:
 
-- 現在の統合枝release: 665 passed、0 failed、7 ignored
+- `161e2d0`の統合枝release: 808 passed、0 failed、9 ignored
 - TRIP Stage1/Stage2 exit 0
 - `tripos.tex`正規化後一致
 - DVI SHA-256: `b20af20a1463c6846f0c4c1ce687cd6354ce1a5f65ee401507627570787ae9fe`

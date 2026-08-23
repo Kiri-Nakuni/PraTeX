@@ -112,7 +112,7 @@ OTF shapingは未実装である。現在のnamed CIDはJFM幅で位置を進め
 | 部分 | `\kanjiskip`、`\xkanjiskip`と自動間隔制御 | INITEX既定0の通常glue parameterに加え、`\autospacing` / `\noautospacing`、`\autoxspacing` / `\noautoxspacing`、`\xspcode`、Unicode scalarの`\inhibitxspcode`をtyped eqtbへ持つ。代入、group、`\globaldefs`、内部量、fmtを通す。直結和和Kは寸法・改行・DVIに効くが`\showbox` / `\lastskip` / `\lastnodetype` / `\unskip`から隠れる仮想node、Xはmaterial nodeである。box edgeのmaterial Kは未接続 |
 | 部分 | JFM reader/modelと横組font | 公開JFM仕様から独立実装。横組11／縦組9、24-bit raw文字code、u8 class、skip・再配置・256超glue/kern indexをboundedに検査する。横組11はbounded loader、TeX互換scale、current font、`\pratexjfont`と意味一致範囲の`\jfont`、group/fmtへ接続済み。`\tfont`と縦組は未接続 |
 | 部分 | 横組JFM/K/X/禁則finalizer | WideChar/Char/Ligature境界を中央plannerで一度だけ決め、同一fontのJFM pair glue/kernをKより優先する。明示penaltyは透明、glue/kern/math/whatsit/list/rule/disc等はbarrier。由来付きnodeをunbox再評価、line break、box寸法、DVI座標、fmtへ接続。禁則は`、。`とJLReq由来の横組括弧12対のbounded subset。直結Kの利用者不可視性は公式e-upTeX black-boxと照合済みだが、JFM/禁則のmain-loop早期挿入とbox/disc境界は残る |
-| 部分 | PraTeX和文NFSSとrelation font | `PJY1`をPraTeX固有の横組契約として、和文encoding/family/series/shape、exact JFM shape宣言、JFM名＋exact-sp size cache、group復元を持つ。和文tupleから欧文NFSS tupleへのDeclare(global)／Set(local)、次の`\selectfont`一回だけのUse、空jshape wildcardを実装。pLaTeX互換名、size function、shape substitution、縦組directionは未実装 |
+| 部分 | PraTeX和文NFSSとrelation font | `PJY1`をPraTeX固有の横組契約として、和文encoding/family/series/shape、横組exact JFM shape宣言、JFM名＋exact-sp size cache、group復元を持つ。relation fontは標準NFSS本体でなくpLaTeXがNFSS上へ加えた拡張の意味をPraTeX固有名で実装し、Declare(global)／Set(local)、document bodyで次の`\selectfont`一回だけのUse、空jshape wildcardを持つ。public Useのpreamble利用、pLaTeX互換名、size function、shape substitution、縦組directionは未実装 |
 | 実装 | `\kcatcode`表・照会・代入 | 公開値14〜20。U+0000〜U+10FFFFをUnicode 17.0.0のblock、upTeX擬似境界、7例外集合で保存する。block単位の局所/global/globaldefs復元とfmt往復を含む |
 | 実装 | `latin_ucs`（kcatcode 14） | U+0080〜U+2E7FをUnicode欧文一文字tokenとして保持し、cat/lc/uc/sf、group/fmt、active/control identity、特殊catcode、case変換、表示へ通す。pattern/exception/trieもu16 alphabetで一文字として扱う。runtime namespaced Unicode active生成とwide font nodeは後段 |
 | 部分 | UTF-8 CJK一文字tokenと横組glyph | kcatcode 16〜20を符号位置と入力時categoryを持つ一tokenにし、macro、`\edef`、`\let`、条件、`\string`、`\detokenize`、`\write`、fmtまで保持する。current横組JFMがあればUnicode・JFM class・scale済みmetricを持つwide nodeにし、DVIはBMPを`set2`、補助面を`set3`、PDFは明示named CID profileがあるBMPだけをType 0へ出す。未選択、縦組、math、PDF非BMPは明示診断する |
@@ -196,7 +196,7 @@ Vaak言語runtimeそのものは別repositoryのMIT依存であり、PraTeX独�
 | 文字分類境界 | PraTeX内部設計 | `CatCode`を`repr(u8)`に保ち、`\catcode`をカノン、`\kcatcode`を別公開番号の互換viewとして`InputCategory::{CatCode, Wide, RawBytes}`へ写す`CharacterClassifier`問い合わせ面。layout/JFM/provider IDは別domain |
 | 組版region状態 | PraTeX内部設計 | 地域組版localeをTeXのhyphenation番号やUnicode scriptから推定せず、1 byteのtyped parameterとしてeqtb/save stack/fmt/内部量へ通す |
 | CLIとportability層 | web2c系option慣行とPraTeX固有policy | OS文字列を壊さないoption parser、PDF/quiet選択、CRLF処理、PraTeX/rtex二binary境界 |
-| 検証・性能tooling | TRIP、公開DVI仕様 | 第三者資材をvendorしないhash固定TRIP runner、DVI意味比較、safe Rustの回帰・性能fixture |
+| 検証・性能tooling | TRIP、公開DVI仕様 | 第三者資材をvendorしないhash固定TRIP runner、DVI意味比較、safe Rustの回帰・性能fixture。fmt bounded予約のWindows warm A/B 48標本は[`benchmarks/fmt-bounded-reservation-20260824.csv`](benchmarks/fmt-bounded-reservation-20260824.csv)に固定し、Linux 9.14 sのend-to-end差を解消した値とは扱わない |
 
 低水準PDF、font、resolverの主なsourceは
 [pdf.rs](../src/pdf.rs)、

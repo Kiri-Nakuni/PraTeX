@@ -39,7 +39,7 @@ record意味差もない。両binary間で同一fmtを共用する追加実験�
 
 | 対象 | 実測 | exit / `!` | DVI bytes / SHA-256 | 判定と最初の制限 |
 |---|---:|---:|---|---|
-| `prjsarticle` 0.3 | 到達 | 0 / 0 | 2,636 / `112cc36111479242bdbcbd093e549dd8224fd12c654f9a4c3ec9813737523ea8` | 和文4属性、exact JFM+sp cache、従属欧文relationを使い、`maketitle`、節、list、和欧混植を横組DVI化した限定smoke。JLReq完全対応ではない。 |
+| `prjsarticle` 0.4 | 到達 | 0 / 0 | 2,652 / `3ae145d49587b29ae488028c968e92e9dc18a8f0b2a9be1550a2b5a817dbf785` | 和文4属性、横組exact JFM+sp cache、pLaTeXのNFSS拡張に由来する意味をPraTeX固有名で持つ従属欧文relationを使い、`maketitle`、節、list、和欧混植をDVI化した限定smoke。public Useのpreamble利用、縦組、JLReq完全対応ではない。 |
 | `article` 1.4n | 到達 | 0 / 0 | 432 / `868d392a535b054db9e5329a1dd03678d0503831b20d9a5b4ba9aa4fead402db` | 欧文baseline。 |
 | `scrartcl` 3.49.2 | 到達 | 0 / 0 | 496 / `bcf8881826166f9b021e7d29394213b0af7ebcbe2ef26c4dd577eed0e291602b` | classを無改変でloadし、sectionをDVI化。KOMA-Script全体の互換性は未確認。 |
 | `graphicx` 1.2e | 到達 | 0 / 0 | 648 / `f5dc83fa6438e00869c2fc4e3f0b865fed2ba6e3e38bfc16aa0f331ed841167f` | `rotatebox`と`scalebox`のDVI special smoke。外部画像の探索・変換は未試験。 |

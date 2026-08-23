@@ -192,7 +192,9 @@ dvipdfmx -o prjsarticle-sample-from-dvi.pdf prjsarticle-sample.dvi
 ```
 
 `prjsarticle`はhookを定義した後で`pratex-japanese`を読みます。このpackageが
-`\pratexjfont`で`upjisr-h at 10pt`を定義し、本文開始hookから和文fontを選びます。
+`\pratexjfont`で`upjisr-h at 10pt`を定義し、LaTeXの`selectfont` hookから選択中の横組JFMを
+同期します。classの本文・表題・見出しroleはrelation要求をその場で消費してから`\selectfont`を
+呼ぶため、文書開始時の要求が最初の`\sffamily`などへ漏れません。
 別JFMを試す場合だけ、`docs/examples/prjsarticle-upjisr-h-adapter.tex`と同じ形で
 `\pratexsetjapanesefonthook`を後から上書きできます。
 直接PDFでは、既定JFM `upjisr-h`を内蔵CID profileへ結ぶため追加optionは要りません。
@@ -265,10 +267,13 @@ try {
 `pratex-japanese`は一般classをPraTeX上で横組JFMへ接続する明示packageです。和文側にも
 encoding / family / series / shapeの独立した属性を持ち、宣言したJFMをNFSSの現在sizeへ
 exact spで追随させます。同じJFMとsizeはcacheを共有し、group終了後は外側の和文属性へ戻ります。
-また、和文属性から欧文NFSS属性を選ぶPraTeX固有のrelation font APIを持ちます。
+また、和文属性から欧文NFSS属性を選ぶPraTeX固有のrelation font APIを持ちます。これは標準NFSS
+本体の機能ではなく、pLaTeXがNFSS上へ加えた「従属書体」の意味をPraTeX固有名で提供するものです。
 `prjsarticle`の本文・表題・見出しはこの宣言面を使い、和文hookと欧文hookを手続き的に並べません。
-現段階ではexact shape宣言だけで、NFSSのsize function、shape substitution、縦組font選択は
-未実装です。公開APIと制約は[prjsarticleの設計](docs/prjsarticle.md)を参照してください。
+publicな`\UsePraTeXRelationFont`はdocument body用で、preamble中に発行して次のpre-document
+`\selectfont`へ保留する使い方は未対応です。現段階のJFM宣言は横組exact shapeだけで、NFSSの
+size function、shape substitution、縦組font選択は未実装です。公開APIと制約は
+[prjsarticleの設計](docs/prjsarticle.md)を参照してください。
 `upjisr-h.tfm`が探索できない場合は、文書中のCJK文字を処理する前にpackage読込み位置で
 `JFM file was not found`と診断します。
 
@@ -393,8 +398,11 @@ Vaakへコードを移すことはしません。
 実装と性能調整はsafe Rustだけを使います。頻出経路を測り、出力とTRIPの結果を固定したうえで
 最適化します。DVI modeでは同一入力・同一TeX tree・同等DVIでupLaTeXの実行時間の
 1.2倍未満を最終的なhard gateとし、探索・fmt復元・組版・出力も分けて追跡します。
-現在は日本語横組みの意味論と回帰試験を固めることを優先し、性能最適化そのものは後段へ
-送っています。この数値を現時点で達成済みという意味ではありません。
+`22a8bdd` / `3a4aaaf`のfmt予約checkpointはWindowsのwarm内部A/Bでwallを7.31--15.26%
+短縮しましたが、利用者のLinux TeX Live文書で観測されたPraTeX 9.14 sを再測定した結果ではなく、
+end-to-end差の解消を意味しません。48標本のraw値は
+[docs/benchmarks/fmt-bounded-reservation-20260824.csv](docs/benchmarks/fmt-bounded-reservation-20260824.csv)、
+条件と限界は[性能測定](docs/performance.md)にあります。
 
 e-TeX、pTeX、upTeX、pdfTeX由来の拡張は、上流の実装コードを移植せず、公開仕様と
 許可された黒箱観測から書き直します。特にpTeX／upTeX系は由来ごとにライセンスが異なる
