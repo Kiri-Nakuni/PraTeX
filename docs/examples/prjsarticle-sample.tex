@@ -1,0 +1,46 @@
+% PraTeXの横組日本語classの代表入力。
+\documentclass[a4paper,10pt]{prjsarticle}
+
+% JFM/NFSS adapterが入ったformatでは、本文開始前に例えば
+% \pratexsetjapanesefonthook{<formatが提供する和文font選択命令>}
+% と設定する。別engineのversion primitiveを定義して分岐を偽装しない。
+% 自動試験ではadapterをclassから分離した次のfile名で置く。
+\InputIfFileExists{prjsarticle-test-adapter.tex}{}{}
+
+\title{PraTeXによる日本語とLatin textの混植}
+\author{PraTeX開発チーム}
+\date{2026年8月23日}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+この文書は、横組の日本語段落、欧文、見出し、基本的な箇条書きを一つの
+classで確認するための標本である。PraTeX and Latin text share the same line.
+\end{abstract}
+
+\section{和欧混植の段落}
+日本語の文中にPraTeX、W3C JLReq、safe Rustのような欧文を置く。
+句読点を含む行分割と和欧文間の自動空白は、classのmacroではなく
+PraTeX engine coreが決定する。
+
+段落頭は一字下げとし、段落間には追加の空きを置かない。二つ目の段落でも
+日本語とLatin wordsを自然に混在させる。
+
+\subsection{基本的な箇条書き}
+\begin{itemize}
+  \item 日本語の項目とLatin textを同じ行に置く。
+  \item 項目間隔は本文の行送りを基準にする。
+\end{itemize}
+
+\begin{enumerate}
+  \item JFM/TFMから和文glyphを作る。
+  \item K/X spacingと禁則を中央finalizerで適用する。
+\end{enumerate}
+
+\begin{description}
+  \item[PraTeX] 日本語・欧文・和欧混植を一級機能として扱うengine。
+  \item[prjsarticle] PraTeX identityだけを要求する横組class。
+\end{description}
+
+\end{document}
