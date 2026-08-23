@@ -7,12 +7,12 @@
 
 ## engine identityとfont境界
 
-classは`\pratexversion >= 1`を必須とする。他engineの`\pdftexversion`、
+classは`\pratexversion` primitiveの存在を必須とする。他engineの`\pdftexversion`、
 `\luatexversion`、`\XeTeXversion`、pTeX/upTeX判定用primitiveを定義・参照して
 package分岐を偽装しない。初版engine identityとして次をPraTeX coreへ要求する。
 
-- `\pratexversion`: read-only integer。初版の公開契約値は1。
-- `\pratexrevision`: expandableなbuild/revision文字列。比較の主手段にはしない。
+- `\pratexversion`: read-only integer。開発中は0で、完成条件を満たした正式版から1。
+- `\pratexrevision`: expandableな版文字列。現在は`0.1.0-dev`。末尾の零を捨てない。
 - 将来の個別能力には、`\pratexfeature{japanese-horizontal-glyph-dvi}`が0または
   契約versionを返す低頻度queryを推奨する。
 

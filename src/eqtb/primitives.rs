@@ -981,6 +981,10 @@ impl Eqtb {
         self.primitive_expandable(b"expanded", ExpandableCommand::Expanded);
         self.primitive_expandable(b"detokenize", ExpandableCommand::Detokenize);
         self.primitive_expandable(b"unexpanded", ExpandableCommand::Unexpanded);
+        self.primitive_expandable(
+            b"pratexrevision",
+            ExpandableCommand::Convert(ConvertCommand::PraTeXRevision),
+        );
         // pdfTeX 由来の道具。**組版に触らない**
         for (n, c) in [
             (b"pdffilesize".as_slice(), ConvertCommand::PdfFileSize),

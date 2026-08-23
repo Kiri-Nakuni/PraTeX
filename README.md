@@ -12,7 +12,8 @@ PraTeXは、tyti氏によるTeX82のRust再実装`rtex`を基礎に、現代的�
 
 - TeX82の中核、formatの生成・読込み、DVI出力
 - e-TeXおよびpdfTeXの原始命令の一部
-- 他engineの版番号へ偽装しないPraTeX固有の識別子 `\pratexversion=1`
+- 他engineの版番号へ偽装しないPraTeX固有の識別子。開発中は
+  `\pratexversion=0`、`\pratexrevision=0.1.0-dev`で、完成前に版1を名乗らない
 - `-output-format=pdf`による外部DVI driverを必要としないPDF直接出力
 - PDFへの暫定的なStandard 14 font出力と、明示したmapによるType 1 font全埋込み。実配布
   `pdftex.map`の複数resource構文、flags既定値、PFB Private `StdVW` fallbackまで読める
@@ -41,6 +42,8 @@ Vaak/WASMを明示登録時だけ有効にする内部境界は
 [docs/performance.md](docs/performance.md) にあります。どちらも未実装部分を含む設計・測定記録です。
 担当やセッションを交代する場合の現在枝、未commit差分、検証手順は
 [docs/HANDOFF.md](docs/HANDOFF.md) にまとめています。
+正式版1の完了条件と、それ以後にリウヴィル定数の桁へ収束する版規則は
+[docs/versioning.md](docs/versioning.md) に固定しています。
 
 外部のCTAN/TeX Live 2026資材を一時環境に揃えた実測では、無改変の公式
 `latex.ltx`から`latex.fmt`を生成し、最小`article`をDVI/PDFまで処理できました。

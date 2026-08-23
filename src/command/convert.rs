@@ -8,6 +8,8 @@ pub enum ConvertCommand {
     Meaning,
     FontName,
     JobName,
+    /// `\pratexrevision` — 末尾の零も保つPraTeX自身の版文字列。
+    PraTeXRevision,
     // ==== pdfTeX 由来。**組版に触らない道具** ====
     /// `\pdffilesize{名前}` — 大きさをバイト数で。**無ければ空**
     PdfFileSize,
@@ -33,6 +35,7 @@ impl ConvertCommand {
             Self::Meaning => b"meaning",
             Self::FontName => b"fontname",
             Self::JobName => b"jobname",
+            Self::PraTeXRevision => b"pratexrevision",
             Self::PdfFileSize => b"pdffilesize",
             Self::PdfMdFiveSum => b"pdfmdfivesum",
             Self::PdfStrCmp => b"pdfstrcmp",

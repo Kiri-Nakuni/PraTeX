@@ -141,6 +141,15 @@ PraTeXをpTeX、upTeX、pdfTeX、XeTeX、LuaTeXとして偽装しない。native
 `\pratexversion`をカノンとし、必要ならPraTeX固有feature queryを追加する。互換primitiveを
 個別に持つことと、engine全体を名乗ることを混同しない。
 
+### PraTeX 1のrelease gate
+
+`docs/versioning.md`を版番号の一次資料とする。JLReq一級、TeX--XeTを含むe-TeX完全対応、
+実時刻、pdfTeX相当PDF、OTF、Vaak API、WASM ABI/module system、PraTeX自身のWASM targetが
+すべて完成するまで`\pratexversion`は0であり、bannerも版1を名乗らない。完成後の版は
+`1`, `1.1`, `1.11`, `1.110`, `1.1100`, … と末尾の零を保ち、
+`1 +`リウヴィル定数へ収束させる。WASM module systemは専用サブチャットの承認仕様を待ち、
+こちらで意味論を捏造しない。
+
 ---
 
 ## 実装の作法

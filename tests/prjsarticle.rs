@@ -10,7 +10,7 @@ fn 読む(path: &str) -> String {
 fn classは明示的なpratex_identityだけを要求する() {
     let class = 読む("tex/latex/pratex/prjsarticle.cls");
     assert!(class.contains(r"\ifdefined\pratexversion"));
-    assert!(class.contains(r"\ifnum\pratexversion<1"));
+    assert!(!class.contains(r"\ifnum\pratexversion<1"));
 
     for forbidden in [
         r"\pdftexversion",

@@ -741,6 +741,9 @@ impl Dumpable for ConvertCommand {
             Self::JobName => {
                 writeln!(target, "JobName")?;
             }
+            Self::PraTeXRevision => {
+                writeln!(target, "PraTeXRevision")?;
+            }
             Self::PdfFileSize => {
                 writeln!(target, "PdfFileSize")?;
             }
@@ -778,6 +781,7 @@ impl Dumpable for ConvertCommand {
             "Meaning" => Ok(Self::Meaning),
             "FontName" => Ok(Self::FontName),
             "JobName" => Ok(Self::JobName),
+            "PraTeXRevision" => Ok(Self::PraTeXRevision),
             "PdfFileSize" => Ok(Self::PdfFileSize),
             "PdfMdFiveSum" => Ok(Self::PdfMdFiveSum),
             "PdfStrCmp" => Ok(Self::PdfStrCmp),
@@ -1168,6 +1172,7 @@ mod tests {
     #[test]
     fn pdf変換命令を書き出して読める() {
         let commands = [
+            ConvertCommand::PraTeXRevision,
             ConvertCommand::PdfFileSize,
             ConvertCommand::PdfMdFiveSum,
             ConvertCommand::PdfStrCmp,

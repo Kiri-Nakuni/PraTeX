@@ -179,7 +179,7 @@ fn 互換rtexバイナリもpratexを名乗る() {
     let (directory, output) = run_tex(env!("CARGO_BIN_EXE_rtex"), "rtex互換名", &[], ONE_RULE_PAGE);
     assert_success(&output, &directory);
     assert!(
-        contains(&output.stdout, b"This is PraTeX, Version 3.141592653"),
+        contains(&output.stdout, b"This is PraTeX, Version 0.1.0-dev"),
         "互換binaryのbannerがPraTeXでない:\n{}",
         String::from_utf8_lossy(&output.stdout),
     );

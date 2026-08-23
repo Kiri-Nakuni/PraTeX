@@ -40,12 +40,12 @@ fn 版を答える() {
 fn pratexは自分の版だけを名乗る() {
     let log = run_tex(
         "PraTeX版",
-        "\\message{[PraTeX=\\the\\pratexversion]}\n\
+        "\\message{[PraTeX=\\the\\pratexversion/\\pratexrevision]}\n\
          \\ifdefined\\pTeXversion\\message{[pTeX偽装]}\\fi\n\
          \\ifdefined\\upTeXversion\\message{[upTeX偽装]}\\fi\n\
          \\ifdefined\\pdftexversion\\message{[pdfTeX偽装]}\\fi",
     );
-    assert!(log.contains("[PraTeX=1]"), "{log}");
+    assert!(log.contains("[PraTeX=0/0.1.0-dev]"), "{log}");
     assert!(!log.contains("偽装"), "{log}");
 }
 

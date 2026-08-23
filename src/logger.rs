@@ -13,7 +13,7 @@ use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 
-pub const BANNER: &str = "This is PraTeX, Version 3.141592653";
+pub const BANNER: &str = crate::version::BANNER;
 
 /// See 54.
 pub struct Logger {

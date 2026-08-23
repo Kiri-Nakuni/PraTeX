@@ -11,7 +11,8 @@
   [2026/08/23 v0.1 PraTeX native horizontal Japanese article]
 
 % Do not impersonate another engine to enter its package branches.
-% PraTeX owns this identity primitive; its initial public contract is 1.
+% PraTeX owns this identity primitive.  Presence identifies the engine;
+% the value is a release gate and remains 0 until PraTeX 1 is complete.
 \ifdefined\pratexversion\else
   \ClassError{prjsarticle}
     {PraTeX identity primitive \string\pratexversion\space is missing}
@@ -19,13 +20,6 @@
      primitive or a local stand-in for \string\pratexversion.}
   \expandafter\endinput
 \fi
-\ifnum\pratexversion<1\relax
-  \ClassError{prjsarticle}
-    {Unsupported PraTeX identity contract \the\pratexversion}
-    {prjsarticle requires \string\pratexversion\space 1 or newer.}
-  \expandafter\endinput
-\fi
-
 % The class uses the LaTeX author interface supplied by article, while all
 % Japanese engine decisions remain PraTeX-native hooks below.
 \PassOptionsToClass{a4paper}{article}

@@ -51,6 +51,7 @@ mod token;
 mod token_lists;
 pub mod vaak;
 mod vertical_mode;
+mod version;
 mod vsplit;
 mod write_streams;
 

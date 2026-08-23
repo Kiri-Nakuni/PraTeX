@@ -394,6 +394,9 @@ fn scan_and_print_argument_for_convert_command(
             // **時刻は固定である**（rtex は 1776 年 7 月 4 日正午に止めてある）
             string_printer.slow_print_str(b"D:17760704120000+00'00'");
         }
+        ConvertCommand::PraTeXRevision => {
+            string_printer.slow_print_str(crate::version::PRATEX_REVISION.as_bytes());
+        }
     }
 }
 
