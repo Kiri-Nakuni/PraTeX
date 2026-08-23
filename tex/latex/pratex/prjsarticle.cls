@@ -8,7 +8,7 @@
 
 \NeedsTeXFormat{LaTeX2e}[2023-11-01]
 \ProvidesClass{prjsarticle}
-  [2026/08/24 v0.3 PraTeX native horizontal Japanese article]
+  [2026/08/24 v0.4 PraTeX native horizontal Japanese article]
 
 % Do not impersonate another engine to enter its package branches.
 % PraTeX owns this identity primitive.  Presence identifies the engine;
@@ -60,27 +60,29 @@
 \DeclarePraTeXJapaneseFontShape{PJY1}{mc}{bx}{n}{upjisr-h}
 \DeclarePraTeXJapaneseFontShape{PJY1}{gt}{m}{n}{upjisg-h}
 \DeclarePraTeXRelationFont{PJY1}{mc}{m}{n}%
-  {\encodingdefault}{\rmdefault}{\mddefault}{\updefault}
+  {\encodingdefault}{\rmdefault}{\mddefault}{n}
 \DeclarePraTeXRelationFont{PJY1}{mc}{bx}{n}%
-  {\encodingdefault}{\rmdefault}{\bfdefault}{\updefault}
+  {\encodingdefault}{\rmdefault}{bx}{n}
 \DeclarePraTeXRelationFont{PJY1}{gt}{m}{n}%
-  {\encodingdefault}{\sfdefault}{\bfdefault}{\updefault}
+  {\encodingdefault}{\sfdefault}{bx}{n}
 
-\newcommand\pratex@selectfontrole[3]{%
-  \pratexjfontfamily{#1}%
-  \pratexjfontseries{#2}%
-  \pratexjfontshape{#3}%
+\newcommand\pratex@selectfontrole[4]{%
+  \pratexjfontencoding{#1}%
+  \pratexjfontfamily{#2}%
+  \pratexjfontseries{#3}%
+  \pratexjfontshape{#4}%
   \UsePraTeXRelationFont
+  \pratex@applyrelation
   \selectfont
   \pratexlatinfonthook}
-\newcommand\pratexbodyfont{\pratex@selectfontrole{mc}{m}{n}}
-\newcommand\pratexheadingfont{\pratex@selectfontrole{gt}{m}{n}}
+\newcommand\pratexbodyfont{\pratex@selectfontrole{PJY1}{mc}{m}{n}}
+\newcommand\pratexheadingfont{\pratex@selectfontrole{PJY1}{gt}{m}{n}}
 \newcommand\pratextitlefont{%
-  \LARGE\pratex@selectfontrole{mc}{bx}{n}}
+  \LARGE\pratex@selectfontrole{PJY1}{mc}{bx}{n}}
 \newcommand\pratexauthorfont{%
-  \large\pratex@selectfontrole{mc}{m}{n}}
+  \large\pratex@selectfontrole{PJY1}{mc}{m}{n}}
 \newcommand\pratexdatefont{%
-  \normalsize\pratex@selectfontrole{mc}{m}{n}}
+  \normalsize\pratex@selectfontrole{PJY1}{mc}{m}{n}}
 
 % Horizontal Japanese baseline.  JFM-aware zw is resolved by the engine at
 % document start, after a format has installed its Japanese font hook.

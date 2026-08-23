@@ -21,7 +21,7 @@ fn 既定日本語packageは和文nfssと従属欧文をpratex固有面へ接続
         r"\UsePraTeXRelationFont",
         r"\def\pratexselectjapanesefont",
         r"\AddToHook{cmd/selectfont/before}",
-        r"\AddToHook{cmd/selectfont/after}",
+        r"\AddToHook{selectfont}",
         r"\ifdefined\pratexsetjapanesefonthook",
         r"\pratexsetjapanesefonthook{\pratexselectjapanesefont}",
         r"\AtBeginDocument{\pratexselectjapanesefont}",
@@ -31,6 +31,10 @@ fn 既定日本語packageは和文nfssと従属欧文をpratex固有面へ接続
             "既定日本語package契約が欠けている: {required}"
         );
     }
+    assert!(
+        !package.contains(r"\AddToHook{cmd/selectfont/after}"),
+        "JFM同期はLaTeXの常設selectfont hookを使わなければならない"
+    );
     for forbidden in [
         r"\pdftexversion",
         r"\luatexversion",
@@ -119,8 +123,11 @@ fn classは横組articleの公開面と宣言的なfont_roleを持つ() {
         r"\DeclarePraTeXJapaneseFontShape{PJY1}{gt}{m}{n}{upjisg-h}",
         r"\DeclarePraTeXRelationFont{PJY1}{mc}{m}{n}",
         r"\DeclarePraTeXRelationFont{PJY1}{gt}{m}{n}",
-        r"\newcommand\pratex@selectfontrole[3]",
+        r"\newcommand\pratex@selectfontrole[4]",
+        r"\pratexjfontencoding{#1}",
+        r"\pratex@selectfontrole{PJY1}{mc}{m}{n}",
         r"\UsePraTeXRelationFont",
+        r"\pratex@applyrelation",
         r"\kanjiskip=0zw",
         r"\xkanjiskip=.25zw",
         r"\setlength\parindent{1em}",
@@ -134,6 +141,28 @@ fn classは横組articleの公開面と宣言的なfont_roleを持つ() {
     assert!(
         !class.contains(r"\pratexlatinfonthook\pratexjapanesefonthook"),
         "classの通常font roleを手続き的な和欧hook列へ戻してはならない"
+    );
+    assert!(
+        !class.contains(r"{\updefault}"),
+        "relation targetへ未宣言shape upを渡してはならない"
+    );
+    assert!(
+        !class.contains(r"{\bfdefault}"),
+        "forceするrelation targetへ抽象metaseries bを渡してはならない"
+    );
+    let role = class
+        .split_once(r"\newcommand\pratex@selectfontrole[4]")
+        .expect("四属性のrole selectorがあること")
+        .1
+        .split_once(r"\newcommand\pratexbodyfont")
+        .expect("role selectorの終端があること")
+        .0;
+    let use_relation = role.find(r"\UsePraTeXRelationFont").unwrap();
+    let apply_relation = role.find(r"\pratex@applyrelation").unwrap();
+    let select_font = role.find(r"\selectfont").unwrap();
+    assert!(
+        use_relation < apply_relation && apply_relation < select_font,
+        "class roleはrelationを保留せずselectfont前に直接消費しなければならない"
     );
 }
 
@@ -577,7 +606,7 @@ fn 公式ctan資材でprjsarticle_title_dviを生成して照合する() {
         .arg("-WorkRoot")
         .arg(&work)
         .arg("-RtexPath")
-        .arg(engine);
+        .arg(&engine);
     if std::env::var_os("PRATEX_PRJSARTICLE_FETCH").as_deref() == Some("1".as_ref()) {
         command.arg("-Fetch");
     }
@@ -600,4 +629,92 @@ fn 公式ctan資材でprjsarticle_title_dviを生成して照合する() {
 
     let dvi = std::fs::read(work.join("run/maketitle-oracle.dvi")).unwrap();
     maketitleの既知座標を照合する(&dvi);
+
+    let run = work.join("run");
+    std::fs::write(
+        run.join("nfss-relation-smoke.tex"),
+        r#"\documentclass{prjsarticle}
+\makeatletter
+\AtBeginDocument{%
+  \typeout{[PRATEX-BEGIN-PENDING=\pratex@relationpending]}%
+  \typeout{[PRATEX-BEGIN-LATIN=\f@family/\f@series/\f@shape]}%
+  \typeout{[PRATEX-BEGIN-JAPANESE=\pratex@jencoding/%
+    \pratex@jfamily/\pratex@jseries/\pratex@jshape]}}
+\begin{document}
+\sffamily
+\typeout{[PRATEX-FIRST-SF=\f@family/\f@series/\f@shape]}
+{\pratexheadingfont
+ \typeout{[PRATEX-HEADING=\f@family/\f@series/\f@shape;%
+   \pratex@jencoding/\pratex@jfamily/\pratex@jseries/\pratex@jshape]}}
+\typeout{[PRATEX-GROUP-RESTORE=\f@family/\f@series/\f@shape;%
+  \pratex@jencoding/\pratex@jfamily/\pratex@jseries/\pratex@jshape]}
+{\pratextitlefont
+ \typeout{[PRATEX-TITLE=\f@family/\f@series/\f@shape;%
+   \pratex@jencoding/\pratex@jfamily/\pratex@jseries/\pratex@jshape]}}
+\UsePraTeXRelationFont
+{\selectfont
+ \typeout{[PRATEX-NESTED-IN=\f@family/\f@series/\f@shape;%
+   pending=\pratex@relationpending]}}
+\typeout{[PRATEX-NESTED-OUT=\f@family/\f@series/\f@shape;%
+  pending=\pratex@relationpending]}
+{\def\requestedencoding{PJY1}\def\requestedfamily{gt}%
+ \def\requestedseries{m}\def\requestedshape{n}%
+ \pratexjfontencoding{\requestedencoding}%
+ \pratexjfontfamily{\requestedfamily}%
+ \pratexjfontseries{\requestedseries}%
+ \pratexjfontshape{\requestedshape}%
+ \def\requestedencoding{BROKEN}\def\requestedfamily{BROKEN}%
+ \def\requestedseries{BROKEN}\def\requestedshape{BROKEN}%
+ \typeout{[PRATEX-SETTER-SNAPSHOT=\pratex@jencoding/%
+   \pratex@jfamily/\pratex@jseries/\pratex@jshape]}%
+ \selectfont 日本語}
+Latin.
+\end{document}
+"#,
+    )
+    .unwrap();
+    let smoke = Command::new(&engine)
+        .arg("--quiet")
+        .arg("--")
+        .arg("&latex")
+        .arg("nfss-relation-smoke.tex")
+        .current_dir(&run)
+        .output()
+        .expect("PraTeXでNFSS relation smokeを実行できること");
+    assert!(
+        smoke.status.success(),
+        "NFSS relation smoke失敗:\nstdout={}\nstderr={}",
+        String::from_utf8_lossy(&smoke.stdout),
+        String::from_utf8_lossy(&smoke.stderr)
+    );
+    let log = std::fs::read_to_string(run.join("nfss-relation-smoke.log")).unwrap();
+    let joined = log.replace('\n', "");
+    for expected in [
+        "[PRATEX-BEGIN-PENDING=0]",
+        "[PRATEX-BEGIN-LATIN=cmr/m/n]",
+        "[PRATEX-BEGIN-JAPANESE=PJY1/mc/m/n]",
+        "[PRATEX-FIRST-SF=cmss/m/n]",
+        "[PRATEX-HEADING=cmss/bx/n;PJY1/gt/m/n]",
+        "[PRATEX-GROUP-RESTORE=cmss/m/n;PJY1/mc/m/n]",
+        "[PRATEX-TITLE=cmr/bx/n;PJY1/mc/bx/n]",
+        "[PRATEX-NESTED-IN=cmr/m/n;pending=0]",
+        "[PRATEX-NESTED-OUT=cmss/m/n;pending=0]",
+        "[PRATEX-SETTER-SNAPSHOT=PJY1/gt/m/n]",
+    ] {
+        assert!(
+            joined.contains(expected),
+            "実LaTeX NFSS契約が違う: {expected}\n{log}"
+        );
+    }
+    assert!(
+        !joined.contains("LaTeX Font Warning:"),
+        "body/title/headingのrelationがfont fallbackを起こしている: {log}"
+    );
+    assert!(
+        std::fs::metadata(run.join("nfss-relation-smoke.dvi"))
+            .unwrap()
+            .len()
+            > 0,
+        "NFSS relation smokeが空DVIになっている"
+    );
 }

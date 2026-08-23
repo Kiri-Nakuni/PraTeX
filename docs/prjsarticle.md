@@ -44,7 +44,10 @@ PraTeX package内の横組JFM契約であり、pLaTeXの`JY1`やupLaTeXの`JY2`�
 - `\pratexusejapanesefont{encoding}{family}{series}{shape}`
 
 四つのsetterは通常のNFSS setterと同じく現在groupだけのrequestを変え、実選択は次の
-`\selectfont`で行う。shape宣言はglobalであり、exact tupleとJFM basenameを対応させる。
+`\selectfont`で行う。setterの引数は`\edef`相当に要求時点で固定するため、後から引数macroを
+再定義しても既に要求した和文属性は変わらない。shape宣言はglobalであり、exact tupleと
+JFM basenameを対応させる。実JFMの同期はLaTeXの常設`selectfont` hookで行い、genericな
+`cmd/selectfont/after` hookの有効化時期には依存しない。
 同じJFMとexact sp sizeの組はglobal cacheを共有するため、`10`と`10.0`は別font slotを
 消費しない。現sliceはhorizontal JFM basenameのexact宣言だけを受け、NFSSのsize function、
 shape substitution、縦組方向は未実装である。tupleが無ければ以前のfontへ黙ってfallbackせず、
@@ -59,12 +62,20 @@ tupleを選ぶpLaTeX側の拡張である。pLaTeXの公開`pldoc` 7.2.4では�
 - `\DeclarePraTeXRelationFont{jenc}{jfam}{jseries}{jshape}{enc}{fam}{series}{shape}`:
   global mapping。
 - `\SetPraTeXRelationFont{...}`: 現在groupだけのmapping。
-- `\UsePraTeXRelationFont`: group-scopedなone-shot request。次の`\selectfont`のbefore hookで
-  relation全体を一度に適用し、直後に解除する。
+- `\UsePraTeXRelationFont`: document body用のone-shot request。次の`\selectfont`のbefore hookで
+  relation全体を一度に適用し、nested group内で消費しても外側へ復活しないようglobalに解除する。
+
+generic command hookがまだ有効にならないpreambleや`\begin{document}`の初期化途中で、public
+`\UsePraTeXRelationFont`だけを発行して「次のpre-document `\selectfont`」へ適用する契約はない。
+class/packageの初期化codeは要求を保留したままにせず、relationをその場で消費してから
+`\selectfont`を呼ぶ必要がある。`prjsarticle`のbody/title/heading roleはこの直接消費経路を使い、
+`\AtBeginDocument`終了時のpendingを0にする。そのため本文最初の`\sffamily`などがbody relationを
+遅れて受けてromanへ戻ることはない。
 
 exact source shapeを先に探し、無ければshape wildcardを探す。wildcard宣言では第8引数で
 欧文shapeを上書きせず、`\selectfont`時の欧文shapeを保つ。mapping欠落時は欧文属性を部分更新
-しない。series/shapeは現NFSSのchange ruleと合成せず、mappingが指定したexact値を
+しない。exactとwildcardは別namespaceへ保存するので、実在するsource shape名`all`はwildcardと
+衝突しない。series/shapeは現NFSSのchange ruleと合成せず、mappingが指定したexact値を
 `\fontseriesforce` / `\fontshapeforce`で選ぶ。pLaTeX互換名`\DeclareRelationFont`、
 `\SetRelationFont`、`\userelfont`は未定義である。
 将来、PraTeX固有APIとerror・group・wildcard・one-shotの意味が一致した後に限り、同じ決定点へ
@@ -72,7 +83,9 @@ compatibility aliasを置ける。
 
 `prjsarticle`は`PJY1/mc/m/n`を本文、`PJY1/mc/bx/n`をtitle、`PJY1/gt/m/n`を見出しrole
 として宣言する。前二者は`upjisr-h`、見出しは`upjisg-h`へ対応し、従属欧文はそれぞれ
-roman regular、roman bold、sans boldを選ぶ。jsclassesがこの機構をclass policyに使うかどうかとは
+roman regular、roman bold、sans boldの実在shape `n`を選ぶ。bold roleはforce対象へ抽象的な
+`\bfdefault`を渡さず、Computer Modernの実在series `bx`を宣言する。各roleは`PJY1` encodingも
+毎回明示する。jsclassesがこの機構をclass policyに使うかどうかとは
 独立したPraTeX-nativeの選択であり、jsclassesのmacro実装を取り込んだものではない。
 
 設計根拠は、2026-08-24に確認した
@@ -172,8 +185,8 @@ pwsh -File tools/test-prjsarticle.ps1 `
 
 2026-08-24に宣言的和文NFSS/relation sliceを入れた状態で上の自己完結経路を公式CTAN資材だけで
 再実行し、format、title oracle、実時刻date、代表和欧混植sampleの全logがerror 0になった。
-title DVIは352 bytes、実時刻date DVIは452 bytes、代表sample DVIは2636 bytesで、sampleの
-SHA-256は`112cc36111479242bdbcbd093e549dd8224fd12c654f9a4c3ec9813737523ea8`である。
+title DVIは352 bytes、実時刻date DVIは456 bytes、代表sample DVIは2652 bytesで、sampleの
+SHA-256は`3ae145d49587b29ae488028c968e92e9dc18a8f0b2a9be1550a2b5a817dbf785`である。
 sampleがbody/title/headingで複数の宣言済み和文font roleを使うため、単一JFM hook時の2356 bytesを
 新しいoracleとして固定しない。runnerは終了codeだけで成功扱いせず、各logの`!`行と空のfmt/DVIも
 拒否する。

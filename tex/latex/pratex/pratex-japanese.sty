@@ -8,7 +8,7 @@
 
 \NeedsTeXFormat{LaTeX2e}[2023-11-01]
 \ProvidesPackage{pratex-japanese}
-  [2026/08/24 v0.3 PraTeX-native Japanese NFSS bridge]
+  [2026/08/24 v0.4 PraTeX-native Japanese NFSS bridge]
 
 \ifdefined\pratexversion\else
   \PackageError{pratex-japanese}
@@ -32,10 +32,10 @@
 \def\pratex@jfamily{mc}
 \def\pratex@jseries{m}
 \def\pratex@jshape{n}
-\def\pratexjfontencoding#1{\def\pratex@jencoding{#1}}
-\def\pratexjfontfamily#1{\def\pratex@jfamily{#1}}
-\def\pratexjfontseries#1{\def\pratex@jseries{#1}}
-\def\pratexjfontshape#1{\def\pratex@jshape{#1}}
+\def\pratexjfontencoding#1{\edef\pratex@jencoding{#1}}
+\def\pratexjfontfamily#1{\edef\pratex@jfamily{#1}}
+\def\pratexjfontseries#1{\edef\pratex@jseries{#1}}
+\def\pratexjfontshape#1{\edef\pratex@jshape{#1}}
 
 % A declaration maps an exact Japanese attribute tuple to one horizontal JFM
 % basename.  Size functions and substitution rules are intentionally outside
@@ -104,11 +104,11 @@
   \def\pratex@relationsourceshape{#5}%
   \ifx\pratex@relationsourceshape\@empty
     #1\expandafter\def
-      \csname pratex@relation@#2/#3/#4/all\endcsname{%
+      \csname pratex@relation@wild@#2/#3/#4\endcsname{%
         \fontencoding{#6}\fontfamily{#7}\fontseriesforce{#8}}%
   \else
     #1\expandafter\def
-      \csname pratex@relation@#2/#3/#4/#5\endcsname{%
+      \csname pratex@relation@exact@#2/#3/#4/#5\endcsname{%
         \fontencoding{#6}\fontfamily{#7}%
         \fontseriesforce{#8}\fontshapeforce{#9}}%
   \fi}
@@ -120,20 +120,21 @@
   \pratex@declarerelation\relax
     {#1}{#2}{#3}{#4}{#5}{#6}{#7}{#8}}
 
-% Relation use is an explicit, group-scoped, one-shot request.  Resolve it in
-% the public before-hook so the ordinary NFSS \selectfont invocation sees all
-% four Latin attributes together.  Missing mappings never partly mutate NFSS.
+% Relation use is an explicit one-shot request.  Resolve the public document-
+% body form in the generic before-hook so the ordinary NFSS \selectfont sees
+% all four Latin attributes together.  The consume is global: a request made
+% outside a nested group cannot revive when that group ends.
 \def\pratex@relationpending{0}
 \protected\def\UsePraTeXRelationFont{\def\pratex@relationpending{1}}
 \def\pratex@applyrelation{%
   \ifnum\pratex@relationpending=1\relax
-    \def\pratex@relationpending{0}%
+    \global\def\pratex@relationpending{0}%
     \edef\pratex@relationkey{%
-      pratex@relation@\pratex@jencoding/\pratex@jfamily/%
+      pratex@relation@exact@\pratex@jencoding/\pratex@jfamily/%
       \pratex@jseries/\pratex@jshape}%
     \edef\pratex@relationallkey{%
-      pratex@relation@\pratex@jencoding/\pratex@jfamily/%
-      \pratex@jseries/all}%
+      pratex@relation@wild@\pratex@jencoding/\pratex@jfamily/%
+      \pratex@jseries}%
     \ifcsname\pratex@relationkey\endcsname
       \csname\pratex@relationkey\endcsname
     \else
@@ -159,7 +160,7 @@
 \else
   \AtBeginDocument{\pratexselectjapanesefont}
 \fi
-\AddToHook{cmd/selectfont/after}{%
+\AddToHook{selectfont}{%
   \ifdefined\pratexjapanesefonthook
     \pratexjapanesefonthook
   \else

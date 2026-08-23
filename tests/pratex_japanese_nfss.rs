@@ -171,11 +171,29 @@ fn 和文nfssと従属欧文はpratex固有の宣言面を持つ() {
         r"\SetPraTeXRelationFont",
         r"\UsePraTeXRelationFont",
         r"\AddToHook{cmd/selectfont/before}",
-        r"\AddToHook{cmd/selectfont/after}",
+        r"\AddToHook{selectfont}",
+        r"\global\def\pratex@relationpending{0}",
+        r"pratex@relation@exact@",
+        r"pratex@relation@wild@",
         r"\number\dimexpr\f@size pt\relax",
     ] {
         assert!(package.contains(required), "宣言面が欠けている: {required}");
     }
+    for setter in [
+        r"\def\pratexjfontencoding#1{\edef\pratex@jencoding{#1}}",
+        r"\def\pratexjfontfamily#1{\edef\pratex@jfamily{#1}}",
+        r"\def\pratexjfontseries#1{\edef\pratex@jseries{#1}}",
+        r"\def\pratexjfontshape#1{\edef\pratex@jshape{#1}}",
+    ] {
+        assert!(
+            package.contains(setter),
+            "和文setterが要求時点を固定しない: {setter}"
+        );
+    }
+    assert!(
+        !package.contains(r"\AddToHook{cmd/selectfont/after}"),
+        "JFM同期をgeneric command hookへ戻してはならない"
+    );
     for forbidden in [
         r"\DeclareRelationFont",
         r"\SetRelationFont",
@@ -218,7 +236,7 @@ fn 和文属性の群復元とmetric別size_cacheをdviへ渡す() {
 \def\fontshapeforce#1{\edef\f@shape{#1}}
 \def\selectfont{%
   \csname pratex@testhook:cmd/selectfont/before\endcsname
-  \csname pratex@testhook:cmd/selectfont/after\endcsname}
+  \csname pratex@testhook:selectfont\endcsname}
 \def\f@size{10}
 \def\f@encoding{OT1}\def\f@family{cmr}\def\f@series{m}\def\f@shape{n}
 \input pratex-japanese.sty
@@ -227,11 +245,20 @@ fn 和文属性の群復元とmetric別size_cacheをdviへ渡す() {
 \kcatcode"3042=16
 \global\setbox0=\hbox{あ}
 {\def\f@size{9}%
- \pratexjfontfamily{gt}\pratexjfontseries{bx}\pratexjfontshape{it}\selectfont
+ \def\requestedencoding{PJY1}\def\requestedfamily{gt}%
+ \def\requestedseries{bx}\def\requestedshape{it}%
+ \pratexjfontencoding{\requestedencoding}%
+ \pratexjfontfamily{\requestedfamily}%
+ \pratexjfontseries{\requestedseries}%
+ \pratexjfontshape{\requestedshape}%
+ \def\requestedencoding{BROKEN}\def\requestedfamily{BROKEN}%
+ \def\requestedseries{BROKEN}\def\requestedshape{BROKEN}%
+ \selectfont
  \global\setbox1=\hbox{あ}
  \def\f@size{9.0}\selectfont
  \global\setbox2=\hbox{あ}%
- \message{[JATTR-IN=\pratex@jfamily/\pratex@jseries/\pratex@jshape]}}
+ \message{[JATTR-SNAPSHOT=\pratex@jencoding/\pratex@jfamily/%
+   \pratex@jseries/\pratex@jshape]}}
 \global\setbox3=\hbox{あ}
 \message{[JATTR-OUT=\pratex@jfamily/\pratex@jseries/\pratex@jshape]}
 {\def\f@size{14.4}\selectfont
@@ -252,8 +279,8 @@ fn 和文属性の群復元とmetric別size_cacheをdviへ渡す() {
     );
     let log = joined_log(&directory);
     assert!(
-        log.contains("[JATTR-IN=gt/bx/it]"),
-        "群内の和文属性が届かない: {log}"
+        log.contains("[JATTR-SNAPSHOT=PJY1/gt/bx/it]"),
+        "和文属性がmacroの再定義に追随してしまう: {log}"
     );
     assert!(
         log.contains("[JATTR-OUT=mc/m/n]"),
@@ -299,7 +326,7 @@ fn 従属欧文は一回だけ適用し宣言の大域局所とshape_wildcardを
 \def\fontshapeforce#1{\edef\f@shape{#1}}
 \def\selectfont{%
   \csname pratex@testhook:cmd/selectfont/before\endcsname
-  \csname pratex@testhook:cmd/selectfont/after\endcsname}
+  \csname pratex@testhook:selectfont\endcsname}
 \def\f@size{10}
 \def\f@encoding{OT1}\def\f@family{cmr}\def\f@series{m}\def\f@shape{n}
 \input pratex-japanese.sty
@@ -312,11 +339,24 @@ fn 従属欧文は一回だけ適用し宣言の大域局所とshape_wildcardを
 \message{[REL-GLOBAL=\f@encoding/\f@family/\f@series/\f@shape]}
 \fontfamily{manual}\selectfont
 \message{[REL-ONESHOT=\f@encoding/\f@family/\f@series/\f@shape]}
+\fontencoding{OT1}\fontfamily{cmr}\fontseries{m}\fontshape{n}%
+\UsePraTeXRelationFont
+{\selectfont
+ \message{[REL-NESTED-IN=\f@encoding/\f@family/\f@series/\f@shape]}}
+\message{[REL-NESTED-PENDING=\pratex@relationpending]}
+\fontfamily{manual}\selectfont
+\message{[REL-NESTED-OUT=\f@encoding/\f@family/\f@series/\f@shape]}
 \DeclarePraTeXJapaneseFontShape{PJY1}{mc}{w}{it}{upjisr-h}
+\DeclarePraTeXJapaneseFontShape{PJY1}{mc}{w}{all}{upjisr-h}
 \DeclarePraTeXRelationFont{PJY1}{mc}{w}{}{TU}{lmss}{sb}{n}
+\DeclarePraTeXRelationFont{PJY1}{mc}{w}{all}{T1}{cmtt}{bx}{it}
 \pratexjfontseries{w}\pratexjfontshape{it}\fontshape{sl}
 \UsePraTeXRelationFont\selectfont
 \message{[REL-WILDCARD=\f@encoding/\f@family/\f@series/\f@shape]}
+\pratexjfontshape{all}\fontencoding{OT1}\fontfamily{cmr}%
+\fontseries{m}\fontshape{sl}\UsePraTeXRelationFont\selectfont
+\message{[REL-ALL-EXACT=\f@encoding/\f@family/\f@series/\f@shape]}
+\pratexjfontshape{it}%
 \pratexjfontfamily{missing}\fontencoding{OT1}\fontfamily{manual}%
 \fontseries{m}\fontshape{n}\UsePraTeXRelationFont\selectfont
 \message{[REL-MISSING=\f@encoding/\f@family/\f@series/\f@shape]}
@@ -337,7 +377,11 @@ fn 従属欧文は一回だけ適用し宣言の大域局所とshape_wildcardを
         "[REL-LOCAL=TS1/cmss/m/sl]",
         "[REL-GLOBAL=T1/cmr/bx/it]",
         "[REL-ONESHOT=T1/manual/bx/it]",
+        "[REL-NESTED-IN=T1/cmr/bx/it]",
+        "[REL-NESTED-PENDING=0]",
+        "[REL-NESTED-OUT=OT1/manual/m/n]",
         "[REL-WILDCARD=TU/lmss/sb/sl]",
+        "[REL-ALL-EXACT=T1/cmtt/bx/it]",
         "[REL-MISSING=OT1/manual/m/n]",
         "[PACKAGE-ERROR=No relation font for PJY1/missing/w/it]",
         "[PACKAGE-ERROR=Japanese font shape PJY1/missing/w/it is not declared]",
