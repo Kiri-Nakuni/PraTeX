@@ -1,6 +1,6 @@
 # e-TeXとTeX--XeTの対応状況
 
-更新: 2026-08-23
+更新: 2026-08-24
 
 ## 結論
 
@@ -16,7 +16,7 @@ TeX--XeTは二つの整数parameterを保存できるだけで、**組版機能�
 | 機能群 | 判定 | 現在の範囲と残件 |
 |---|---|---|
 | `\numexpr`、`\dimexpr`、`\glueexpr`、`\muexpr` | 実装 | 優先順位、括弧、丸め、糊次数、fmtを試験済み |
-| `\protected`、`\detokenize`、`\unexpanded` | 部分 | 通常の`\edef`、`\message`、`\write`、mark走査とfmtへ接続済み。ただしalignmentの`\noalign` / `\omit`先読みがprotected macroを展開してしまう |
+| `\protected`、`\detokenize`、`\unexpanded` | 実装 | 通常の`\edef`、`\message`、`\write`、mark走査とfmtへ接続済み。alignmentの`\noalign` / `\omit`先読みは通常macroだけを展開し、protected macroを通常入力として残す。専用4件と既存e-TeX 41件、plain DVI回帰を通した |
 | `\ifdefined`、`\ifcsname`、`\unless` | 部分 | 未定義制御綴を作らない条件処理は接続済み。`\unless`で開始した条件の`\currentiftype`が負値にならない |
 | group/if内省 | 部分 | `\currentgroup*`、`\currentif*`は基本動作する。unless符号、複雑な入れ子、`\showgroups`、`\showifs`が残る |
 | 拡張register 0--32767 | 実装 | count/dimen/skip/muskip/toks/boxの局所・大域・別名・fmtを試験済み |
@@ -58,7 +58,7 @@ left-to-right/right-to-left区間は公開意味論が異なるため、一つ�
 
 日本語組版を優先しつつ、後で同じ基盤を作り直さない順序を採る。
 
-1. `\currentiftype`のunless符号、protected alignment、`\iffontchar`回復、TeXXeT format既定offを直す。
+1. `\currentiftype`のunless符号、`\iffontchar`回復、TeXXeT format既定offを直す。
 2. `\fontchar*`を8-bit TFM専用APIにせず、TFM、将来のJFM、Unicode font metricを同じ
    typed query境界から参照する。
 3. parshape照会とpenalty配列を局所代入、fmt、line breakingまで実装する。JLReqの段落処理も

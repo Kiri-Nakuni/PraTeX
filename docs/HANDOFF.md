@@ -186,8 +186,8 @@ error 0でdumpした。28,640個の複数文字control sequenceを保存し、pr
 - INITEX既定0pt、通常glue parameterとしての代入・group、`\globaldefs`、算術、fmt、表示を
   既存のglue経路へ接続した。release focused testは3 passed、0 failed。
 - K/Xはlist終端値で元のWideChar/Char/Ligature境界を再評価する。現checkpointのKは
-  correctness用の由来付き実glueで、show/lastskipへ見せない仮想Kは未実装。xsp/inhibit/auto
-  switchの公開面も未接続である。
+  correctness用の由来付き実glueで、show/lastskipへ見せない仮想Kは未実装。auto switch、
+  `xspcode`、`inhibitxspcode`はtyped eqtb、群・`globaldefs`、fmt、中央finalizerへ接続済みである。
 - JFMは途中で観測・除去できるためmain-loopで早期挿入し、K/Xだけclose-timeで再評価する
   hybridにする。
 - 最終形のKはwide glyphのbit＋hlist単位specをline breaker/packer/outputが仮想glueとして扱い、
@@ -255,7 +255,7 @@ engine内部IDを分け、標準日本語ではVaak/WASM call 0、組版中のal
 - ASCII-only listは一bit gateでplanner callback、JFM/provider表引き、追加allocation 0。
   標準日本語でもVaak/WASM registryを引かない。
 - 既知限界は、JFM/禁則もlist-close materializeで`\unskip` / `\lastnodesubtype`のpTeX意味が
-  未完成、Kが仮想eventでなく可視実glue、xsp/inhibit/auto switch・box edge・disc・縦組未接続。
+  未完成、Kが仮想eventでなく可視実glue、box edge・disc・縦組未接続。
 - spacing元枝の`cargo test --release --locked --no-fail-fast`は627 passed、0 failed、7 ignored。
   統合後は652 passed、0 failed、7 ignoredで、spacing process試験6件、glyph 5件、
   K/X parameter 3件もreleaseで全緑。
@@ -380,11 +380,10 @@ Claude `82fa3a2`のLinux perf分解:
 
 ## LaTeXと日本語組版の次順
 
-1. auto switch、xsp/inhibit stateをtyped eqtbへ接続し、公式CTAN資材で
-   LaTeXのpTeX分岐を再測定する。
+1. 公式CTAN資材でauto/xsp/inhibitを含むPraTeX-native日本語adapterを再測定する。
 2. JFM/禁則をmain-loop早期挿入へ移し、仮想Kとbox/disc境界を完成する。
 3. `\tfont`と縦組metric/node/outputを追加し、spacingと禁則を横組から縦組へ広げる。
-4. `\currentiftype`、protected alignment、font照会、penalty/discard/show等のe-TeX残件を進める。
+4. `\currentiftype`、font照会、penalty/discard/show等のe-TeX残件を進める。
 
 日本語の最低線は横組smokeではなくpTeX相当とJLReq native対応であり、縦組を含む。縦中横と
 割注は2026-08-23に案Bへ決定した。coreでは縦中横を固定`InlineObject`、割注を分割可能な

@@ -22,8 +22,9 @@ PraTeXは、tyti氏によるTeX82のRust再実装`rtex`を基礎に、現代的�
   `UniJIS-UCS2-H`へ出す最小PDF基線。字形は埋め込まず、表示はviewer側fontに依存する
 - UTF-8入力からのCJK一文字token。`catcode`側をカノンとし、`kcatcode`の公開番号を
   互換viewとして意味へ写す文字分類基盤
-- `\kanjiskip` / `\xkanjiskip`の通常glue parameter面と、横組の和和・和欧・欧和境界へ
-  一度だけ挿入するBuiltIn最小finalizer
+- `\kanjiskip` / `\xkanjiskip`の通常glue parameter面、`\autospacing` / `\autoxspacing`の
+  switch、`\xspcode`、`\inhibitxspcode`と、横組の和和・和欧・欧和境界へ一度だけ挿入する
+  BuiltIn最小finalizer
 - boundedな横組JFMを読む`\pratexjfont`（横組定義・選択だけ`\jfont` alias）、current和文font、
   `zw`/`zh`、Unicode/JFM class付きwide node、class対glue/kern、DVI `set2`/`set3`の最小基線
 - `\pratexregion=0..5`によるCJKV組版locale状態。group/global/fmt/表示は対応済みだが、
@@ -66,6 +67,12 @@ subset未実装中は意図的に拒否します。
 最小`scrartcl`も、無改変のclassでexit 0、log error 0、1 page / 332 bytesのDVIまで確認して
 います。検証用`language.dat`だけは英語と三つのaliasを列挙して生成したものです。
 `\scantokens`を持たない旧binaryではclass読込み中に未定義7件から77 errorsへ連鎖していました。
+
+同じPraTeX生成`latex.fmt`での主要package実測は
+[docs/package-compatibility.md](docs/package-compatibility.md)に固定しています。2026-08-24時点では
+`article`、`scrartcl`、`graphicx`、`xcolor`、`siunitx`、代表`prjsarticle`が最小DVIへ到達し、
+`pxrubrica`はgeneric fallback smokeだけです。`hyperref`とTikZ/PGFの具体的blockerも同じ表に
+診断signature付きで記録しています。
 
 `\scantokens` code checkpoint直前に得たTRIP DVIのhashは、独立decoderで全999 recordの
 意味差0を確認した既知正常値と一致しています。ただし、
@@ -237,6 +244,15 @@ smoke runnerは次です。生成物はrepository外の一意な作業directory�
 pwsh -File tools/test-scrartcl.ps1 -PraTeXPath target/release/pratex.exe
 ```
 
+主要class/packageを同じfmtで再測定するrunnerは、公式runtime資材を平坦化したrepository外の
+directoryを明示して実行します。既知blockerが別の失敗へ変わった場合も失敗になります。
+
+```powershell
+pwsh -File tools/test-package-compat.ps1 `
+  -PraTeXPath target/release/pratex.exe `
+  -RuntimeRoot C:\path\to\flat-ctan-runtime
+```
+
 TRIP資材やLaTeX互換性確認用のCTAN資産はrepositoryへvendorしません。必要な試験でだけ
 公式配布元から取得し、出典とhashを固定します。`latex.ltx`を含む既存format・class・
 packageは実装の資料として写さず、互換性を測る外部入力として扱います。
@@ -244,7 +260,7 @@ packageは実装の資料として写さず、互換性を測る外部入力と�
 ## 未完成の領域
 
 - e-TeXおよびpdfTeX原始命令の残りと、広範なclass/packageを処理するLaTeX2e互換性
-- `\tfont`と縦組JFM、JFM/禁則のmain-loop早期挿入、仮想K、xsp/inhibit/auto switch、
+- `\tfont`と縦組JFM、JFM/禁則のmain-loop早期挿入、仮想K、
   4文字subsetを越えるJLReq禁則、box/disc境界、縦組PDF和文glyph
 - 埋込み和文font、OTF／TrueType、ToUnicode、font subsetを含むportableなPDF font処理
 - `texmf.cnf`、全path expression、alias、`mktex*`を含むkpathseaの完全な互換性

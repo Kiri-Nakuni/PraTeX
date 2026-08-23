@@ -220,7 +220,8 @@ cold/warmとhit/missを同じfixtureで測る。
 - `\kanjiskip` / `\xkanjiskip`の通常glue parameter面と、検証済みscript class対tableは実装済み。
   横組BuiltIn最小finalizerはJFM pair、K/X、`、。）（`の4文字禁則を由来付き実nodeとして
   hbox、段落、alignment、line break、DVIへ接続する。JFM/禁則もlist-close、Kも可視glueの
-  correctness checkpointであり、xsp/inhibit/auto switch、仮想K、box/disc境界は未実装。
+  correctness checkpointである。auto switch、`xspcode`、`inhibitxspcode`はtyped eqtb、群・
+  `globaldefs`、fmt、中央finalizerへ接続済み。仮想K、box/disc境界は未実装。
 - `\readline`、`\interactionmode`、mark class、糊成分・型変換は実装済み。`\scantokens`は
   boundedなtyped疑似fileとして接続済みで、実file・疑似fileとも`\everyeof`は自然EOFだけで
   一度発火し、`\endinput`では発火しない。fmtとKOMA-Scriptの動的catcode経路も試験済み。
@@ -241,16 +242,15 @@ cold/warmとhit/missを同じfixtureで測る。
 
 ## 直近の実装順
 
-1. auto switch、`xspcode`、`inhibitxspcode`をtyped state化し、BuiltIn最小spacingへ接続する。
-2. JFM/禁則をmain-loop早期挿入へ移し、仮想K、box edge、discの意味を完成する。
-3. compile済み汎用script class対tableをlist単位dispatcherと中央finalizerへ接続する。
-4. `\tfont`と縦組metric/node/outputを追加し、JFM/K/X/禁則を横組から縦組へ広げる。
-5. kpathsea互換resolverをrun-global化し、native path解決を広げて通常の子process呼出しをなくす。
-6. `\currentiftype`のunless符号、protected alignment、font照会、penalty/discard/showなどの
+1. JFM/禁則をmain-loop早期挿入へ移し、仮想K、box edge、discの意味を完成する。
+2. compile済み汎用script class対tableをlist単位dispatcherと中央finalizerへ接続する。
+3. `\tfont`と縦組metric/node/outputを追加し、JFM/K/X/禁則を横組から縦組へ広げる。
+4. kpathsea互換resolverをrun-global化し、native path解決を広げて通常の子process呼出しをなくす。
+5. `\currentiftype`のunless符号、font照会、penalty/discard/showなどの
    e-TeX残件を公開仕様どおり実装する。
-7. PraTeX-native package adapterを順に通し、PDF直接出力をOTFより先に完成する。
-8. Vaak table uploadとversion付きWASM ABIは、内部表現を固定した段階から並行して適合試験を作る。
-9. WASM target自体のcompile実験と性能調整は、横組みcheckpoint後に行う。
+6. PraTeX-native package adapterを順に通し、PDF直接出力をOTFより先に完成する。
+7. Vaak table uploadとversion付きWASM ABIは、内部表現を固定した段階から並行して適合試験を作る。
+8. WASM target自体のcompile実験と性能調整は、横組みcheckpoint後に行う。
 
 `\kanjiskip` / `\xkanjiskip`をLaTeX検出だけ通すstubにしない。INITEX既定0、代入、群、
 `\globaldefs`、算術、内部量、表示、fmtを既存glue経路へ通し、その後の実spacingへ連続して接続する。

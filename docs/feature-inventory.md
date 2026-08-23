@@ -38,7 +38,7 @@
 | 状態 | 機能 | 現在の範囲と境界 |
 |---|---|---|
 | 実装 | 式 `\numexpr`、`\dimexpr`、`\glueexpr`、`\muexpr` | 内部量として数値・寸法・通常糊・数式糊を走査する。括弧、優先順位、e-TeXの丸め、糊の次数を扱う |
-| 部分 | 保護macro `\protected` | `\edef`、`\message`、mark本文などの展開走査で保護し、通常実行では展開する。fmt往復を含むが、alignmentの`\noalign` / `\omit`先読みでは誤って展開する |
+| 実装 | 保護macro `\protected` | `\edef`、`\message`、mark本文などの展開走査で保護し、通常実行では展開する。alignmentの`\noalign` / `\omit`先読みは通常macroだけを展開し、protected macroを欄・行の通常入力として残す。fmt往復と専用process試験を含む |
 | 実装 | token/展開操作 `\detokenize`、`\unexpanded` | 入れ子のgeneral-text走査を壊さず、外側のtoken蓄積を保つ |
 | 実装 | 条件 `\ifdefined`、`\ifcsname`、`\unless` | 未定義制御綴を副作用で作らない。`\unless`は対応する条件を反転する |
 | 部分 | 条件 `\iffontchar` | TFMの文字存在判定へ接続済み。専用のprocess-level回帰試験はまだない |
@@ -101,7 +101,7 @@ OTF shapingは未実装である。現在のnamed CIDはJFM幅で位置を進め
 |---|---|---|
 | 実装 | 和文寸法単位 `Q`、`H` | どちらも厳密に0.25 mm。通常寸法、糊、式の既存寸法走査を通る |
 | 部分 | 和文寸法単位 `zw`、`zh` | current横組JFMを選んだ時はscale済みclass 0の幅、height+depthを返す。未選択時だけ従来の欧文font `em`へ戻る。縦組metricは未接続 |
-| 部分 | `\kanjiskip`、`\xkanjiskip` | INITEX既定0の通常glue parameterとして、代入、group、`\globaldefs`、算術、内部量、表示、fmtを既存の一経路へ通す。横組の和和・和欧・欧和境界へBuiltIn最小finalizerが実nodeとして自動挿入する。xsp/inhibit/auto switch、仮想K、box edgeは未接続 |
+| 部分 | `\kanjiskip`、`\xkanjiskip`と自動間隔制御 | INITEX既定0の通常glue parameterに加え、`\autospacing` / `\noautospacing`、`\autoxspacing` / `\noautoxspacing`、`\xspcode`、Unicode scalarの`\inhibitxspcode`をtyped eqtbへ持つ。代入、group、`\globaldefs`、内部量、fmtを通し、横組の和和・和欧・欧和境界へBuiltIn最小finalizerが現在値を実nodeとして反映する。仮想K、box edgeは未接続 |
 | 部分 | JFM reader/modelと横組font | 公開JFM仕様から独立実装。横組11／縦組9、24-bit raw文字code、u8 class、skip・再配置・256超glue/kern indexをboundedに検査する。横組11はbounded loader、TeX互換scale、current font、`\pratexjfont`と意味一致範囲の`\jfont`、group/fmtへ接続済み。`\tfont`と縦組は未接続 |
 | 部分 | 横組JFM/K/X/禁則finalizer | WideChar/Char/Ligature境界を中央plannerで一度だけ決め、同一fontのJFM pair glue/kernをKより優先する。明示penaltyは透明、glue/kern/math/whatsit/list/rule/disc等はbarrier。由来付きnodeをunbox再評価、line break、box寸法、DVI座標、fmtへ接続。禁則は`、。）（`の4文字subset、JFM/禁則もlist-close、Kも可視実glueのcorrectness checkpointに限る |
 | 実装 | `\kcatcode`表・照会・代入 | 公開値14〜20。U+0000〜U+10FFFFをUnicode 17.0.0のblock、upTeX擬似境界、7例外集合で保存する。block単位の局所/global/globaldefs復元とfmt往復を含む |
@@ -112,7 +112,7 @@ OTF shapingは未実装である。現在のnamed CIDはJFM幅で位置を進め
 
 CJK token、K/X parameter、横組JFM glyphとBuiltIn最小spacing基線だけで「日本語組版対応」とはしない。
 横組のmetric付きglyph、DVI `set2`/`set3`、JFM/K/X/4文字禁則、viewer依存のnamed CID PDFは
-生成できるが、`\tfont`、main-loop早期JFM、xsp/inhibit/auto switch、完全禁則、box/disc境界、
+生成できるが、`\tfont`、main-loop早期JFM、完全禁則、box/disc境界、
 縦組、portableな埋込みPDF和文字形は未実装である。
 `\kchar`、`\kchardef`、`\ucs`、`\forcecjktoken`もまだない。`\uppercase`/`\lowercase`は
 CJK tokenを現在変更しない。
