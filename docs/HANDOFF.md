@@ -21,13 +21,14 @@
 ## 枝と共有状態
 
 - 枝: `codex2/jlreq-script-spacing`
-- push済み実装checkpoint: `3a4aaaf`
+- push済み実装checkpoint: `4acf8a8`
 - push済み`\scantokens` code checkpoint: `d90e98f`（歴史的基点は`6ce8315`）
 - 日本語CID PDFの検証済み元commit: `8035d1c`
 - 基点のrelease全suite: **564 passed、0 failed、6 ignored**（Vaak `89804b4`）
-- 最新の記録済みrelease全suite: `3a4aaaf`で**830 passed、0 failed、9 ignored**。
-  NFSS・fmt予約checkpointを含み、同一結果をcache後の再実行でも確認した。
+- 最新の記録済みrelease全suite: `4acf8a8`で**836 passed、0 failed、9 ignored**。
+  NFSS、fmt予約、WSL発見失敗cacheのcheckpointを含む。
 - 直近の共有commit:
+  - `4acf8a8`: 発見不能なWSL backendをoptional lookupごとに再起動しない
   - `3a4aaaf`: fmt予約A/Bを再検証できるraw標本と予約上限を固定
   - `22a8bdd`: fmt復元collectionの再確保をboundedな初期予約で削減
   - `00dc469`: relation消費と和文JFM同期を初期化時期に依存しない境界へ修正
@@ -418,6 +419,19 @@ LTO、17,446,628 byteの同一`latex.fmt`を使ったwarm交互A/B各8回では�
 `mainpra.tex`三回、`dvipdfmx`一回を含む9.14 sの再測定ではない。従ってLinuxの190%差を
 解消したとは扱わず、次は同一corpusでengineとdriver、外部processを分けて測る。
 
+## 完了済み性能checkpoint: WSL backend発見失敗のrun-local化
+
+`4acf8a8`は、Windowsでnative `kpsewhich`が起動不能かつWSL backendの発見にも失敗した時、
+同じresolver instanceのoptional lookupごとに`wsl.exe`を再起動せず、同じtyped errorを返す。
+明示的な`clear_external_cache`後だけ再発見し、個別fileのnegative cache、Linux既定、native成功、
+WSL成功の意味は変更しない。
+
+現行sourceから失敗状態の保存だけを外した厳密AとBを同じ失敗probeで三組交互に測り、中央値は
+外部WSL process 13回から1回、wall 5,553.884 msから1,919.721 msへ短縮した。双方とも同じ
+`graphics.cfg`不足位置でexit 1し、5,917 byteのlog hashが一致した。これはWindowsの異常系だけの
+上限効果で、Linuxの9.14 s benchmarkへ外挿しない。詳細なraw三組とbinary hashは
+[`performance.md`](performance.md)にある。
+
 ## LaTeXと日本語組版の次順
 
 1. JFM/禁則をmain-loop早期挿入へ移し、box edgeのmaterial Kとdisc境界を完成する。
@@ -431,7 +445,7 @@ LTO、17,446,628 byteの同一`latex.fmt`を使ったwarm交互A/B各8回では�
 
 ## 検証
 
-`00dc469` / `3a4aaaf`のcheckpoint後にfocused testと全release gateを通した。再開時は
+`4acf8a8`のcheckpoint後にfocused testと全release gateを通した。再開時は
 変更対象のfocused testを先に走らせ、全release gateへ戻る。
 
 ```powershell
@@ -447,7 +461,7 @@ pwsh -NoProfile -File tools/run-trip.ps1
 
 2026-08-24の既知正常値（TRIPは統合したspacing元枝で実測）:
 
-- `3a4aaaf`の統合枝release: 830 passed、0 failed、9 ignored
+- `4acf8a8`の統合枝release: 836 passed、0 failed、9 ignored
 - TRIP Stage1/Stage2 exit 0
 - `tripos.tex`正規化後一致
 - DVI SHA-256: `b20af20a1463c6846f0c4c1ce687cd6354ce1a5f65ee401507627570787ae9fe`

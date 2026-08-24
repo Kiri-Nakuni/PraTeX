@@ -13,7 +13,7 @@ PraTeX側が必要とするAPIは `src/vaak.rs`、`docs/vaak-embedding-api-desig
 `for_CLAUDE.md` に契約として残し、Vaak側の変更はClaudeに伝える。
 
 通常作業の枝は **`codex2/<目的>`** とする。現在の統合枝は
-`codex2/jlreq-script-spacing`であり、2026-08-24のpush済み実装checkpointは`3a4aaaf`。
+`codex2/jlreq-script-spacing`であり、2026-08-24のpush済み実装checkpointは`4acf8a8`。
 `\detokenize`から`\scantokens`、横組JFM glyph、K/X/finalizer、JLReqの最小禁則、
 直接PDFのnamed CIDと限定`/ToUnicode`、WASM ABI 0.0のwire/domain境界、
 e-TeX `\middle`まで取り込み済みである。
@@ -174,8 +174,8 @@ cargo test --release --locked --no-fail-fast
 ```
 
 機能追加ではfocused testを先に通し、その後に全release、必要ならTRIPとDVI/PDF意味比較を行う。
-`3a4aaaf`で実行した`cargo test --release --locked --no-fail-fast`は
-**830 passed、0 failed、9 ignored**（2026-08-24）。全integration suiteにplain DVI byte回帰、
+`4acf8a8`で実行した`cargo test --release --locked --no-fail-fast`は
+**836 passed、0 failed、9 ignored**（2026-08-24）。全integration suiteにplain DVI byte回帰、
 e-TeX `\middle`とpenalty配列、日本語spacingと和文NFSS relation、PDF、Vaak連携を含む。
 ignoredは実TeX Live、配布JFM、公式dvipdfmx、pinned CTAN、doctestの明示手動gateである。
 `\scantokens` code checkpoint前に同日実施した公式CTAN TRIPは両段exit 0、`tripos.tex`一致、
@@ -194,6 +194,8 @@ Windowsのwarm A/Bでwallを7.31--15.26%短縮した。これは利用者のLinu
 再測定した値ではなく、差の解消を意味しない。48標本のraw値は
 `docs/benchmarks/fmt-bounded-reservation-20260824.csv`にある。探索、fmt読込み、字句化、組版、
 DVI出力を分け、外部process時間を隠さず、cold/warmとhit/missを同じfixtureで測る。
+`4acf8a8`はWindowsで発見不能なWSL backendをoptional lookupごとに再起動する異常系を
+run-local状態へ固定した。これはLinuxの通常探索や利用者の9.14 sを短縮した値ではない。
 
 ### 既知の落とし穴
 
