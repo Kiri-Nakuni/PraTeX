@@ -9,7 +9,7 @@
 //! Xはmaterial glueとして表示される、という観測を以下へ固定する。unshifted hboxの
 //! edgeに置くKは`MaterialKanjiSkip`として直結glyph間の`VirtualKanjiSkip`から分ける。
 //! discretionaryは左側を遮断し、no-break/post-break枝末尾から右側だけを接続するため、
-//! このsliceでは空枝がK/Xを接続しない契約だけをproduction回帰にする。
+//! 空枝のbarrier、枝内の仮想K、枝別のmaterial K/X、改行後のDVI座標を独立に固定する。
 
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
@@ -502,6 +502,80 @@ fn 空discretionaryは左右のkとxを接続しない() {
     );
     let log = joined_log(&directory, "t");
     assert!(log.contains("[empty-disc=10.0pt/15.0pt/15.0pt]"), "{log}");
+}
+
+#[test]
+fn 非空discretionaryは各枝を独立に組み右端だけへ実kとxを置く() {
+    let directory = prepare_directory("非空discretionaryの枝別KとX");
+    let source = format!(
+        "{}\\kanjiskip=4pt plus 1pt minus 2pt \\xkanjiskip=3pt
+         \\showboxbreadth=100 \\showboxdepth=20
+         \\setbox0=\\hbox{{あ\\discretionary{{ああ}}{{いい}}{{ああ}}あ}}
+         \\setbox1=\\hbox{{あ\\discretionary{{あ}}{{A}}{{あ}}A}}
+         \\setbox4=\\hbox{{あ\\discretionary{{あ}}{{A}}{{あ}}あ}}
+         \\message{{[disc-no-break=\\the\\wd0/\\the\\wd1/\\the\\wd4]}}
+         \\showbox0 \\showbox1 \\showbox4
+         \\kanjiskip=1pt
+         \\setbox3=\\hbox{{\\discretionary{{}}{{}}{{\\kanjiskip=4pt ああ}}あ}}
+         \\message{{[disc-local=\\the\\wd3]}} \\kanjiskip=4pt plus 1pt minus 2pt
+         \\setbox2=\\vbox{{\\hsize=33pt \\parindent=0pt \\rightskip=0pt plus 1fil
+           \\pretolerance=-1 \\tolerance=10000
+           あ\\discretionary{{ああ}}{{いい}}{{ああああ}}あ\\par
+           \\message{{[disc-lines=\\the\\prevgraf]}}}}
+         \\shipout\\box2 \\end\n",
+        common_prefix()
+    );
+    std::fs::write(directory.join("t.tex"), source).unwrap();
+    let output = run_rtex(&directory, &["t.tex"]);
+    assert_success(&output, "非空discretionaryの枝別K/X試験を実行できなかった");
+    let log = joined_log(&directory, "t");
+    assert!(
+        log.contains("[disc-no-break=28.0pt/23.0pt/19.0pt]"),
+        "{log}"
+    );
+    assert!(log.contains("[disc-local=20.0pt]"), "{log}");
+    assert!(log.contains("[disc-lines=2]"), "{log}");
+
+    let first_box = log
+        .split("> \\box0=")
+        .nth(1)
+        .expect("非空discretionaryのshowbox出力がある")
+        .split("> \\box1=")
+        .next()
+        .unwrap();
+    assert_eq!(
+        first_box.matches("\\glue(\\kanjiskip) 4.0").count(),
+        2,
+        "no-break/post-break右端のmaterial Kだけが見える: {first_box}"
+    );
+    let mixed_branches = log
+        .split("> \\box4=")
+        .nth(1)
+        .expect("異なるscriptを持つ枝のshowbox出力がある")
+        .split("! OK.")
+        .next()
+        .unwrap();
+    assert_eq!(mixed_branches.matches("\\glue(\\kanjiskip) 4.0").count(), 1);
+    assert_eq!(mixed_branches.matches("\\glue(\\xkanjiskip) 3.0").count(), 1);
+
+    let (wide, rules) = first_page_events(&std::fs::read(directory.join("t.dvi")).unwrap());
+    assert_eq!(
+        wide.iter().map(|event| event.character).collect::<Vec<_>>(),
+        vec![
+            'あ' as u32,
+            'あ' as u32,
+            'あ' as u32,
+            'い' as u32,
+            'い' as u32,
+            'あ' as u32,
+        ]
+    );
+    assert_eq!(wide[1].h, wide[0].h + 5 * 65_536);
+    assert_eq!(wide[2].h, wide[1].h + 9 * 65_536);
+    assert_eq!(wide[3].h, wide[0].h);
+    assert_eq!(wide[4].h, wide[3].h + 14 * 65_536);
+    assert_eq!(wide[5].h, wide[4].h + 14 * 65_536);
+    assert!(rules.is_empty());
 }
 
 #[test]

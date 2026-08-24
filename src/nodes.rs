@@ -113,6 +113,12 @@ impl Node {
                 list: HlistOrVlist::Hlist(nodes),
                 ..
             }) => nodes.iter().any(Self::contains_horizontal_japanese_glyph),
+            Self::Disc(disc) => disc
+                .pre_break
+                .iter()
+                .chain(&disc.post_break)
+                .chain(&disc.no_break)
+                .any(Self::contains_horizontal_japanese_glyph),
             _ => false,
         }
     }
@@ -655,9 +661,14 @@ impl DiscNode {
         logger: &mut Logger,
     ) {
         logger.print_esc_str(b"discretionary");
-        if !self.no_break.is_empty() {
+        let observable_no_break = self
+            .no_break
+            .iter()
+            .filter(|node| node.is_tex_observable())
+            .count();
+        if observable_no_break != 0 {
             logger.print_str(" replacing ");
-            logger.print_int(self.no_break.len() as i32);
+            logger.print_int(observable_no_break as i32);
         }
         node_list_display(
             &self.pre_break,
@@ -678,6 +689,9 @@ impl DiscNode {
             logger,
         );
         for node in &self.no_break {
+            if !node.is_tex_observable() {
+                continue;
+            }
             logger.print_ln();
             print_indentation(indent_str, logger);
             *n += 1;

@@ -126,15 +126,9 @@ fn ensure_finite_shrinkage(
         );
     }
 
-    // Check the hlist glue nodes for infinite shrinkage.
-    for node in hlist {
-        if let Node::Glue(glue_node) = node {
-            if glue_node.glue_spec.shrink.is_infinite() {
-                found_shrink_error = true;
-                glue_node.glue_spec = glue_node.glue_spec.finite_shrink_copy();
-            }
-        }
-    }
+    // Check the hlist glue nodes, including the branch-local automatic Japanese
+    // spacing that is selected with a discretionary branch.
+    ensure_nodes_have_finite_shrinkage(hlist, &mut found_shrink_error);
 
     if found_shrink_error {
         if cfg!(feature = "stats") {
@@ -155,6 +149,23 @@ fn ensure_finite_shrinkage(
             if eqtb.tracing_paragraphs() > 0 {
                 logger.begin_diagnostic(eqtb.tracing_online());
             }
+        }
+    }
+}
+
+fn ensure_nodes_have_finite_shrinkage(nodes: &mut [Node], found_shrink_error: &mut bool) {
+    for node in nodes {
+        match node {
+            Node::Glue(glue_node) if glue_node.glue_spec.shrink.is_infinite() => {
+                *found_shrink_error = true;
+                glue_node.glue_spec = glue_node.glue_spec.finite_shrink_copy();
+            }
+            Node::Disc(disc) => {
+                ensure_nodes_have_finite_shrinkage(&mut disc.pre_break, found_shrink_error);
+                ensure_nodes_have_finite_shrinkage(&mut disc.post_break, found_shrink_error);
+                ensure_nodes_have_finite_shrinkage(&mut disc.no_break, found_shrink_error);
+            }
+            _ => {}
         }
     }
 }
@@ -419,14 +430,14 @@ impl LineBreaker {
     ) -> HorizontalDimensions {
         let mut break_width = self.background;
         match break_type {
-            BreakType::Hyphenated { disc_width } => {
+            BreakType::Hyphenated { disc_dimensions } => {
                 // We must be at a DiscNode.
                 let Node::Disc(disc_node) = &hlist[self.cur_pos] else {
                     panic!("Should not happen")
                 };
 
-                break_width.width +=
-                    self.compute_discretionary_break_width_values(disc_width, disc_node);
+                break_width += self
+                    .compute_discretionary_break_width_values(disc_dimensions, disc_node);
 
                 // If the post_break is empty, we want to remove any following discardables
                 // following the skipped material.
@@ -480,35 +491,43 @@ impl LineBreaker {
     /// See 840.
     fn compute_discretionary_break_width_values(
         &mut self,
-        disc_width: Dimension,
+        disc_dimensions: HorizontalDimensions,
         disc_node: &DiscNode,
-    ) -> Dimension {
+    ) -> HorizontalDimensions {
         // We add the pre break width.
-        let mut disc_break_width = disc_width;
+        let mut disc_break_dimensions = disc_dimensions;
 
         // We add the post break width.
         for node in &disc_node.post_break {
-            disc_break_width += Self::get_node_width(node);
+            disc_break_dimensions += Self::dimensions_of_discretionary_node(node);
         }
 
         // We subtract the width of the skipped material.
         for node in &disc_node.no_break {
-            disc_break_width -= Self::get_node_width(node);
+            disc_break_dimensions -= Self::dimensions_of_discretionary_node(node);
         }
-        disc_break_width
+        disc_break_dimensions
     }
 
     /// See 841. and 842.
-    fn get_node_width(node: &Node) -> Dimension {
-        match node {
+    fn dimensions_of_discretionary_node(node: &Node) -> HorizontalDimensions {
+        let mut dimensions = HorizontalDimensions::new();
+        dimensions.width = match node {
             &Node::Char(CharNode { width, .. })
             | &Node::WideChar(WideCharNode { width, .. })
             | &Node::Ligature(LigatureNode { width, .. })
             | &Node::List(ListNode { width, .. })
             | &Node::Rule(RuleNode { width, .. })
             | &Node::Kern(KernNode { width, .. }) => width,
+            Node::Glue(glue) => {
+                dimensions.stretch.add_dimen(glue.glue_spec.stretch);
+                dimensions.shrink += glue.glue_spec.shrink.value;
+                glue.glue_spec.width
+            }
+            Node::Penalty(_) => 0,
             _ => panic!("disc1"),
-        }
+        };
+        dimensions
     }
 
     /// See 845.
@@ -1135,55 +1154,29 @@ impl LineBreaker {
             self.try_break(
                 hlist,
                 eqtb.integer(IntegerVariable::ExHyphenPenalty),
-                BreakType::Hyphenated { disc_width: 0 },
+                BreakType::Hyphenated {
+                    disc_dimensions: HorizontalDimensions::new(),
+                },
                 eqtb,
                 logger,
             );
         } else {
-            let mut disc_width = 0;
+            let mut disc_dimensions = HorizontalDimensions::new();
             for node in pre_break {
-                disc_width += Self::width_of_node(node);
+                disc_dimensions += Self::dimensions_of_discretionary_node(node);
             }
-            self.delta.width += disc_width;
+            self.delta += disc_dimensions;
             self.try_break(
                 hlist,
                 eqtb.integer(IntegerVariable::HyphenPenalty),
-                BreakType::Hyphenated { disc_width },
+                BreakType::Hyphenated { disc_dimensions },
                 eqtb,
                 logger,
             );
-            self.delta.width -= disc_width;
+            self.delta -= disc_dimensions;
         }
         for node in &disc_node.no_break {
-            self.add_width_of_node_to_act_width(node);
-        }
-    }
-
-    /// See 870.
-    fn width_of_node(node: &Node) -> Dimension {
-        match node {
-            &Node::Char(CharNode { width, .. })
-            | &Node::WideChar(WideCharNode { width, .. })
-            | &Node::Ligature(LigatureNode { width, .. })
-            | &Node::List(ListNode { width, .. })
-            | &Node::Rule(RuleNode { width, .. })
-            | &Node::Kern(KernNode { width, .. }) => width,
-            _ => panic!("disc3"),
-        }
-    }
-
-    /// See 871.
-    fn add_width_of_node_to_act_width(&mut self, node: &Node) {
-        match node {
-            &Node::Char(CharNode { width, .. })
-            | &Node::WideChar(WideCharNode { width, .. })
-            | &Node::Ligature(LigatureNode { width, .. })
-            | &Node::List(ListNode { width, .. })
-            | &Node::Rule(RuleNode { width, .. })
-            | &Node::Kern(KernNode { width, .. }) => {
-                self.delta.width += width;
-            }
-            _ => panic!("disc4"),
+            self.delta += Self::dimensions_of_discretionary_node(node);
         }
     }
 
@@ -1611,7 +1604,9 @@ fn determine_visibility_and_width(node: &Node) -> (bool, Dimension) {
 #[derive(Debug, Clone, Copy)]
 enum BreakType {
     Unhyphenated,
-    Hyphenated { disc_width: Dimension },
+    Hyphenated {
+        disc_dimensions: HorizontalDimensions,
+    },
     Final,
 }
 

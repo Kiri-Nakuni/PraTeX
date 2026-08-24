@@ -211,7 +211,8 @@ error 0でdumpした。28,640個の複数文字control sequenceを保存し、pr
   Hangul–Latin等は同じscript-pair機構へ後から載せる。
 
 この段階はLaTeXのpTeX検出を変えるが、「日本語組版完成」や検出stubとは呼ばない。JFM/禁則の
-box/disc・未検証command境界、完全JLReq、縦組、PDFまで連続して進める。内部tableはprovider-local IDと
+shifted/vbox・未検証command境界、完全JLReq、縦組、PDFまで連続して進める。discの確認済み枝別K/Xは
+no-break/post-break内へ条件付きmaterial nodeとして接続済みだが、全JFM class・禁則matrixはなお残る。内部tableはprovider-local IDと
 engine内部IDを分け、標準日本語ではVaak/WASM call 0、組版中のallocation 0を保つ。
 
 ## 横組JFM glyphからDVIまでの最小基線
@@ -228,7 +229,7 @@ engine内部IDを分け、標準日本語ではVaak/WASM call 0、組版中のal
   合成fixtureでglyph間と後続ruleのsp座標まで解釈している。
 - DVIに加え、明示named CID profileがある時だけBMP wide glyphをPDF Type 0へ出す最小基線を
   `codex2/pdf-japanese-cid`で追加した。JFM pair adjustment、K/X自動空白、bounded禁則を
-  まずlist-closeで接続し、その後JFM/禁則をmain loopへ移した。`\tfont`、縦組、box/disc境界、完全禁則、
+  まずlist-closeで接続し、その後JFM/禁則をmain loopへ移した。`\tfont`、縦組、shifted/vbox境界、完全禁則、
   埋込みPDF和文字形、OTF shapingは未実装で、横組smokeを日本語組版完成とは呼ばない。
 - 同じ欧文plain fixtureを`origin/main`と比較し、BOP--EOPの183 bytesは差分0だった。
 
@@ -266,7 +267,8 @@ engine内部IDを分け、標準日本語ではVaak/WASM call 0、組版中のal
   異なるfont間は保守的にKへ戻る。
 - JFM/K/X/禁則を由来付きGlue/Kern/Penalty nodeにする。JFM/禁則はmain loopで挿入し、
   close時はK/Xだけを除去・再評価するため、利用者が`\unskip`で消したJFMを復活させない。
-  明示penaltyは境界に透明、明示glue/kern/math/whatsit/list/rule/disc等はbarrierである。
+  明示penaltyは境界に透明、明示glue/kern/math/whatsit/list/rule等はbarrierである。discは左側を遮断し、
+  no-break/post-breakの非空末尾だけを右境界候補として枝ごとに保持する。
 - hbox、段落、alignment cell、display math移行を`unsave` / pop前にfinalizeし、局所K/Xを
   snapshotする。unbox後の再評価、fmt後のJFM表再束縛、line break、DVI glyph/rule座標を
   合成JFM/TFMのproduction process試験で固定した。
@@ -277,7 +279,14 @@ engine内部IDを分け、標準日本語ではVaak/WASM call 0、組版中のal
 - node-less境界の公式e-upTeX oracleは、class 0両側を持つ合成JFMで直結12.5pt、`{}` / `\relax`
   15pt、`\unskip`後12.5ptとなる。`\message`、semi-simple group、整数代入、`\showthe`も
   JFM二個・15ptで、main-loop provenanceのfmt/unhcopy往復を含む16試験へ固定した。
-- 既知限界は、box/discと未検証commandのmain-loop境界、Kの完全な仮想event化、完全禁則、縦組である。
+- discのpre/post/no-break restricted hlistは`unsave`前に個別finalizeし、利用者glue/penaltyは従来どおり
+  拒否する一方、PraTeX由来のJFM/K/X/禁則nodeだけを枝へ保持する。no-break/post-break末尾から右glyphへの
+  Kは`MaterialKanjiSkip`、枝内直結Kは`VirtualKanjiSkip`であり、line breakerは枝内glueの
+  width/stretch/shrinkを選択枝と一緒に計算する。空discは左右を接続しない。
+- `codex2/jlreq-box-disc`のrelease focusedは日本語spacing 17件とplain欧文DVI byte回帰1件が成功し、
+  `cargo test --release --locked --no-fail-fast`は876 passed、0 failed、10 ignoredである。
+- 既知限界は、shifted/vboxと未検証commandのmain-loop境界、discの全JFM class・禁則・unbox matrix、
+  Kの完全な仮想event化、完全禁則、縦組である。
 - spacing元枝の`cargo test --release --locked --no-fail-fast`は627 passed、0 failed、7 ignored。
   統合後は652 passed、0 failed、7 ignoredで、spacing process試験6件、glyph 5件、
   K/X parameter 3件もreleaseで全緑。
@@ -477,7 +486,7 @@ WSL成功の意味は変更しない。
    意味を保つためsafe経路のままである。Windowsはallocator/CRT境界未実測なのでtyped fallback、WASMは
    dependencyなしであり、その他Unixも監査完了まではsafe resolverへ戻す。次はLinuxで実linkし、
    子process 0、hit/miss、DVI意味、end-to-endを再測定する。
-2. 接続済みmain-loop JFM/禁則をbox/disc・残るcommand境界へ広げ、discの枝別意味を完成する。
+2. 接続済みmain-loop JFM/禁則をshifted/vbox・残るcommand境界へ広げ、discの全JFM class・禁則・unbox matrixを完成する。
 3. `\tfont`と縦組metric/node/outputを追加し、spacingと禁則を横組から縦組へ広げる。
 4. discard、`\showgroups` / `\showifs`、tracing等のe-TeX残件とTeX--XeTのLR組版を進める。
 
