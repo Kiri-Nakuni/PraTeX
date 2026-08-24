@@ -9,7 +9,7 @@ default-run = "pratex"
 
 [profile.release]
 lto = true
-debug = 1
+debug = 2
 
 [features]
 default = ["stats"]
