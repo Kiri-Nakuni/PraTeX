@@ -20,7 +20,11 @@ vertical discard、run-local script spacing dispatcher、最小横組`prjlreq`�
 macro引数arena checkpoint `13d1ab1`では**922 passed、0 failed、11 ignored**、plain欧文DVI
 byte回帰も成功し、`origin`と`github`へpush済みである。公式CTAN TRIPは両段exit 0、
 `tripos.tex` byte一致、DVIは999 records・16 pages・最大stack 17・意味差0、固定commentでは
-公式2920-byte DVIとbyte一致した。旧統合checkpoint `6bc9ba4`は
+公式2920-byte DVIとbyte一致した。巨大文書測定checkpoint `efa9ddd`では299頁の`lipsum`を
+三engine、CPU 0、三warm-up＋15標本、六順序回転で測り、PraTeX/upLaTeXの全DVIをbyte一致させた。
+paired wall比は幾何平均2.0075、中央値1.9763で、1.3未満には未達である。LuaLaTeX DVIの
+絶対中央値に対するPraTeX比は0.3644だが、format/backendが異なる別workload列として扱う。
+旧統合checkpoint `6bc9ba4`は
 `cargo test --release --locked --no-fail-fast` exit 0だが、aggregate件数を記録していないため、
 過去checkpointの件数を流用しない。
 `\detokenize`から`\scantokens`、横組JFM glyph、K/X/finalizer、JLReqの最小禁則、
@@ -235,7 +239,10 @@ log/terminalの既知の拡張診断差はDVI一致へ混ぜず、別の未解�
 plain formatの欧文DVIは`origin/main`のrTeXにopcode・座標を含めて完全回帰させる。
 TRIP再現用の単精度`glue_set`境界は`trip` featureだけへ閉じ込める。通常版の基準fixtureでは
 2026-08-23にpage body 183 bytesの差分0を確認した。LaTeX DVIの完全回帰は`latex.ltx`を
-LaPraTeX用に適合させるまでは要求しない。
+LaPraTeX用に適合させるまでは要求しない。ただし`efa9ddd`の教材型298頁fixtureでは、同じpage数、
+aux、tocにもかかわらず最初の脚注内部でupLaTeXと1,161 spの縦位置差を検出した。通常版の倍精度
+`glue_set`境界が候補であり、font番号差として正規化したり性能標本へ採用したりせず、単精度候補を
+全release・TRIP・plain DVI・教材DVIでA/Bする。
 
 upLaTeX比1.2未満の最終gateは維持する。今回の性能専用作業では、同じ入力・同じTeX tree・
 同等DVIのupTeX系比較でPraTeXを1.3倍未満へ置くことをroadmap再開の中間条件とする。
@@ -264,6 +271,8 @@ control-sequence区間15.79%、fmt全体10.73%、wall 5.36%を短縮した。DVI
    逐次再字句化する。引数を一括tokenizeしたり、一時fileへ逃がしたりしない。
 8. `tests/fixtures/prjsarticle/hyphen.cfg`はlanguage patternを意図的に省いた試験stubである。
    KOMA-ScriptのgateにはTeX Liveの標準`hyphen.cfg`を使い、同じbinaryでfmtを再生成する。
+9. DVIのraw hashが違う時はfont番号、opcode整数幅、pointer、paddingだけを正規化できる。
+   glyph、rule、special、stack、移動量の差は小さくても意味差であり、許容幅を設けて性能gateへ入れない。
 
 ---
 
@@ -372,10 +381,12 @@ control-sequence区間15.79%、fmt全体10.73%、wall 5.36%を短縮した。DVI
 
 1. `13d1ab1`のmacro引数arenaはfocused test、全release、plain DVI、公式TRIP、DVI意味gateを通した。
    狭い8引数INITEX fixtureではupTeX比1.257だが、文書end-to-endの1.3未満達成とは扱わない。
-2. Linux既定bundled Kpathseaを基線に、実TeX Liveの`lipsum`短文・30回・100頁、日本語、和欧混植、
-   禁則多用corpusでPraTeXとupTeX系を交互測定する。engine三回＋driver一回を分け、DVI意味を先に
-   照合する。LuaTeX/LuaLaTeXはformat・font・backend差を明記した別列で測る。corpus設計は
-   `docs/research/japanese-publishing/`の学術・小説・互換fixture要件を使う。
+2. 299頁`lipsum`の正式基線はpaired幾何平均2.0075で、全PraTeX/upLaTeX DVIがbyte一致した。
+   次はprofileに現れたKpathsea初期化、hyphen trie/Vec undump、`scan_int`、token展開を同じfixtureで
+   局所A/Bする。短文・40頁・100頁は起動固定費と傾きを分ける診断列にし、300頁級をprimaryにする。
+   教材型298頁はTikZ/数式/表/参照を三engineで完走しaux/tocも一致したが、脚注内1,161 sp差があるため
+   性能gateから除外し、`glue_set`境界を先に直す。LuaTeX/LuaLaTeXはformat・font・backend差を
+   明記した別列で測る。corpus設計は`docs/research/japanese-publishing/`を使う。
 3. Vaak担当枝のcleanなpush済みcheckpointを固定し、`directvaak`と`directlua`を既定cache、
    毎回prepare、named reuseの対称な三面で測る。Vaak担当者の性能変更をPraTeX側で重複実装しない。
 4. 文書end-to-endの中間条件1.3未満までsafe Rustの性能調整を続け、1.1未満を実用目標、0.98未満を

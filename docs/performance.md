@@ -784,6 +784,6 @@ PLtoTF→TFtoPL byte一致である。独立decoderは公式・PraTeXとも999 r
 
 これは探索・fmt・LaTeX・JFM・page buildを含まない狭いmacro診断caseであり、roadmap再開条件の
 文書end-to-end比1.3未満を単独で満たしたとは扱わない。`../vaak`も測定中にHEADとdirty差分が動いたため、
-上記binary hashを一次識別子とし、Vaak commitだけからの再現を主張しない。次は
-`docs/research/japanese-publishing/`の学術・小説fixture方針を反映した`lipsum`、日本語、和欧混植、
-禁則多用、100頁corpusを、upLaTeXとLuaLaTeXを含む同条件の文書gateとして測る。
+上記binary hashを一次識別子とし、Vaak commitだけからの再現を主張しない。続く299頁`lipsum`基線は
+本書前半に固定済みである。今後は`docs/research/japanese-publishing/`の学術・小説fixture方針を反映した
+日本語、和欧混植、禁則多用、教材型300頁級corpusを、upLaTeXとLuaLaTeXを含む同条件で測る。

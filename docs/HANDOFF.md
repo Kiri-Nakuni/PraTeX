@@ -21,7 +21,8 @@
 ## 枝と共有状態
 
 - 現在の統合・性能枝: `codex3/perf-integration`。`codex2/perf-resolver-index`の
-  `f414757`から分岐した。code checkpoint `13d1ab1`まで`origin`と`github`の同名枝へpush済みである。
+  `f414757`から分岐した。code checkpoint `13d1ab1`と巨大文書測定checkpoint `efa9ddd`まで
+  `origin`と`github`の同名枝へpush済みである。通常sourceの意味checkpointは`13d1ab1`のままである。
 - 統合checkpoint `a2765c7`で`cargo test --release --locked --no-fail-fast`は
   **915 passed、0 failed、11 ignored**。`13d1ab1`のmacro引数arena追加後は
   **922 passed、0 failed、11 ignored**で、plain欧文DVIの`origin/main` byte回帰も維持した。
@@ -36,6 +37,11 @@
   走査・tracing・runaway診断後に保持しない。8引数を100,000回呼ぶ狭いINITEX fixtureでは、
   31交互標本のPraTeX/upTeX paired wall幾何平均比を2.454から1.257へ短縮し、全DVIがbyte一致した。
   文書組版、fmt、探索、JFMを含まないため、この値だけでroadmap再開条件を達成したとは扱わない。
+- `efa9ddd`は299頁`lipsum`、短文・40頁の診断fixture、TikZ・数式・表・参照を含む教材型298頁fixture、
+  三engineを逐次一CPUで六順序回転するLinux runner、公開DVI意味比較器、raw標本を固定した。
+  299頁15標本のPraTeX/upLaTeX paired比は幾何平均2.0075、中央値1.9763で、全DVIが
+  SHA-256 `196f46c6...`へbyte一致した。教材型は三engineとも298頁、aux/tocもbyte一致したが、
+  最初の脚注内部に1,161 spの縦位置差があるため、その速度は正式gateへ採用しない。
 - 現在枝へ統合済み:
   - vertical discard: `700973b` / `06a5b25` / `1a518cd`。`etex_vdiscards` 6件成功
   - run-local script spacing dispatcher: `58b9589` / `0e55c20`。
@@ -571,13 +577,30 @@ SHA-256 `518000c677d9c7a78cf5e4e6c533345bc48129e1179625bcf84c0f4c3390ae62`へbyt
 固定commentの公式DVIとbyte一致である。条件・raw hash・Vaak dirty依存の再現限界は
 [`performance.md`](performance.md)と[`trip-testing.md`](trip-testing.md)に記録した。
 
+## 固定済み巨大文書基線と教材DVI残件
+
+`efa9ddd`の`tools/bench-document-throughput-linux.sh`は、PraTeX、upLaTeX、LuaLaTeX DVIをCPU 0で
+逐次実行し、三warm-up後の15 roundを六順序で循環する。wallはrealtime clockでなく
+`perf duration_time`を使い、user/system/RSS、DVI、aux/toc、binary/fmt/fixture hashを残す。
+PraTeX/upLaTeXのDVIはbyte一致、またはfont番号・整数幅・pointer・paddingだけを除いたcanonical公開
+opcode列の一致を必要とする。移動量へtoleranceは設けない。
+
+299頁連続本文のwall中央値はPraTeX 2.0864 s、upLaTeX 1.0671 s、LuaLaTeX DVI 5.7249 s。
+PraTeX/upLaTeX paired幾何平均比2.0075なので、roadmap再開条件1.3未満、実用目標1.1未満、
+stretch 0.98未満のすべてに未達である。Samplyではloaded engine 67.42%、起動・fmt 32.58%。
+`scan_int`、展開・token走査と、Kpathsea初期化、trie/Vec undumpの両方を縮める必要がある。
+
+教材型fixtureは24章×12 lesson、298頁、PGF/TikZ 3.1.11a、数式・float・脚注・相互参照を含む。
+PraTeX/upLaTeX/LuaLaTeXのauxとtocは同じhashへ収束した。一方PraTeX通常版の倍精度`glue_set`と
+TeX系の単精度境界が有力な1,161 sp差を最初の脚注に検出した。次は`make_glue_ratio`の単精度候補を
+教材DVIへ当て、全release、公式TRIP、plain DVIを通してから採否を決める。
+
 ## 性能優先と、その後のLaTeX・日本語組版順
 
-1. 現在の分裂枝統合とmacro引数arenaは、全release、plain DVI、公式CTAN TRIP、DVItype、独立decoderの
-   意味gateを通過した。次は同じ入力・TeX tree・cold/warm条件・同等DVIでupTeX系と交互測定し、
-   **文書end-to-end**比1.3未満まで性能作業を優先する。狭いmacro fixtureだけは1.257へ到達したが、
-   これはroadmap再開条件の達成ではない。最終upLaTeX比1.2未満、実用目標1.1未満、stretch 0.98未満を
-   区別して追う。
+1. 299頁の正式基線は同一DVIで約2.0倍だった。**文書end-to-end**比1.3未満まで性能作業を優先し、
+   最終upLaTeX比1.2未満、実用目標1.1未満、stretch 0.98未満を区別して追う。unsafe反実仮想監査では
+   直接省ける現実的上限は重複込み3--7%で、方針変更を勧めない。safeなMacroId/Copy command、
+   single-token pushback、通常fmtから不要なPreTrie/build cacheを外す版付きwireを先にA/Bする。
 2. 利用者Linux profileで9回・1.372秒を占めた`kpsewhich`について、resolver専用枝では
    Scanner/PDFをrun-local共有し、無関係aliasによるqueryごとのone-shotを解消した。続くLinux-first
    checkpointで、監査済みRust Kpathsea forkのsubprocess禁止constructorを一run一instanceで接続した。
@@ -593,8 +616,9 @@ SHA-256 `518000c677d9c7a78cf5e4e6c533345bc48129e1179625bcf84c0f4c3390ae62`へbyt
    DVIは全組`3ae145d...`、treeのprocess生成は0だった。再現runnerは
    `tools/bench-bundled-kpathsea-ctan-linux.sh`。これは利用者の30×`lipsum`や`dvipdfmx`を含まないため、
    次は実TeX Live treeと利用者corpusでengine三回、driver一回、DVI意味を再測定する。
-3. 文書corpusは短い`lipsum`、30回、100頁に加え、`docs/research/japanese-publishing/`が整理した
-   学術・小説・和欧混植・禁則・縦組候補を別caseにする。upLaTeXとは同等DVI意味をhard gateにし、
+3. 300頁級連続本文をprimary corpusにし、短文・40頁・100頁は起動費と傾きの診断列にする。
+   `docs/research/japanese-publishing/`が整理した学術・小説・和欧混植・禁則・縦組候補も別caseにする。
+   教材型298頁の1,161 sp差を直した後、同じrunnerで正式標本を取る。upLaTeXとは同等DVI意味をhard gateにし、
    LuaLaTeXはclass/font/backend差を明記した利用者workload比較として分ける。Vaakがcleanなpush済み
    checkpointになった後、`directvaak`/`directlua`を毎回prepare、既定cache、named reuseの三面で測る。
 4. 1.3未満を確認後、接続済みmain-loop JFM/禁則をshifted/vbox・残るcommand境界へ広げ、
