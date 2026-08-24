@@ -436,6 +436,20 @@ LTO、17,446,628 byteの同一`latex.fmt`を使ったwarm交互A/B各8回では�
 `mainpra.tex`三回、`dvipdfmx`一回を含む9.14 sの再測定ではない。従ってLinuxの190%差を
 解消したとは扱わず、次は同一corpusでengineとdriver、外部processを分けて測る。
 
+## 完了済み性能checkpoint: global制御綴索引の一段復元
+
+`codex2/fmt-control-sequence-hash`では、fmtのglobal byte/wide制御綴名を中間hashへ入れてから
+最終hashへ移す二重処理をなくし、最初から最終`ControlSequenceHash`へ重複検査つきで入れる。
+namespace付き名だけはnamespace数の検証まで疎な中間表へ残す。byte/wide二blockの宣言数は
+合計65,536件を本文読込み前に拒否し、壊れたfmtから不要なhash成長や空namespace表を作らない。
+
+Windows warm A/B 12組では、control-sequence復元中央値15.79%、fmt全体10.73%、wall 5.36%を
+短縮し、DVI/log hashは一致した。raw 24標本は
+[`benchmarks/control-sequence-global-hash-20260824.csv`](benchmarks/control-sequence-global-hash-20260824.csv)
+に固定した。共有sourceのrelease focusedは22 passed、全releaseは849 passed、0 failed、
+10 ignoredである。A/B基点は`681e065`であり、利用者のLinux 9.14 sやupLaTeX比1.2未満を
+再測定した値ではない。
+
 ## 完了済み性能checkpoint: WSL backend発見失敗のrun-local化
 
 `4acf8a8`は、Windowsでnative `kpsewhich`が起動不能かつWSL backendの発見にも失敗した時、

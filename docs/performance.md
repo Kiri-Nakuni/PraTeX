@@ -376,6 +376,49 @@ A/Bのsource基点はともに`cc65f38`で、Aの実行file SHA-256は
 競合も分離できないため採否には使わず、交互実行のwall、process内`Instant`によるfmt区間、
 DVI/log一致を使った。
 
+## global制御綴索引の一段復元（2026-08-24）
+
+利用者のbenchmarkは、upTeXとPraTeXではDVI engineを三回実行した後に`dvipdfmx`を一回、
+LuaTeXでは直接PDF engineを三回実行する。さらに`jsarticle`、`prjsarticle`、`ltjsarticle`という
+異なるclassを使う。この総時間は利用者が見るend-to-end値として残すが、原因の採否ではengine、
+fmt、探索、driverを分離する。今回の変更はPraTeX engine内のfmt復元だけを対象にした。
+
+17,446,628 byteの`latex.fmt`では、`ControlSequenceStore`が約28,600個のglobal byte/wide名を
+まず`(namespace, active, name)`の中間`HashMap`へ入れ、escaped sidecarを読んだ後に最終hashへ
+もう一度挿入していた。名前の`Vec`自体はmoveされるが、bucketを二組保持し、同じkeyを二度hashする。
+
+変更後はglobal名を読込み時に最終`ControlSequenceHash`へ重複検査つきで直接入れる。
+namespace付き名だけはnamespace数がまだ読めないため疎な中間表へ残し、`namespaces`を検証した後に
+最終表へ移す。これにより、壊れたfmtのnamespace番号だけを根拠に最大65,536個の空hashを先に
+確保する退行を避ける。byte/wide二blockの宣言数も合計65,536件を本文読込み前に検査する。
+escaped IDの重複・欠落、namespace範囲、byte/wide/active sidecar、
+表示byte列の一致は、完成した表を一回走査して従来どおり拒否する。fmt wireは変えない。
+
+Aは`681e06536f4e70e710e797db61e54fd29de77f42`、Vaakは
+`4e40e4bbc221c75e2554193b773a8e0f46cf5f36`を基点とし、A/C共通差分は区間計測用の一時的な
+`PRATEX_PROFILE_TIMING`だけである。CはAへ上記の一段復元だけを加えた。rustc 1.91.0、
+Windows 11 build 22631、x86_64 MSVC、1,750 byteの`prjsarticle-sample.tex`、同じ作業directory、
+`SOURCE_DATE_EPOCH=1709210096`で、A→Cを三組warm-upした後、奇数round A→C、偶数round C→Aを
+12組測った。表は各12回の中央値である。
+
+| 区間 | A | C | 変化 | Cが短い組 |
+|---|---:|---:|---:|---:|
+| control-sequence復元 | 456.687 ms | 384.556 ms | -15.79% | 10 / 12 |
+| fmt全体 | 557.748 ms | 497.911 ms | -10.73% | 10 / 12 |
+| wall | 1,527.123 ms | 1,445.298 ms | -5.36% | 8 / 12 |
+
+全24 runはexit 0で、A/CのDVI SHA-256は
+`3ae145d49587b29ae488028c968e92e9dc18a8f0b2a9be1550a2b5a817dbf785`、log SHA-256は
+`fcd3b269f4e64263261cc1ee0f3189e8b1426a5ccb2e3977c8065db2d65bf1a`で一致した。raw値は
+[`control-sequence-global-hash-20260824.csv`](benchmarks/control-sequence-global-hash-20260824.csv)、
+CSV SHA-256は`a64f44d10caff7314ef8dc4dac946ad145a0d581009e940207e5bad23e5158b9`である。
+
+共有枝へ移した同じ意味差分は`cargo fmt --check`、releaseのcontrol-sequence unit
+22件、全release 849 passed / 0 failed / 10 ignoredを通した。A/B基点より後の
+`\savinghyphcodes`とmain-loop JFM checkpointは制御綴表を
+変更しないが、現HEADのLinux end-to-end値を再測定したものではない。従って、この5.36%を
+利用者の9.14 s全体やupLaTeX比1.2未満の達成へ外挿しない。
+
 ### WSL resolver失敗反復の診断
 
 同じ日に、`hyperref`、`graphicx`、`siunitx`、`pxrubrica`を含む平坦化package probeを
@@ -415,6 +458,6 @@ DVIを出す前の失敗probeなのでDVI比較値はない。計測instrumentat
 
 ## 次の候補
 
-測定済みの次候補は、探索外部processの削減、fmt内訳の計測、`ls-R`索引の確保削減、
-入力行bufferの再利用、PDF文字命令の一時`String`除去である。一つの枝へ混ぜず、同じ
+測定済みの次候補は、探索外部processの削減、TFM lig/kern小表の汎用hash除去、
+`ls-R`索引の確保削減、入力行bufferの再利用、PDF文字命令の一時`String`除去である。一つの枝へ混ぜず、同じ
 出力hashとTRIPを条件に個別採否を決める。

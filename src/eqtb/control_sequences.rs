@@ -123,11 +123,16 @@ impl ControlSequenceHash {
         hash.insert(key, id);
     }
 
-    fn get_wide(
-        &self,
-        active: bool,
-        key: &[ControlSequenceNameUnit],
-    ) -> Option<ControlSequenceId> {
+    fn insert_checked(&mut self, active: bool, key: Vec<u8>, id: ControlSequenceId) -> bool {
+        let hash = if active {
+            &mut self.active
+        } else {
+            &mut self.normal
+        };
+        hash.insert(key, id).is_none()
+    }
+
+    fn get_wide(&self, active: bool, key: &[ControlSequenceNameUnit]) -> Option<ControlSequenceId> {
         let hash = if active {
             self.wide_active.as_deref()?
         } else {
@@ -147,8 +152,7 @@ impl ControlSequenceHash {
         } else {
             &mut self.wide
         };
-        hash
-            .get_or_insert_with(|| Box::new(HashMap::new()))
+        hash.get_or_insert_with(|| Box::new(HashMap::new()))
             .insert(key, id)
     }
 
@@ -159,6 +163,99 @@ impl ControlSequenceHash {
     fn wide_len(&self) -> usize {
         self.wide.as_deref().map_or(0, HashMap::len)
             + self.wide_active.as_deref().map_or(0, HashMap::len)
+    }
+}
+
+/// global名は最終表へ直接入れ、namespace数がまだ読めない名前だけを疎な中間表へ置く。
+/// 通常のLaTeX fmtで同じ名前を二度hashする必要をなくしつつ、不正namespaceから
+/// 大量の空`ControlSequenceHash`を先に作らない。
+#[derive(Default)]
+struct UndumpedControlSequenceHashes {
+    global: ControlSequenceHash,
+    namespaced: HashMap<(NamespaceId, bool, Vec<u8>), ControlSequenceId>,
+    namespaced_wide: HashMap<(NamespaceId, bool, Vec<ControlSequenceNameUnit>), ControlSequenceId>,
+    declared_entry_count: usize,
+}
+
+impl UndumpedControlSequenceHashes {
+    fn accept_declared_entries(&mut self, count: usize) -> Result<(), FormatError> {
+        let total = self
+            .declared_entry_count
+            .checked_add(count)
+            .ok_or(FormatError::ParseError)?;
+        if total > ControlSequenceId::MAX as usize + 1 {
+            return Err(FormatError::ParseError);
+        }
+        self.declared_entry_count = total;
+        Ok(())
+    }
+
+    fn insert(
+        &mut self,
+        namespace: Option<NamespaceId>,
+        active: bool,
+        key: Vec<u8>,
+        id: ControlSequenceId,
+    ) -> Result<(), FormatError> {
+        let inserted = match namespace {
+            None => self.global.insert_checked(active, key, id),
+            Some(namespace) => self
+                .namespaced
+                .insert((namespace, active, key), id)
+                .is_none(),
+        };
+        if inserted {
+            Ok(())
+        } else {
+            Err(FormatError::ParseError)
+        }
+    }
+
+    fn insert_wide(
+        &mut self,
+        namespace: Option<NamespaceId>,
+        active: bool,
+        key: Vec<ControlSequenceNameUnit>,
+        id: ControlSequenceId,
+    ) -> Result<(), FormatError> {
+        let inserted = match namespace {
+            None => self.global.insert_wide(active, key, id).is_none(),
+            Some(namespace) => self
+                .namespaced_wide
+                .insert((namespace, active, key), id)
+                .is_none(),
+        };
+        if inserted {
+            Ok(())
+        } else {
+            Err(FormatError::ParseError)
+        }
+    }
+
+    fn into_final(
+        self,
+        namespace_count: usize,
+    ) -> Result<(ControlSequenceHash, Vec<ControlSequenceHash>), FormatError> {
+        let mut namespace_hashes = (0..namespace_count)
+            .map(|_| ControlSequenceHash::default())
+            .collect::<Vec<_>>();
+        for ((namespace, active, key), id) in self.namespaced {
+            let target = namespace_hashes
+                .get_mut(namespace as usize)
+                .ok_or(FormatError::ParseError)?;
+            if !target.insert_checked(active, key, id) {
+                return Err(FormatError::ParseError);
+            }
+        }
+        for ((namespace, active, key), id) in self.namespaced_wide {
+            let target = namespace_hashes
+                .get_mut(namespace as usize)
+                .ok_or(FormatError::ParseError)?;
+            if target.insert_wide(active, key, id).is_some() {
+                return Err(FormatError::ParseError);
+            }
+        }
+        Ok((self.global, namespace_hashes))
     }
 }
 
@@ -219,9 +316,7 @@ fn print_namespace_prefix(
 fn print_active_unit(unit: ControlSequenceNameUnit, printer: &mut impl Printer) {
     match unit {
         ControlSequenceNameUnit::Byte(byte) => printer.print(byte),
-        ControlSequenceNameUnit::Unicode(code_point) => {
-            print_uptex_code_point(code_point, printer)
-        }
+        ControlSequenceNameUnit::Unicode(code_point) => print_uptex_code_point(code_point, printer),
     }
 }
 
@@ -558,10 +653,7 @@ impl ControlSequenceStore {
         let ControlSequence::Escaped(n) = cs else {
             return None;
         };
-        self.escaped_wide_active
-            .get(n as usize)
-            .copied()
-            .flatten()
+        self.escaped_wide_active.get(n as usize).copied().flatten()
     }
 
     /// Unicode単位を含む元の制御綴名を返す。
@@ -651,9 +743,8 @@ impl ControlSequenceStore {
     ) -> Result<ControlSequenceId, ()> {
         if !is_valid_wide_name(key)
             || ns.is_some_and(|ns| ns as usize >= self.namespace_hashes.len())
-            || active.is_some_and(|code_point| {
-                key != [ControlSequenceNameUnit::Unicode(code_point)]
-            })
+            || active
+                .is_some_and(|code_point| key != [ControlSequenceNameUnit::Unicode(code_point)])
         {
             return Err(());
         }
@@ -781,21 +872,18 @@ impl ControlSequenceStore {
 
     fn undump_hash<'a>(
         lines: &mut impl Iterator<Item = &'a str>,
-    ) -> Result<HashMap<(Option<NamespaceId>, bool, Vec<u8>), ControlSequenceId>, FormatError> {
+        hashes: &mut UndumpedControlSequenceHashes,
+    ) -> Result<(), FormatError> {
         let count = usize::undump(lines)?;
-        // HashMapの汎用undumpは重複keyを上書きする。制御綴索引では
-        // それが到達不能なescaped entryを作るため、fmt破損として拒む。
-        let mut hash = HashMap::new();
+        hashes.accept_declared_entries(count)?;
         for _ in 0..count {
             let ns = Option::<NamespaceId>::undump(lines)?;
             let active = bool::undump(lines)?;
             let key = Vec::<u8>::undump(lines)?;
             let id = ControlSequenceId::undump(lines)?;
-            if hash.insert((ns, active, key), id).is_some() {
-                return Err(FormatError::ParseError);
-            }
+            hashes.insert(ns, active, key, id)?;
         }
-        Ok(hash)
+        Ok(())
     }
 
     /// typed nameは従来のbyte hashと混ぜず、独立したblockへ保存する。
@@ -841,27 +929,146 @@ impl ControlSequenceStore {
 
     fn undump_wide_hash<'a>(
         lines: &mut impl Iterator<Item = &'a str>,
-    ) -> Result<
-        HashMap<(Option<NamespaceId>, bool, Vec<ControlSequenceNameUnit>), ControlSequenceId>,
-        FormatError,
-    > {
+        hashes: &mut UndumpedControlSequenceHashes,
+    ) -> Result<(), FormatError> {
         let count = usize::undump(lines)?;
-        // 壊れたfmtの巨大な宣言数だけを信じて先に確保しない。
-        let mut hash = HashMap::new();
+        hashes.accept_declared_entries(count)?;
         for _ in 0..count {
             let ns = Option::<NamespaceId>::undump(lines)?;
             let active = bool::undump(lines)?;
             let key = Vec::<ControlSequenceNameUnit>::undump(lines)?;
             let id = ControlSequenceId::undump(lines)?;
             if !is_valid_wide_name(&key)
-                || active
-                    && !matches!(key.as_slice(), [ControlSequenceNameUnit::Unicode(_)])
-                || hash.insert((ns, active, key), id).is_some()
+                || active && !matches!(key.as_slice(), [ControlSequenceNameUnit::Unicode(_)])
             {
                 return Err(FormatError::ParseError);
             }
+            hashes.insert_wide(ns, active, key, id)?;
         }
-        Ok(hash)
+        Ok(())
+    }
+
+    fn validate_undumped_byte_entries(
+        namespace: Option<NamespaceId>,
+        active: bool,
+        entries: &HashMap<Vec<u8>, ControlSequenceId>,
+        escaped: &[CommandStoreEntry],
+        escaped_ns: &[Option<NamespaceId>],
+        escaped_active: &[Option<u8>],
+        escaped_wide_active: &[Option<u32>],
+        seen_hash_ids: &mut [bool],
+    ) -> Result<(), FormatError> {
+        for (key, &id) in entries {
+            let id = id as usize;
+            if id >= escaped.len()
+                || seen_hash_ids[id]
+                || escaped_ns[id] != namespace
+                || escaped_active[id].is_some() != active
+                || escaped_wide_active[id].is_some()
+                || escaped[id].1.as_slice() != key.as_slice()
+            {
+                return Err(FormatError::ParseError);
+            }
+            seen_hash_ids[id] = true;
+        }
+        Ok(())
+    }
+
+    fn validate_undumped_wide_entries(
+        namespace: Option<NamespaceId>,
+        active: bool,
+        entries: &HashMap<Vec<ControlSequenceNameUnit>, ControlSequenceId>,
+        escaped: &[CommandStoreEntry],
+        escaped_ns: &[Option<NamespaceId>],
+        escaped_active: &[Option<u8>],
+        escaped_wide_active: &[Option<u32>],
+        seen_hash_ids: &mut [bool],
+        wide_names: &mut Option<Box<HashMap<ControlSequenceId, Vec<ControlSequenceNameUnit>>>>,
+    ) -> Result<(), FormatError> {
+        for (key, &id) in entries {
+            let position = id as usize;
+            let active_code_point = match key.as_slice() {
+                [ControlSequenceNameUnit::Unicode(code_point)] if active => Some(*code_point),
+                _ => None,
+            };
+            if position >= escaped.len()
+                || seen_hash_ids[position]
+                || escaped_ns[position] != namespace
+                || escaped_active[position].is_some()
+                || escaped_wide_active[position] != active_code_point
+                || escaped[position].1 != wide_name_to_display_bytes(key)
+            {
+                return Err(FormatError::ParseError);
+            }
+            if wide_names
+                .get_or_insert_with(|| Box::new(HashMap::new()))
+                .insert(id, key.clone())
+                .is_some()
+            {
+                return Err(FormatError::ParseError);
+            }
+            seen_hash_ids[position] = true;
+        }
+        Ok(())
+    }
+
+    fn validate_undumped_hash(
+        namespace: Option<NamespaceId>,
+        hash: &ControlSequenceHash,
+        escaped: &[CommandStoreEntry],
+        escaped_ns: &[Option<NamespaceId>],
+        escaped_active: &[Option<u8>],
+        escaped_wide_active: &[Option<u32>],
+        seen_hash_ids: &mut [bool],
+        wide_names: &mut Option<Box<HashMap<ControlSequenceId, Vec<ControlSequenceNameUnit>>>>,
+    ) -> Result<(), FormatError> {
+        Self::validate_undumped_byte_entries(
+            namespace,
+            false,
+            &hash.normal,
+            escaped,
+            escaped_ns,
+            escaped_active,
+            escaped_wide_active,
+            seen_hash_ids,
+        )?;
+        Self::validate_undumped_byte_entries(
+            namespace,
+            true,
+            &hash.active,
+            escaped,
+            escaped_ns,
+            escaped_active,
+            escaped_wide_active,
+            seen_hash_ids,
+        )?;
+        if let Some(entries) = hash.wide.as_deref() {
+            Self::validate_undumped_wide_entries(
+                namespace,
+                false,
+                entries,
+                escaped,
+                escaped_ns,
+                escaped_active,
+                escaped_wide_active,
+                seen_hash_ids,
+                wide_names,
+            )?;
+        }
+        if let Some(entries) = hash.wide_active.as_deref() {
+            Self::validate_undumped_wide_entries(
+                namespace,
+                true,
+                entries,
+                escaped,
+                escaped_ns,
+                escaped_active,
+                escaped_wide_active,
+                seen_hash_ids,
+                wide_names,
+            )?;
+        }
+        Ok(())
     }
 
     fn rebuild_namespace_index(
@@ -914,8 +1121,9 @@ impl Dumpable for ControlSequenceStore {
             return Err(FormatError::ParseError);
         }
         let null_cs = CommandStoreEntry::undump(lines)?;
-        let hash = Self::undump_hash(lines)?;
-        let wide_hash = Self::undump_wide_hash(lines)?;
+        let mut undumped_hashes = UndumpedControlSequenceHashes::default();
+        Self::undump_hash(lines, &mut undumped_hashes)?;
+        Self::undump_wide_hash(lines, &mut undumped_hashes)?;
         let escaped: Vec<CommandStoreEntry> = Vec::undump(lines)?;
         let escaped_ns: Vec<Option<NamespaceId>> = Vec::undump(lines)?;
         let escaped_active: Vec<Option<u8>> = Vec::undump(lines)?;
@@ -924,10 +1132,7 @@ impl Dumpable for ControlSequenceStore {
         // **番号から名前を引く表は書き出す。逆は組み直す**——写す意味が無い。
         // 同名slotを許すと番号からは見えるのに名前から到達できない制御綴が残る。
         let ns_index = Self::rebuild_namespace_index(&namespaces)?;
-        let mut global_hash = ControlSequenceHash::default();
-        let mut namespace_hashes = (0..namespaces.len())
-            .map(|_| ControlSequenceHash::default())
-            .collect::<Vec<_>>();
+        let (global_hash, namespace_hashes) = undumped_hashes.into_final(namespaces.len())?;
         if escaped_ns.len() != escaped.len()
             || escaped_active.len() != escaped.len()
             || escaped_wide_active.len() != escaped.len()
@@ -937,57 +1142,27 @@ impl Dumpable for ControlSequenceStore {
         let mut seen_hash_ids = vec![false; escaped.len()];
         let mut wide_names: Option<Box<HashMap<ControlSequenceId, Vec<ControlSequenceNameUnit>>>> =
             None;
-        for ((ns, active, key), id) in hash {
-            let id = id as usize;
-            if id >= escaped.len()
-                || seen_hash_ids[id]
-                || escaped_ns[id] != ns
-                || escaped_active[id].is_some() != active
-                || escaped_wide_active[id].is_some()
-                || escaped[id].1 != key
-            {
-                return Err(FormatError::ParseError);
-            }
-            match ns {
-                None => global_hash.insert(active, key, id as ControlSequenceId),
-                Some(ns) => {
-                    let Some(hash) = namespace_hashes.get_mut(ns as usize) else {
-                        return Err(FormatError::ParseError);
-                    };
-                    hash.insert(active, key, id as ControlSequenceId);
-                }
-            }
-            seen_hash_ids[id] = true;
-        }
-        for ((ns, active, key), id) in wide_hash {
-            let id = id as usize;
-            let active_code_point = match key.as_slice() {
-                [ControlSequenceNameUnit::Unicode(code_point)] if active => Some(*code_point),
-                _ => None,
-            };
-            if id >= escaped.len()
-                || seen_hash_ids[id]
-                || escaped_ns[id] != ns
-                || escaped_active[id].is_some()
-                || escaped_wide_active[id] != active_code_point
-                || escaped[id].1 != wide_name_to_display_bytes(&key)
-            {
-                return Err(FormatError::ParseError);
-            }
-            let target = match ns {
-                None => &mut global_hash,
-                Some(ns) => namespace_hashes
-                    .get_mut(ns as usize)
-                    .ok_or(FormatError::ParseError)?,
-            };
-            let id = id as ControlSequenceId;
-            let previous_name = wide_names
-                .get_or_insert_with(|| Box::new(HashMap::new()))
-                .insert(id, key.clone());
-            if previous_name.is_some() || target.insert_wide(active, key, id).is_some() {
-                return Err(FormatError::ParseError);
-            }
-            seen_hash_ids[id as usize] = true;
+        Self::validate_undumped_hash(
+            None,
+            &global_hash,
+            &escaped,
+            &escaped_ns,
+            &escaped_active,
+            &escaped_wide_active,
+            &mut seen_hash_ids,
+            &mut wide_names,
+        )?;
+        for (namespace, hash) in namespace_hashes.iter().enumerate() {
+            Self::validate_undumped_hash(
+                Some(namespace as NamespaceId),
+                hash,
+                &escaped,
+                &escaped_ns,
+                &escaped_active,
+                &escaped_wide_active,
+                &mut seen_hash_ids,
+                &mut wide_names,
+            )?;
         }
         if seen_hash_ids.iter().any(|seen| !seen) {
             return Err(FormatError::ParseError);
@@ -1544,8 +1719,60 @@ mod namespace_tests {
     #[test]
     fn 壊れたfmtの重複制御綴索引を拒む() {
         let duplicate = "2\nNone\nfalse\n1\n120\n0\nNone\nfalse\n1\n120\n1\n";
+        let mut hashes = UndumpedControlSequenceHashes::default();
         assert!(matches!(
-            ControlSequenceStore::undump_hash(&mut duplicate.lines()),
+            ControlSequenceStore::undump_hash(&mut duplicate.lines(), &mut hashes),
+            Err(FormatError::ParseError)
+        ));
+    }
+
+    #[test]
+    fn 壊れたfmtの名前空間つき重複制御綴索引を拒む() {
+        let duplicate = "2\nSome\n0\nfalse\n1\n120\n0\nSome\n0\nfalse\n1\n120\n1\n";
+        let mut hashes = UndumpedControlSequenceHashes::default();
+        assert!(matches!(
+            ControlSequenceStore::undump_hash(&mut duplicate.lines(), &mut hashes),
+            Err(FormatError::ParseError)
+        ));
+    }
+
+    #[test]
+    fn 壊れたfmtのwide重複制御綴索引を全domainで拒む() {
+        for (label, namespace, active) in [
+            ("global通常", "None\n", false),
+            ("global活性", "None\n", true),
+            ("名前空間通常", "Some\n0\n", false),
+            ("名前空間活性", "Some\n0\n", true),
+        ] {
+            let entry = format!("{namespace}{active}\n1\nUnicode\n12354\n");
+            let duplicate = format!("2\n{entry}0\n{entry}1\n");
+            let mut hashes = UndumpedControlSequenceHashes::default();
+            assert!(
+                matches!(
+                    ControlSequenceStore::undump_wide_hash(&mut duplicate.lines(), &mut hashes),
+                    Err(FormatError::ParseError)
+                ),
+                "{label}"
+            );
+        }
+    }
+
+    #[test]
+    fn hash二blockの宣言数合計が制御綴id範囲を越えれば本文前に拒む() {
+        let capacity = ControlSequenceId::MAX as usize + 1;
+        let too_many = format!("{}\n", capacity + 1);
+        let mut hashes = UndumpedControlSequenceHashes::default();
+        assert!(matches!(
+            ControlSequenceStore::undump_hash(&mut too_many.lines(), &mut hashes),
+            Err(FormatError::ParseError)
+        ));
+
+        let one_byte_entry = "1\nNone\nfalse\n1\n120\n0\n";
+        let mut hashes = UndumpedControlSequenceHashes::default();
+        ControlSequenceStore::undump_hash(&mut one_byte_entry.lines(), &mut hashes).unwrap();
+        let overflowing_total = format!("{capacity}\n");
+        assert!(matches!(
+            ControlSequenceStore::undump_wide_hash(&mut overflowing_total.lines(), &mut hashes),
             Err(FormatError::ParseError)
         ));
     }

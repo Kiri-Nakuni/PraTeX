@@ -13,7 +13,7 @@ PraTeX側が必要とするAPIは `src/vaak.rs`、`docs/vaak-embedding-api-desig
 `for_CLAUDE.md` に契約として残し、Vaak側の変更はClaudeに伝える。
 
 通常作業の枝は **`codex2/<目的>`** とする。現在の統合枝は
-`codex2/jlreq-script-spacing`であり、2026-08-24のpush済み実装checkpointは`fe9fa5c`。
+`codex2/jlreq-script-spacing`であり、2026-08-24のpush済み実装checkpointは`c87b97c`。
 `\detokenize`から`\scantokens`、横組JFM glyph、K/X/finalizer、JLReqの最小禁則、
 直接PDFのnamed CIDと限定`/ToUnicode`、WASM ABI 0.0のwire/domain境界、
 e-TeX `\middle`まで取り込み済みである。
@@ -199,6 +199,10 @@ Windowsのwarm A/Bでwallを7.31--15.26%短縮した。これは利用者のLinu
 DVI出力を分け、外部process時間を隠さず、cold/warmとhit/missを同じfixtureで測る。
 `4acf8a8`はWindowsで発見不能なWSL backendをoptional lookupごとに再起動する異常系を
 run-local状態へ固定した。これはLinuxの通常探索や利用者の9.14 sを短縮した値ではない。
+`codex2/fmt-control-sequence-hash`ではglobal制御綴のfmt復元を一段化し、Windows warm A/Bで
+control-sequence区間15.79%、fmt全体10.73%、wall 5.36%を短縮した。DVI/log hashは一致し、
+全releaseは849 passed、0 failed、10 ignoredである。A/B基点は`681e065`なので、この局所値を
+現行Linux end-to-endやupLaTeX比1.2未満の達成へ外挿しない。
 
 ### 既知の落とし穴
 
