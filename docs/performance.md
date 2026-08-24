@@ -96,6 +96,48 @@ PraTeX wallの45.95%に当たる。9件は互いに重ならないので、こ�
 inclusive 111、`LsRDatabase::load`が105 samplesに現れ、その外側ではmacro parameter走査、
 token-list走査、`Vec`再確保が次の候補である。sample数をwall msへ換算して足し引きはしない。
 
+同じ1,580 samplesをprocessed profileのstack tableから再集計すると、重なりを許すinclusive件数は
+次の通りだった。exclusiveでは`Scanner::get_next`が198、`Command`のdropが79、allocator内部の
+`int_malloc`が78 samplesである。まず外部processを消し、その後に引数bufferの再利用、token-listの
+確保、`Command`のclone/dropを別々のA/Bにする根拠とする。
+
+| inclusive frame | samples / 1,580 |
+|---|---:|
+| `macro_expand::scan_parameters` | 624 |
+| `macro_expand::scan_a_parameter` | 554 |
+| `Scanner::scan_toks` | 470 |
+| `Vec::push` | 207 |
+| `RawVecInner::grow_amortized` | 197 |
+
+#### Windows Samply採取runner
+
+Samply 0.13.1はWindowsでETWを`xperf`経由で採取し、採取時に管理者権限を要求する。
+`xperf.exe`はWindows標準の`wpr.exe`とは別で、Microsoft Windows ADKの
+Windows Performance Toolkitを導入する必要がある。PraTeXのrelease profileは`debug = 1`なので、
+追加instrumentationなしでもPraTeX自身のPDBをSamplyへ渡せる。
+
+[`tools/profile-samply-windows.ps1`](../tools/profile-samply-windows.ps1)はSamply、`xperf`、
+PraTeX、入力を実fileとして検査し、既定では外部file探索を行わない
+[`samply-engine-hotpath.tex`](../tools/fixtures/samply-engine-hotpath.tex)を三回実行する。
+これにより、上の利用者profileに見える`kpsewhich` process列と、macro引数走査・token-list展開の
+engine内部CPU列を別profileにする。実際の`mainpra.tex`を測る時は`InputPath`、`WorkingDirectory`、
+`PraTexArguments`を同じTeX treeとformatへ明示する。
+
+```powershell
+cargo build --release --locked --bin pratex
+pwsh -File tools/profile-samply-windows.ps1 `
+  -SamplyPath C:\tools\samply\samply.exe `
+  -PraTexPath target\release\pratex.exe
+```
+
+2026-08-24のWindows 23H2 x64確認では、Samply 0.13.1公式ZIP
+`samply-x86_64-pc-windows-msvc.zip`のSHA-256
+`8fed74dac18197bbb2520125b0199255e09709bed7903a7672a06225a5d7e976`が公式sidecarと一致した。
+一方、このsessionには`xperf`がなく、対応するADK 10.1.25398.1のWPT限定installはOSのUACで
+`0x80070642`（UAC承認が得られず取消扱い）となったため、新しいprofileを生成していない。
+Codexのfilesystem/network承認はWindowsのsecure desktop上のUAC承認を代替しない。
+この未採取状態をsample 0や性能改善として扱わず、WPT導入後に同じrunnerで再開する。
+
 #### Rust `kpathsea` crateのin-process候補
 
 利用者の提案を受け、crates.ioの`kpathsea` 0.3.4
