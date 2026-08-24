@@ -1,0 +1,12 @@
+% Initial prjlreq gate: horizontal article, Japanese/Latin/digit mixture.
+\documentclass[a4paper,10pt]{prjlreq}
+\AtBeginDocument{%
+  \typeout{PRJLREQ-KANJISKIP:\the\kanjiskip}%
+  \typeout{PRJLREQ-XKANJISKIP:\the\xkanjiskip}%
+  \typeout{PRJLREQ-PARINDENT:\the\parindent}%
+}
+\begin{document}
+\typeout{PRJLREQ-IDENTITY:\the\pratexversion}
+日本語とLatin ABC xyz、数字0123の横組最小標本。
+\end{document}
+
