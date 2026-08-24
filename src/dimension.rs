@@ -3,7 +3,7 @@ use crate::eqtb::{Eqtb, IntegerVariable};
 use crate::error::mu_error;
 use crate::input::expansion::get_x_token;
 use crate::input::Scanner;
-use crate::integer::{Integer, IntegerExt};
+use crate::integer::scan_int_radix_from_first;
 use crate::logger::Logger;
 use crate::nodes::{DimensionOrder, HigherOrderDimension};
 use crate::print::Printer;
@@ -85,8 +85,7 @@ fn scan_dimen(
             };
             (integer, 0)
         } else {
-            scanner.back_input(token, eqtb, logger);
-            scan_integer_and_fraction(token, scanner, eqtb, logger)
+            scan_integer_and_fraction(unexpandable_command, token, scanner, eqtb, logger)
         };
 
     if integer < 0 {
@@ -127,6 +126,7 @@ fn scan_dimen(
 /// Scan a fractional number.
 /// See 448.
 fn scan_integer_and_fraction(
+    unexpandable_command: UnexpandableCommand,
     token: Token,
     scanner: &mut Scanner,
     eqtb: &mut Eqtb,
@@ -137,12 +137,16 @@ fn scan_integer_and_fraction(
         (0, 10)
     } else {
         // Otherwise determine the integral part and the radix.
-        Integer::scan_int_radix(scanner, eqtb, logger)
+        scan_int_radix_from_first(unexpandable_command, token, false, scanner, eqtb, logger)
     };
 
     // Only in the case of decimal numbers are fractional parts allowed.
     let fraction = if radix == 10 {
-        let (_, token) = get_x_token(scanner, eqtb, logger);
+        let (_, token) = if let Token::POINT_TOKEN | Token::CONTINENTAL_POINT_TOKEN = token {
+            (unexpandable_command, token)
+        } else {
+            get_x_token(scanner, eqtb, logger)
+        };
         if let Token::POINT_TOKEN | Token::CONTINENTAL_POINT_TOKEN = token {
             scan_decimal_fraction(scanner, eqtb, logger)
         } else {

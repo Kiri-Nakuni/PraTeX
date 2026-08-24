@@ -1,0 +1,17 @@
+% Self-contained dimension scanner diagnostic.  It uses no format, font, or file lookup.
+\catcode`\{=1 \catcode`\}=2 \catcode`\#=6
+\count0=0
+\dimen0=0pt
+\def\batch{%
+  \dimen0=12.345pt\dimen0=12.345pt\dimen0=12.345pt\dimen0=12.345pt%
+  \dimen0=12.345pt\dimen0=12.345pt\dimen0=12.345pt\dimen0=12.345pt%
+  \dimen0=12.345pt\dimen0=12.345pt\dimen0=12.345pt\dimen0=12.345pt%
+  \dimen0=12.345pt\dimen0=12.345pt\dimen0=12.345pt\dimen0=12.345pt}
+\def\again{%
+  \batch
+  \advance\count0 by1
+  \ifnum\count0<100000 \let\next\again\else\let\next\relax\fi
+  \next}
+\again
+\message{[\the\count0/\the\dimen0]}
+\end

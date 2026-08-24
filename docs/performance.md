@@ -845,3 +845,16 @@ macro呼出しごとのreplacement参照mask走査を`MacroCall`生成時の一�
 299頁だけの約1%短縮は一般化しない。両fixtureとも出力はbyte一致し、rawと再現情報は
 [`macro-call-derived-mask-rejected-20260825.md`](benchmarks/macro-call-derived-mask-rejected-20260825.md)に固定した。
 次は型サイズを増やさず、数値・寸法・糊走査のfirst-token差戻し／再取得をprivate経路で減らす。
+
+## 寸法走査のfirst-token差戻しを除く（2026-08-25）
+
+寸法scannerが空白・符号と最初の展開済みtokenを読んだ後、non-internal経路はそれtokenを
+差し戻し、整数scannerが直後に再取得していた。既に解決済みの`UnexpandableCommand` / `Token`対を
+private経路で渡し、一回のbackup、input source push、token dispatchを除いた。
+
+1,600,000回の寸法代入を行うINITEX fixtureの31交互組で、paired幾何平均比はwall 0.965479、
+task-clock 0.966130、instructions 0.964690で、全31組でcandidateが短かった。299頁の20組は
+wall 0.996439だが分散より小さく、gate達成へは外挿しない。DVI・aux・局所logはbyte一致し、
+条件とrawは[`dimension-first-token-20260825.md`](benchmarks/dimension-first-token-20260825.md)に固定した。
+全releaseは934 passed、0 failed、11 ignored。公式TRIPは両段exit 0、`tripos.tex`・PLtoTF→TFtoPLは
+byte一致、固定comment DVIも公式2,920 byteと完全一致した。

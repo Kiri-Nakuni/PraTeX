@@ -40,24 +40,7 @@ impl IntegerExt for Integer {
     fn scan_int_radix(scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Logger) -> (i32, u8) {
         let (unexpandable_command, token, negative) =
             scanner.get_next_non_blank_non_sign_token(eqtb, logger);
-        let mut value;
-        let radix;
-        if token == Token::ALPHA_TOKEN {
-            value = scan_alphabetic_character_code(scanner, eqtb, logger);
-            radix = 0;
-        } else if let Some(internal_command) = unexpandable_command.try_to_internal() {
-            value = scan_internal_integer(internal_command, token, scanner, eqtb, logger);
-            radix = 0;
-        } else {
-            let (v, r) = scan_numeric_constant(unexpandable_command, token, scanner, eqtb, logger);
-            value = v;
-            radix = r;
-        }
-
-        if negative {
-            value = -value;
-        }
-        (value, radix)
+        scan_int_radix_from_first(unexpandable_command, token, negative, scanner, eqtb, logger)
     }
 
     /// See 435.
@@ -108,6 +91,36 @@ impl IntegerExt for Integer {
         }
         value
     }
+}
+
+/// Scan an integer after the caller has already expanded signs and the first
+/// non-blank token.  The finishing-token contract is the same as `scan_int_radix`.
+pub(crate) fn scan_int_radix_from_first(
+    unexpandable_command: UnexpandableCommand,
+    token: Token,
+    negative: bool,
+    scanner: &mut Scanner,
+    eqtb: &mut Eqtb,
+    logger: &mut Logger,
+) -> (i32, u8) {
+    let mut value;
+    let radix;
+    if token == Token::ALPHA_TOKEN {
+        value = scan_alphabetic_character_code(scanner, eqtb, logger);
+        radix = 0;
+    } else if let Some(internal_command) = unexpandable_command.try_to_internal() {
+        value = scan_internal_integer(internal_command, token, scanner, eqtb, logger);
+        radix = 0;
+    } else {
+        let (v, r) = scan_numeric_constant(unexpandable_command, token, scanner, eqtb, logger);
+        value = v;
+        radix = r;
+    }
+
+    if negative {
+        value = -value;
+    }
+    (value, radix)
 }
 
 /// See 442.
@@ -249,4 +262,45 @@ fn accumulate_constant(
         (unexpandable_command, token) = get_x_token(scanner, eqtb, logger);
     }
     (value, unexpandable_command, token, vacuous)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::scan_int_radix_from_first;
+    use crate::command::UnexpandableCommand;
+    use crate::eqtb::Eqtb;
+    use crate::input::Scanner;
+    use crate::logger::{InteractionMode, Logger};
+    use crate::token::Token;
+
+    #[test]
+    fn 取得済みの先頭数字から続きを読む() {
+        let mut scanner = Scanner::new(Vec::new(), 0);
+        let mut eqtb = Eqtb::new();
+        let mut logger = Logger::new(String::new(), InteractionMode::Batch);
+        scanner.back_list(
+            vec![
+                Token::OtherChar(b'2'),
+                Token::SPACE_TOKEN,
+                Token::Letter(b'z'),
+            ],
+            &eqtb,
+            &mut logger,
+        );
+
+        let (value, radix) = scan_int_radix_from_first(
+            UnexpandableCommand::Other(b'1'),
+            Token::OtherChar(b'1'),
+            false,
+            &mut scanner,
+            &mut eqtb,
+            &mut logger,
+        );
+
+        assert_eq!((value, radix), (12, 10));
+        assert_eq!(
+            scanner.get_token(&mut eqtb, &mut logger),
+            Token::Letter(b'z')
+        );
+    }
 }

@@ -1,0 +1,30 @@
+key	value
+measured_at	2026-08-25 Asia/Tokyo
+branch	codex3/perf-integration
+baseline_commit	ea8252ded9823c39d1763ce14bf3e7b93666a858
+baseline_commit_note	engine source is identical to 7a0c2cf; ea8252d only adds rejected-experiment documentation
+candidate_source	uncommitted dimension first-token handoff over baseline_commit
+baseline_binary_sha256	931e49f82bfca344e43ba67b3814ef2072b38371e7548502484048d345c8a8c3
+baseline_binary_bytes	18114552
+candidate_binary_sha256	b633b2c87076c183bac6ed028f548b7bf7f59a714c89576cbc82cc0ae234fd91
+candidate_binary_bytes	18125704
+vaak_commit	7dc011b23da7bd78bad1e0031d5e601b014cc7fe
+vaak_worktree	tracked diff none; untracked crates/, dotnet/, packages/
+document_input_sha256	265a52f085db6afb43a3f8a420be0a80ec554c7a1052b064edaa85a539f7f2cd
+document_fmt_sha256	c5cda9564ed3251f450ceb7c63f87ec334c55b9c9ea63afb06e7111f06e0013c
+document_dvi_sha256	196f46c6ea737d524992e1c93db40d1c10fb59884e412a83a6bf594e76e75ebd
+document_aux_sha256	db187909886572dd6e4beed4704f83078aecb28738881b6c4a67012f1d536027
+document_pages	299
+document_pairs	20
+document_warmup_pairs	2
+micro_input_sha256	8e19b7b4ea1700abd48846c50028ac96b73264fffbc68d1d195ea6c091d870c7
+micro_log_sha256	bd230960f74d86c2d7eb6a0ccc5ee0bae65aa90def8ee613a0508a6c210e1cbd
+micro_pairs	31
+micro_warmup_pairs	4
+raw_tsv_sha256	b06074a998b599f5ee5fafa2951b5b85cc2ac442a7612e956503ca373c4a40e4
+cpu	Intel Core i7-8650U; CPU 0 fixed
+kernel	Linux 7.0.0-30-generic x86_64
+rustc	rustc 1.94.0 (4a4ef493e 2026-03-02)
+perf	perf 7.0.12
+source_date_epoch	1709210096
+counter_command	perf stat --no-big-num -x ; -e duration_time,task-clock,instructions,cycles,cache-misses -- taskset -c 0
