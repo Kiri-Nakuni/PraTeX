@@ -341,18 +341,21 @@ control-sequence区間15.79%、fmt全体10.73%、wall 5.36%を短縮した。DVI
   Linux既定`bundled-kpathsea`は公式TeX Live 2026 revision
   `fb6158926661cb7a7246b3a94a0cb170a9624d5a`のKpathsea 6.4.2を静的buildし、
   `in-process-only-caller`だけを使う。source取得/build失敗時にCLIへ黙って退行しない。
-  TeX Liveもsystem KpathseaもないWSLで55 C sourceのrelease linkは成功済みだが、子process 0、
-  TEX/TFM/JFM/VF hit/miss、DVI意味、実treeのend-to-end性能は次のruntime gateまで未検証である。
+  TeX Liveもsystem KpathseaもないWSLで55 C sourceのrelease link、子process 0、TEX/TFM/JFM/VF
+  hit/miss、local/tree DVI byte一致を実行時に固定した。固定CTAN LaTeX runtimeをext4上の`ls-R`
+  treeへ組み直した15組では、local/tree wall中央値0.49/0.45 s、paired差中央値0.00 s、全DVIが
+  `3ae145d...`へ一致し、tree runのprocess生成も0だった。これは利用者の30×`lipsum`、追加package、
+  `dvipdfmx`を含まないので9.14 sや1.2倍gateの再測定ではない。
   配布側libraryを使う明示`system-kpathsea` buildは残す。外部fmtは`--engine=rtex`を保つsafe経路である。
   Windowsはallocator/CRT境界未実測のためtyped fallback、WASMとその他Unixはdependencyをcompileしない。
 - 名前空間はPhase 0--7済み。Phase 8のTRIPとalignment再利用検証が残る。
 
 ## 直近の実装順
 
-1. Linux既定のbundled Kpathseaを合成treeと実TeX Live treeで動かし、同じfixtureの子process 0、
-   TEX/TFM/JFM/VF hit/miss、alias、非UTF-8 path、DVI意味を照合する。版pin、offline source、
-   LGPL source/relink条件、再現性、binary sizeを配布gateにし、利用者corpusでwallを再測定する。
-   Windows fast pathはallocator対応後に測る。
+1. Linux既定bundled Kpathseaの合成treeと固定CTAN tree gateは済んだ。alias、非UTF-8 path、版pin、
+   offline source、LGPL source/relink条件、再現性、binary sizeを配布gateにし、実TeX Liveと利用者corpusで
+   engine三回＋driver一回を再測定する。並行してfmt undump、macro/token走査、control-sequence hashを
+   同じDVIの局所A/Bで測る。Windows fast pathはallocator対応後に測る。
 2. 接続済みmain-loop JFM/禁則をshifted/vbox・残るcommand境界へ広げ、discの枝内JFM class・禁則・unbox再評価matrixを完成する。
 3. compile済み汎用script class対tableをlist単位dispatcherと中央finalizerへ接続する。
 4. `\tfont`と縦組metric/node/outputを追加し、JFM/K/X/禁則を横組から縦組へ広げる。

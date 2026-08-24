@@ -511,8 +511,11 @@ WSL成功の意味は変更しない。
    子process 0、local入力とのDVI byte一致を実行時に固定し、DVI SHA-256は
    `658ec798192d67c3a067b8296a3300e580b2aaf7ba8b4fcc04dab78022848993`。外部fmtは
    `--engine=rtex`意味を保つsafe経路のままである。Windowsはallocator/CRT境界未実測なのでtyped
-   fallback、WASMとその他Unixはdependencyなし。次は実TeX Live treeと利用者corpusで子process数、
-   engine三回、driver一回、DVI意味を再測定する。
+   fallback、WASMとその他Unixはdependencyなし。さらに固定CTAN LaTeX runtime 932 fileをext4上の
+   `ls-R` treeへ組み、local/treeを15組交互測定した。wall中央値は0.49/0.45 s、paired差中央値0.00 s、
+   DVIは全組`3ae145d...`、treeのprocess生成は0だった。再現runnerは
+   `tools/bench-bundled-kpathsea-ctan-linux.sh`。これは利用者の30×`lipsum`や`dvipdfmx`を含まないため、
+   次は実TeX Live treeと利用者corpusでengine三回、driver一回、DVI意味を再測定する。
 2. 接続済みmain-loop JFM/禁則をshifted/vbox・残るcommand境界へ広げ、discの全JFM class・禁則・unbox matrixを完成する。
 3. `\tfont`と縦組metric/node/outputを追加し、spacingと禁則を横組から縦組へ広げる。
 4. discard、`\showgroups` / `\showifs`、tracing等のe-TeX残件を接続し、TeX--XeTの

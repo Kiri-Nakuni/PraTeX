@@ -563,3 +563,42 @@ TeX tree経由とcurrent-directory経由のDVIはbyte一致し、固定SHA-256�
 これはbenchmarkではない。合成treeにおける外部`kpsewhich`起動0を実行時に固定した正しさgateで、
 実TeX Live corpusのwall、`ls-R` load、fmt undump、macro展開、DVI driver時間を測っていない。
 次の採否は利用者fixtureを同一Linux TeX treeで三回ずつ測り、engineと`dvipdfmx`を分離して行う。
+
+## 固定CTAN runtimeでのlocal/tree交互測定（2026-08-24）
+
+合成fileだけの上記gateに続き、`tools/test-prjsarticle.ps1`がSHA-256固定CTAN archiveから
+repository外へ展開したLaTeX 2e 2026-06-01、L3 2026-08-10、CM/LaTeX/upTeX metricを使った。
+[`bench-bundled-kpathsea-ctan-linux.sh`](../tools/bench-bundled-kpathsea-ctan-linux.sh)は、このflat
+runtime 932 fileとrelease binaryをWSLのext4一時directoryへ先にcopyする。Windows mountのI/Oや
+WSL起動時間はengine runへ混ぜない。同じ`latex.fmt`と`prjsarticle-sample.tex`について、次を
+奇数roundはlocal→tree、偶数roundはtree→localの順で15組測った。
+
+- `local`: source、metric、PraTeX-private fmtがすべてcurrent directoryにある。
+- `tree`: 文書と互換性のないPraTeX-private fmtだけをcurrent directoryに置き、source/metricは
+  最小`texmf.cnf`と`ls-R`を持つ`!!` treeから組込みKpathseaで解決する。
+
+PraTeX fmtを一般のTeX Live treeから探さないのは現在の公開契約である。`TEXFORMATS`を与えて
+探索できたことにする測定は採らない。format生成、local/tree各一回のaux warm-up、15組の本文run、
+最後の`strace -f -e trace=process`を一つのWSL session内で実行した。
+
+| case | n | wall平均 ± 母標準偏差 | wall中央値 | user中央値 | system中央値 | peak RSS中央値 |
+|---|---:|---:|---:|---:|---:|---:|
+| local | 15 | 0.4807 ± 0.0708 s | 0.49 s | 0.22 s | 0.05 s | 37,892 KiB |
+| tree | 15 | 0.4787 ± 0.1071 s | 0.45 s | 0.23 s | 0.05 s | 37,888 KiB |
+
+paired `tree - local`の平均は−0.002 s、中央値0.000 sで、treeが短かった組は5/15だった。
+この粒度ではlocal/treeの差はnoise以下であり、「treeの方が速い」とは判断しない。一方、tree runの
+process traceは一PID、`clone` / `fork` / `vfork` 0で、15組すべてのDVI SHA-256はlocal/treeとも
+`3ae145d49587b29ae488028c968e92e9dc18a8f0b2a9be1550a2b5a817dbf785`へ一致した。利用者profileの
+9回・1.372 sの`kpsewhich`列は、このLinux既定経路には残らない。
+
+測定commitは`ea1bef0`、binary SHA-256は
+`eca7d735ad7a831d6fbd56d01003623f3663024f836a1dcec5fb65551f4fb85d`、17,452,967 byteのfmtは
+SHA-256 `5b53a663e6919180cef08204a337cf5955776f49861ed6361c9a2b4449977a6c`、入力は
+SHA-256 `5a4ebf7e06bf89694fe54132d1f4c77e166453c14f9dc053d51de6f5342c2248`である。raw 15組の
+TSV SHA-256は`24be2681edb1fe82511c7568966564466b771877a6e26cf179e366888af39ef4`。
+
+これは固定CTAN runtime上の1,750 byte sampleで、利用者の`mainpra.tex`、30回の`lipsum`、追加package、
+公式TeX Live全tree、三回engine＋一回`dvipdfmx`を再現していない。したがって9.14 sの新しい絶対値や
+upLaTeX比1.2未満の合格とは扱わない。Linux lookupの次の支配候補はfmt undump、macro/token走査、
+control-sequence hashであり、同じDVIを保ったA/Bで個別に測る。
