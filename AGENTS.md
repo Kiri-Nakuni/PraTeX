@@ -15,7 +15,9 @@ PraTeX側が必要とするAPIは `src/vaak.rs`、`docs/vaak-embedding-api-desig
 現在の通常作業枝は **`codex3/<目的>`** とする。統合・性能作業枝は
 `codex3/perf-integration`である。`codex2/perf-resolver-index`の`f414757`を基点に、
 vertical discard、run-local script spacing dispatcher、最小横組`prjlreq`を取り込んだ。
-各focused testは成功済みだが、この`codex3`統合後の全releaseとTRIP/DVI意味比較は未実施なので、
+各focused testに加え、code checkpoint `a2765c7`で
+`cargo test --release --locked --no-fail-fast`は**915 passed、0 failed、11 ignored**、
+plain欧文DVI byte回帰も成功した。公式CTAN TRIP等の手動gateとpushは未実施なので、
 まだpush済み意味checkpointとは呼ばない。旧統合checkpoint `6bc9ba4`は
 `cargo test --release --locked --no-fail-fast` exit 0だが、aggregate件数を記録していないため、
 過去checkpointの件数を流用しない。
@@ -362,8 +364,8 @@ control-sequence区間15.79%、fmt全体10.73%、wall 5.36%を短縮した。DVI
 
 ## 直近の実装順
 
-1. `codex3/perf-integration`へ取り込んだ全機能についてfocused test、全release、plain DVI、必要な
-   TRIP/PDF意味gateを通し、統合checkpointを固定する。
+1. `codex3/perf-integration`へ取り込んだ全機能のfocused test、全release、plain DVIは成功した。
+   残る公式CTAN TRIPと必要なPDF意味gateを通し、統合checkpointを固定する。
 2. Linux既定bundled Kpathseaの合成treeと固定CTAN tree gateを基線に、実TeX Liveと同一corpusで
    PraTeXとupTeX系を交互測定する。engine三回＋driver一回を分け、DVI意味を先に照合する。
    fmt undump、macro/token走査、control-sequence hash等の支配区間を同じ出力の局所A/Bで測り、

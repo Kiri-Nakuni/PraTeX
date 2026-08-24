@@ -1,7 +1,7 @@
 # PraTeXのTeX82外機能と独立実装
 
 更新: 2026-08-25
-監査対象: `codex3/perf-integration`（統合基点 `f414757`、全release検証前）
+監査対象: `codex3/perf-integration`（code checkpoint `a2765c7`、全release 915 / 0 / 11）
 
 この文書は、PraTeXが現在持つ機能のうちTeX82の中核にはないものと、PraTeXで新たに
 書いた実装を区別して記録する。将来構想を現在の対応機能として数えないこと、既存engineの

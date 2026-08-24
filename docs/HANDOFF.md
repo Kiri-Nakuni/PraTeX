@@ -1,6 +1,6 @@
 # PraTeX 作業引継ぎ
 
-更新: 2026-08-25（統合・性能枝 `codex3/perf-integration`、全release検証前）
+更新: 2026-08-25（統合・性能枝 `codex3/perf-integration`、全release成功・TRIP前）
 
 この文書は、現在の Codex セッションから別のエージェントへ作業が移っても、
 検証済みの境界と未commitの作業を失わないための生きた引継ぎである。
@@ -21,7 +21,10 @@
 ## 枝と共有状態
 
 - 現在の統合・性能枝: `codex3/perf-integration`。`codex2/perf-resolver-index`の
-  `f414757`から分岐し、まだpushも全release後の意味checkpoint化もしていない。
+  `f414757`から分岐し、まだpushしていない。
+- code checkpoint `a2765c7`で`cargo test --release --locked --no-fail-fast`は
+  **915 passed、0 failed、11 ignored**。plain欧文DVIの`origin/main` byte回帰も成功した。
+  `8fc3371`は検証連絡directoryだけを加えた文書commitである。公式CTAN TRIP等の手動gateは未実施。
 - 現在枝へ統合済み:
   - vertical discard: `700973b` / `06a5b25` / `1a518cd`。`etex_vdiscards` 6件成功
   - run-local script spacing dispatcher: `58b9589` / `0e55c20`。
@@ -537,7 +540,8 @@ WSL成功の意味は変更しない。
 
 ## 性能優先と、その後のLaTeX・日本語組版順
 
-1. まず現在の分裂枝統合について全release、plain DVI、必要なTRIP/PDF意味gateを完了する。
+1. 現在の分裂枝統合について全releaseとplain DVIは成功した。残る公式CTAN TRIPと必要な
+   PDF意味gateを完了する。
    その後、同じ入力・TeX tree・cold/warm条件・同等DVIでupTeX系と交互測定し、end-to-end比
    1.3未満まで性能作業を優先する。これはroadmap再開条件であり、最終upLaTeX比1.2未満は維持する。
 2. 利用者Linux profileで9回・1.372秒を占めた`kpsewhich`について、resolver専用枝では
@@ -624,6 +628,8 @@ Unicode table追加後の最小fmt増分は上記のとおり実測済み。full
   `\kcatcode`の公開番号は別codecで同じ意味へ写す。layout/JFM/provider IDは別domainに保つ。
 - `for_CLAUDE.md`へClaude/Vaak向けの変更とAPI要求を追記し、commit時に
   `origin/claude/for-codex`をfetchする。
+- AUTOCHECKDATABASEへの返答は`docs/validation/AUTOCHECKDATABASE/to-autocheckdatabase/`、
+  Vaak担当者への埋込み設計連絡は同じ親の`to-vaak/`へ分ける。受信findingからsourceを自動変更しない。
 
 ## 引継ぎ直後の安全な確認
 
