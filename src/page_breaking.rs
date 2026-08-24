@@ -1,5 +1,5 @@
 use crate::box_building::{end_graf, normal_paragraph};
-use crate::command::MarkQuery;
+use crate::command::{MarkQuery, VerticalDiscardKind};
 use crate::dimension::{Dimension, MAX_DIMEN};
 use crate::eqtb::save_stack::GroupType;
 use crate::eqtb::{
@@ -29,6 +29,10 @@ use std::collections::{BTreeMap, HashMap};
 #[derive(Debug)]
 pub struct PageBuilder {
     pub page: Vec<Node>,
+    /// e-TeX `\pagediscards`。run-localでありfmtへ保存しない。
+    page_discards: Vec<Node>,
+    /// e-TeX `\splitdiscards`。各`\vsplit`開始時に空へ戻す。
+    split_discards: Vec<Node>,
     page_ins_list: BTreeMap<InsertionIndex, PageIns>,
     max_depth: Dimension,
     best_break: usize,
@@ -48,12 +52,27 @@ impl PageBuilder {
     pub const fn new() -> Self {
         Self {
             page: Vec::new(),
+            page_discards: Vec::new(),
+            split_discards: Vec::new(),
             page_ins_list: BTreeMap::new(),
             max_depth: 0,
             best_break: 0,
             least_cost: AWFUL_BAD,
             best_size: 0,
         }
+    }
+
+    /// 保存済みdiscardable nodeを`\unvbox`同様に所有権ごと取り出す。
+    pub(crate) fn take_vdiscards(&mut self, kind: VerticalDiscardKind) -> Vec<Node> {
+        std::mem::take(match kind {
+            VerticalDiscardKind::Page => &mut self.page_discards,
+            VerticalDiscardKind::Split => &mut self.split_discards,
+        })
+    }
+
+    /// `\vsplit`だけが更新するspecial list。内部挿入分割とは共有しない。
+    pub(crate) fn split_discards_mut(&mut self) -> &mut Vec<Node> {
+        &mut self.split_discards
     }
 }
 
@@ -333,7 +352,11 @@ impl PageBuilder {
             Node::Whatsit(_) | Node::Mark(_) => {
                 self.page.push(node);
             }
-            Node::Glue(_) | Node::Kern(_) | Node::Penalty(_) => {}
+            discardable @ (Node::Glue(_) | Node::Kern(_) | Node::Penalty(_)) => {
+                if eqtb.integer(IntegerVariable::SavingVDiscards) > 0 {
+                    self.page_discards.push(discardable);
+                }
+            }
             _ => panic!("page"),
         }
     }
@@ -1057,7 +1080,9 @@ impl PageBuilder {
         let Some(list_node) = eqtb.boxes.set(BoxVariable(255), None) else {
             panic!("Should not happen");
         };
-        output.ship_out(list_node, scanner, eqtb, logger)
+        output.ship_out(list_node, scanner, eqtb, logger);
+        // default outputも一つのoutput cycleであり、次のpageへ持ち越さない。
+        self.page_discards.clear();
     }
 
     /// See 1024.
@@ -1127,6 +1152,8 @@ impl PageBuilder {
             panic!("The mode must have been vertical");
         };
         eqtb.output_active = false;
+        // `\pagediscards`を使わなかった場合もoutput routine終端で破棄する。
+        self.page_discards.clear();
         eqtb.insert_penalties = 0;
         PageBuilder::ensure_box255_is_empty(scanner, eqtb, logger);
 

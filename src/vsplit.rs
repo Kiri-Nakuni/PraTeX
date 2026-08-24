@@ -1,5 +1,7 @@
 use crate::dimension::Dimension;
-use crate::eqtb::{BoxVariable, DimensionVariable, Eqtb, RegisterIndex, SkipVariable};
+use crate::eqtb::{
+    BoxVariable, DimensionVariable, Eqtb, IntegerVariable, RegisterIndex, SkipVariable,
+};
 use crate::input::Scanner;
 use crate::line_breaking::{AWFUL_BAD, EJECT_PENALTY, INF_PENALTY};
 use crate::logger::Logger;
@@ -15,10 +17,13 @@ pub const DEPLORABLE: i32 = 100_000;
 pub fn vsplit(
     n: RegisterIndex,
     h: Scaled,
+    split_discards: &mut Vec<Node>,
     scanner: &mut Scanner,
     eqtb: &mut Eqtb,
     logger: &mut Logger,
 ) -> Option<ListNode> {
+    // 公開manualの契約どおり、void/incompatible boxでもoperation開始時に前回分を消す。
+    split_discards.clear();
     let v = eqtb.boxes.set(BoxVariable(n), None);
     eqtb.marks.clear_split_marks();
     // From 978.
@@ -53,7 +58,11 @@ pub fn vsplit(
     if remainder_list.is_empty() {
         eqtb.boxes.set(BoxVariable(n), None);
     } else {
-        let pruned_list = prune_page_top(remainder_list, eqtb);
+        let pruned_list = if eqtb.integer(IntegerVariable::SavingVDiscards) > 0 {
+            prune_page_top_saving(remainder_list, eqtb, split_discards)
+        } else {
+            prune_page_top(remainder_list, eqtb)
+        };
         let repacked_box = vpack(pruned_list, TargetSpec::Natural, eqtb, logger);
         eqtb.boxes.set(BoxVariable(n), Some(repacked_box));
     }
@@ -86,6 +95,23 @@ fn look_at_all_marks_in_split_off_list(split_off_list: &[Node], eqtb: &mut Eqtb)
 /// \splittopskip from the top if possible.
 /// See 968. and 969.
 pub fn prune_page_top(vlist: Vec<Node>, eqtb: &Eqtb) -> Vec<Node> {
+    prune_page_top_impl(vlist, eqtb, None)
+}
+
+/// `\vsplit`の残りだけが使う保存版。page builderのdiscard listとは混ぜない。
+fn prune_page_top_saving(
+    vlist: Vec<Node>,
+    eqtb: &Eqtb,
+    discarded: &mut Vec<Node>,
+) -> Vec<Node> {
+    prune_page_top_impl(vlist, eqtb, Some(discarded))
+}
+
+fn prune_page_top_impl(
+    vlist: Vec<Node>,
+    eqtb: &Eqtb,
+    mut discarded: Option<&mut Vec<Node>>,
+) -> Vec<Node> {
     let mut pruned_vlist = Vec::new();
     let mut found_box_or_rule = false;
     for node in vlist {
@@ -112,6 +138,8 @@ pub fn prune_page_top(vlist: Vec<Node>, eqtb: &Eqtb) -> Vec<Node> {
             Node::Glue(_) | Node::Kern(_) | Node::Penalty(_) => {
                 if found_box_or_rule {
                     pruned_vlist.push(node);
+                } else if let Some(discarded) = discarded.as_deref_mut() {
+                    discarded.push(node);
                 }
             }
             _ => panic!("pruning"),

@@ -117,6 +117,8 @@ pub enum UnexpandableCommand {
     Show(ShowCommand),
     UnHbox { copy: bool },
     UnVbox { copy: bool },
+    /// e-TeX が保存したpage builder / `\vsplit` の先頭discardable listを移す。
+    VDiscards(VerticalDiscardKind),
     RemoveItem(RemoveItem),
     Hskip(Hskip),
     Vskip(Vskip),
@@ -235,6 +237,7 @@ impl UnexpandableCommand {
             | Self::Show(_)
             | Self::UnHbox { .. }
             | Self::UnVbox { .. }
+            | Self::VDiscards(_)
             | Self::RemoveItem(_)
             | Self::Hskip(_)
             | Self::Vskip(_)
@@ -391,6 +394,7 @@ impl UnexpandableCommand {
                     printer.print_esc_str(b"unvbox");
                 }
             }
+            Self::VDiscards(kind) => kind.display(printer),
             Self::RemoveItem(remove_item) => remove_item.display(printer),
             Self::Hskip(hskip) => hskip.display(printer),
             Self::Vskip(vskip) => vskip.display(printer),
@@ -482,6 +486,24 @@ impl UnexpandableCommand {
             }
             &Self::Prefixable(prefixable_command) => prefixable_command.display(fonts, printer),
         }
+    }
+}
+
+/// e-TeXの二つの保存済みvertical discard list。
+///
+/// box registerとは寿命と消去時点が異なるため、`UnVbox`のregister番号へ符号化しない。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VerticalDiscardKind {
+    Page,
+    Split,
+}
+
+impl VerticalDiscardKind {
+    pub fn display(self, printer: &mut impl Printer) {
+        printer.print_esc_str(match self {
+            Self::Page => b"pagediscards",
+            Self::Split => b"splitdiscards",
+        });
     }
 }
 

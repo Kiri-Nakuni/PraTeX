@@ -131,7 +131,7 @@ pub fn begin_box(
             eqtb.boks(register).clone()
         }
         MakeBox::LastBox => get_last_box(nest, scanner, eqtb, logger),
-        MakeBox::VSplit => split_off_part_of_vertical_box(scanner, eqtb, logger),
+        MakeBox::VSplit => split_off_part_of_vertical_box(page_builder, scanner, eqtb, logger),
         MakeBox::HBox => {
             initiate_construction_of_hbox(box_context, nest, scanner, eqtb, logger);
             return;
@@ -206,6 +206,7 @@ fn get_last_box(
 
 /// See 1082.
 fn split_off_part_of_vertical_box(
+    page_builder: &mut PageBuilder,
     scanner: &mut Scanner,
     eqtb: &mut Eqtb,
     logger: &mut Logger,
@@ -220,7 +221,14 @@ fn split_off_part_of_vertical_box(
         logger.error(help, scanner, eqtb);
     }
     let dimen = scan_normal_dimen(scanner, eqtb, logger);
-    vsplit(n, dimen, scanner, eqtb, logger)
+    vsplit(
+        n,
+        dimen,
+        page_builder.split_discards_mut(),
+        scanner,
+        eqtb,
+        logger,
+    )
 }
 
 /// Starts constructing an \hbox.

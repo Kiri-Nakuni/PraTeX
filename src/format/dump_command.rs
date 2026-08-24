@@ -3,7 +3,7 @@ use crate::command::{
     Command, ConvertCommand, ExpandableCommand, FiOrElse, FontCharDimension, GlueComponent,
     GlueConversion, Hskip, IfTest, MacroCall, MakeBox, MarkClassOperand, MarkCommand, MarkQuery,
     MathCommand, ParShapeDimension, PrefixableCommand, RemoveItem, ShowCommand,
-    TextDirectionCommand, UnexpandableCommand, Vskip,
+    TextDirectionCommand, UnexpandableCommand, VerticalDiscardKind, Vskip,
 };
 use crate::eqtb::CatCode;
 use crate::nodes::LeaderKind;
@@ -169,6 +169,10 @@ impl Dumpable for UnexpandableCommand {
             Self::UnVbox { copy } => {
                 writeln!(target, "UnVbox")?;
                 copy.dump(target)?;
+            }
+            Self::VDiscards(kind) => {
+                writeln!(target, "VDiscards")?;
+                kind.dump(target)?;
             }
             Self::RemoveItem(remove_item) => {
                 writeln!(target, "RemoveItem")?;
@@ -389,6 +393,7 @@ impl Dumpable for UnexpandableCommand {
                 let copy = bool::undump(lines)?;
                 Ok(Self::UnVbox { copy })
             }
+            "VDiscards" => Ok(Self::VDiscards(VerticalDiscardKind::undump(lines)?)),
             "RemoveItem" => {
                 let remove_item = RemoveItem::undump(lines)?;
                 Ok(Self::RemoveItem(remove_item))
@@ -474,6 +479,27 @@ impl Dumpable for UnexpandableCommand {
                 let prefixable_command = PrefixableCommand::undump(lines)?;
                 Ok(Self::Prefixable(prefixable_command))
             }
+            _ => Err(FormatError::ParseError),
+        }
+    }
+}
+
+impl Dumpable for VerticalDiscardKind {
+    fn dump(&self, target: &mut impl Write) -> Result<(), std::io::Error> {
+        writeln!(
+            target,
+            "{}",
+            match self {
+                Self::Page => "Page",
+                Self::Split => "Split",
+            }
+        )
+    }
+
+    fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
+        match lines.next().ok_or(FormatError::IncompleteFile)? {
+            "Page" => Ok(Self::Page),
+            "Split" => Ok(Self::Split),
             _ => Err(FormatError::ParseError),
         }
     }
