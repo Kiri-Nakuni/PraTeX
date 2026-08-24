@@ -54,6 +54,7 @@ mod semantic_nest;
 mod spacing_table_domain;
 mod token;
 mod token_lists;
+mod text_direction;
 pub mod vaak;
 mod version;
 mod vertical_mode;

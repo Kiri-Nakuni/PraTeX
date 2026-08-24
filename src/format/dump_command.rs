@@ -3,7 +3,7 @@ use crate::command::{
     Command, ConvertCommand, ExpandableCommand, FiOrElse, FontCharDimension, GlueComponent,
     GlueConversion, Hskip, IfTest, MacroCall, MakeBox, MarkClassOperand, MarkCommand, MarkQuery,
     MathCommand, ParShapeDimension, PrefixableCommand, RemoveItem, ShowCommand,
-    UnexpandableCommand, Vskip,
+    TextDirectionCommand, UnexpandableCommand, Vskip,
 };
 use crate::eqtb::CatCode;
 use crate::nodes::LeaderKind;
@@ -216,6 +216,10 @@ impl Dumpable for UnexpandableCommand {
             Self::CloseOut => writeln!(target, "CloseOut")?,
             Self::Special => writeln!(target, "Special")?,
             Self::SetLanguage => writeln!(target, "SetLanguage")?,
+            Self::TextDirection(direction) => {
+                writeln!(target, "TextDirection")?;
+                direction.dump(target)?;
+            }
             Self::Immediate => writeln!(target, "Immediate")?,
             Self::OpenIn => writeln!(target, "OpenIn")?,
             Self::CloseIn => writeln!(target, "CloseIn")?,
@@ -429,6 +433,7 @@ impl Dumpable for UnexpandableCommand {
             "CloseOut" => Ok(Self::CloseOut),
             "Special" => Ok(Self::Special),
             "SetLanguage" => Ok(Self::SetLanguage),
+            "TextDirection" => Ok(Self::TextDirection(TextDirectionCommand::undump(lines)?)),
             "Immediate" => Ok(Self::Immediate),
             "OpenIn" => Ok(Self::OpenIn),
             "CloseIn" => Ok(Self::CloseIn),
@@ -469,6 +474,31 @@ impl Dumpable for UnexpandableCommand {
                 let prefixable_command = PrefixableCommand::undump(lines)?;
                 Ok(Self::Prefixable(prefixable_command))
             }
+            _ => Err(FormatError::ParseError),
+        }
+    }
+}
+
+impl Dumpable for TextDirectionCommand {
+    fn dump(&self, target: &mut impl Write) -> Result<(), std::io::Error> {
+        writeln!(
+            target,
+            "{}",
+            match self {
+                Self::BeginLeft => "BeginLeft",
+                Self::EndLeft => "EndLeft",
+                Self::BeginRight => "BeginRight",
+                Self::EndRight => "EndRight",
+            }
+        )
+    }
+
+    fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
+        match lines.next().ok_or(FormatError::IncompleteFile)? {
+            "BeginLeft" => Ok(Self::BeginLeft),
+            "EndLeft" => Ok(Self::EndLeft),
+            "BeginRight" => Ok(Self::BeginRight),
+            "EndRight" => Ok(Self::EndRight),
             _ => Err(FormatError::ParseError),
         }
     }

@@ -37,6 +37,7 @@ use crate::page_breaking::PageBuilder;
 use crate::print::Printer;
 use crate::scan_boxes::box_end;
 use crate::semantic_nest::{Mode, RichMode, SemanticState};
+use crate::text_direction::contains_direction_boundaries;
 use crate::token::Token;
 use crate::vertical_mode::VerticalMode;
 use crate::{norm_min, round};
@@ -707,6 +708,7 @@ pub fn new_graf(
             },
             space_factor: 1000,
             script_spacing: Default::default(),
+            accepts_text_direction_boundaries: false,
         }),
         &scanner.input_stack,
         eqtb,
@@ -962,6 +964,21 @@ pub fn unpackage(
             "Sorry, Pandora. (You sneaky devil.)",
             "I refuse to unbox an \\hbox in vertical mode or vice versa.",
             "And I can't open any boxes in math mode.",
+        ];
+        logger.error(help, scanner, eqtb);
+        return;
+    }
+    if matches!(
+        &list_node.list,
+        HlistOrVlist::Hlist(list) if contains_direction_boundaries(list)
+    ) {
+        // restricted hbox sliceのdeclared containmentを、\unhboxからparagraph・disc・
+        // alignmentへ漏らさない。完全なLR stack補修を接続するまでboxを戻す。
+        eqtb.boxes.set(BoxVariable(number), Some(list_node));
+        logger.print_err("Text-direction box can't be unboxed");
+        let help = &[
+            "PraTeX currently keeps TeX--XeT direction regions sealed in an hbox.",
+            "Use the box without unboxing it, or remove its direction primitives.",
         ];
         logger.error(help, scanner, eqtb);
         return;

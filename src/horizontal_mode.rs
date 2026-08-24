@@ -14,6 +14,11 @@ pub struct HorizontalMode {
     pub subtype: HorizontalModeType,
     pub space_factor: u16,
     pub(crate) script_spacing: ScriptSpacingListState,
+    /// 明示`\hbox`だけが方向境界を直接保持できる最初sliceかどうか。
+    ///
+    /// discretionary枝とalignment spanもTeX上はrestricted horizontal modeだが、
+    /// それらは独立したhlistとしてshipoutされないので別扱いにする。
+    pub(crate) accepts_text_direction_boundaries: bool,
 }
 
 impl HorizontalMode {
@@ -23,6 +28,14 @@ impl HorizontalMode {
             subtype: HorizontalModeType::Restricted,
             space_factor: 1000,
             script_spacing: ScriptSpacingListState::default(),
+            accepts_text_direction_boundaries: false,
+        }
+    }
+
+    pub fn new_directional_hbox() -> Self {
+        Self {
+            accepts_text_direction_boundaries: true,
+            ..Self::new_restricted()
         }
     }
 

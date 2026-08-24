@@ -1,6 +1,6 @@
 # PraTeX 作業引継ぎ
 
-更新: 2026-08-24（機能枝 `codex2/etex-showtokens`、統合枝 `codex2/jlreq-script-spacing`）
+更新: 2026-08-24（機能枝 `codex2/etex-texxet-restricted`、統合枝 `codex2/jlreq-script-spacing`）
 
 この文書は、現在の Codex セッションから別のエージェントへ作業が移っても、
 検証済みの境界と未commitの作業を失わないための生きた引継ぎである。
@@ -20,9 +20,9 @@
 
 ## 枝と共有状態
 
-- 現在の枝: `codex2/etex-showtokens`
+- 現在の機能枝: `codex2/etex-texxet-restricted`（基点 `4152a1e`）
+- この枝の範囲: TeX--XeT restricted hboxのtyped方向node、LR stack、共通DVI/PDF shipout
 - push済み統合checkpoint: `cfa6ece`
-- local機能checkpoint: `6b03b70`（具体的payloadへのremote push承認待ち）
 - push済み`\scantokens` code checkpoint: `d90e98f`（歴史的基点は`6ce8315`）
 - 日本語CID PDFの検証済み元commit: `8035d1c`
 - 基点のrelease全suite: **564 passed、0 failed、6 ignored**（Vaak `89804b4`）
@@ -365,6 +365,27 @@ DVIのSHA-256は`d1d2085d21aaf95eb135e3e17f7bda2177c2417efcd5dde19f9b57749622eed
 追加black-boxと、固定上限を共通run-local `InputLimits`へ移す構成面である。詳細な20項目は
 設計文書を読むこと。
 
+## TeX--XeT restricted hbox checkpoint
+
+`codex2/etex-texxet-restricted`で、`\TeXXeTstate>0`の明示restricted hboxに限り
+`\beginL` / `\endL` / `\beginR` / `\endR`を幅0のtyped方向nodeとして接続した。
+入れ子LR stackはboxのshipout直前に解決し、RTL区間はengineが明示的にnode順を
+反転して、DVI/PDFいずれも通常backend命令だけへ書く。方向nodeのない純LTR listは
+allocationなしの単一passで従来順を出力する。最初のmarkerを見つけた時だけ残りsuffixを変換し、
+入れ子frameはtreeのまま閉じて最後に一回だけiterativeに平坦化する。対応しないendと
+閉じないbeginはtyped診断にし、
+shipout時のhlist終端で決定的に回復する。direction nodeのfmt往復と無効stateの診断を含む。
+inline mathはmath-surround幅を含むatomic LTR groupにし、外側RTLでも内部順を反転しない。
+内部的にrestricted modeになるdisc枝とalignment spanは明示hboxではないため、方向primitiveを
+node化しない。方向node入りhboxの`\unhbox` / `\unhcopy`もboxを復元して診断し、
+未対応paragraphのline breaker等へ方向境界を漏らさない。
+RTL区間がdisc nodeを直接含む時はno-break枝だけを元順に残す部分反転をせず、
+hlistの方向変換全体を破棄して診断する。
+
+これは公開e-TeX manual 4.1から独立実装した最初sliceである。paragraph、line breaking、
+display、math、`\predisplaydirection`自動計算は未実装なので、TeX--XeT対応完了としない。
+自作rule fixtureのDVI opcode順、fmt、診断は`tests/etex_texxet_restricted.rs`に固定した。
+
 ## 完了済み実験: `ls-R`のsafe Rust表現
 
 状態: **2026-08-22に読取専用実験を完了、repoへの実装・統合なし**。
@@ -488,7 +509,8 @@ WSL成功の意味は変更しない。
    子process 0、hit/miss、DVI意味、end-to-endを再測定する。
 2. 接続済みmain-loop JFM/禁則をshifted/vbox・残るcommand境界へ広げ、discの全JFM class・禁則・unbox matrixを完成する。
 3. `\tfont`と縦組metric/node/outputを追加し、spacingと禁則を横組から縦組へ広げる。
-4. discard、`\showgroups` / `\showifs`、tracing等のe-TeX残件とTeX--XeTのLR組版を進める。
+4. discard、`\showgroups` / `\showifs`、tracing等のe-TeX残件を接続し、TeX--XeTの
+   restricted hbox checkpointをparagraph、display、mathへ広げる。
 
 日本語の最低線は横組smokeではなくpTeX相当とJLReq native対応であり、縦組を含む。縦中横と
 割注は2026-08-23に案Bへ決定した。coreでは縦中横を固定`InlineObject`、割注を分割可能な

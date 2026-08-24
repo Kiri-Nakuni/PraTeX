@@ -249,7 +249,7 @@ fn initiate_construction_of_hbox(
         scanner.scan_left_brace(eqtb, logger);
     }
     nest.push_nest(
-        RichMode::Horizontal(HorizontalMode::new_restricted()),
+        RichMode::Horizontal(HorizontalMode::new_directional_hbox()),
         &scanner.input_stack,
         eqtb,
         logger,

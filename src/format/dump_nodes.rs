@@ -7,7 +7,7 @@ use crate::nodes::{
     GlueRatio, GlueSign, GlueSpec, GlueType, HigherOrderDimension, HlistOrVlist, InsNode,
     JfmBoundaryBefore, KernNode, KernSubtype, LanguageNode, LeaderKind, LigatureNode, ListNode,
     MarkNode, MathNode, MathNodeKind, Node, OpenNode, PenaltyNode, PenaltySubtype, RuleNode,
-    SpecialNode, UnsetNode, WhatsitNode, WideCharNode, WriteNode,
+    SpecialNode, TextDirection, UnsetNode, WhatsitNode, WideCharNode, WriteNode,
 };
 
 use std::io::Write;
@@ -503,6 +503,9 @@ impl Dumpable for MathNode {
     fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
         let kind = MathNodeKind::undump(lines)?;
         let width = Dimension::undump(lines)?;
+        if matches!(kind, MathNodeKind::Begin(_) | MathNodeKind::End(_)) && width != 0 {
+            return Err(FormatError::ParseError);
+        }
         Ok(Self { kind, width })
     }
 }
@@ -516,6 +519,18 @@ impl Dumpable for MathNodeKind {
             Self::After => {
                 writeln!(target, "After")?;
             }
+            Self::Begin(TextDirection::LeftToRight) => {
+                writeln!(target, "BeginLeftToRight")?;
+            }
+            Self::End(TextDirection::LeftToRight) => {
+                writeln!(target, "EndLeftToRight")?;
+            }
+            Self::Begin(TextDirection::RightToLeft) => {
+                writeln!(target, "BeginRightToLeft")?;
+            }
+            Self::End(TextDirection::RightToLeft) => {
+                writeln!(target, "EndRightToLeft")?;
+            }
         }
         Ok(())
     }
@@ -525,6 +540,10 @@ impl Dumpable for MathNodeKind {
         match variant {
             "Before" => Ok(Self::Before),
             "After" => Ok(Self::After),
+            "BeginLeftToRight" => Ok(Self::Begin(TextDirection::LeftToRight)),
+            "EndLeftToRight" => Ok(Self::End(TextDirection::LeftToRight)),
+            "BeginRightToLeft" => Ok(Self::Begin(TextDirection::RightToLeft)),
+            "EndRightToLeft" => Ok(Self::End(TextDirection::RightToLeft)),
             _ => Err(FormatError::ParseError),
         }
     }

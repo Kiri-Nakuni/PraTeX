@@ -737,15 +737,31 @@ pub struct MathNode {
 pub enum MathNodeKind {
     Before,
     After,
+    /// TeX--XeT の方向区間を始める zero-width math node。
+    Begin(TextDirection),
+    /// TeX--XeT の方向区間を閉じる zero-width math node。
+    End(TextDirection),
+}
+
+/// e-TeX TeX--XeT の inline text direction。
+///
+/// pTeX の組方向や PraTeX の将来の縦組 `WritingMode` とは公開意味論を共有しない。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextDirection {
+    LeftToRight,
+    RightToLeft,
 }
 
 impl MathNode {
     /// See 192.
     fn display(&self, logger: &mut Logger) {
-        logger.print_esc_str(b"math");
         match self.kind {
-            MathNodeKind::Before => logger.print_str("on"),
-            MathNodeKind::After => logger.print_str("off"),
+            MathNodeKind::Before => logger.print_esc_str(b"mathon"),
+            MathNodeKind::After => logger.print_esc_str(b"mathoff"),
+            MathNodeKind::Begin(TextDirection::LeftToRight) => logger.print_esc_str(b"beginL"),
+            MathNodeKind::End(TextDirection::LeftToRight) => logger.print_esc_str(b"endL"),
+            MathNodeKind::Begin(TextDirection::RightToLeft) => logger.print_esc_str(b"beginR"),
+            MathNodeKind::End(TextDirection::RightToLeft) => logger.print_esc_str(b"endR"),
         }
         if self.width != 0 {
             logger.print_str(", surrounded ");

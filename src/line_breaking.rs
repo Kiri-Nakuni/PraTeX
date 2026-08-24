@@ -1084,6 +1084,7 @@ impl LineBreaker {
                 *auto_breaking = match math_node.kind {
                     MathNodeKind::Before => false,
                     MathNodeKind::After => true,
+                    MathNodeKind::Begin(_) | MathNodeKind::End(_) => *auto_breaking,
                 };
                 self.kern_break(hlist, *auto_breaking, eqtb, logger);
                 self.delta.width += math_node.width;

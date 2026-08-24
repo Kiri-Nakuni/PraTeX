@@ -24,6 +24,7 @@ use crate::run_options::OutputFormat;
 use crate::scaled::Scaled;
 use crate::token::Token;
 use crate::token_lists::{show_token_list, token_show};
+use crate::text_direction::{directed_order, is_direction_boundary, DirectionIssue};
 use crate::{open_out, round};
 
 use std::ffi::{OsStr, OsString};
@@ -55,7 +56,7 @@ impl OutputDocument {
         &mut self,
         list_node: &ListNode,
         eqtb: &mut Eqtb,
-    ) -> Result<Vec<WhatsitNode>, String> {
+    ) -> Result<(Vec<WhatsitNode>, Vec<DirectionIssue>), String> {
         match self {
             Self::Dvi(document) => document
                 .ship_box_out(list_node, eqtb)
@@ -172,11 +173,14 @@ impl Output {
                 eqtb,
                 logger,
             );
-            let whatsit_list = document
+            let (whatsit_list, direction_issues) = document
                 .ship_box_out(&list_node, eqtb)
                 .unwrap_or_else(|error| {
                     fatal_output_error(&error, &scanner.input_stack, eqtb, logger)
                 });
+            for issue in direction_issues {
+                report_direction_issue(issue, eqtb, logger);
+            }
             for whatsit_node in whatsit_list {
                 self.out_what(&whatsit_node, scanner, eqtb, logger);
             }
@@ -265,6 +269,46 @@ fn print_shipout_page_number(eqtb: &Eqtb, logger: &mut Logger) {
         }
     }
     logger.update_terminal();
+}
+
+fn report_direction_issue(issue: DirectionIssue, eqtb: &Eqtb, logger: &mut Logger) {
+    logger.begin_diagnostic(eqtb.tracing_online());
+    logger.print_nl_str("Text direction warning: ");
+    match issue {
+        DirectionIssue::UnexpectedEnd(direction) => {
+            logger.print_str("unexpected ");
+            print_direction_primitive(false, direction, logger);
+        }
+        DirectionIssue::MismatchedEnd { open, close } => {
+            print_direction_primitive(false, close, logger);
+            logger.print_str(" does not match ");
+            print_direction_primitive(true, open, logger);
+        }
+        DirectionIssue::UnclosedBegin(direction) => {
+            logger.print_str("unclosed ");
+            print_direction_primitive(true, direction, logger);
+        }
+        DirectionIssue::UnexpectedMathEnd => logger.print_str("unexpected inline-math end"),
+        DirectionIssue::UnclosedMath => logger.print_str("unclosed inline-math begin"),
+        DirectionIssue::UnsupportedDiscretionary => {
+            logger.print_str("discretionary inside a right-to-left region; direction ignored")
+        }
+    }
+    logger.end_diagnostic(false);
+}
+
+fn print_direction_primitive(
+    begin: bool,
+    direction: crate::nodes::TextDirection,
+    printer: &mut impl Printer,
+) {
+    use crate::nodes::TextDirection::{LeftToRight, RightToLeft};
+    printer.print_esc_str(match (begin, direction) {
+        (true, LeftToRight) => b"beginL",
+        (false, LeftToRight) => b"endL",
+        (true, RightToLeft) => b"beginR",
+        (false, RightToLeft) => b"endR",
+    });
 }
 
 /// Returns false it for goto done, true otherwise.
@@ -404,6 +448,8 @@ struct Document<B: ShipoutBackend> {
     /// The current level of nesting. Starts at -1.
     /// See 616.
     cur_s: i32,
+    /// 現pageのLR stack不整合。backendからTeX診断を分離して外側へ返す。
+    direction_issues: Vec<DirectionIssue>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -493,6 +539,7 @@ impl<B: ShipoutBackend> Document<B> {
             defined_fonts: Vec::new(),
             defined_japanese_fonts: Vec::new(),
             cur_s: -1,
+            direction_issues: Vec::new(),
         }
     }
 
@@ -507,11 +554,12 @@ impl<B: ShipoutBackend> Document<B> {
         &mut self,
         list_node: &ListNode,
         eqtb: &mut Eqtb,
-    ) -> Result<Vec<WhatsitNode>, B::Error> {
+    ) -> Result<(Vec<WhatsitNode>, Vec<DirectionIssue>), B::Error> {
         self.dvi_h = 0;
         self.dvi_v = 0;
         self.cur_h = eqtb.dimen(DimensionVariable::HOffset);
         self.dvi_f = None;
+        self.direction_issues.clear();
 
         let page_height =
             list_node.height + list_node.depth + eqtb.dimen(DimensionVariable::VOffset);
@@ -533,7 +581,7 @@ impl<B: ShipoutBackend> Document<B> {
         }
         self.backend.end_page()?;
         self.cur_s = -1;
-        Ok(whatsit_list)
+        Ok((whatsit_list, std::mem::take(&mut self.direction_issues)))
     }
 
     /// 再帰的なnode走査の署名を増やさず、最初のbackend errorを外側へ戻す。
@@ -584,19 +632,43 @@ impl<B: ShipoutBackend> Document<B> {
         }
         let base_line = self.cur_v;
         let left_edge = self.cur_h;
-        for node in hlist {
-            self.output_node_p_for_hlist_out(
-                node,
-                this_box,
-                base_line,
-                left_edge,
-                &mut cur_g,
-                &mut cur_glue,
-                g_order,
-                g_sign,
-                whatsit_list,
-                eqtb,
-            );
+        let mut position = 0;
+        while position < hlist.len() {
+            let node = &hlist[position];
+            if is_direction_boundary(node) {
+                let order = directed_order(&hlist[position..])
+                    .expect("a suffix starting at a direction boundary has directed order");
+                self.direction_issues.extend(order.issues);
+                for node in order.nodes {
+                    self.output_node_p_for_hlist_out(
+                        node,
+                        this_box,
+                        base_line,
+                        left_edge,
+                        &mut cur_g,
+                        &mut cur_glue,
+                        g_order,
+                        g_sign,
+                        whatsit_list,
+                        eqtb,
+                    );
+                }
+                break;
+            } else {
+                self.output_node_p_for_hlist_out(
+                    node,
+                    this_box,
+                    base_line,
+                    left_edge,
+                    &mut cur_g,
+                    &mut cur_glue,
+                    g_order,
+                    g_sign,
+                    whatsit_list,
+                    eqtb,
+                );
+                position += 1;
+            }
         }
         if self.cur_s > 0 {
             self.call_backend(ShipoutBackend::pop);
@@ -1370,6 +1442,140 @@ fn recover_from_unbalanced_write_command(
         if token == END_WRITE_TOKEN {
             break;
         }
+    }
+}
+
+#[cfg(test)]
+mod texxet_output_tests {
+    use super::{Document, OutputFontDefinition, ShipoutBackend};
+    use crate::eqtb::Eqtb;
+    use crate::nodes::{
+        DimensionOrder, GlueSign, HlistOrVlist, ListNode, MathNode, MathNodeKind, Node, RuleNode,
+        TextDirection,
+    };
+    use crate::scaled::Scaled;
+    use std::cell::RefCell;
+    use std::convert::Infallible;
+    use std::ffi::OsString;
+    use std::rc::Rc;
+
+    #[derive(Clone, Default)]
+    struct RuleRecordingBackend {
+        rules: Rc<RefCell<Vec<(Scaled, Scaled)>>>,
+    }
+
+    impl ShipoutBackend for RuleRecordingBackend {
+        type Error = Infallible;
+
+        fn start_page(
+            &mut self,
+            _counts: &[i32; 10],
+            _page_height: Scaled,
+            _page_width: Scaled,
+        ) -> Result<(), Self::Error> {
+            Ok(())
+        }
+
+        fn end_page(&mut self) -> Result<(), Self::Error> {
+            Ok(())
+        }
+
+        fn push(&mut self) -> Result<(), Self::Error> {
+            Ok(())
+        }
+
+        fn pop(&mut self) -> Result<(), Self::Error> {
+            Ok(())
+        }
+
+        fn move_right(&mut self, _amount: Scaled) -> Result<(), Self::Error> {
+            Ok(())
+        }
+
+        fn move_down(&mut self, _amount: Scaled) -> Result<(), Self::Error> {
+            Ok(())
+        }
+
+        fn define_font(&mut self, _font: OutputFontDefinition<'_>) -> Result<(), Self::Error> {
+            Ok(())
+        }
+
+        fn set_font(&mut self, _font_number: u32) -> Result<(), Self::Error> {
+            Ok(())
+        }
+
+        fn set_char(&mut self, _character: u8, _width: Scaled) -> Result<(), Self::Error> {
+            Ok(())
+        }
+
+        fn set_wide_char(
+            &mut self,
+            _character: u32,
+            _width: Scaled,
+        ) -> Result<(), Self::Error> {
+            Ok(())
+        }
+
+        fn set_rule(&mut self, height: Scaled, width: Scaled) -> Result<(), Self::Error> {
+            self.rules.borrow_mut().push((height, width));
+            Ok(())
+        }
+
+        fn put_rule(&mut self, _height: Scaled, _width: Scaled) -> Result<(), Self::Error> {
+            Ok(())
+        }
+
+        fn write_special(&mut self, _bytes: &[u8]) -> Result<(), Self::Error> {
+            Ok(())
+        }
+
+        fn page_count(&self) -> usize {
+            1
+        }
+
+        fn finish(self) -> Result<usize, Self::Error> {
+            Ok(0)
+        }
+    }
+
+    fn boundary(kind: MathNodeKind) -> Node {
+        Node::Math(MathNode { kind, width: 0 })
+    }
+
+    fn rule(width: Scaled) -> Node {
+        Node::Rule(RuleNode {
+            width,
+            height: 100,
+            depth: 0,
+        })
+    }
+
+    #[test]
+    fn dviとpdfが共有するshipout走査で右向き区間を反転する() {
+        let backend = RuleRecordingBackend::default();
+        let rules = Rc::clone(&backend.rules);
+        let mut document = Document::new(backend, OsString::from("memory"));
+        let box_node = ListNode {
+            width: 40,
+            height: 100,
+            depth: 0,
+            shift_amount: 0,
+            list: HlistOrVlist::Hlist(vec![
+                boundary(MathNodeKind::Begin(TextDirection::RightToLeft)),
+                rule(10),
+                rule(30),
+                boundary(MathNodeKind::End(TextDirection::RightToLeft)),
+            ]),
+            glue_set: 0.0,
+            glue_sign: GlueSign::Normal,
+            glue_order: DimensionOrder::Normal,
+        };
+
+        let (_whatsits, issues) = document
+            .ship_box_out(&box_node, &mut Eqtb::new())
+            .unwrap();
+        assert!(issues.is_empty());
+        assert_eq!(*rules.borrow(), vec![(100, 30), (100, 10)]);
     }
 }
 

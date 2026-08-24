@@ -7,12 +7,14 @@ use crate::box_building::{
     scan_mu_kern, unpackage, BoxContext,
 };
 use crate::command::{
-    prefixed_command, Command, MathCommand, PrefixableCommand, UnexpandableCommand,
+    prefixed_command, Command, MathCommand, PrefixableCommand, TextDirectionCommand,
+    UnexpandableCommand,
 };
 use crate::dimension::scan_normal_dimen;
 use crate::eqtb::save_stack::{GroupType, SubformulaType};
 use crate::eqtb::{DimensionVariable, Eqtb, IntegerVariable, SkipVariable, TokenListVariable};
 use crate::hyphenation::Hyphenator;
+use crate::horizontal_mode::{HorizontalMode, HorizontalModeType};
 use crate::input::expansion::get_x_token;
 use crate::input::token_source::TokenSourceType;
 use crate::input::Scanner;
@@ -32,8 +34,8 @@ use crate::mode_independent::{
 };
 use crate::nodes::noads::{Noad, NormalNoad, OverNoad, StyleNode, UnderNoad};
 use crate::nodes::{
-    DimensionOrder, GlueNode, GlueSpec, GlueType, HigherOrderDimension, KernNode, ListNode, Node,
-    PenaltyNode, RuleNode, WideCharNode,
+    DimensionOrder, GlueNode, GlueSpec, GlueType, HigherOrderDimension, KernNode, ListNode,
+    MathNode, MathNodeKind, Node, PenaltyNode, RuleNode, TextDirection, WideCharNode,
 };
 use crate::output::Output;
 use crate::packaging::scan_spec;
@@ -309,6 +311,9 @@ pub fn main_control(
                 UnexpandableCommand::CloseOut => do_close_out(nest, scanner, eqtb, logger),
                 UnexpandableCommand::Special => do_special(token, nest, scanner, eqtb, logger),
                 UnexpandableCommand::SetLanguage => set_language(nest, scanner, eqtb, logger),
+                UnexpandableCommand::TextDirection(direction) => {
+                    append_text_direction(direction, hmode, scanner, eqtb, logger)
+                }
                 UnexpandableCommand::Immediate => {
                     implement_immediate(output, scanner, eqtb, logger)
                 }
@@ -720,6 +725,7 @@ pub fn main_control(
                 | UnexpandableCommand::GlueComponent(_)
                 | UnexpandableCommand::GlueConversion(_)
                 | UnexpandableCommand::InputLineNumber
+                | UnexpandableCommand::TextDirection(_)
                 | UnexpandableCommand::EqNo { .. }
                 | UnexpandableCommand::ItalCorr
                 | UnexpandableCommand::Vadjust
@@ -1156,6 +1162,7 @@ pub fn main_control(
                 | UnexpandableCommand::GlueComponent(_)
                 | UnexpandableCommand::GlueConversion(_)
                 | UnexpandableCommand::InputLineNumber
+                | UnexpandableCommand::TextDirection(_)
                 | UnexpandableCommand::MoveLeft
                 | UnexpandableCommand::MoveRight
                 | UnexpandableCommand::MacParam(_)
@@ -1449,6 +1456,49 @@ pub fn you_cant(
     } else {
         eqtb.mode().display(logger);
     }
+}
+
+/// TeX--XeT の最初の縦sliceは restricted hbox 内だけへ閉じる。
+///
+/// 段落では改行ごとのLR stack補修が必要なので、direction nodeを置くだけの半端な対応を
+/// 行わない。stateが無効な時のprimitiveも通常nodeへ黙って読み替えない。
+fn append_text_direction(
+    command: TextDirectionCommand,
+    hmode: &mut HorizontalMode,
+    scanner: &mut Scanner,
+    eqtb: &mut Eqtb,
+    logger: &mut Logger,
+) {
+    if eqtb.integer(IntegerVariable::TeXXeTState) <= 0 {
+        logger.print_err("Improper ");
+        UnexpandableCommand::TextDirection(command).display(&eqtb.fonts, logger);
+        let help = &[
+            "Mixed-direction typesetting is disabled.",
+            "Set \\TeXXeTstate to a positive value before using this command.",
+        ];
+        logger.error(help, scanner, eqtb);
+        return;
+    }
+    if !matches!(hmode.subtype, HorizontalModeType::Restricted)
+        || !hmode.accepts_text_direction_boundaries
+    {
+        report_illegal_case(
+            UnexpandableCommand::TextDirection(command),
+            scanner,
+            eqtb,
+            logger,
+        );
+        return;
+    }
+
+    let kind = match command {
+        TextDirectionCommand::BeginLeft => MathNodeKind::Begin(TextDirection::LeftToRight),
+        TextDirectionCommand::EndLeft => MathNodeKind::End(TextDirection::LeftToRight),
+        TextDirectionCommand::BeginRight => MathNodeKind::Begin(TextDirection::RightToLeft),
+        TextDirectionCommand::EndRight => MathNodeKind::End(TextDirection::RightToLeft),
+    };
+    hmode.break_jfm_pair_continuity(eqtb);
+    hmode.append_node(Node::Math(MathNode { kind, width: 0 }), eqtb);
 }
 
 /// See 1050.
