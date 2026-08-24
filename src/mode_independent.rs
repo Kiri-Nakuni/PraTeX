@@ -306,6 +306,11 @@ pub fn show_whatever(
         ShowCommand::ShowTokens => {
             show_unexpanded_general_text(command_token, scanner, eqtb, logger)
         }
+        ShowCommand::ShowIfs => {
+            logger.begin_diagnostic(eqtb.tracing_online());
+            scanner.show_ifs_for_etex(logger);
+            complete_potentially_long_show_command(eqtb, logger);
+        }
         ShowCommand::ShowLists => {
             logger.begin_diagnostic(eqtb.tracing_online());
             nest.show_activities(page_builder, eqtb, logger);

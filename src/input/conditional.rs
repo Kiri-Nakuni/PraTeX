@@ -75,6 +75,40 @@ impl Scanner {
         }
     }
 
+    /// 現在有効な条件を、内側から外側へe-TeXの診断形式で表示する。
+    ///
+    /// 現在条件は`cur_if`にあり、`cond_stack[0]`は条件を持たない外側の
+    /// sentinelである。外側条件だけを保存する既存のstack表現を崩さず、
+    /// 表示のために別の条件列を作らない。
+    pub fn show_ifs_for_etex(&self, logger: &mut Logger) {
+        if self.cond_stack.is_empty() {
+            logger.print_nl_str("### no active conditionals");
+            return;
+        }
+
+        let mut level = self.cond_stack.len();
+        print_active_condition(
+            level,
+            self.cur_if,
+            self.cur_if_negated,
+            self.if_limit,
+            self.if_line,
+            logger,
+        );
+
+        for condition in self.cond_stack[1..].iter().rev() {
+            level -= 1;
+            print_active_condition(
+                level,
+                condition.cur_if,
+                condition.cur_if_negated,
+                condition.if_limit,
+                condition.if_line,
+                logger,
+            );
+        }
+    }
+
     /// Consumes all Token until an \or, \else, or \fi at the current if-depth is found. Any \if's
     /// appearing before that matching FiOrElse token are "closed" by finding their corresponding
     /// \fi's. Returns matching FiOrElse.
@@ -135,6 +169,30 @@ impl Scanner {
         } else {
             panic!("condition_level should not exceed condition levels");
         }
+    }
+}
+
+fn print_active_condition(
+    level: usize,
+    if_test: IfTest,
+    negated: bool,
+    if_limit: IfLimit,
+    if_line: usize,
+    logger: &mut Logger,
+) {
+    logger.print_nl_str("### level ");
+    logger.print_int(level as i32);
+    logger.print_str(": ");
+    if negated {
+        logger.print_esc_str(b"unless");
+    }
+    if_test.display(logger);
+    if if_limit == IfLimit::Fi {
+        logger.print_esc_str(b"else");
+    }
+    if if_line != 0 {
+        logger.print_str(" entered on line ");
+        logger.print_int(if_line as i32);
     }
 }
 
