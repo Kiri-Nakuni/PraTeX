@@ -166,6 +166,42 @@ fn page先頭のdiscardableだけをoutput中に回収し終端で世代を切�
 }
 
 #[test]
+fn 未回収のpage_discardもoutput_routine終端で次世代へ漏れない() {
+    let directory = 準備("page未回収の終端消去");
+    std::fs::write(
+        directory.join("t.tex"),
+        r"\catcode123=1
+\catcode125=2
+\batchmode
+\savingvdiscards=1
+\count0=0
+\output={
+  \global\advance\count0 by1
+  \ifnum\count0=2
+    \global\setbox10=\vbox{\pagediscards}
+  \fi
+  \global\setbox11=\box255
+}
+\vskip2pt \kern3pt \penalty123
+\hrule height1pt width1pt
+\penalty-10000
+\hrule height1pt width1pt
+\penalty-10000
+\message{[outputs=\the\count0]}
+\message{[stale=\the\ht10/\the\dp10]}
+\end
+",
+    )
+    .unwrap();
+
+    let output = 実行(&directory, &["t.tex"]);
+    成功(&output, "page discard未回収時の終端消去");
+    let log = 結合log(&directory.join("t.log"));
+    assert!(log.contains("[outputs=2]"), "{log}");
+    assert!(log.contains("[stale=0.0pt/0.0pt]"), "{log}");
+}
+
+#[test]
 fn 非正値では捨てたnodeをspecial_listへ保存しない() {
     let directory = 準備("非正値");
     std::fs::write(
