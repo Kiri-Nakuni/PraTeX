@@ -579,6 +579,65 @@ fn 非空discretionaryは各枝を独立に組み右端だけへ実kとxを置�
 }
 
 #[test]
+fn rtl内のltr和文discretionaryはno_break枝のkだけを反転順へ出す() {
+    let directory = prepare_directory("TeX--XeTと和文discretionaryの合成");
+    let source = format!(
+        "{}\\kanjiskip=1pt \\TeXXeTstate=1
+         \\showboxbreadth=100 \\showboxdepth=20
+         \\setbox0=\\hbox{{\\beginR
+           \\vrule width1pt height1pt depth0pt
+           \\beginL
+             あ\\discretionary
+               {{\\vrule width3pt height1pt depth0pt}}
+               {{\\vrule width4pt height1pt depth0pt}}
+               {{い}}い
+           \\endL
+           \\vrule width2pt height1pt depth0pt
+         \\endR}}
+         \\showbox0 \\shipout\\box0 \\end\n",
+        common_prefix()
+    );
+    std::fs::write(directory.join("t.tex"), source).unwrap();
+    let output = run_rtex(&directory, &["t.tex"]);
+    assert_success(
+        &output,
+        "TeX--XeTと和文discretionaryの合成試験を実行できなかった",
+    );
+
+    let log = joined_log(&directory, "t");
+    assert!(
+        !log.contains("discretionary inside a right-to-left region; direction ignored"),
+        "Discは内側LTR frameの直下なのでRTL fallbackへ入らない: {log}"
+    );
+    assert_eq!(
+        log.matches("\\glue(\\kanjiskip) 1.0").count(),
+        1,
+        "選ばれるno-break枝の右端Kだけを保持する: {log}"
+    );
+
+    let (wide, rules) = first_page_events(&std::fs::read(directory.join("t.dvi")).unwrap());
+    assert_eq!(
+        wide.iter().map(|event| event.character).collect::<Vec<_>>(),
+        vec!['あ' as u32, 'い' as u32, 'い' as u32]
+    );
+    assert_eq!(
+        rules.iter().map(|event| event.width).collect::<Vec<_>>(),
+        vec![2 * 65_536, 65_536],
+        "pre/post枝の3pt/4pt ruleはDVIへ出ず、外側RTLの2pt/1ptだけが反転する"
+    );
+
+    let left_edge = rules[0].h;
+    assert_eq!(wide[0].h, left_edge + 2 * 65_536);
+    assert_eq!(wide[1].h, wide[0].h + 5 * 65_536);
+    assert_eq!(
+        wide[2].h,
+        wide[1].h + 11 * 65_536,
+        "no-break枝末尾の10pt glyph後にmaterial K 1ptが一度だけ効く"
+    );
+    assert_eq!(rules[1].h, wide[2].h + 10 * 65_536);
+}
+
+#[test]
 fn 仮想kは利用者glueから隠れ寸法と再箱詰めには効く() {
     let directory = prepare_directory("仮想Kの可視性");
     let source = format!(

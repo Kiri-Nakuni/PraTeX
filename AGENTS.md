@@ -13,9 +13,10 @@ PraTeX側が必要とするAPIは `src/vaak.rs`、`docs/vaak-embedding-api-desig
 `for_CLAUDE.md` に契約として残し、Vaak側の変更はClaudeに伝える。
 
 通常作業の枝は **`codex2/<目的>`** とする。現在の統合枝は
-`codex2/jlreq-script-spacing`であり、2026-08-24のpush済み実装checkpointは`cfa6ece`。
-現在の機能枝`codex2/etex-showtokens`は`6b03b70`までcommit済みで、remote pushは具体的payloadへの
-明示承認待ちである。
+`codex2/jlreq-script-spacing`である。2026-08-24にin-process Kpathsea境界`4152a1e`、
+JLReq/JFM discretionary枝`1a46cb1`、TeX--XeT restricted hbox `53fe28a`を統合した
+push済み意味checkpointは`6bc9ba4`で、`cargo test --release --locked --no-fail-fast`はexit 0。
+この統合時のaggregate件数は記録していないため、過去checkpointの件数を流用しない。
 `\detokenize`から`\scantokens`、横組JFM glyph、K/X/finalizer、JLReqの最小禁則、
 直接PDFのnamed CIDと限定`/ToUnicode`、WASM ABI 0.0のwire/domain境界、
 e-TeX `\middle`まで取り込み済みである。

@@ -1,6 +1,6 @@
 # PraTeX 作業引継ぎ
 
-更新: 2026-08-24（機能枝 `codex2/etex-texxet-restricted`、統合枝 `codex2/jlreq-script-spacing`）
+更新: 2026-08-24（統合枝 `codex2/jlreq-script-spacing`、意味checkpoint `6bc9ba4`）
 
 この文書は、現在の Codex セッションから別のエージェントへ作業が移っても、
 検証済みの境界と未commitの作業を失わないための生きた引継ぎである。
@@ -20,13 +20,15 @@
 
 ## 枝と共有状態
 
-- 現在の機能枝: `codex2/etex-texxet-restricted`（基点 `4152a1e`）
-- この枝の範囲: TeX--XeT restricted hboxのtyped方向node、LR stack、共通DVI/PDF shipout
-- push済み統合checkpoint: `cfa6ece`
+- 現在の統合枝: `codex2/jlreq-script-spacing`
+- push済み意味checkpoint: `6bc9ba4`。in-process Kpathsea境界`4152a1e`、JLReq/JFMの
+  discretionary枝`1a46cb1`、TeX--XeT restricted hbox `53fe28a`を統合済み。
+- `6bc9ba4`での`cargo test --release --locked --no-fail-fast`はexit 0。aggregate件数は
+  記録していないため、過去checkpointの集計をこの統合結果として引用しない。
 - push済み`\scantokens` code checkpoint: `d90e98f`（歴史的基点は`6ce8315`）
 - 日本語CID PDFの検証済み元commit: `8035d1c`
 - 基点のrelease全suite: **564 passed、0 failed、6 ignored**（Vaak `89804b4`）
-- 最新の記録済みrelease全suite: `6b03b70`で**857 passed、0 failed、10 ignored**。
+- 件数まで記録した直近のrelease全suite: `6b03b70`で**857 passed、0 failed、10 ignored**。
   plain DVI byte回帰、`\showtokens`、NFSS、fmt索引改善、WSL発見失敗cacheを含む。
 - 直近の共有commit:
   - `6b03b70`: show診断の既存終了status差分を試験に固定しない
