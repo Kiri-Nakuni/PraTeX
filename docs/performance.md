@@ -848,7 +848,7 @@ macro呼出しごとのreplacement参照mask走査を`MacroCall`生成時の一�
 
 ## 寸法走査のfirst-token差戻しを除く（2026-08-25）
 
-寸法scannerが空白・符号と最初の展開済みtokenを読んだ後、non-internal経路はそれtokenを
+寸法scannerが空白・符号と最初の展開済みtokenを読んだ後、non-internal経路はそのtokenを
 差し戻し、整数scannerが直後に再取得していた。既に解決済みの`UnexpandableCommand` / `Token`対を
 private経路で渡し、一回のbackup、input source push、token dispatchを除いた。
 
@@ -858,3 +858,23 @@ wall 0.996439だが分散より小さく、gate達成へは外挿しない。DVI
 条件とrawは[`dimension-first-token-20260825.md`](benchmarks/dimension-first-token-20260825.md)に固定した。
 全releaseは934 passed、0 failed、11 ignored。公式TRIPは両段exit 0、`tripos.tex`・PLtoTF→TFtoPLは
 byte一致、固定comment DVIも公式2,920 byteと完全一致した。
+
+## 糊走査のfirst-token差戻しを除く（2026-08-25）
+
+`scan_glue`のnon-internal幅も、取得済みのcommand/token対と符号を寸法scannerへ直接渡す。
+明示糊では符号を幅だけへ掛け、内部Glue/MuGlueを全成分反転する既存branchは変更しない。
+共通core抽出で通常寸法へ中間callを残さないよう、token取得だけの薄いwrapper二層を
+always-inlineにした。
+
+1,600,000回の糊幅代入を行うINITEX fixtureの31交互組で、paired幾何平均比はwall 0.965541、
+task-clock 0.965646、instructions 0.960493だった。wallは31組中30組、task-clockとinstructionsは
+31組すべてでcandidateが短かった。299頁の20組はwall 0.994623、task-clock 0.994808だが、
+短かったのは各11組でありgate達成へ外挿しない。DVIとauxはbyte一致した。
+
+共有`../vaak`の作業中変更が混入し得る最初の測定は全て破棄した。正式値はVaak `7dc011b`と
+PraTeX `763e4a7`をclean detached worktreeへ固定し、同一PraTeX path・同一targetで作ったbinary対だけを
+用いた。条件とrawは
+[`glue-first-token-20260825.md`](benchmarks/glue-first-token-20260825.md)に固定した。
+全releaseは935 passed、0 failed、11 ignored。公式TRIPは両段exit 0、`tripos.tex`・
+PLtoTF→TFtoPLはbyte一致、`8terminal.tex`は0 byte、固定comment DVIも公式2,920 byteと
+完全一致した。

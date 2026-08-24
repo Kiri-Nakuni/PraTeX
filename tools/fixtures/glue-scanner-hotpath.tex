@@ -1,0 +1,18 @@
+% Self-contained glue scanner diagnostic.  It uses no format, font, or file lookup.
+\catcode`\{=1 \catcode`\}=2 \catcode`\#=6
+\batchmode
+\count0=0
+\skip0=0pt
+\def\batch{%
+  \skip0=12.345pt\skip0=12.345pt\skip0=12.345pt\skip0=12.345pt%
+  \skip0=12.345pt\skip0=12.345pt\skip0=12.345pt\skip0=12.345pt%
+  \skip0=12.345pt\skip0=12.345pt\skip0=12.345pt\skip0=12.345pt%
+  \skip0=12.345pt\skip0=12.345pt\skip0=12.345pt\skip0=12.345pt}
+\def\again{%
+  \batch
+  \advance\count0 by1
+  \ifnum\count0<100000 \let\next\again\else\let\next\relax\fi
+  \next}
+\again
+\message{[\the\count0/\the\skip0]}
+\end

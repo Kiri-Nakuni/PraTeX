@@ -1,5 +1,5 @@
 use crate::dimension::{
-    scan_dimen_with_given_value, scan_higher_order_dimen, scan_mu_dimen, scan_normal_dimen,
+    scan_dimen_from_first, scan_dimen_with_given_value, scan_higher_order_dimen,
 };
 use crate::eqtb::Eqtb;
 use crate::error::mu_error;
@@ -59,16 +59,15 @@ pub fn scan_glue(
             _ => panic!("Impossible"),
         }
     } else {
-        scanner.back_input(token, eqtb, logger);
-        let mut value = if mu {
-            scan_mu_dimen(scanner, eqtb, logger)
-        } else {
-            scan_normal_dimen(scanner, eqtb, logger)
-        };
-        if negative {
-            value = -value;
-        }
-        value
+        scan_dimen_from_first(
+            mu,
+            unexpandable_command,
+            token,
+            negative,
+            scanner,
+            eqtb,
+            logger,
+        )
     };
     create_new_glue_specification_whose_width_is_cur_val(value, mu, scanner, eqtb, logger)
 }

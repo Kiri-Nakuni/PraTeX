@@ -27,6 +27,7 @@ enum IntOrDimen {
 }
 
 /// See 448.
+#[inline(always)]
 pub fn scan_normal_dimen(scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Logger) -> Dimension {
     let (dimension, _) = scan_dimen(false, false, scanner, eqtb, logger);
     dimension
@@ -35,6 +36,28 @@ pub fn scan_normal_dimen(scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Lo
 /// See 448.
 pub fn scan_mu_dimen(scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Logger) -> Dimension {
     let (dimension, _) = scan_dimen(true, false, scanner, eqtb, logger);
+    dimension
+}
+
+pub(crate) fn scan_dimen_from_first(
+    mu: bool,
+    unexpandable_command: UnexpandableCommand,
+    token: Token,
+    negative: bool,
+    scanner: &mut Scanner,
+    eqtb: &mut Eqtb,
+    logger: &mut Logger,
+) -> Dimension {
+    let (dimension, _) = scan_dimen_with_first(
+        mu,
+        false,
+        unexpandable_command,
+        token,
+        negative,
+        scanner,
+        eqtb,
+        logger,
+    );
     dimension
 }
 
@@ -52,6 +75,7 @@ pub fn scan_higher_order_dimen(
 /// `inf` indicates that inifinite unite are allowed.
 /// If `precomputed_value` contains an integer, we only scan the unit.
 /// See 448.
+#[inline(always)]
 fn scan_dimen(
     mu: bool,
     inf: bool,
@@ -60,9 +84,30 @@ fn scan_dimen(
     logger: &mut Logger,
 ) -> (Scaled, DimensionOrder) {
     // Read any possibly leading signs and the first following token.
-    let (unexpandable_command, token, mut negative) =
+    let (unexpandable_command, token, negative) =
         scanner.get_next_non_blank_non_sign_token(eqtb, logger);
+    scan_dimen_with_first(
+        mu,
+        inf,
+        unexpandable_command,
+        token,
+        negative,
+        scanner,
+        eqtb,
+        logger,
+    )
+}
 
+fn scan_dimen_with_first(
+    mu: bool,
+    inf: bool,
+    unexpandable_command: UnexpandableCommand,
+    token: Token,
+    mut negative: bool,
+    scanner: &mut Scanner,
+    eqtb: &mut Eqtb,
+    logger: &mut Logger,
+) -> (Scaled, DimensionOrder) {
     let (mut integer, fraction) =
         if let Some(internal_command) = unexpandable_command.try_to_internal() {
             let int_or_dimen = if mu {

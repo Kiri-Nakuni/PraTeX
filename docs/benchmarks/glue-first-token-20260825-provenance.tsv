@@ -1,0 +1,34 @@
+key	value
+measured_at	2026-08-25 Asia/Tokyo
+branch	codex3/perf-integration
+baseline_commit	763e4a760c5273f308f17ce0ef09cbb95382d785
+candidate_source	uncommitted glue first-token handoff plus always-inline thin dimension wrappers over baseline_commit
+baseline_binary_sha256	d08fdfea6eb0fe0ece8f297f512a9702c2146f60ca10292e11eabd514469726c
+baseline_binary_bytes	18142768
+candidate_binary_sha256	bdd63fd7e9feaeade8ffba8b61c82a6c5c88b058ac65c7b540fe474b72a1e92f
+candidate_binary_bytes	18157616
+build_root	/tmp/pratex-glue-repro.k9SjZW6N
+build_method	baseline and candidate built sequentially from the same detached rtex worktree and CARGO_TARGET_DIR
+vaak_commit	7dc011b23da7bd78bad1e0031d5e601b014cc7fe
+vaak_worktree	detached clean worktree at build_root/vaak
+discarded_measurement	first A/B was discarded because the shared ../vaak worktree changed between builds; none of those rows are in the raw TSV
+document_input_sha256	265a52f085db6afb43a3f8a420be0a80ec554c7a1052b064edaa85a539f7f2cd
+document_fmt_sha256	c5cda9564ed3251f450ceb7c63f87ec334c55b9c9ea63afb06e7111f06e0013c
+document_dvi_sha256	285ef47cd661c712237948afd0085b370c9c1b9492f5ec8acd4a6660d412655d
+document_aux_sha256	db187909886572dd6e4beed4704f83078aecb28738881b6c4a67012f1d536027
+document_pages	299
+document_pairs	20
+document_warmup_pairs	2
+micro_input_sha256	907dfa14eb5ab6c95587ed20c211d1b3cb7350c864b53187e4b97bb535c82a6b
+micro_normalized_log_sha256	a1f9b2ae90c559e4f77e8ee6506955bc934329f87ee1339940d213a2f688336e
+micro_log_normalization	removed only the first banner line containing the measurement minute
+micro_pairs	31
+micro_warmup_pairs	4
+raw_tsv_sha256	34953c613cab3f9d9fd54acb6604ba6798fcf354475fa7b3fffb61724a97278e
+cpu	Intel Core i7-8650U; CPU 0 fixed
+kernel	Linux 7.0.0-30-generic x86_64
+rustc	rustc 1.94.0 (4a4ef493e 2026-03-02)
+perf	perf 7.0.12
+source_date_epoch	unset
+build_command	env CARGO_BUILD_JOBS=1 CARGO_TARGET_DIR=build_root/target taskset -c 0 cargo build --release --locked --bin rtex
+counter_command	perf stat --no-big-num -x TAB -e duration_time,task-clock,instructions,cycles,cache-misses -- taskset -c 0
