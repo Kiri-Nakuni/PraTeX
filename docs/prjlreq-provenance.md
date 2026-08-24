@@ -83,7 +83,29 @@ UIでのcredit表示、改変日表示を要求する条項はない。明示的
 |---|---|---|---|
 | `docs/prjlreq-provenance.md` | `LICENSE`, `README-ja.md`, `jlreq.cls` at `ac06fd0` | license、公開engine/class契約、最小移植順の監査 | 文書のみ |
 | `tex/latex/pratex/prjlreq-UPSTREAM-LICENSE.txt` | `LICENSE` at `ac06fd0` | BSD 2-Clause全文 | 無改変収録 |
+| `tex/latex/pratex/prjlreq.cls` | `jlreq.cls` at `ac06fd0`、主に103--114、349--350、447--497、749--768、1227--1229行付近 | engine option面をPraTeX固有検出へ置換し、横組article、`(x)kanjiskip`、一字下げだけを抽出。その他は未対応として拒否 | 改変移植、v0.1 |
+| `tests/fixtures/prjlreq/horizontal-minimal.tex` | 上流testの移植ではない | PraTeX adaptation専用の自作最小入力 | 新規fixture |
 
 今後の派生codeについて、上流sourceを参照した箇所を「公開仕様だけからの独立実装」と
 記載してはならない。逆に、PraTeX固有identity checkや既存`pratex-japanese`とのadapterは、
 上流との差分として明示する。
+
+## v0.1横組fixtureの実測
+
+2026-08-24に`tests/fixtures/prjlreq/horizontal-minimal.tex`を、基点
+`8ce1ad243849197da064aa6596a8efbbbc93cd58`から作ったPraTeX release buildと、
+`tests-support/prjsarticle/assets.json`でhash固定済みのLaTeX 2026-06-01、
+l3kernel 2026-08-10、uptex-fonts 2025-02-18等から生成した`latex.fmt`で処理した。
+`SOURCE_DATE_EPOCH=1709210096`を指定して二回実行し、両方で次を確認した。
+
+- exit 0、logの`!` error 0件、DVI 1頁・396 bytes。
+- DVI SHA-256:
+  `110e8fd50c4d06442be913ee7c5f4c6d568331b7c7cccc9f4c6ab4befa55d747`。
+- `\pratexversion`は開発版の正当な値`0`としてclass入口を通過した。
+- `\kanjiskip=0pt plus 2.5pt`、
+  `\xkanjiskip=2.5pt plus 2.5pt minus 1.25pt`、`\parindent=10pt`。
+- DVI font definitionは和文`upjisr-h`、欧文`cmr10`を含み、`cmtt`を含まない。
+  したがってこの最小fixtureでは`ABC xyz 0123`が一律typewriter fontへ退行していない。
+
+これはv0.1の限定fixtureであり、上流`jlreq`の版面、見出し、JFM、禁則、縦組、DVI/PDFの
+一般互換を示さない。生成したfmt、log、DVI、取得archiveはrepositoryへ追加していない。
