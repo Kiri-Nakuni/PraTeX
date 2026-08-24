@@ -427,8 +427,24 @@ fn prune_current_list(
     logger: &mut Logger,
 ) {
     for pos in 0..list.len() {
-        match &list[pos] {
-            Node::Char(_)
+        if !is_valid_discretionary_node(&list[pos]) {
+            logger.print_err("Improper discretionary list");
+            let help = &["Discretionary lists must contain only boxes and kerns."];
+            logger.error(help, scanner, eqtb);
+            logger.begin_diagnostic(eqtb.tracing_online());
+            logger.print_nl_str("The following discretionary sublist has been deleted:");
+            show_box_content(&list[pos..], eqtb, logger);
+            logger.end_diagnostic(true);
+            list.truncate(pos);
+            break;
+        }
+    }
+}
+
+fn is_valid_discretionary_node(node: &Node) -> bool {
+    matches!(
+        node,
+        Node::Char(_)
             | Node::WideChar(_)
             | Node::List(_)
             | Node::Rule(_)
@@ -444,23 +460,19 @@ fn prune_current_list(
                     ),
                 ..
             })
+            | Node::Glue(GlueNode {
+                subtype: GlueType::AutomaticScriptSpacing,
+                ..
+            })
             | Node::Penalty(PenaltyNode {
                 subtype: PenaltySubtype::AutomaticJapaneseKinsoku,
                 ..
-            }) => {}
-            _ => {
-                logger.print_err("Improper discretionary list");
-                let help = &["Discretionary lists must contain only boxes and kerns."];
-                logger.error(help, scanner, eqtb);
-                logger.begin_diagnostic(eqtb.tracing_online());
-                logger.print_nl_str("The following discretionary sublist has been deleted:");
-                show_box_content(&list[pos..], eqtb, logger);
-                logger.end_diagnostic(true);
-                list.truncate(pos);
-                break;
-            }
-        }
-    }
+            })
+            | Node::Penalty(PenaltyNode {
+                subtype: PenaltySubtype::AutomaticScriptSpacing,
+                ..
+            })
+    )
 }
 
 /// See 1086.
@@ -1255,4 +1267,24 @@ pub fn cs_error(scanner: &mut Scanner, eqtb: &mut Eqtb, logger: &mut Logger) {
     logger.print_esc_str(b"endcsname");
     let help = &["I'm ignoring this, since I wasn't doing a \\csname."];
     logger.error(help, scanner, eqtb)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compiled文字対表の自己完結nodeだけをdiscretionary枝へ残す() {
+        let automatic_glue = Node::Glue(GlueNode::new_automatic_script_spacing(Rc::new(
+            GlueSpec::ZERO_GLUE,
+        )));
+        let automatic_penalty = Node::Penalty(PenaltyNode::new_automatic_script_spacing(50));
+        let normal_glue = Node::Glue(GlueNode::new(Rc::new(GlueSpec::ZERO_GLUE)));
+        let normal_penalty = Node::Penalty(PenaltyNode::new(50));
+
+        assert!(is_valid_discretionary_node(&automatic_glue));
+        assert!(is_valid_discretionary_node(&automatic_penalty));
+        assert!(!is_valid_discretionary_node(&normal_glue));
+        assert!(!is_valid_discretionary_node(&normal_penalty));
+    }
 }
