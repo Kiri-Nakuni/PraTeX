@@ -385,9 +385,33 @@ Windows上で走らせた。`graphics.cfg`不足で停止するまで7.59 sか�
 別のoptional file lookupごとに同じ発見処理へ戻ることを実測した。
 
 これはLinuxの利用者benchmarkには存在しないWindows固有の列なので、上の190%差の説明には
-使わない。将来の最小修正ではfailureをrun-localに保持し、resolver cacheを明示clearした時だけ
-再発見する。ただしstale DB、alias、拡張子補完、casefold、非`!!`利用者treeを
-「証明済み不在」へ潰さず、通常のnative kpathsea統合とは別checkpointで測る。
+使わない。ここだけを切り分け、WSL backend発見のfailureをresolver instanceへ保持し、
+`clear_external_cache`でだけ再試行するBを作った。個別queryのnegative cache、
+stale DB、alias、拡張子補完、casefold、非`!!`利用者treeの判断は変更していない。
+
+同じrelease LTO、同じ`lapratex.fmt`、同じ平坦化runtime、同じ
+`SOURCE_DATE_EPOCH=1709210096`で、A→Bを三組交互にwarm実行した。A/Bのsource基点は
+`9b52521`で、計測instrumentationを除けば差は発見失敗をbackend stateへ保存する一行だけである。
+各行は一回のraw値で、外部時間は終了したWSL process内の`Instant`合計である。
+
+| round | A wall | A WSL process / 合計 | B wall | B WSL process / 合計 |
+|---:|---:|---:|---:|---:|
+| 1 | 6212.396 ms | 13 / 3549.070 ms | 2389.688 ms | 1 / 275.956 ms |
+| 2 | 5553.884 ms | 13 / 3693.908 ms | 1843.571 ms | 1 / 261.403 ms |
+| 3 | 4716.424 ms | 13 / 3090.183 ms | 1919.721 ms | 1 / 266.179 ms |
+| 中央値 | 5553.884 ms | 13 / 3549.070 ms | 1919.721 ms | 1 / 266.179 ms |
+
+中央値ではwallが65.44%、終了したWSL process時間が92.50%短くなった。Aのbinary SHA-256は
+`1147f623802af095f17cac5d26687c97f1396845596b587a62c6ca39e283cc35`、Bは
+`269724e6eefd147a69aef9908e700a825d22e79bc735d279f1a5b2ecb7d606d5`である。
+双方とも`graphics.cfg`がなく`graphics`のdriver未指定で同じ位置にexit 1し、logは
+5917 byte、SHA-256
+`d628108d576dfbc9ee4f856ec808a930cec4051b8386976f1ec7bce7b0c23209`で一致した。
+DVIを出す前の失敗probeなのでDVI比較値はない。計測instrumentationはproduction sourceへ残していない。
+
+この値は「発見不能なWSL backend」を繰り返した異常系だけの上限効果であり、native/Linuxの
+通常探索や利用者の9.14 s benchmarkを短縮した値ではない。出力意味の回帰は合成executorで
+初回と再生のerror種別・OS error・診断、明示clear後のfailure→成功まで固定する。
 
 ## 次の候補
 

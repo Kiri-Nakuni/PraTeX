@@ -271,6 +271,60 @@ enum BackendState {
     Undecided,
     Native,
     Wsl(WslContext),
+    WslUnavailable(WslDiscoveryFailure),
+}
+
+#[derive(Clone, Debug)]
+enum WslDiscoveryFailure {
+    Launch {
+        program: OsString,
+        source: ReplayableIoError,
+    },
+    Failed {
+        code: Option<i32>,
+        stderr: Vec<u8>,
+    },
+    Malformed(&'static str),
+}
+
+impl WslDiscoveryFailure {
+    fn to_resolve_error(&self) -> ResolveError {
+        match self {
+            Self::Launch { program, source } => ResolveError::LaunchWsl {
+                program: program.clone(),
+                source: source.to_io_error(),
+            },
+            Self::Failed { code, stderr } => ResolveError::WslDiscoveryFailed {
+                code: *code,
+                stderr: stderr.clone(),
+            },
+            Self::Malformed(reason) => ResolveError::MalformedWslOutput(reason),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct ReplayableIoError {
+    kind: io::ErrorKind,
+    raw_os_error: Option<i32>,
+    message: String,
+}
+
+impl ReplayableIoError {
+    fn capture(source: io::Error) -> Self {
+        Self {
+            kind: source.kind(),
+            raw_os_error: source.raw_os_error(),
+            message: source.to_string(),
+        }
+    }
+
+    fn to_io_error(&self) -> io::Error {
+        match self.raw_os_error {
+            Some(code) => io::Error::from_raw_os_error(code),
+            None => io::Error::new(self.kind, self.message.clone()),
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -432,6 +486,9 @@ impl<E: CommandExecutor> KpsewhichResolver<E> {
                 let context = context.clone();
                 return self.execute_wsl_kpsewhich(&context, arguments);
             }
+            BackendState::WslUnavailable(failure) => {
+                return Err(failure.to_resolve_error());
+            }
             BackendState::Undecided => {}
         }
 
@@ -450,7 +507,14 @@ impl<E: CommandExecutor> KpsewhichResolver<E> {
                 if source.kind() == io::ErrorKind::NotFound
                     && self.options.wsl_fallback != WslFallbackPolicy::Disabled =>
             {
-                let context = self.discover_wsl_context()?;
+                let context = match self.discover_wsl_context() {
+                    Ok(context) => context,
+                    Err(failure) => {
+                        let error = failure.to_resolve_error();
+                        self.backend_state = BackendState::WslUnavailable(failure);
+                        return Err(error);
+                    }
+                };
                 self.backend_state = BackendState::Wsl(context.clone());
                 self.execute_wsl_kpsewhich(&context, arguments)
             }
@@ -478,7 +542,7 @@ impl<E: CommandExecutor> KpsewhichResolver<E> {
         })
     }
 
-    fn discover_wsl_context(&mut self) -> Result<WslContext, ResolveError> {
+    fn discover_wsl_context(&mut self) -> Result<WslContext, WslDiscoveryFailure> {
         let mut arguments = Vec::new();
         if let WslFallbackPolicy::Distribution(distribution) = &self.options.wsl_fallback {
             arguments.push(OsString::from("--distribution"));
@@ -495,17 +559,17 @@ impl<E: CommandExecutor> KpsewhichResolver<E> {
         let output = self
             .executor
             .execute(&self.options.wsl_program, &arguments)
-            .map_err(|source| ResolveError::LaunchWsl {
+            .map_err(|source| WslDiscoveryFailure::Launch {
                 program: self.options.wsl_program.clone(),
-                source,
+                source: ReplayableIoError::capture(source),
             })?;
         if output.code != Some(0) {
-            return Err(ResolveError::WslDiscoveryFailed {
+            return Err(WslDiscoveryFailure::Failed {
                 code: output.code,
                 stderr: output.stderr,
             });
         }
-        parse_wsl_root_output(&output.stdout).map_err(ResolveError::MalformedWslOutput)
+        parse_wsl_root_output(&output.stdout).map_err(WslDiscoveryFailure::Malformed)
     }
 
     fn execute_wsl_kpsewhich(
@@ -544,7 +608,9 @@ impl<E: CommandExecutor> KpsewhichResolver<E> {
     fn wsl_context(&self) -> Option<&WslContext> {
         match &self.backend_state {
             BackendState::Wsl(context) => Some(context),
-            BackendState::Undecided | BackendState::Native => None,
+            BackendState::Undecided | BackendState::Native | BackendState::WslUnavailable(_) => {
+                None
+            }
         }
     }
 
@@ -1451,6 +1517,240 @@ mod tests {
             ["--cd", "/", "--exec", "wslpath", "-w", "/"].map(OsString::from)
         );
         assert!(invocations[2]
+            .arguments
+            .windows(2)
+            .any(|pair| pair == ["--distribution", "Ubuntu-24.04"]));
+    }
+
+    #[test]
+    fn wsl発見の異常終了はrun内で一度だけ実行して同じ診断を返す() {
+        let options = ResolverOptions::default()
+            .with_wsl_fallback(WslFallbackPolicy::AutoDefault)
+            .with_wsl_program("fake-wsl");
+        let fake = FakeExecutor::with_responses([
+            Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "native kpsewhichなし",
+            )),
+            Ok(CommandOutput {
+                code: Some(1),
+                stdout: Vec::new(),
+                stderr: b"distribution unavailable".to_vec(),
+            }),
+        ]);
+        let mut resolver = KpsewhichResolver::new(options, fake.clone());
+
+        let first = resolver
+            .resolve(FileKind::Tex, &unique_absent_name("first-optional.cfg"))
+            .expect_err("WSL発見失敗を返す");
+        let second = resolver
+            .resolve(FileKind::Tex, &unique_absent_name("second-optional.cfg"))
+            .expect_err("同じWSL発見失敗を返す");
+
+        for error in [&first, &second] {
+            assert!(matches!(
+                error,
+                ResolveError::WslDiscoveryFailed {
+                    code: Some(1),
+                    stderr,
+                } if stderr == b"distribution unavailable"
+            ));
+        }
+        assert_eq!(first.to_string(), second.to_string());
+        assert_eq!(fake.invocation_count(), 2);
+    }
+
+    #[test]
+    fn wsl発見programの起動失敗もrun内で再実行しない() {
+        let options = ResolverOptions::default()
+            .with_wsl_fallback(WslFallbackPolicy::AutoDefault)
+            .with_wsl_program("fake-wsl");
+        let fake = FakeExecutor::with_responses([
+            Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "native kpsewhichなし",
+            )),
+            Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "wsl blocked",
+            )),
+        ]);
+        let mut resolver = KpsewhichResolver::new(options, fake.clone());
+
+        let first = resolver
+            .resolve(FileKind::Tex, &unique_absent_name("first-launch.tex"))
+            .expect_err("WSL起動失敗を返す");
+        let second = resolver
+            .resolve(FileKind::Tex, &unique_absent_name("second-launch.tex"))
+            .expect_err("同じWSL起動失敗を返す");
+
+        for error in [&first, &second] {
+            match error {
+                ResolveError::LaunchWsl { program, source } => {
+                    assert_eq!(program, &OsString::from("fake-wsl"));
+                    assert_eq!(source.kind(), io::ErrorKind::PermissionDenied);
+                    assert_eq!(source.to_string(), "wsl blocked");
+                }
+                _ => panic!("WSL起動失敗ではない: {error}"),
+            }
+        }
+        assert_eq!(first.to_string(), second.to_string());
+        assert_eq!(fake.invocation_count(), 2);
+    }
+
+    #[test]
+    fn wsl発見のraw_os_errorをrun内の再生で保つ() {
+        let original = io::Error::from_raw_os_error(5);
+        let expected_kind = original.kind();
+        let expected_message = original.to_string();
+        let options = ResolverOptions::default()
+            .with_wsl_fallback(WslFallbackPolicy::AutoDefault)
+            .with_wsl_program("fake-wsl");
+        let fake = FakeExecutor::with_responses([
+            Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "native kpsewhichなし",
+            )),
+            Err(original),
+        ]);
+        let mut resolver = KpsewhichResolver::new(options, fake.clone());
+
+        for suffix in ["first-os-error.tex", "second-os-error.tex"] {
+            match resolver.resolve(FileKind::Tex, &unique_absent_name(suffix)) {
+                Err(ResolveError::LaunchWsl { program, source }) => {
+                    assert_eq!(program, OsString::from("fake-wsl"));
+                    assert_eq!(source.raw_os_error(), Some(5));
+                    assert_eq!(source.kind(), expected_kind);
+                    assert_eq!(source.to_string(), expected_message);
+                }
+                Err(error) => panic!("WSL起動失敗ではない: {error}"),
+                Ok(_) => panic!("WSL発見失敗を成功にしている"),
+            }
+        }
+        assert_eq!(fake.invocation_count(), 2);
+    }
+
+    #[test]
+    fn 不正なwsl_rootもrun内で再解釈しない() {
+        let options = ResolverOptions::default()
+            .with_wsl_fallback(WslFallbackPolicy::AutoDefault)
+            .with_wsl_program("fake-wsl");
+        let fake = FakeExecutor::with_responses([
+            Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "native kpsewhichなし",
+            )),
+            success(b"not-a-wsl-root"),
+        ]);
+        let mut resolver = KpsewhichResolver::new(options, fake.clone());
+
+        for suffix in ["first-malformed.tex", "second-malformed.tex"] {
+            assert!(matches!(
+                resolver.resolve(FileKind::Tex, &unique_absent_name(suffix)),
+                Err(ResolveError::MalformedWslOutput(_))
+            ));
+        }
+        assert_eq!(fake.invocation_count(), 2);
+    }
+
+    #[test]
+    fn clear後はcacheしたwsl発見失敗も再試行する() {
+        let discovery_failure = |status, stderr: &'static [u8]| {
+            [
+                Err(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "native kpsewhichなし",
+                )),
+                Ok(CommandOutput {
+                    code: Some(status),
+                    stdout: Vec::new(),
+                    stderr: stderr.to_vec(),
+                }),
+            ]
+        };
+        let fake = FakeExecutor::with_responses(
+            discovery_failure(1, b"first failure")
+                .into_iter()
+                .chain(discovery_failure(2, b"second failure")),
+        );
+        let options = ResolverOptions::default()
+            .with_wsl_fallback(WslFallbackPolicy::AutoDefault)
+            .with_wsl_program("fake-wsl");
+        let mut resolver = KpsewhichResolver::new(options, fake.clone());
+
+        for suffix in ["first-before-clear.tex", "second-before-clear.tex"] {
+            assert!(matches!(
+                resolver.resolve(FileKind::Tex, &unique_absent_name(suffix)),
+                Err(ResolveError::WslDiscoveryFailed {
+                    code: Some(1),
+                    stderr,
+                }) if stderr == b"first failure"
+            ));
+        }
+        assert_eq!(fake.invocation_count(), 2);
+
+        resolver.clear_external_cache();
+        assert!(matches!(
+            resolver.resolve(
+                FileKind::Tex,
+                &unique_absent_name("after-clear.tex"),
+            ),
+            Err(ResolveError::WslDiscoveryFailed {
+                code: Some(2),
+                stderr,
+            }) if stderr == b"second failure"
+        ));
+        assert_eq!(fake.invocation_count(), 4);
+    }
+
+    #[test]
+    fn clear後はwsl発見失敗から成功へ回復する() {
+        let fake = FakeExecutor::with_responses([
+            Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "native kpsewhichなし",
+            )),
+            Ok(CommandOutput {
+                code: Some(1),
+                stdout: Vec::new(),
+                stderr: b"temporary discovery failure".to_vec(),
+            }),
+            Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "native kpsewhichなし",
+            )),
+            success(br"\\wsl.localhost\Ubuntu-24.04\"),
+            missing(),
+        ]);
+        let options = ResolverOptions::default()
+            .with_wsl_fallback(WslFallbackPolicy::AutoDefault)
+            .with_wsl_program("fake-wsl");
+        let mut resolver = KpsewhichResolver::new(options, fake.clone());
+
+        for suffix in ["first-before-recovery.tex", "second-before-recovery.tex"] {
+            assert!(matches!(
+                resolver.resolve(FileKind::Tex, &unique_absent_name(suffix)),
+                Err(ResolveError::WslDiscoveryFailed {
+                    code: Some(1),
+                    stderr,
+                }) if stderr == b"temporary discovery failure"
+            ));
+        }
+        assert_eq!(fake.invocation_count(), 2);
+
+        resolver.clear_external_cache();
+        assert!(resolver
+            .resolve(FileKind::Tex, &unique_absent_name("after-recovery.tex"),)
+            .unwrap()
+            .is_none());
+        assert_eq!(fake.invocation_count(), 5);
+        let invocations = fake.invocations.borrow();
+        assert_eq!(invocations[3].program, OsString::from("fake-wsl"));
+        assert_eq!(
+            invocations[3].arguments,
+            ["--cd", "/", "--exec", "wslpath", "-w", "/"].map(OsString::from)
+        );
+        assert!(invocations[4]
             .arguments
             .windows(2)
             .any(|pair| pair == ["--distribution", "Ubuntu-24.04"]));
