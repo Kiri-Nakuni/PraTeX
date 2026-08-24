@@ -10,6 +10,8 @@
 //! edgeに置くKは`MaterialKanjiSkip`として直結glyph間の`VirtualKanjiSkip`から分ける。
 //! discretionaryは左側を遮断し、no-break/post-break枝末尾から右側だけを接続するため、
 //! 空枝のbarrier、枝内の仮想K、枝別のmaterial K/X、改行後のDVI座標を独立に固定する。
+//! `\inhibitglue`は接続済みmain-loopの実在JFM pairだけをone-shotで抑止し、node-less commandと
+//! fmt/unhcopyを越えてJFMまたはKへ復活させない一方、pairが無い境界の暗黙Kを残す。
 
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
@@ -416,6 +418,118 @@ fn nodeを作らない境界はjfmを二分し除去済みnodeを閉じる時に
     assert_eq!(wide[1].character, '（' as u32);
     assert_eq!(wide[1].h, wide[0].h + 10 * 65_536);
     assert!(rules.is_empty());
+}
+
+#[test]
+fn inhibitglueは次の実nodeまでjfmだけを抑止し暗黙kは残す() {
+    let directory = prepare_directory("inhibitglueのone-shot JFM抑止");
+    let source = format!(
+        "{}\\pratexjfont\\H=hybrid at 10pt \\H
+         \\kanjiskip=1pt \\xkanjiskip=2pt
+         \\let\\IG=\\inhibitglue \\let\\DG=\\disinhibitglue
+         \\setbox0=\\hbox{{）（}}
+         \\setbox1=\\hbox{{）\\IG （}}
+         \\setbox2=\\hbox{{）\\IG\\relax （}}
+         \\setbox3=\\hbox{{）\\IG{{}}\\count0=0 （}}
+         \\setbox4=\\hbox{{）\\IG\\DG （}}
+         \\setbox5=\\hbox{{）\\IG\\penalty0 （}}
+         \\J \\setbox6=\\hbox{{あ\\IG あ}}
+         \\H \\setbox7=\\hbox{{\\IG ）（}}
+         \\setbox8=\\hbox{{）\\IG\\global\\setbox20=\\hbox{{）\\IG （}}（}}
+         \\setbox21=\\hbox{{\\IG}} \\setbox9=\\hbox{{）（}}
+         \\J \\setbox10=\\hbox{{いあ}} \\setbox11=\\hbox{{い\\IG あ}}
+         \\H \\IG \\setbox12=\\hbox{{）（}}
+         \\J \\setbox13=\\hbox{{あA}} \\setbox14=\\hbox{{あ\\IG A}}
+         \\showboxbreadth=100 \\showboxdepth=10
+         \\showbox1 \\showbox2 \\showbox3 \\showbox4 \\showbox5 \\showbox6 \\showbox7 \\showbox8 \\showbox9 \\showbox10 \\showbox11 \\showbox12 \\showbox13 \\showbox14
+         \\message{{[inhibit-widths=\\the\\wd0/\\the\\wd1/\\the\\wd2/\\the\\wd3/\\the\\wd4/\\the\\wd5/\\the\\wd6/\\the\\wd7/\\the\\wd8/\\the\\wd9/\\the\\wd20]}}
+         \\message{{[inhibit-kern=\\the\\wd10/\\the\\wd11]}}
+         \\message{{[inhibit-vertical=\\the\\wd12]}}
+         \\message{{[inhibit-x=\\the\\wd13/\\the\\wd14]}}
+         \\message{{[inhibit-meaning=\\meaning\\IG/\\meaning\\DG]}}
+         \\end\n",
+        common_prefix()
+    );
+    std::fs::write(directory.join("t.tex"), source).unwrap();
+    let output = run_rtex(&directory, &["t.tex"]);
+    assert_success(&output, "inhibitglueのJFM抑止試験を実行できなかった");
+    let log = joined_log(&directory, "t");
+    assert!(
+        log.contains("[inhibit-widths=12.5pt/10.0pt/10.0pt/10.0pt/12.5pt/12.5pt/11.0pt/12.5pt/10.0pt/12.5pt/10.0pt]"),
+        "{log}"
+    );
+    assert!(
+        log.contains("[inhibit-meaning=\\inhibitglue/\\disinhibitglue]"),
+        "{log}"
+    );
+    assert!(log.contains("[inhibit-kern=12.5pt/15.0pt]"), "{log}");
+    assert!(log.contains("[inhibit-vertical=12.5pt]"), "{log}");
+    assert!(log.contains("[inhibit-x=17.0pt/17.0pt]"), "{log}");
+
+    let box_segment = |number: usize| {
+        let start = format!("> \\box{number}=");
+        let rest = log.split(&start).nth(1).expect("showbox出力がある");
+        let next = format!("> \\box{}=", number + 1);
+        rest.split(&next).next().unwrap_or(rest)
+    };
+    for number in [1, 2, 3] {
+        let segment = box_segment(number);
+        assert!(!segment.contains("\\glue(\\pratexjfm)"), "{segment}");
+        assert!(!segment.contains("\\glue(\\kanjiskip)"), "{segment}");
+    }
+    assert_eq!(
+        box_segment(5).matches("\\glue(\\pratexjfm)").count(),
+        1
+    );
+    assert!(!box_segment(6).contains("\\glue(\\pratexjfm)"));
+    assert!(!box_segment(6).contains("\\glue(\\kanjiskip)"));
+    assert!(!box_segment(8).contains("\\glue(\\pratexjfm)"));
+    assert!(!box_segment(8).contains("\\glue(\\kanjiskip)"));
+    assert_eq!(
+        box_segment(9).matches("\\glue(\\pratexjfm)").count(),
+        1,
+        "内側listで未消費のinhibitは次の外側listへ漏れない"
+    );
+    assert!(!box_segment(11).contains("\\glue(\\pratexjfm)"));
+    assert!(!box_segment(11).contains("(PraTeX JFM)"));
+    assert!(!box_segment(11).contains("\\glue(\\kanjiskip)"));
+    assert!(
+        box_segment(14).contains("\\glue(\\xkanjiskip) 2.0"),
+        "inhibitglueはXを抑止しない"
+    );
+}
+
+#[test]
+fn inhibitglueのnode_less抑止はfmtとunhcopyを越えてjfmへ戻らない() {
+    let directory = prepare_directory("inhibitglueのfmt provenance");
+    let make = format!(
+        "{}\\pratexjfont\\H=hybrid at 10pt \\H
+         \\kanjiskip=1pt \\setbox0=\\hbox{{）\\inhibitglue\\relax （}}
+         \\dump\n",
+        common_prefix()
+    );
+    std::fs::write(directory.join("mk.tex"), make).unwrap();
+    let output = run_rtex(&directory, &["mk.tex"]);
+    assert_success(&output, "inhibitglue入りfmtを生成できなかった");
+
+    std::fs::write(
+        directory.join("use.tex"),
+        "\\batchmode
+         \\kanjiskip=3pt \\setbox1=\\hbox{\\unhcopy0}
+         \\showboxbreadth=100 \\showboxdepth=10 \\showbox1
+         \\message{[inhibit-fmt=\\the\\wd1/\\meaning\\inhibitglue/\\meaning\\disinhibitglue]}
+         \\end\n",
+    )
+    .unwrap();
+    let output = run_rtex(&directory, &["&mk", "use.tex"]);
+    assert_success(&output, "inhibitglue入りfmtを読み戻せなかった");
+    let log = joined_log(&directory, "use");
+    assert!(
+        log.contains("[inhibit-fmt=10.0pt/\\inhibitglue/\\disinhibitglue]"),
+        "{log}"
+    );
+    assert!(!log.contains("\\glue(\\pratexjfm)"), "{log}");
+    assert!(!log.contains("\\glue(\\kanjiskip)"), "{log}");
 }
 
 #[test]

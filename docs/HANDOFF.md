@@ -251,6 +251,12 @@ error 0でdumpした。28,640個の複数文字control sequenceを保存し、pr
 - JFM/禁則はmain loopで早期挿入し、K/Xだけclose-timeで再評価するhybridへ接続した。
   `{}`、`\relax`、`\unskip`、`\message`、semi-simple group、`\showthe`、整数register代入を
   e-upTeX自作probeと照合し、途中で削除されたJFMをcloseで作り直さない。
+- `codex3/jlreq-continuation`では`\inhibitglue` / `\disinhibitglue`をhlist-localなone-shot状態へ
+  接続した。接続済みmain-loopの実在JFM pairだけを抑止し、pairが無い境界のKは残す。node-less commandでは維持、
+  実nodeで消費し、抑止済みprovenanceはfmt/`\unhcopy`を越える。planner unitは
+  **19 passed、0 failed**、日本語spacing integrationは**20 passed、0 failed**。list先頭・末尾の
+  class 0 JFM自体は未接続であり、段落先頭での抑止は
+  そのedge実装と同時に固定する。全releaseとTRIPは統合前にrootが実施する。
 - 最終形のKはwide glyphのbit＋hlist単位specをline breaker/packer/outputが仮想glueとして扱い、
   純和文のnode数を倍増させない。
 - standard Japaneseは`BuiltInPtex`のmonomorphic core経路で、Vaak/WASM callは0。

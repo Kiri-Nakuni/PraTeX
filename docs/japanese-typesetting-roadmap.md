@@ -46,6 +46,9 @@ guillemet `U+00AB/U+00BB`、縦組限定の`U+301D/U+301F`、Appendixがそのco
 main-loopでのJFM pair・最小禁則の早期挿入と、unshifted hbox／discretionaryの限定境界は
 接続済みである。shifted/vbox、未検証command、discの全JFM class・禁則・unbox matrix、
 禁則class全体、`\tfont`と縦組は未完了であり、P0全体や「日本語組版対応」の完了ではない。
+`\inhibitglue` / `\disinhibitglue`はhlist-localなone-shotとして接続済みで、接続済みmain-loopの
+実在JFM pairだけを次の実nodeまで抑止し、node-less commandとfmt/unhcopyを越えて復活させない。
+list先頭・末尾class 0 JFMと段落先頭での抑止は、残るJFM edge sliceに含める。
 
 明示installされた検証済みscript class対tableは、run-local dispatcherがlistごとに一度選び、
 世代とregionが安定したdirect glyph境界でfixed/K/X/no-spaceと限定boundary glue/penaltyへ
@@ -88,7 +91,8 @@ P0全体を終えて初めて「日本語組版対応」と呼ぶ。途中の横
 
 ### P0b: 自動間隔と禁則
 
-listを閉じる一箇所の`finalize_horizontal_list`で、次を決める。
+中央plannerで次を一度だけ決める。JFM/禁則は利用者から観測可能なmain-loop phase、K/Xは
+list終端のparameter値を使う`finalize_horizontal_list` phaseへ分け、consumer側で再分類しない。
 
 - `\kanjiskip`、`\xkanjiskip`
 - `\autospacing`、`\noautospacing`、`\autoxspacing`、`\noautoxspacing`

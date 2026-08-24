@@ -190,6 +190,9 @@ pub fn main_control(
                         _ => continue,
                     }
                 }
+                UnexpandableCommand::SetInhibitGlue { inhibit } => {
+                    hmode.set_inhibit_glue(inhibit)
+                }
                 UnexpandableCommand::ExSpace => hmode.append_node(normal_space(eqtb), eqtb),
                 UnexpandableCommand::Raise => {
                     let dimen = scan_normal_dimen(scanner, eqtb, logger);
@@ -433,7 +436,8 @@ pub fn main_control(
                 }
             },
             RichMode::Vertical(vmode) => match unexpandable_command {
-                UnexpandableCommand::Relax { .. } => {
+                UnexpandableCommand::Relax { .. }
+                | UnexpandableCommand::SetInhibitGlue { .. } => {
                     // Do nothing.
                 }
                 UnexpandableCommand::LeftBrace(_) | UnexpandableCommand::LatinUcsLeftBrace(_) => {
@@ -755,7 +759,9 @@ pub fn main_control(
                 ),
             },
             RichMode::Math(mmode) => match unexpandable_command {
-                UnexpandableCommand::Spacer | UnexpandableCommand::Relax { .. } => {
+                UnexpandableCommand::Spacer
+                | UnexpandableCommand::Relax { .. }
+                | UnexpandableCommand::SetInhibitGlue { .. } => {
                     // Do nothing.
                 }
                 UnexpandableCommand::LeftBrace(_) | UnexpandableCommand::LatinUcsLeftBrace(_) => {

@@ -1,6 +1,6 @@
 # JFM clean-room実装記録
 
-更新: 2026-08-23
+更新: 2026-08-25
 
 ## 境界
 
@@ -86,7 +86,10 @@ main loop中の`\unskip`は除去済みJFMをcloseで復活させず、確認済
 JFM pair continuityだけを切る。`\lastnodesubtype`を含む全観測commandとbox/discの網羅は残る。直結glyph間Kは
 `VirtualKanjiSkip`としてnode introspectionから隠し、unshifted hbox境界Kは可視な
 `MaterialKanjiSkip`へ分けた。`xspcode`、`inhibitxspcode`、auto switchと箱edgeのK/Xは
-接続済みだが、`\inhibitglue`、discの非空三分岐、JLReqの全禁則classはまだ接続していない。
+接続済みである。2026-08-25には`\inhibitglue` / `\disinhibitglue`をhlist-localなone-shot状態へ
+接続した。接続済みmain-loopの実在するJFM pairだけを抑止し、pairが無い境界のKは残す。node-less commandでは維持し、
+実nodeで消費し、fmt/`\unhcopy`後も抑止済みJFMを復活させない。discの全JFM class・禁則matrixと
+JLReqの全禁則class、list先頭・末尾class 0 JFMはまだ接続していない。
 
 ## TeX Live 2026黒箱オラクル
 
@@ -115,6 +118,17 @@ main-loop境界のoracleには、同じTeX Live 2026の
 class 0側JFMを左右とも持つ合成metricの幅は直結12.5pt、`{}` / `\relax` 15pt、`\unskip` 12.5pt。
 左右どちらかのclass 0側JFMが残ればKを足さず、左側を除去して右側もない時だけ11ptのlate Kへ戻る。
 
+2026-08-25の`\inhibitglue` probeは配布`upjisr-h`と同じbinaryだけを使った。通常の`）（`は
+JFM glueを含む15pt、直接、`\relax`、空group、整数代入を挟んだinhibitはJFM glueなしの10pt、
+penaltyでpendingを消費した場合と`\disinhibitglue`は15ptだった。実在JFMを抑止した境界をKへ
+置換しないことも`\showbox`で確認した。自作入力SHA-256は
+`61cac67dc5fbf477893730d36fca5317ea97358525c3634b3148711b6ff2da08`。`\showbox`診断により
+公式binaryのprocess exitは1だが、10個のboxはすべて構築され、通常終了summaryまで到達した。
+公開仕様は同じTeX Live 2026配布の『pTeX マニュアル』を一次資料にした。水平modeだけで有効、
+node-less処理では維持、実node追加で無効化、別list levelへ波及しないという契約を確認した。
+配布source/PDFのSHA-256は順に`ca8edc3e994ec5f8779a2ba5387035c35af19736147fe19cbd6ccb08b97c389d`、
+`80c951f1104da9444968dc40f60f572292b880b5de20e86cb859590ab2017e75`である。
+
 環境依存試験は配布binaryをrepositoryへvendorしない。
 
 ```powershell
@@ -128,6 +142,7 @@ cargo test --release 'jfm::tests::配布jfm九十六件をすべて読む' --lib
 
 - `\tfont`、縦組JFMのmetric解釈、方向つきwide nodeとDVI/PDF出力
 - main-loop JFM/禁則のbox・disc非空三分岐・未検証commandの条件付きspacing境界
+- list先頭・末尾のclass 0 JFMと、段落先頭の`\leavevmode\inhibitglue`による抑止
 - 現在の句読点＋横組括弧12対を越える禁則、ぶら下げ、行長調整を含むJLReq規則
 - PDFの日本語font resource、OTF/TrueType、default-off RustyBuzz
 

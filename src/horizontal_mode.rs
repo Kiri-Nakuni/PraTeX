@@ -53,8 +53,14 @@ impl HorizontalMode {
             self.script_spacing.observe_existing_compiled_spacing();
         }
         if !nodes.is_empty() {
+            self.script_spacing.take_pending_jfm_glue();
             self.script_spacing.reset_main_loop_boundary();
         }
+    }
+
+    /// 次の実nodeまでJFM metric空白だけを抑止するone-shot状態を切り替える。
+    pub(crate) fn set_inhibit_glue(&mut self, inhibit: bool) {
+        self.script_spacing.set_jfm_glue_inhibited(inhibit);
     }
 
     /// nodeを作らないcommandの直前に、左JFMをclass 0へ一度だけ閉じる。

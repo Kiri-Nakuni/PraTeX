@@ -236,6 +236,7 @@ impl Dumpable for JfmBoundaryBefore {
                 Self::Continuous => "Continuous",
                 Self::BrokenNeedsKanjiSkip => "BrokenNeedsKanjiSkip",
                 Self::ReplacedByMainLoopJfm => "ReplacedByMainLoopJfm",
+                Self::InhibitedByMainLoop => "InhibitedByMainLoop",
             }
         )
     }
@@ -245,6 +246,7 @@ impl Dumpable for JfmBoundaryBefore {
             "Continuous" => Ok(Self::Continuous),
             "BrokenNeedsKanjiSkip" => Ok(Self::BrokenNeedsKanjiSkip),
             "ReplacedByMainLoopJfm" => Ok(Self::ReplacedByMainLoopJfm),
+            "InhibitedByMainLoop" => Ok(Self::InhibitedByMainLoop),
             _ => Err(FormatError::ParseError),
         }
     }
