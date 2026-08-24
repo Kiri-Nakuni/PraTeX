@@ -1,0 +1,29 @@
+key	value
+measured_at	2026-08-25 Asia/Tokyo
+branch	codex3/perf-integration
+baseline_commit	7a0c2cf6683f21a903322ba2c7708ea95a49a12f
+candidate_source	uncommitted derived referenced-parameter mask patch over baseline_commit; reverted after measurement
+baseline_binary_sha256	931e49f82bfca344e43ba67b3814ef2072b38371e7548502484048d345c8a8c3
+baseline_binary_bytes	18114552
+candidate_binary_sha256	aae200c19cd8dd7761e44e3a68fd07000a6cfc986602aaad843721c5d36689d8
+candidate_binary_bytes	18144712
+vaak_commit	7dc011b23da7bd78bad1e0031d5e601b014cc7fe
+vaak_worktree	tracked diff none; untracked crates/, dotnet/, packages/
+document_input_sha256	265a52f085db6afb43a3f8a420be0a80ec554c7a1052b064edaa85a539f7f2cd
+document_fmt_sha256	c5cda9564ed3251f450ceb7c63f87ec334c55b9c9ea63afb06e7111f06e0013c
+document_dvi_sha256	196f46c6ea737d524992e1c93db40d1c10fb59884e412a83a6bf594e76e75ebd
+document_aux_sha256	db187909886572dd6e4beed4704f83078aecb28738881b6c4a67012f1d536027
+document_pages	299
+document_pairs	20
+document_warmup_pairs	2
+micro_input_sha256	139c910e2383d1bb8e6a7e3424d9543e9dc03d71f143b289ced170ab375c8d83
+micro_log_sha256	017bd6e062a7f84a93473a3b64382ad55c1b2c88db15b24f1fa7a38f8122519c
+micro_pairs	31
+micro_warmup_pairs	4
+raw_tsv_sha256	98aaf0e6ee7154fecf6b1ebc55df138ef85083f32c41fd97b25f5ee19c007ec3
+cpu	Intel Core i7-8650U; CPU 0 fixed
+kernel	Linux 7.0.0-30-generic x86_64
+rustc	rustc 1.94.0 (4a4ef493e 2026-03-02)
+perf	perf 7.0.12
+source_date_epoch	1709210096
+counter_command	perf stat --no-big-num -x ; -e duration_time,task-clock,instructions,cycles,cache-misses -- taskset -c 0

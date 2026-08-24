@@ -834,3 +834,14 @@ PLtoTF→TFtoPL byte一致である。独立decoderは公式・PraTeXとも999 r
 上記binary hashを一次識別子とし、Vaak commitだけからの再現を主張しない。続く299頁`lipsum`基線は
 本書前半に固定済みである。今後は`docs/research/japanese-publishing/`の学術・小説fixture方針を反映した
 日本語、和欧混植、禁則多用、教材型300頁級corpusを、upLaTeXとLuaLaTeXを含む同条件で測る。
+
+## MacroCall引数参照maskの定義時導出は不採用（2026-08-25）
+
+macro呼出しごとのreplacement参照mask走査を`MacroCall`生成時の一度だけにする候補は、
+299頁`lipsum`の20組でpaired wall幾何平均比0.990571だった。しかし同じbinary対を用いた
+8引数macro 100,000反復の31組ではwall 1.057001、task-clock 1.056055、instructions
+1.021428へ悪化した。狙ったhot pathで31組中30組が遅かったため、source差分は撤回した。
+
+299頁だけの約1%短縮は一般化しない。両fixtureとも出力はbyte一致し、rawと再現情報は
+[`macro-call-derived-mask-rejected-20260825.md`](benchmarks/macro-call-derived-mask-rejected-20260825.md)に固定した。
+次は型サイズを増やさず、数値・寸法・糊走査のfirst-token差戻し／再取得をprivate経路で減らす。
