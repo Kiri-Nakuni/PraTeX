@@ -54,7 +54,8 @@
 | 実装 | mark class 0〜32767 | `\marks`、`\topmarks`、`\firstmarks`、`\botmarks`、`\splitfirstmarks`、`\splitbotmarks`。page遷移、`\vsplit`、fmtを含む |
 | 実装 | 糊成分の照会と型変換 | `\gluestretch`、`\glueshrink`、`\gluestretchorder`、`\glueshrinkorder`、`\mutoglue`、`\gluetomu`。normal/fil/fill/filll、負値、零係数、数式糊の回復、fmtを扱う |
 | 部分 | tracing register | `\tracingscantokens`は疑似fileの開始時に判定し、値が途中で変わっても対応する括弧を閉じる。他の`\tracingassigns`、`\tracinggroups`、`\tracingifs`、`\tracingnesting`は値の代入・group・fmtだけ |
-| 表面のみ | 組版制御register | `\predisplaydirection`、`\lastlinefit`、`\savingvdiscards`、`\savinghyphcodes`、`\TeXXeTstate`は値を保持するだけで、組版・discard保存・TeX--XeT動作は未接続。`\TeXXeTstate`だけはfmt読込時0へ戻す |
+| 実装 | `\savinghyphcodes` | 正値の`\patterns`時に現在の`\lccode`をlanguage別にsnapshotし、pattern圧縮後の通常hyphenationと`\hyphenation`例外へ適用する。同一languageの正値は置換し、0以下は既存snapshotを保持する。e-TeXのdense 8-bit表とPraTeX Latin-UCS拡張を別型にし、fmt検証を含む |
+| 表面のみ | その他の組版制御register | `\predisplaydirection`、`\lastlinefit`、`\savingvdiscards`、`\TeXXeTstate`は値を保持するだけで、組版・discard保存・TeX--XeT動作は未接続。`\TeXXeTstate`だけはfmt読込時0へ戻す |
 | 未実装 | 拡張表示 | `\showtokens`、`\showgroups`、`\showifs` |
 | 実装 | parshape照会 `\parshapelength/indent/dimen` | 現在のpair数、各行のindent・length、奇偶interleaveを内部寸法として返す。非正index、最終pair反復、式・表示、fmtを含む |
 | 実装 | 可変delimiter列 `\middle` | `\left`--`\right`内をsegmentごとのsave groupに分け、局所状態を復元して元のmath styleから次のlistを始める。全segmentの最大height/depthを全delimiterへ共有する。境界の左はRight、右はLeft相当のspacingとし、文字・数値delimiter走査、欠落・不対応時の回復、表示、fmtをprocess試験する |

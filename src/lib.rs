@@ -48,10 +48,10 @@ mod runtime_clock;
 mod scaled;
 mod scan_boxes;
 mod scan_internal;
-mod spacing_table_domain;
 #[allow(dead_code)]
 mod script_spacing;
 mod semantic_nest;
+mod spacing_table_domain;
 mod token;
 mod token_lists;
 pub mod vaak;
@@ -310,7 +310,7 @@ fn run_loaded_engine(
     final_cleanup(
         dumping,
         initial_mode,
-        &hyphenator,
+        &mut hyphenator,
         &mut scanner,
         &mut eqtb,
         &mut logger,
@@ -411,7 +411,7 @@ fn get_first_input_line_from_arguments(
 fn final_cleanup(
     dumping: bool,
     initial_mode: bool,
-    hyphenator: &Hyphenator,
+    hyphenator: &mut Hyphenator,
     scanner: &mut Scanner,
     eqtb: &mut Eqtb,
     logger: &mut Logger,
@@ -449,6 +449,11 @@ fn final_cleanup(
     }
     if dumping {
         if initial_mode {
+            // e-TeX manual 3.10 requires formats to contain compressed
+            // patterns and their language-local hyphenation-code snapshots.
+            if hyphenator.trie.is_none() {
+                hyphenator.init_trie();
+            }
             store_fmt_file(hyphenator, &scanner.input_stack, eqtb, logger);
         } else {
             logger.print_nl_str("(\\dump is performed only by INITEX)");

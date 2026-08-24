@@ -10,6 +10,76 @@ use crate::token::Token;
 use std::collections::{HashMap, VecDeque};
 use std::io::Write;
 
+/// The 8-bit hyphenation-code snapshot defined by e-TeX manual section 3.10.
+/// The dense byte table keeps the active snapshot lookup out of an allocation
+/// or binary search while preserving the TeX82 byte domain.
+struct EtexHyphenationCodes([u8; 256]);
+
+/// PraTeX's Latin-UCS extension to e-TeX's byte-domain snapshot.
+///
+/// This is deliberately a separate type: it must not silently widen the
+/// externally observable 8-bit e-TeX contract. Entries live here when either
+/// the input code point or its hyphenation code does not fit in one byte.
+struct LatinUcsHyphenationCodes(Vec<(u16, u16)>);
+
+struct SavedHyphenationCodes {
+    etex: EtexHyphenationCodes,
+    latin_ucs: LatinUcsHyphenationCodes,
+}
+
+impl SavedHyphenationCodes {
+    fn capture(eqtb: &Eqtb) -> Self {
+        let mut etex = [0; 256];
+        let mut latin_ucs = Vec::new();
+        for character in 0..=MAX_LATIN_UCS_CODE as usize {
+            let code = eqtb.lc_code(character);
+            if character <= u8::MAX as usize && (1..=u8::MAX as i32).contains(&code) {
+                etex[character] = code as u8;
+            } else if (1..=MAX_LATIN_UCS_CODE as i32).contains(&code) {
+                latin_ucs.push((character as u16, code as u16));
+            }
+        }
+        Self {
+            etex: EtexHyphenationCodes(etex),
+            latin_ucs: LatinUcsHyphenationCodes(latin_ucs),
+        }
+    }
+
+    fn get(&self, character: u32) -> i32 {
+        let Ok(character) = u16::try_from(character) else {
+            return 0;
+        };
+        if let Ok(etex_character) = u8::try_from(character) {
+            let code = self.etex.0[usize::from(etex_character)];
+            if code != 0 {
+                return i32::from(code);
+            }
+        }
+        if let Ok(index) = self
+            .latin_ucs
+            .0
+            .binary_search_by_key(&character, |&(key, _)| key)
+        {
+            return i32::from(self.latin_ucs.0[index].1);
+        }
+        0
+    }
+
+    fn is_valid(&self) -> bool {
+        let latin_ucs_is_valid = self.latin_ucs.0.iter().all(|&(key, value)| {
+            u32::from(key) <= MAX_LATIN_UCS_CODE
+                && (1..=MAX_LATIN_UCS_CODE as u16).contains(&value)
+                && (key > u8::MAX as u16 || value > u8::MAX as u16)
+                && !(key <= u8::MAX as u16 && self.etex.0[usize::from(key)] != 0)
+        }) && keys_are_strictly_increasing(&self.latin_ucs.0);
+        latin_ucs_is_valid
+    }
+}
+
+fn keys_are_strictly_increasing<K: Ord + Copy, V>(entries: &[(K, V)]) -> bool {
+    entries.windows(2).all(|pair| pair[0].0 < pair[1].0)
+}
+
 /// Stores all the hyphenation related information.
 pub struct Hyphenator {
     /// Stores for each language the hyphenation exceptions.
@@ -21,6 +91,13 @@ pub struct Hyphenator {
 
     /// See 950.
     pub trie: Option<Trie>,
+
+    /// Language-local snapshots created by positive `\savinghyphcodes`.
+    /// They become active only after the pattern trie has been compressed.
+    saved_hyphenation_codes: [Option<Box<SavedHyphenationCodes>>; 256],
+    /// Keeps the overwhelmingly common no-snapshot word scan to one
+    /// predictable branch before the ordinary `\lccode` lookup.
+    has_saved_hyphenation_codes: bool,
 
     pub cur_lang: usize,
     /// Minimum number of characters before the first hyphen when hyphenating.
@@ -40,6 +117,8 @@ impl Hyphenator {
             exceptions: std::array::from_fn(|_| HashMap::new()),
             pre_trie: PreTrie::new(),
             trie: None,
+            saved_hyphenation_codes: std::array::from_fn(|_| None),
+            has_saved_hyphenation_codes: false,
             cur_lang: 0,
             l_hyf: 0,
             r_hyf: 0,
@@ -57,6 +136,18 @@ impl Hyphenator {
         } else {
             language as usize
         };
+    }
+
+    pub(super) fn hyphenation_code(&self, character: u32, eqtb: &Eqtb) -> i32 {
+        if self.has_saved_hyphenation_codes && self.trie.is_some() {
+            if let Some(codes) = &self.saved_hyphenation_codes[self.cur_lang] {
+                return codes.get(character);
+            }
+        }
+        usize::try_from(character)
+            .ok()
+            .filter(|&character| character <= MAX_LATIN_UCS_CODE as usize)
+            .map_or(0, |character| eqtb.lc_code(character))
     }
 
     /// Returns false for Return, else true.
@@ -134,6 +225,12 @@ impl Hyphenator {
             })
         })
     }
+    fn saved_hyphenation_codes_are_valid(&self) -> bool {
+        self.saved_hyphenation_codes
+            .iter()
+            .flatten()
+            .all(|codes| codes.is_valid())
+    }
 }
 
 /// See 920. and 921.
@@ -164,9 +261,7 @@ impl Trie {
 
         let mut families = vec![Vec::new(); self.nodes.len()];
         for (index, node) in self.nodes.iter().enumerate() {
-            if node
-                .chr
-                .is_some_and(|c| u32::from(c) > MAX_LATIN_UCS_CODE)
+            if node.chr.is_some_and(|c| u32::from(c) > MAX_LATIN_UCS_CODE)
                 || node.link.is_some_and(|link| link >= self.nodes.len())
                 || (node.chr.is_none() && (node.link.is_some() || node.op.is_some()))
             {
@@ -355,18 +450,24 @@ impl Hyphenator {
             match unexpandable_command {
                 UnexpandableCommand::Letter(c)
                 | UnexpandableCommand::Other(c)
-                | UnexpandableCommand::CharGiven(c) => append_new_letter_or_hyphen(
-                    u32::from(c),
-                    &mut word,
-                    &mut hyphen_positions,
-                    scanner,
-                    eqtb,
-                    logger,
-                ),
+                | UnexpandableCommand::CharGiven(c) => {
+                    let character = u32::from(c);
+                    append_new_letter_or_hyphen(
+                        character,
+                        self.hyphenation_code(character, eqtb),
+                        &mut word,
+                        &mut hyphen_positions,
+                        scanner,
+                        eqtb,
+                        logger,
+                    )
+                }
                 UnexpandableCommand::CharNum => {
                     let c = scanner.scan_char_num(eqtb, logger);
+                    let character = u32::from(c);
                     append_new_letter_or_hyphen(
-                        u32::from(c),
+                        character,
+                        self.hyphenation_code(character, eqtb),
                         &mut word,
                         &mut hyphen_positions,
                         scanner,
@@ -374,14 +475,18 @@ impl Hyphenator {
                         logger,
                     );
                 }
-                UnexpandableCommand::LatinUcsChar(token) => append_new_letter_or_hyphen(
-                    token.code_point(),
-                    &mut word,
-                    &mut hyphen_positions,
-                    scanner,
-                    eqtb,
-                    logger,
-                ),
+                UnexpandableCommand::LatinUcsChar(token) => {
+                    let character = token.code_point();
+                    append_new_letter_or_hyphen(
+                        character,
+                        self.hyphenation_code(character, eqtb),
+                        &mut word,
+                        &mut hyphen_positions,
+                        scanner,
+                        eqtb,
+                        logger,
+                    )
+                }
                 UnexpandableCommand::RightBrace(_)
                 | UnexpandableCommand::LatinUcsRightBrace(_)
                 | UnexpandableCommand::Spacer => {
@@ -419,6 +524,7 @@ fn give_improper_hyphenation_error(scanner: &mut Scanner, eqtb: &mut Eqtb, logge
 /// See 937. and 938.
 fn append_new_letter_or_hyphen(
     chr: u32,
+    hyphenation_code: i32,
     word: &mut Vec<u16>,
     hyphen_positions: &mut Vec<usize>,
     scanner: &mut Scanner,
@@ -429,7 +535,7 @@ fn append_new_letter_or_hyphen(
         if word.len() < 63 {
             hyphen_positions.push(word.len());
         }
-    } else if !is_valid_hyphenation_code(eqtb.lc_code(chr as usize)) {
+    } else if !is_valid_hyphenation_code(hyphenation_code) {
         logger.print_err("Not a letter");
         let help = &[
             "Letters in \\hyphenation words must have a usable \\lccode.",
@@ -437,7 +543,7 @@ fn append_new_letter_or_hyphen(
         ];
         logger.error(help, scanner, eqtb);
     } else if word.len() < 63 {
-        word.push(eqtb.lc_code(chr as usize) as u16);
+        word.push(hyphenation_code as u16);
     }
 }
 
@@ -571,10 +677,7 @@ impl PreTrie {
             if !reachable[index] {
                 continue;
             }
-            for target in [node.first_child, node.next_sibling]
-                .into_iter()
-                .flatten()
-            {
+            for target in [node.first_child, node.next_sibling].into_iter().flatten() {
                 indegree[target] = indegree[target].checked_add(1)?;
             }
         }
@@ -588,10 +691,7 @@ impl PreTrie {
         while let Some(index) = queue.pop_front() {
             visited += 1;
             let node = self.nodes[index];
-            for target in [node.first_child, node.next_sibling]
-                .into_iter()
-                .flatten()
-            {
+            for target in [node.first_child, node.next_sibling].into_iter().flatten() {
                 indegree[target] -= 1;
                 if indegree[target] == 0 {
                     queue.push_back(target);
@@ -1105,6 +1205,14 @@ impl Hyphenator {
     ) {
         if self.trie.is_none() {
             self.set_cur_lang(eqtb);
+            if eqtb.integer(IntegerVariable::SavingHyphCodes) > 0 {
+                // e-TeX manual 3.10: every positive \patterns execution
+                // replaces the current language's snapshot. A later
+                // non-positive execution leaves an earlier snapshot intact.
+                self.saved_hyphenation_codes[self.cur_lang] =
+                    Some(Box::new(SavedHyphenationCodes::capture(eqtb)));
+                self.has_saved_hyphenation_codes = true;
+            }
             scanner.scan_left_brace(eqtb, logger);
             self.enter_all_patterns_into_linked_trie(scanner, eqtb, logger)
         } else {
@@ -1144,17 +1252,15 @@ impl Hyphenator {
                         logger,
                     )
                 }
-                UnexpandableCommand::LatinUcsChar(token) => {
-                    append_new_letter_or_hyphen_level(
-                        token.code_point(),
-                        &mut digit_sensed,
-                        &mut word,
-                        &mut pattern,
-                        scanner,
-                        eqtb,
-                        logger,
-                    )
-                }
+                UnexpandableCommand::LatinUcsChar(token) => append_new_letter_or_hyphen_level(
+                    token.code_point(),
+                    &mut digit_sensed,
+                    &mut word,
+                    &mut pattern,
+                    scanner,
+                    eqtb,
+                    logger,
+                ),
                 UnexpandableCommand::RightBrace(_)
                 | UnexpandableCommand::LatinUcsRightBrace(_)
                 | UnexpandableCommand::Spacer => {
@@ -1237,12 +1343,52 @@ impl Hyphenator {
     }
 }
 
+impl Dumpable for EtexHyphenationCodes {
+    fn dump(&self, target: &mut impl Write) -> Result<(), std::io::Error> {
+        self.0.dump(target)
+    }
+
+    fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
+        Ok(Self(Dumpable::undump(lines)?))
+    }
+}
+
+impl Dumpable for LatinUcsHyphenationCodes {
+    fn dump(&self, target: &mut impl Write) -> Result<(), std::io::Error> {
+        self.0.dump(target)
+    }
+
+    fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
+        Ok(Self(Vec::undump(lines)?))
+    }
+}
+
+impl Dumpable for SavedHyphenationCodes {
+    fn dump(&self, target: &mut impl Write) -> Result<(), std::io::Error> {
+        self.etex.dump(target)?;
+        self.latin_ucs.dump(target)
+    }
+
+    fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
+        let codes = Self {
+            etex: EtexHyphenationCodes::undump(lines)?,
+            latin_ucs: LatinUcsHyphenationCodes::undump(lines)?,
+        };
+        if codes.is_valid() {
+            Ok(codes)
+        } else {
+            Err(FormatError::ParseError)
+        }
+    }
+}
+
 impl Dumpable for Hyphenator {
     fn dump(&self, target: &mut impl Write) -> Result<(), std::io::Error> {
         for map in &self.exceptions {
             map.dump(target)?;
         }
 
+        self.saved_hyphenation_codes.dump(target)?;
         self.pre_trie.dump(target)?;
         self.trie.dump(target)?;
 
@@ -1257,10 +1403,17 @@ impl Dumpable for Hyphenator {
             hyphenator.exceptions[i] = map;
         }
 
+        hyphenator.saved_hyphenation_codes = Dumpable::undump(lines)?;
+        hyphenator.has_saved_hyphenation_codes = hyphenator
+            .saved_hyphenation_codes
+            .iter()
+            .any(Option::is_some);
         hyphenator.pre_trie = PreTrie::undump(lines)?;
         hyphenator.trie = Option::undump(lines)?;
 
-        if !hyphenator.format_exceptions_are_valid() {
+        if !hyphenator.format_exceptions_are_valid()
+            || !hyphenator.saved_hyphenation_codes_are_valid()
+        {
             return Err(FormatError::ParseError);
         }
 
@@ -1434,11 +1587,7 @@ mod latin_ucs_tests {
         };
         let mut pattern = vec![0; 2];
 
-        assert!(trie.determine_hyph_pattern(
-            &[0, MAX_LATIN_UCS_CODE as u16, 0],
-            0,
-            &mut pattern
-        ));
+        assert!(trie.determine_hyph_pattern(&[0, MAX_LATIN_UCS_CODE as u16, 0], 0, &mut pattern));
         assert_eq!(pattern, vec![0; 2]);
     }
 
@@ -1458,11 +1607,7 @@ mod latin_ucs_tests {
         };
         let mut pattern = vec![0; 2];
 
-        assert!(!trie.determine_hyph_pattern(
-            &[0, b'a' as u16, 0],
-            usize::MAX,
-            &mut pattern,
-        ));
+        assert!(!trie.determine_hyph_pattern(&[0, b'a' as u16, 0], usize::MAX, &mut pattern,));
         assert_eq!(pattern, vec![0; 2]);
     }
 
@@ -1510,7 +1655,9 @@ mod latin_ucs_tests {
             },
             0,
         );
-        pre_trie.insert(&[0, u16::from(b'b'), 0x00DF], Some(op)).unwrap();
+        pre_trie
+            .insert(&[0, u16::from(b'b'), 0x00DF], Some(op))
+            .unwrap();
         let trie = pre_trie.to_trie_mut();
 
         let pre_input = dump_to_string(&pre_trie);
@@ -1620,5 +1767,41 @@ mod latin_ucs_tests {
             Hyphenator::undump(&mut input.lines()),
             Err(FormatError::ParseError)
         ));
+    }
+
+    #[test]
+    fn 保存hyphenation_codeの壊れた値をformatから読まない() {
+        let mut hyphenator = Hyphenator::new();
+        let mut etex = [0; 256];
+        etex[usize::from(b'A')] = b'a';
+        hyphenator.saved_hyphenation_codes[0] = Some(Box::new(SavedHyphenationCodes {
+            etex: EtexHyphenationCodes(etex),
+            latin_ucs: LatinUcsHyphenationCodes(vec![(256, 256)]),
+        }));
+        let input = dump_to_string(&hyphenator);
+        let mut lines: Vec<_> = input.lines().map(str::to_owned).collect();
+        // 256 empty exception maps and language 0's `Some` precede its dense
+        // byte table. A value outside u8 must fail before any allocation.
+        lines[257 + usize::from(b'A')] = "256".to_owned();
+
+        assert!(matches!(
+            Hyphenator::undump(&mut lines.join("\n").lines()),
+            Err(FormatError::ParseError)
+        ));
+    }
+
+    #[test]
+    fn 保存hyphenation_codeの重複keyとlatin_ucs範囲外を拒否する() {
+        let duplicated = SavedHyphenationCodes {
+            etex: EtexHyphenationCodes([0; 256]),
+            latin_ucs: LatinUcsHyphenationCodes(vec![(256, 256), (256, 257)]),
+        };
+        assert!(!duplicated.is_valid());
+
+        let outside = SavedHyphenationCodes {
+            etex: EtexHyphenationCodes([0; 256]),
+            latin_ucs: LatinUcsHyphenationCodes(vec![(256, MAX_LATIN_UCS_CODE as u16 + 1)]),
+        };
+        assert!(!outside.is_valid());
     }
 }

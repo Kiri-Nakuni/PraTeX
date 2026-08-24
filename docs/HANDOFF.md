@@ -297,6 +297,18 @@ engine内部IDを分け、標準日本語ではVaak/WASM call 0、組版中のal
 
 Unicode差分も`src/eqtb.rs`を触るため、安全なcheckpointを優先して同じcommitへ収めた。
 
+## 完了済み: `\savinghyphcodes`
+
+状態: **2026-08-24にproduction接続済み。全releaseは846 passed、0 failed、10 ignored**。
+
+- 正値の`\patterns`時に現在の小文字写像をlanguage別にsnapshotし、pattern trie圧縮後の
+  通常hyphenationと`\hyphenation`例外へ使う。圧縮前の例外は従来どおり現在の`\lccode`を使う。
+- 同じlanguageの後続する正値はsnapshotを置換し、0または負値では既存snapshotを消さない。
+- e-TeX互換範囲は`[u8; 256]`、PraTeXのLatin-UCS拡張はU+2E7Fまでの別表とし、fmtで値、
+  一意性、範囲を検証する。snapshotのない通常runは従来の`\lccode`参照へ戻る。
+- 公式e-TeX manual §3.10と、SHA-256を固定したTeX Live 2026 e-upTeXへの自作probeだけを
+  clean-room oracleにした。契約とhashは`docs/etex-savinghyphcodes.md`に記録している。
+
 ## 完了済みproduction slice: `\scantokens`と最小`scrartcl`
 
 状態: **`d90e98f`で実装・commit・push済み**。

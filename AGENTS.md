@@ -240,6 +240,9 @@ run-local状態へ固定した。これはLinuxの通常探索や利用者の9.1
 - `\interlinepenalties`、`\clubpenalties`、`\widowpenalties`、
   `\displaywidowpenalties`は局所／大域代入、内部照会、fmt、通常段落とdisplay直前の
   post-line-break nodeまで接続済み。discard保存は未実装。
+- `\savinghyphcodes`は正値の`\patterns`時にlanguage別の小文字写像を保存し、pattern圧縮後の
+  通常hyphenationと例外登録へ接続済み。同一languageの再snapshot、0以下での保持、fmt、
+  PraTeX Latin-UCS拡張を試験する。e-TeXの8-bit表とPraTeX拡張は別型に保つ。
 - `\TeXXeTstate`はfmt読込時0へ戻るが、LR組版自体は未実装。
 - 外向きWASM provider ABI 0.0は、version range、required/optional feature、capability、
   operationのruntime非依存交渉を`src/wasm_provider_abi.rs`へ、固定envelope、section集合、
@@ -281,7 +284,7 @@ run-local状態へ固定した。これはLinuxの通常探索や利用者の9.1
 2. compile済み汎用script class対tableをlist単位dispatcherと中央finalizerへ接続する。
 3. `\tfont`と縦組metric/node/outputを追加し、JFM/K/X/禁則を横組から縦組へ広げる。
 4. kpathsea互換resolverをrun-global化し、native path解決を広げて通常の子process呼出しをなくす。
-5. discard保存、show/tracing、`\lastlinefit`、`\savinghyphcodes`、
+5. discard保存、show/tracing、`\lastlinefit`、
    TeX--XeTのLR node・反転・DVI/PDF出力といったe-TeX残件を公開仕様どおり実装する。
 6. PraTeX-native package adapterを順に通し、PDF直接出力をOTFより先に完成する。
 7. Vaak table uploadとversion付きWASM ABIは、内部表現を固定した段階から並行して適合試験を作る。

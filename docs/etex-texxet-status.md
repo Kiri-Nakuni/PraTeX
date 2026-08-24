@@ -33,7 +33,8 @@ TeX--XeTは二つの整数parameterを保存できるだけで、**組版機能�
 | discard list | 未実装 | `\pagediscards`、`\splitdiscards`がない。`\savingvdiscards`は値だけを保存する |
 | math | 実装 | `\middle`は`\left`--`\right`内部をsegmentごとのsave groupへ分け、各境界で局所代入を復元して元のmath styleから次のlistを始める。全delimiterを全segmentの最大height/depthから同じ大きさにし、左右のspacingをそれぞれClose/Openとして扱う。文字・`\delimiter`走査、delimiter欠落と対応しない境界の回復、表示、fmtを独立process試験済み |
 | tracing/show | 部分／未実装 | `\tracingscantokens`は実出力へ接続済み。他のtracing parameterは値だけで、`\showtokens`、`\showgroups`、`\showifs`と対応trace出力がない |
-| その他の組版制御 | 表面のみ | `\lastlinefit`、`\savinghyphcodes`は処理本体へ未接続 |
+| `\savinghyphcodes` | 実装 | 正値の`\patterns`時にlanguage別の小文字写像を保存し、pattern圧縮後の通常hyphenationと例外登録へ使う。同一languageの再snapshot、0以下での保持、fmt、8-bitとPraTeX Latin-UCS拡張の型分離を試験済み |
+| その他の組版制御 | 表面のみ | `\lastlinefit`は処理本体へ未接続 |
 
 fmtの表現があることと、読み戻した値が全ての後段へ効くことは分けて検査する。現在の
 process-level fmt往復試験はregister、mark、糊成分を中心とし、全命令を網羅していない。
@@ -61,7 +62,7 @@ left-to-right/right-to-left区間は公開意味論が異なるため、一つ�
 
 1. 実装済みの`FontCharDimension` query種別を、将来JFM・Unicode font metricへ広げる。
    e-TeX primitiveの公開文字番号は0--255のまま保ち、別の文字identityを暗黙に混ぜない。
-2. discard保存、`\lastlinefit`、`\savinghyphcodes`、show/tracingを実処理へ接続する。
+2. discard保存、`\lastlinefit`、show/tracingを実処理へ接続する。
 3. TeX--XeTはrestricted hboxで方向node、LR stack、共通DVI/PDF shipoutまでを最初の縦sliceにし、
    次にparagraph、display、mathへ広げる。parameterだけ先に「対応済み」へ格上げしない。
 
@@ -75,6 +76,7 @@ error回復、fmt往復、DVI/PDFへの効果を該当機能ごとに試験し�
 
 - [The e-TeX Short Reference Manual](https://mirrors.ctan.org/systems/doc/etex/etex_man.pdf)
 - [e-TeX移植記録](etex-port-notes.md)
+- [`\savinghyphcodes`実装契約](etex-savinghyphcodes.md)
 - [TeXにない機能の実装一覧](feature-inventory.md)
 
 `\middle`は同manual 3.9と5.4の公開契約から、segmentごとに元のstyleの新しいgroup/math listを始め、

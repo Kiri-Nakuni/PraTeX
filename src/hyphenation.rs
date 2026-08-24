@@ -184,9 +184,10 @@ impl WordHyphenator {
             hyphenated_hlist.push(first_node);
             return;
         }
-        let first_suffix_node = self.find_last_letter(first_node, hyph_font_index, nodes, eqtb);
+        let first_suffix_node =
+            self.find_last_letter(first_node, hyph_font_index, nodes, hyphenator, eqtb);
         self.determine_right_boundary_char(&first_suffix_node, hyph_font_index, &eqtb.fonts);
-        self.create_letters(eqtb);
+        self.create_letters(hyphenator, eqtb);
         let hyphenation_allowed =
             self.check_that_suffix_allows_hyphenation(first_suffix_node, nodes, hyphenator);
         if !hyphenation_allowed {
@@ -231,7 +232,7 @@ impl WordHyphenator {
                     character,
                     ..
                 }) => {
-                    let lc_code = eqtb.lc_code(character as usize);
+                    let lc_code = hyphenator.hyphenation_code(u32::from(character), eqtb);
                     if usable_hyphenation_lc_code(lc_code) {
                         break (node, font_index, character);
                     }
@@ -242,7 +243,7 @@ impl WordHyphenator {
                     ..
                 }) => {
                     if let Some(&character) = lig.first() {
-                        let lc_code = eqtb.lc_code(character as usize);
+                        let lc_code = hyphenator.hyphenation_code(u32::from(character), eqtb);
                         if usable_hyphenation_lc_code(lc_code) {
                             break (node, font_index, character);
                         }
@@ -265,7 +266,7 @@ impl WordHyphenator {
             self.prefix.push(node);
         };
 
-        let lc_code = eqtb.lc_code(character as usize);
+        let lc_code = hyphenator.hyphenation_code(u32::from(character), eqtb);
         if lc_code != character as i32 && eqtb.integer(IntegerVariable::UcHyph) <= 0 {
             self.prefix.push(first_node);
             return None;
@@ -287,6 +288,7 @@ impl WordHyphenator {
         first_node: Node,
         hyph_font_index: FontIndex,
         nodes: &mut impl Iterator<Item = Node>,
+        hyphenator: &Hyphenator,
         eqtb: &Eqtb,
     ) -> Node {
         self.letter_count = 0;
@@ -298,7 +300,8 @@ impl WordHyphenator {
                         break;
                     }
                     let c = char_node.character;
-                    if !usable_hyphenation_lc_code(eqtb.lc_code(c as usize)) {
+                    if !usable_hyphenation_lc_code(hyphenator.hyphenation_code(u32::from(c), eqtb))
+                    {
                         break;
                     }
                     if self.letter_count == 63 {
@@ -311,11 +314,9 @@ impl WordHyphenator {
                     if ligature_node.font_index != hyph_font_index {
                         break;
                     }
-                    if ligature_node
-                        .lig
-                        .iter()
-                        .any(|&c| !usable_hyphenation_lc_code(eqtb.lc_code(c as usize)))
-                    {
+                    if ligature_node.lig.iter().any(|&c| {
+                        !usable_hyphenation_lc_code(hyphenator.hyphenation_code(u32::from(c), eqtb))
+                    }) {
                         break;
                     }
                     if self.letter_count + ligature_node.lig.len() >= 63 {
@@ -385,7 +386,7 @@ impl WordHyphenator {
     }
 
     /// See 897. and 898.
-    fn create_letters(&mut self, eqtb: &Eqtb) {
+    fn create_letters(&mut self, hyphenator: &Hyphenator, eqtb: &Eqtb) {
         // Beginning and end of the word are marked with a zero byte.
         self.letters.push(0);
         self.lc_letters.push(0);
@@ -394,13 +395,15 @@ impl WordHyphenator {
                 Node::Char(char_node) => {
                     let c = char_node.character;
                     self.letters.push(c as u16);
-                    self.lc_letters.push(eqtb.lc_code(c as usize) as u16);
+                    self.lc_letters
+                        .push(hyphenator.hyphenation_code(u32::from(c), eqtb) as u16);
                 }
                 Node::Ligature(ligature_node) => {
                     let lig = &ligature_node.lig;
                     for &c in lig {
                         self.letters.push(c as u16);
-                        self.lc_letters.push(eqtb.lc_code(c as usize) as u16);
+                        self.lc_letters
+                            .push(hyphenator.hyphenation_code(u32::from(c), eqtb) as u16);
                     }
                 }
                 Node::Kern(KernNode {
