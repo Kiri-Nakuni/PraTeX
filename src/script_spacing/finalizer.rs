@@ -30,13 +30,25 @@ struct ObservedBoundary {
 #[derive(Clone, Copy)]
 struct BoundaryEndpoint {
     boundary: ObservedBoundary,
-    hbox_edge: bool,
+    indirect_edge: bool,
 }
 
 #[derive(Clone, Copy)]
 struct ObservedHboxEdges {
     first: Option<ObservedBoundary>,
     last: Option<ObservedBoundary>,
+}
+
+#[derive(Clone, Copy)]
+struct ObservedDiscRightEdges {
+    no_break: Option<ObservedBoundary>,
+    post_break: Option<ObservedBoundary>,
+}
+
+#[derive(Clone, Copy)]
+struct PendingDiscRightEdges {
+    rebuilt_index: usize,
+    edges: ObservedDiscRightEdges,
 }
 
 enum HboxEdgeScan {
@@ -175,8 +187,9 @@ fn finalize_horizontal_list(list: &mut Vec<Node>, eqtb: &Eqtb) {
     let original = std::mem::take(list);
     let mut rebuilt = Vec::with_capacity(original.len());
     let mut previous = None;
+    let mut pending_disc = None;
 
-    for node in original {
+    for mut node in original {
         if is_list_finalizer_spacing(&node) {
             continue;
         }
@@ -184,21 +197,44 @@ fn finalize_horizontal_list(list: &mut Vec<Node>, eqtb: &Eqtb) {
         if let Some(current) = observe_glyph_boundary(&node, eqtb) {
             let current = BoundaryEndpoint {
                 boundary: current,
-                hbox_edge: false,
+                indirect_edge: false,
             };
+            if let Some(pending) = pending_disc.take() {
+                append_disc_right_spacing(
+                    &mut rebuilt,
+                    pending,
+                    current,
+                    &planner,
+                    &state,
+                    eqtb,
+                );
+            }
             if let Some(left) = previous {
                 append_boundary_spacing(&mut rebuilt, left, current, &planner, &state, eqtb);
             }
             previous = Some(current);
             rebuilt.push(node);
         } else if let Some(edges) = observe_unshifted_hbox_edges(&node, eqtb) {
+            if let (Some(pending), Some(first)) = (pending_disc.take(), edges.first) {
+                append_disc_right_spacing(
+                    &mut rebuilt,
+                    pending,
+                    BoundaryEndpoint {
+                        boundary: first,
+                        indirect_edge: true,
+                    },
+                    &planner,
+                    &state,
+                    eqtb,
+                );
+            }
             if let (Some(left), Some(first)) = (previous, edges.first) {
                 append_boundary_spacing(
                     &mut rebuilt,
                     left,
                     BoundaryEndpoint {
                         boundary: first,
-                        hbox_edge: true,
+                        indirect_edge: true,
                     },
                     &planner,
                     &state,
@@ -208,7 +244,20 @@ fn finalize_horizontal_list(list: &mut Vec<Node>, eqtb: &Eqtb) {
             rebuilt.push(node);
             previous = edges.last.map(|boundary| BoundaryEndpoint {
                 boundary,
-                hbox_edge: true,
+                indirect_edge: true,
+            });
+        } else if let Node::Disc(disc) = &mut node {
+            // 右側K/Xは外側nodeにせず、実際に選ばれる枝へ保持する。再finalizeでは
+            // 前回の条件付き末尾だけを除き、枝内のVirtual K/Xは残す。
+            remove_trailing_disc_right_spacing(&mut disc.no_break);
+            remove_trailing_disc_right_spacing(&mut disc.post_break);
+            let edges = observe_disc_right_edges(disc, eqtb);
+            previous = None;
+            let rebuilt_index = rebuilt.len();
+            rebuilt.push(node);
+            pending_disc = Some(PendingDiscRightEdges {
+                rebuilt_index,
+                edges,
             });
         } else if is_main_loop_spacing(&node) {
             // JFM/禁則は利用者が途中で観測・除去できる。closeでは保持し、元glyphの
@@ -218,8 +267,9 @@ fn finalize_horizontal_list(list: &mut Vec<Node>, eqtb: &Eqtb) {
             // 明示penaltyは文字境界を保つ。planner actionはこのnodeの後ろへ置かれる。
             rebuilt.push(node);
         } else {
-            // 明示glue/kern/math/whatsit/list/rule/disc等を越えて自動間隔を作らない。
+            // 明示glue/kern/math/whatsit/list/rule等を越えて自動間隔を作らない。
             previous = None;
+            pending_disc = None;
             rebuilt.push(node);
         }
     }
@@ -235,8 +285,8 @@ fn append_boundary_spacing(
     state: &PtexSpacingState,
     eqtb: &Eqtb,
 ) {
-    let hbox_edge = left.hbox_edge || right.hbox_edge;
-    let context = if hbox_edge {
+    let indirect_edge = left.indirect_edge || right.indirect_edge;
+    let context = if indirect_edge {
         BoundaryContext {
             jfm_continuity: JfmPairContinuity::Broken,
             jfm_glue: JfmGlueControl::Inhibit,
@@ -253,7 +303,7 @@ fn append_boundary_spacing(
             jfm_glue: JfmGlueControl::Allow,
         }
     };
-    let jfm_pairs = (!hbox_edge)
+    let jfm_pairs = (!indirect_edge)
         .then(|| pair_table_for_boundary(left.boundary, right.boundary, eqtb))
         .flatten();
     let plan = planner.plan_boundary(
@@ -270,7 +320,7 @@ fn append_boundary_spacing(
             .map(|action| {
                 materialize_action(
                     action,
-                    if hbox_edge {
+                    if indirect_edge {
                         KanjiSkipProvenance::Material
                     } else {
                         KanjiSkipProvenance::Virtual
@@ -278,6 +328,71 @@ fn append_boundary_spacing(
                 )
             }),
     );
+}
+
+fn append_disc_right_spacing(
+    rebuilt: &mut [Node],
+    pending: PendingDiscRightEdges,
+    right: BoundaryEndpoint,
+    planner: &JapaneseSpacingPlanner,
+    state: &PtexSpacingState,
+    eqtb: &Eqtb,
+) {
+    let Node::Disc(disc) = &mut rebuilt[pending.rebuilt_index] else {
+        unreachable!("pending discretionary index must name a DiscNode")
+    };
+    if let Some(left) = pending.edges.no_break {
+        append_boundary_spacing(
+            &mut disc.no_break,
+            BoundaryEndpoint {
+                boundary: left,
+                indirect_edge: true,
+            },
+            right,
+            planner,
+            state,
+            eqtb,
+        );
+    }
+    if let Some(left) = pending.edges.post_break {
+        append_boundary_spacing(
+            &mut disc.post_break,
+            BoundaryEndpoint {
+                boundary: left,
+                indirect_edge: true,
+            },
+            right,
+            planner,
+            state,
+            eqtb,
+        );
+    }
+}
+
+fn remove_trailing_disc_right_spacing(nodes: &mut Vec<Node>) {
+    while matches!(
+        nodes.last(),
+        Some(Node::Glue(GlueNode {
+            subtype: GlueType::AutomaticJapanese(
+                AutomaticJapaneseGlue::MaterialKanjiSkip
+                    | AutomaticJapaneseGlue::XKanjiSkip
+            ),
+            ..
+        }))
+    ) {
+        nodes.pop();
+    }
+}
+
+fn observe_disc_right_edges(disc: &crate::nodes::DiscNode, eqtb: &Eqtb) -> ObservedDiscRightEdges {
+    let last = |nodes: &[Node]| match scan_hbox_edge(nodes, eqtb, true) {
+        HboxEdgeScan::Found(boundary) => Some(boundary),
+        HboxEdgeScan::Empty | HboxEdgeScan::Blocked => None,
+    };
+    ObservedDiscRightEdges {
+        no_break: last(&disc.no_break),
+        post_break: last(&disc.post_break),
+    }
 }
 
 fn observe_glyph_boundary(node: &Node, eqtb: &Eqtb) -> Option<ObservedBoundary> {

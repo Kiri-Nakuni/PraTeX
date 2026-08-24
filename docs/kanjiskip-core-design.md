@@ -149,9 +149,16 @@ JFM pair・禁則を推測適用せずK/X finalizer actionだけを置く。Kは
 - pre/post/no-break内の直結和文glyph同士には通常の暗黙Kが効く。
 - no-breakとpost-breakのscriptを変えると、右境界に必要なactionも枝ごとに変わる。
 
-したがって単一の外側glueをdisc後へ置く実装は誤りである。現在のproductionは、空discを
-K/Xのbarrierとする確認済み部分だけを固定した。非空枝にはno-break/post-breakそれぞれの
-条件付きspacing eventと、packer・line breaker・DVIで同じ枝を選ぶ境界が必要なので未実装である。
+したがって単一の外側glueをdisc後へ置く実装は誤りである。productionでは各restricted hlistを
+`unsave`前に個別finalizeし、枝内直結Kを`VirtualKanjiSkip`として保持する。利用者が書いたglueや
+penaltyは従来のdiscretionary list制約で拒否し、PraTeX由来のJFM/K/X/禁則nodeだけを枝内に許す。
+
+外側finalizerは左glyphからpre/no-break先頭へspacingを置かない。no-breakとpost-breakの末尾を
+独立に要約し、次のglyphとのK/Xを各枝末尾へ条件付きnodeとして置く。ここでKは箱edgeと同じ
+`MaterialKanjiSkip`であり、枝内直結の仮想Kへ混ぜない。pre-breakには外側右境界を付けず、空枝は
+barrierのままである。packerとline breakerは枝内glueのwidth/stretch/shrinkを数え、改行後の枝移植と
+DVI/PDF outputが実際に選んだno-break/post-breakだけを出力する。DiscNodeの公開3リストとfmt wireは
+増やしていない。
 
 ### 方向bit
 
@@ -188,7 +195,8 @@ close時に全JFM nodeを消して作り直すと利用者操作を破壊する�
 
 2026-08-24には推奨構成のうち、通常glyph境界と確認済みnode-less commandについて
 JFM/禁則をmain loopへ移した。closeはそれらを保持してK/Xだけを再評価し、`\unskip`で消えた
-JFMを復活させない。box/disc、`\lastnodesubtype`を含む未検証commandの全matrixは残る。
+JFMを復活させない。shifted/vbox、disc内のnode-less境界、`\lastnodesubtype`を含む未検証commandの
+全matrixは残る。
 
 推奨構成:
 
@@ -345,8 +353,9 @@ consumerへswitchを複製しない。
 これは[JLReq 3.1.7](https://www.w3.org/TR/jlreq/#characters-not-starting-a-line)と
 [JLReq 3.1.8](https://www.w3.org/TR/jlreq/#characters-not-ending-a-line)の全class実装ではない。
 
-明示penaltyだけは文字境界に透明で、明示glue、kern、math、whatsit、rule、disc等は
-barrierである。`{}`、`\relax`、`\unskip`、`\message`、semi-simple group、`\showthe`、
+明示penaltyだけは文字境界に透明で、明示glue、kern、math、whatsit、rule等はbarrierである。
+discは左側を遮断し、確認済みno-break/post-break末尾だけを右側候補として扱う。`{}`、`\relax`、
+`\unskip`、`\message`、semi-simple group、`\showthe`、
 整数register代入はnodeを足さずJFM continuityを切る確認済み境界である。listのうち確認済み
 unshifted hboxだけはedge summaryを使い、shifted hboxとvboxはbarrierのままにする。
 main-loop JFM/禁則のtyped provenanceはfmt/unhcopyを越えて保持し、再finalizeはclose-time K/Xだけを
@@ -369,7 +378,8 @@ hybrid接続後はmain-loop oracle、削除保持、fmt/unhcopyを16試験へ広
 
 1. line breaker、packer、DVI/PDF backendは`ImplicitKanjiSkip`を同じ仮想glue eventとして読む。
    plain欧文DVI differentialを先に固定し、その後に和文event oracleを追加する。
-2. box/disc三分岐と未検証commandの条件付きevent、`\inhibitglue`、全JLReq文字class、縦組へ広げる。
+2. shifted/vbox、discの全JFM class・禁則・unbox matrix、未検証commandの条件付きevent、
+   `\inhibitglue`、全JLReq文字class、縦組へ広げる。
 
 ## 9. commit順
 
@@ -405,7 +415,7 @@ hybrid接続後はmain-loop oracle、削除保持、fmt/unhcopyを16試験へ広
 ## 11. 残る黒箱課題
 
 - rule、kern、box末尾の非glyph node等のJFM/K/X edge matrix
-- discretionaryの枝別event表現、JFM class・禁則との順序
+- discretionaryの全JFM class・禁則順序、node-less境界、unbox再評価
 - inline math、accent、ligature、language whatsit
 - 異なるJFM font間、方向変更、縦組
 - `\unskip`後に片側JFMだけが残る組合せ、box/discを含むunbox再評価

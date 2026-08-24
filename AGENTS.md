@@ -238,7 +238,10 @@ control-sequence区間15.79%、fmt全体10.73%、wall 5.36%を短縮した。DVI
   `inhibitxspcode`はtyped eqtb、群・`globaldefs`、fmt、中央finalizerへ接続済み。直結和文glyph間の
   Kは公式e-upTeXのblack-box結果に合わせた仮想nodeとなり、寸法・改行・DVIには効く一方、
   `\showbox`、`\lastskip`、`\lastnodetype`、`\unskip`からは隠れる。確認済みunshifted hbox境界は
-  material Kへ分けて接続済みで、shifted/vboxとdisc境界はまだ未実装であり、この仮想K型へ混ぜない。
+  material Kへ分けて接続済みである。discはpre/no-break先頭への左spacingを遮断し、no-breakと
+  post-breakの末尾から右glyphへのK/Xを枝内の条件付きmaterial nodeとして個別に保持する。枝内直結Kだけは
+  virtualのまま、packer・line breaker・DVIが選んだ枝へ追随する。shifted hbox/vboxはbarrierのままである。
+  `codex2/jlreq-box-disc`の全releaseは876 passed、0 failed、10 ignoredで、plain欧文DVI byte回帰も維持した。
 - `\readline`、`\interactionmode`、mark class、糊成分・型変換、
   `\currentiftype`の`\unless`符号、font照会、`\middle`は実装済み。`\middle`は
   segmentごとのsave group復元、元のmath styleでのnew list、全delimiter共通寸法、
@@ -275,7 +278,7 @@ control-sequence区間15.79%、fmt全体10.73%、wall 5.36%を短縮した。DVI
   ではなくpLaTeXがNFSS上へ加えた拡張の意味を、PraTeX固有名で実装したもの。publicなUseは
   document body用で、preambleの次回`\selectfont`へ保留する契約はない。JFM宣言は横組exactだけ。
   `prjsarticle`の通常font roleはこの宣言面を使い、手続き的な和欧hook列を使わない。
-  `\tfont`、縦組、box/discを含むmain-loop境界の網羅、完全禁則は未接続。PDF和文glyphは明示named CID profileを
+  `\tfont`、縦組、shifted/vboxとnode-less commandを含むmain-loop境界の網羅、完全禁則は未接続。PDF和文glyphは明示named CID profileを
   使う非埋込みBMP最小経路だけ接続済みで、portableな字形表示ではない。
 - TeX Live探索の既定CLI名は`--progname=pratex`であり、別engine名へ偽装しない。通常DVIでは
   PraTeXがTFM/JFMを解決し、VFはDVI driver自身が解決する。本文用`upjisr-h`だけでなく
@@ -308,7 +311,7 @@ control-sequence区間15.79%、fmt全体10.73%、wall 5.36%を短縮した。DVI
    `kpsewhich` argvと子process 0、hit/miss、alias、非UTF-8 path、DVI意味を照合する。TUG TeX Liveが
    standalone libraryを配らない場合はexact TL2026 sourceから共有libraryを再現し、静的linkは版pin・
    LGPL source/relink条件・再現性・binary sizeを別gateにする。Windows fast pathはallocator対応後に測る。
-2. 接続済みmain-loop JFM/禁則をbox/disc・残るcommand境界へ広げ、discの枝別意味を完成する。
+2. 接続済みmain-loop JFM/禁則をshifted/vbox・残るcommand境界へ広げ、discの枝内JFM class・禁則・unbox再評価matrixを完成する。
 3. compile済み汎用script class対tableをlist単位dispatcherと中央finalizerへ接続する。
 4. `\tfont`と縦組metric/node/outputを追加し、JFM/K/X/禁則を横組から縦組へ広げる。
 5. discard保存、show/tracing、`\lastlinefit`、

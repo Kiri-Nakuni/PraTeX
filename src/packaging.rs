@@ -188,6 +188,8 @@ pub fn measure_hlist(hlist: &Vec<Node>) -> Measurement {
                         &mut total_width,
                         &mut max_height,
                         &mut max_depth,
+                        &mut stretch_collector,
+                        &mut shrink_collector,
                     )
                 }
             }
@@ -211,6 +213,8 @@ fn measure_disc_internal_node(
     total_width: &mut Dimension,
     max_height: &mut Dimension,
     max_depth: &mut Dimension,
+    stretch_collector: &mut GlueCollector,
+    shrink_collector: &mut GlueCollector,
 ) {
     match node {
         &Node::Char(CharNode {
@@ -263,6 +267,12 @@ fn measure_disc_internal_node(
         Node::Kern(KernNode { width, .. }) => {
             *total_width += width;
         }
+        Node::Glue(GlueNode { glue_spec, .. }) => {
+            *total_width += glue_spec.width;
+            stretch_collector.add_dimen(glue_spec.stretch);
+            shrink_collector.add_dimen(glue_spec.shrink);
+        }
+        Node::Penalty(_) => {}
         _ => panic!("This node type should not appear in a discretionary"),
     }
 }

@@ -25,9 +25,9 @@ use crate::nodes::noads::{
     VcenterNoad,
 };
 use crate::nodes::{
-    show_box_content, AdjustNode, CharNode, DiscNode, GlueNode, GlueSpec, GlueType, HlistOrVlist,
-    InsNode, KernNode, KernSubtype, LeaderKind, LigatureNode, ListNode, MarkNode, Node,
-    PenaltyNode, RuleNode, WideCharNode,
+    show_box_content, AdjustNode, AutomaticJapaneseGlue, CharNode, DiscNode, GlueNode, GlueSpec,
+    GlueType, HlistOrVlist, InsNode, KernNode, KernSubtype, LeaderKind, LigatureNode, ListNode,
+    MarkNode, Node, PenaltyNode, PenaltySubtype, RuleNode, WideCharNode,
 };
 use crate::output::Output;
 use crate::packaging::{
@@ -348,6 +348,12 @@ fn build_discretionary(
     eqtb: &mut Eqtb,
     logger: &mut Logger,
 ) {
+    let RichMode::Horizontal(hmode) = nest.mode_mut() else {
+        panic!("The mode must have been horizontal");
+    };
+    // discretionaryの各枝は独立したrestricted hlistである。枝内の暗黙K/Xを
+    // 局所parameterの復元前に確定し、外側の右端条件付きspacingとは分ける。
+    hmode.finalize_script_spacing(eqtb);
     eqtb.unsave(scanner, logger);
     let old_level = nest.pop_nest(eqtb);
     let RichMode::Horizontal(hmode) = old_level.mode else {
@@ -426,7 +432,21 @@ fn prune_current_list(
             | Node::List(_)
             | Node::Rule(_)
             | Node::Kern(_)
-            | Node::Ligature(_) => {}
+            | Node::Ligature(_)
+            | Node::Glue(GlueNode {
+                subtype:
+                    GlueType::AutomaticJapanese(
+                        AutomaticJapaneseGlue::Jfm
+                        | AutomaticJapaneseGlue::VirtualKanjiSkip
+                        | AutomaticJapaneseGlue::MaterialKanjiSkip
+                        | AutomaticJapaneseGlue::XKanjiSkip,
+                    ),
+                ..
+            })
+            | Node::Penalty(PenaltyNode {
+                subtype: PenaltySubtype::AutomaticJapaneseKinsoku,
+                ..
+            }) => {}
             _ => {
                 logger.print_err("Improper discretionary list");
                 let help = &["Discretionary lists must contain only boxes and kerns."];
