@@ -168,7 +168,7 @@ impl Default for ResolverOptions {
     fn default() -> Self {
         Self {
             kpsewhich_program: OsString::from("kpsewhich"),
-            program_name: OsString::from("euptex"),
+            program_name: OsString::from("pratex"),
             external_format_search: ExternalFormatSearch::LocalOnly,
             filename_database_search: FilenameDatabaseSearch::Disabled,
             wsl_fallback: WslFallbackPolicy::Disabled,
@@ -1908,7 +1908,7 @@ mod tests {
     }
 
     #[test]
-    fn 全用途を公開cliのformatへ対応させる() {
+    fn 全用途をpratex名で公開cliのformatへ対応させる() {
         let kinds_and_formats = [
             (FileKind::Tex, "tex"),
             (FileKind::Format, "fmt"),
@@ -1928,7 +1928,6 @@ mod tests {
         let fake = FakeExecutor::with_responses(responses);
         let options = ResolverOptions::default()
             .with_kpsewhich_program("custom-kpsewhich")
-            .with_program_name("euptex")
             .with_external_format_search(ExternalFormatSearch::KpsewhichRtexEngine);
         let mut resolver = KpsewhichResolver::new(options, fake.clone());
 
@@ -1944,7 +1943,7 @@ mod tests {
             assert_eq!(invocation.program, OsString::from("custom-kpsewhich"));
             assert!(invocation
                 .arguments
-                .contains(&OsString::from("--progname=euptex")));
+                .contains(&OsString::from("--progname=pratex")));
             assert!(invocation
                 .arguments
                 .contains(&OsString::from(format!("--format={format}"))));
@@ -2387,6 +2386,8 @@ mod tests {
         for (kind, name) in [
             (FileKind::Tfm, "upjisr-h.tfm"),
             (FileKind::Vf, "upjisr-h.vf"),
+            (FileKind::Tfm, "upjisg-h.tfm"),
+            (FileKind::Vf, "upjisg-h.vf"),
         ] {
             let logical = LogicalFileName::new(name);
             let first = resolver.resolve(kind, &logical).unwrap().unwrap();

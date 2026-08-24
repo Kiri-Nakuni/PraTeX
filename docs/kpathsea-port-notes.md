@@ -1,6 +1,6 @@
 # TeX Live探索の移植記録
 
-更新: 2026-08-22
+更新: 2026-08-24
 
 PraTeXはKpathsea libraryを再実装したものではない。公開されている`kpsewhich` CLIと
 `ls-R`の書式を境界にして、TeX Liveの探索結果をPraTeXのfile resolverへ接続する。
@@ -46,10 +46,12 @@ cacheと`ls-R` fast pathを使える。ただし通常のDVI生成でPraTeX自�
 初回の外部探索時に、次の固定argvで利用中のTeX環境自身へdatabaseを尋ねる。
 
 ```text
-kpsewhich --all --must-exist --progname=euptex --format=ls-R -- ls-R
+kpsewhich --all --must-exist --progname=pratex --format=ls-R -- ls-R
 ```
 
-用途別の探索順は`kpsewhich --progname=euptex --show-path=<format>`の展開済み出力から取る。
+用途別の探索順は`kpsewhich --progname=pratex --show-path=<format>`の展開済み出力から取る。
+別engineの名前を探索用aliasにも使わない。TeX Live 2026の実機では`pratex`をprogram名にしても
+`upjisr-h`と`upjisg-h`のTFM/VFをすべて解決できることを確認している。
 PraTeX自身で`texmf.cnf`の変数やbraceを展開しない。現在、安全に解釈する部分集合は次である。
 
 したがってfast pathの初期化にも、database発見を一回、最初に使う用途ごとに`--show-path`を
@@ -119,13 +121,29 @@ cargo test --release file_search::tests::既定resolverがwsl_tex_liveのtfmをw
 ```
 
 配布JFMと対応VFの用途分離は、native TeX Liveまたは上記WSL bridgeを使える環境で次のignored試験を
-有効にする。`upjisr-h.tfm`と`upjisr-h.vf`を同じresolver instanceから二回ずつ解決し、物理fileを
-開けることとrun-local cacheの安定した結果を照合する。
+有効にする。本文・表題用`upjisr-h`と見出し用`upjisg-h`のTFM/VFを同じresolver instanceから
+二回ずつ解決し、物理fileを開けることとrun-local cacheの安定した結果を照合する。
 
 ```powershell
 $env:PRATEX_TEST_TEXLIVE = '1'
 cargo test --release file_search::tests::tex_liveのjfmとvfを用途別に解決できる -- --ignored
 ```
+
+PraTeXからDVI driverまでのno-copy gateは、JFM/VFを作業directoryへ置かず、同じTeX Liveの
+`kpsewhich`と`dvipdfmx`を使う。通常のTeX Liveでは`uptex-fonts`に加え、設定済みの和文font map、
+CMap、物理fontが必要である。
+
+```powershell
+$env:PRATEX_TEST_TEXLIVE_E2E = '1'
+$env:PRATEX_TEXLIVE_BIN = (Split-Path -Parent (Get-Command kpsewhich).Source)
+cargo test --release --test japanese_glyph_dvi `
+  実tex_liveが資材をコピーせず二つのjfmとvfをdvipdfmxまで解決する -- --ignored --exact
+```
+
+2026-08-24には隔離TeX Live 2026で`uptex-fonts` revision 74119、`dvipdfmx` revision 78409、
+`ptex-fontmaps` revision 65953、Harano Aji revision 76078、Adobe CMap revision 66552を使った。
+PraTeXは空の作業directoryから二つのJFMを解決して1 pageのDVIを生成し、`dvipdfmx`は同じtreeの
+`upjisr-h.vf` / `upjisg-h.vf`を読み、明朝・ゴシックを別々のType 0/CID fontとして埋め込んだ。
 
 ## 性能と残る問題
 

@@ -122,7 +122,7 @@ PraTeXはTeX Liveの`ls-R`と
 
 ### 日本語横組みを実際に試す
 
-現在の通常経路は、TeX Liveの`upjisr-h.tfm`を使うDVI出力です。次のPowerShell例は
+現在の通常経路は、TeX Liveの本文用`upjisr-h.tfm`と見出し用`upjisg-h.tfm`を使うDVI出力です。次のPowerShell例は
 PraTeX用`prjsarticle`、`pratex-japanese`、実行例を一時作業directoryへ揃え、現在のbinaryで
 `latex.fmt`を生成してから和欧混植文書を処理します。
 
@@ -132,6 +132,8 @@ kpsewhich latex.ltx
 kpsewhich hyphen.cfg
 kpsewhich upjisr-h.tfm
 kpsewhich upjisr-h.vf
+kpsewhich upjisg-h.tfm
+kpsewhich upjisg-h.vf
 kpsewhich tcrm1000.tfm
 
 $repo = (Resolve-Path .).Path
@@ -175,6 +177,8 @@ kpsewhich latex.ltx
 kpsewhich hyphen.cfg
 kpsewhich upjisr-h.tfm
 kpsewhich upjisr-h.vf
+kpsewhich upjisg-h.tfm
+kpsewhich upjisg-h.vf
 kpsewhich tcrm1000.tfm
 
 cargo build --release --locked --bin pratex

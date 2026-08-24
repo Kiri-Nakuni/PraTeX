@@ -1,0 +1,10 @@
+% TeX Live の JFM/VF を作業 directory へコピーせずに検査する plain PraTeX 入力。
+\catcode123=1
+\catcode125=2
+\batchmode
+\kcatcode"3042=16
+\pratexjfont\Mincho=upjisr-h at 10pt
+\pratexjfont\Gothic=upjisg-h at 10pt
+\setbox0=\hbox{\Mincho あ\Gothic あ}
+\shipout\box0
+\end

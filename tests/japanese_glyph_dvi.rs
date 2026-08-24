@@ -116,7 +116,11 @@ fn prepare_directory(name: &str) -> PathBuf {
         "use.dvi",
         "synthetic.tfm",
         "upjisr-h.tfm",
+        "upjisr-h.vf",
+        "upjisg-h.tfm",
+        "upjisg-h.vf",
         "vertical.tfm",
+        "t.pdf",
     ] {
         let _ = std::fs::remove_file(directory.join(file_name));
     }
@@ -581,5 +585,118 @@ fn 公式dvipdfmxがfont256のset2をtype0和文glyphへ変換する() {
         pdf.windows(b"TJ".len()).any(|part| part == b"TJ")
             || pdf.windows(b"Tj".len()).any(|part| part == b"Tj"),
         "PDF page contentに和文glyphのtext-showing operatorがない"
+    );
+}
+
+/// 通常のTeX Liveを使い、作業directoryへJFM/VFをcopyしない実機gate。
+///
+/// 必須:
+/// - `PRATEX_TEST_TEXLIVE_E2E=1`
+/// - `PRATEX_TEXLIVE_BIN`: `kpsewhich`と`dvipdfmx`を含むTeX Liveのbinary directory
+///
+/// TeX Live側には`uptex-fonts`と、dvipdfmx用の和文font map/CMap/fontが必要である。
+#[test]
+#[ignore = "通常のTeX Liveと設定済みdvipdfmxを外部に必要とするno-copy実機gate"]
+fn 実tex_liveが資材をコピーせず二つのjfmとvfをdvipdfmxまで解決する() {
+    assert_eq!(
+        std::env::var("PRATEX_TEST_TEXLIVE_E2E").as_deref(),
+        Ok("1")
+    );
+    let tex_live_bin = PathBuf::from(
+        std::env::var_os("PRATEX_TEXLIVE_BIN")
+            .expect("PRATEX_TEXLIVE_BINにTeX Liveのbinary directoryを指定する"),
+    );
+    let directory = prepare_directory("実TeX Live no-copy JFM/VF");
+    std::fs::write(
+        directory.join("t.tex"),
+        include_str!("fixtures/japanese-live-two-jfm.tex"),
+    )
+    .unwrap();
+
+    for asset in [
+        "upjisr-h.tfm",
+        "upjisr-h.vf",
+        "upjisg-h.tfm",
+        "upjisg-h.vf",
+    ] {
+        assert!(
+            !directory.join(asset).exists(),
+            "no-copy gateの作業directoryへ{asset}が残っている"
+        );
+    }
+
+    let mut engine = Command::new(env!("CARGO_BIN_EXE_rtex"));
+    prepend_path(&mut engine, &tex_live_bin);
+    let engine_output = engine
+        .arg("t.tex")
+        .current_dir(&directory)
+        .output()
+        .expect("PraTeXを起動できなかった");
+    assert_success(
+        &engine_output,
+        "TeX Live resolverで二つのJFMをcopyなしに読めなかった",
+    );
+
+    let events = parse_first_page(&std::fs::read(directory.join("t.dvi")).unwrap());
+    assert_eq!(events.wide.len(), 2);
+    for logical_name in [b"upjisr-h".as_slice(), b"upjisg-h".as_slice()] {
+        assert!(
+            events
+                .font_definitions
+                .iter()
+                .any(|(_, name)| name == logical_name),
+            "DVIに論理和文font名がない: {}",
+            String::from_utf8_lossy(logical_name)
+        );
+    }
+
+    let dvipdfmx = tex_live_bin.join(format!("dvipdfmx{}", std::env::consts::EXE_SUFFIX));
+    let driver_output = Command::new(dvipdfmx)
+        .args(["-vv", "-z", "0", "-o", "t.pdf", "t.dvi"])
+        .current_dir(&directory)
+        .output()
+        .expect("TeX Liveのdvipdfmxを起動できなかった");
+    assert_success(
+        &driver_output,
+        "TeX LiveがPraTeX DVIのJFM/VFをcopyなしに変換できなかった",
+    );
+
+    let mut driver_log = driver_output.stdout;
+    driver_log.extend_from_slice(&driver_output.stderr);
+    for evidence in [b"upjisr-h".as_slice(), b"upjisg-h".as_slice(), b"(VF:".as_slice()] {
+        assert!(
+            driver_log
+                .windows(evidence.len())
+                .any(|part| part == evidence),
+            "dvipdfmxのJFM/VF探索証跡がない: {}\n{}",
+            String::from_utf8_lossy(evidence),
+            String::from_utf8_lossy(&driver_log)
+        );
+    }
+    assert!(
+        driver_log.windows(b"Type0".len()).any(|part| part == b"Type0")
+            || driver_log
+                .windows(b"CIDFont".len())
+                .any(|part| part == b"CIDFont"),
+        "dvipdfmxが和文Type0/CID fontを生成していない: {}",
+        String::from_utf8_lossy(&driver_log)
+    );
+
+    let pdf = std::fs::read(directory.join("t.pdf")).expect("dvipdfmxがt.pdfを生成しなかった");
+    assert!(pdf.windows(b"/Type0".len()).any(|part| part == b"/Type0"));
+    assert!(
+        pdf.windows(b"TJ".len()).any(|part| part == b"TJ")
+            || pdf.windows(b"Tj".len()).any(|part| part == b"Tj")
+    );
+}
+
+fn prepend_path(command: &mut Command, directory: &Path) {
+    let mut paths = vec![directory.to_path_buf()];
+    if let Some(current) = std::env::var_os("PATH") {
+        paths.extend(std::env::split_paths(&current));
+    }
+    command.env(
+        "PATH",
+        std::env::join_paths(paths).expect("TeX Liveを先頭にしたPATHを構成できなかった"),
     );
 }

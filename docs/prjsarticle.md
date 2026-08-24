@@ -82,7 +82,8 @@ exact source shapeを先に探し、無ければshape wildcardを探す。wildca
 compatibility aliasを置ける。
 
 `prjsarticle`は`PJY1/mc/m/n`を本文、`PJY1/mc/bx/n`をtitle、`PJY1/gt/m/n`を見出しrole
-として宣言する。前二者は`upjisr-h`、見出しは`upjisg-h`へ対応し、従属欧文はそれぞれ
+として宣言する。前二者は`upjisr-h`、見出しは`upjisg-h`へ対応するため、通常のTeX Liveでは
+両方のTFM/VFを用意する。従属欧文はそれぞれ
 roman regular、roman bold、sans boldの実在shape `n`を選ぶ。bold roleはforce対象へ抽象的な
 `\bfdefault`を渡さず、Computer Modernの実在series `bx`を宣言する。各roleは`PJY1` encodingも
 毎回明示する。jsclassesがこの機構をclass policyに使うかどうかとは
