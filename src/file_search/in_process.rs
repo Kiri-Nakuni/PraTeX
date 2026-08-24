@@ -317,6 +317,81 @@ mod tests {
         )
     }
 
+    #[cfg(all(feature = "system-kpathsea", target_os = "linux"))]
+    fn canonical_external_fixture(variable: &str) -> PathBuf {
+        let path = PathBuf::from(
+            std::env::var_os(variable)
+                .unwrap_or_else(|| panic!("{variable}に合成TeX treeのfileを指定する")),
+        );
+        fs::canonicalize(&path).unwrap_or_else(|error| {
+            panic!("{variable}のfileをcanonicalizeできない: {path:?}: {error}")
+        })
+    }
+
+    /// 既定featureが静的に組み込んだKpathseaを使うLinuxだけで明示実行するgate。
+    ///
+    /// `TEXINPUTS.pratex`を通常の`TEXINPUTS`から分けたrunnerから起動するため、
+    /// TEX hitはconstructorへ渡したprogram名が`pratex`であることも同時に固定する。
+    #[cfg(all(feature = "system-kpathsea", target_os = "linux"))]
+    #[test]
+    #[ignore = "tools/test-bundled-kpathsea-linux.shが合成TeX treeを用意して実行する"]
+    fn 組込みkpathseaがpratex名でtexとtfmとjfmとvfのhit_missを分ける() {
+        assert_eq!(
+            std::env::var("PRATEX_TEST_BUNDLED_KPATHSEA").as_deref(),
+            Ok("1")
+        );
+        assert!(
+            !PathBuf::from("bundled-kpathsea-gate.tex").exists(),
+            "TEXのprogram名gateは同名fileがcurrent directoryにない場所から実行する"
+        );
+
+        let expected = [
+            (
+                FileKind::Tex,
+                "bundled-kpathsea-gate.tex",
+                canonical_external_fixture("PRATEX_KPATHSEA_EXPECT_TEX"),
+            ),
+            (
+                FileKind::Tfm,
+                "synthetic-latin.tfm",
+                canonical_external_fixture("PRATEX_KPATHSEA_EXPECT_TFM"),
+            ),
+            (
+                FileKind::Tfm,
+                "synthetic-jfm.tfm",
+                canonical_external_fixture("PRATEX_KPATHSEA_EXPECT_JFM"),
+            ),
+            (
+                FileKind::Vf,
+                "synthetic-jfm.vf",
+                canonical_external_fixture("PRATEX_KPATHSEA_EXPECT_VF"),
+            ),
+        ];
+        let mut fast = KpathseaFastPath::new();
+
+        for (kind, logical_name, expected_path) in expected {
+            let actual = match fast.resolve(kind, &LogicalFileName::new(logical_name)) {
+                FastPathLookup::Found(path) => fs::canonicalize(&path).unwrap_or_else(|error| {
+                    panic!("組込みhitをcanonicalizeできない: {path:?}: {error}")
+                }),
+                other => panic!("{kind:?} {logical_name}が組込みhitでない: {other:?}"),
+            };
+            assert_eq!(actual, expected_path, "{kind:?} {logical_name}");
+        }
+
+        for (kind, logical_name) in [
+            (FileKind::Tex, "pratex-bundled-kpathsea-absent.tex"),
+            (FileKind::Tfm, "pratex-bundled-kpathsea-absent.tfm"),
+            (FileKind::Vf, "pratex-bundled-kpathsea-absent.vf"),
+        ] {
+            assert_eq!(
+                fast.resolve(kind, &LogicalFileName::new(logical_name)),
+                FastPathLookup::Missing,
+                "{kind:?} {logical_name}"
+            );
+        }
+    }
+
     struct TempFile {
         directory: PathBuf,
         path: PathBuf,

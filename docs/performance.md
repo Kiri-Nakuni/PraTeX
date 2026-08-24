@@ -548,3 +548,18 @@ DVIを出す前の失敗probeなのでDVI比較値はない。計測instrumentat
 測定済みの次候補は、探索外部processの削減、TFM lig/kern小表の汎用hash除去、
 `ls-R`索引の確保削減、入力行bufferの再利用、PDF文字命令の一時`String`除去である。一つの枝へ混ぜず、同じ
 出力hashとTRIPを条件に個別採否を決める。
+
+## 組込みKpathseaの実行時子process 0 gate（2026-08-24）
+
+Linux既定buildは、公式TeX Live 2026 revision `svn78399`のKpathsea 6.4.2を静的に組み込む。
+TeX Liveを持たないUbuntu WSLでrelease linkしたbinaryに対し、合成`texmf.cnf`と`ls-R`から
+TEX、Latin TFM、JFM、VFのhitとkind別missを検査した。`ldd`には共有`libkpathsea`がなく、
+空のtool用`PATH`で`strace -f -e trace=process`したDVI実行は一PID、process生成event 0だった。
+TeX tree経由とcurrent-directory経由のDVIはbyte一致し、固定SHA-256は
+`658ec798192d67c3a067b8296a3300e580b2aaf7ba8b4fcc04dab78022848993`である。再現手順は
+[`test-bundled-kpathsea-linux.sh`](../tools/test-bundled-kpathsea-linux.sh)、探索意味と限界は
+[`kpathsea-port-notes.md`](kpathsea-port-notes.md)に置いた。
+
+これはbenchmarkではない。合成treeにおける外部`kpsewhich`起動0を実行時に固定した正しさgateで、
+実TeX Live corpusのwall、`ls-R` load、fmt undump、macro展開、DVI driver時間を測っていない。
+次の採否は利用者fixtureを同一Linux TeX treeで三回ずつ測り、engineと`dvipdfmx`を分離して行う。

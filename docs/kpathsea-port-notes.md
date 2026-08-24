@@ -259,3 +259,32 @@ native/WSLを混ぜない条件、UNC変換、cache消去を固定する。2026-
 - [Microsoft: Run Linux commands from Windows](https://learn.microsoft.com/en-us/windows/wsl/filesystems#run-linux-tools-from-a-windows-command-line)
 - [Microsoft: Basic commands for WSL](https://learn.microsoft.com/en-us/windows/wsl/basic-commands)
 - [Microsoft: WSL FAQ](https://learn.microsoft.com/en-us/windows/wsl/faq)
+
+## Linux既定の組込みKpathsea実行gate（2026-08-24）
+
+`codex2/perf-resolver-index`では、Linux既定featureが公式TeX Live 2026 revision `svn78399`
+（Kpathsea 6.4.2、git commit
+`fb6158926661cb7a7246b3a94a0cb170a9624d5a`）を静的に組み込む。sourceを取得できない時やC buildが
+失敗した時は、外部`kpsewhich` backendへ黙って退行せずbuildを失敗させる。共有system Kpathseaを
+明示選択するbuildは別featureとして残す。
+
+[`../tools/test-bundled-kpathsea-linux.sh`](../tools/test-bundled-kpathsea-linux.sh)はrepository外の
+一時directoryに合成`texmf-dist`、`texmf.cnf`、`ls-R`を作り、次を一つのgateで検査する。
+
+- `TEXINPUTS.pratex`からTEX、`TFMFONTS`からLatin TFMとJFM、`VFFONTS`からVFを見つけ、各kindの
+  missを`Missing`として返す。合成metric/VF byte列はresolver試験だけに使い、parseしない。
+- release binaryの`ldd`に共有`libkpathsea`が現れない。
+- TeX treeから見つけた入力と、同じ入力をcurrent directoryへ置いた実行のDVIがbyte一致する。
+- `PATH`を空のtool directoryへ固定した実行を`strace -f -e trace=process`で観測し、PIDが一つ、
+  `clone` / `clone3` / `fork` / `vfork`が0である。
+- 固定`SOURCE_DATE_EPOCH`でDVI SHA-256が
+  `658ec798192d67c3a067b8296a3300e580b2aaf7ba8b4fcc04dab78022848993`になる。
+
+2026-08-24のTeX Liveを持たないUbuntu WSL実測では、55個のKpathsea C sourceをrelease linkし、
+focused resolver test 1件と上のend-to-end gateが成功した。この試験が証明するのは合成treeの
+対象lookup中に子processを起動しないこととDVI意味だけである。実TeX Liveの全`texmf.cnf`、alias、
+`mktex*`、stale database、利用者treeの意味互換や、利用者の9.14秒corpusの短縮率はまだ証明しない。
+
+```bash
+tools/test-bundled-kpathsea-linux.sh
+```
