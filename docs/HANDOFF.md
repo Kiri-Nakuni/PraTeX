@@ -1,6 +1,6 @@
 # PraTeX 作業引継ぎ
 
-更新: 2026-08-25（`3db344e`、型付きfmt、全release・binary／legacy TRIP成功）
+更新: 2026-08-25（`d5eb585`、寸法first-token handoff、全release・TRIP成功）
 
 この文書は、現在の Codex セッションから別のエージェントへ作業が移っても、
 検証済みの境界と未commitの作業を失わないための生きた引継ぎである。
@@ -21,10 +21,16 @@
 ## 枝と共有状態
 
 - 現在の統合・性能枝: `codex3/perf-integration`。`codex2/perf-resolver-index`の
-  `f414757`から分岐した。最新code checkpointは`3db344e`で、`origin`と`github`の同名枝へ
-  push済みである。`3db344e`は既定fmtをversion付きsectioned binaryへ変え、実行時に不要な
+  `f414757`から分岐した。最新code checkpointは`d5eb585`で、`origin`と`github`の同名枝へ
+  push済みである。`d5eb585`は寸法scannerが既に得た展開済みcommand/token対を
+  整数scannerへ直接渡し、差戻しと即時再取得を除く。`3db344e`は既定fmtを
+  version付きsectioned binaryへ変え、実行時に不要な
   `PreTrie`とbuild hashを保存しない`HyphenRuntimeV1`を導入した。旧ASCII fmtは自動読込と
   `PRATEX_FMT_CODEC=legacy-text`による生成を維持する。
+- `d5eb585`の全releaseは**934 passed、0 failed、11 ignored**。公式TRIPはStage 1/2とも
+  exit 0、`tripos.tex`・PLtoTF→TFtoPLはbyte一致、固定comment DVIは公式2,920 byteと
+  完全一致した。寸法microの31交互組はwall幾何平均比0.965479、299頁20組は
+  0.996439である。後者はnoise内としてgate達成へ外挿しない。
 - `3db344e`の全releaseは**932 passed、0 failed、11 ignored**。binary既定と旧ASCIIの双方で
   公式TRIP Stage 1/2、`tripos.tex`、PLtoTF→TFtoPL、固定comment DVIの公式byte一致を確認した。
   schemaは[`format-file-v1.md`](format-file-v1.md)、raw A/Bは
@@ -599,6 +605,17 @@ exception、`\savinghyphcodes` snapshot、圧縮Trie node、operationだけを�
 同日の公式upLaTeX診断値に対し概算1.36倍で、1.3未満と0.98未満はまだ未達である。次はfmtを触らず、
 loaded-engineのtoken取得、整数走査、macro reader、input frameを同一DVIの局所A/Bで削る。
 
+## 完了済み性能checkpoint: 寸法first-token handoff
+
+`d5eb585`は、寸法scannerが空白・符号と最初の展開済みtokenを読んだ後、そのtokenを
+差し戻して整数scannerが直後に再取得していた往復を除く。解決済みの
+`UnexpandableCommand` / `Token`対をprivate経路で渡し、終端tokenと診断の中央契約は一箇所に残す。
+
+寸法1,600,000代入の31交互組で、paired幾何平均比はwall 0.965479、task-clock 0.966130、
+instructions 0.964690。全31組でcandidateが短かった。299頁の20組はwall 0.996439で、
+約0.35%の差はnoise内として過大評価しない。DVI・aux・局所logはbyte一致、全releaseと
+公式TRIPも成功した。次はglueとe-TeX式の同様のfirst-token往復を別candidateで測る。
+
 ## 固定済み巨大文書基線と教材DVI残件
 
 `efa9ddd`の`tools/bench-document-throughput-linux.sh`は、PraTeX、upLaTeX、LuaLaTeX DVIをCPU 0で
@@ -660,7 +677,7 @@ page builder、出力box直前の寸法を自作probeで比較し、原因を直
 
 ## 検証
 
-`3db344e`のcheckpointでfocused test、全release、binary／legacy双方の公式TRIPを通した。再開時も
+`d5eb585`のcheckpointでfocused test、全release、公式TRIPを通した。再開時も
 変更対象のfocused testを先に走らせ、全releaseと必要なTRIP/DVI・PDF意味gateへ戻る。
 
 ```powershell
@@ -669,7 +686,7 @@ cargo test --release --locked --no-fail-fast
 ```
 
 その後、公式CTAN資材を隔離rootへ取得してTRIPを走らせる。現在の検証済み資材は
-`/tmp/pratex-trip-hyphen-runtime-v1.oiJd5iKP`にあり、manifest SHA-256を再検査して再利用できる。
+`/tmp/pratex-trip-20260825.iNah6roG/reference`にあり、manifest SHA-256を再検査して再利用できる。
 
 ```powershell
 pwsh -NoProfile -File tools/run-trip.ps1
@@ -677,14 +694,14 @@ pwsh -NoProfile -File tools/run-trip.ps1
 
 2026-08-25の直近既知正常値:
 
-- `3db344e`の全release: 932 passed、0 failed、11 ignored
-- binary既定／旧ASCIIのTRIP Stage1/Stage2がともにexit 0
+- `d5eb585`の全release: 934 passed、0 failed、11 ignored
+- TRIP Stage1/Stage2がともにexit 0
 - `tripos.tex` byte一致、`8terminal.tex` 0 byte、PLtoTF→TFtoPL byte一致
-- binary／旧ASCIIの固定comment PraTeX DVIは公式2920-byte DVIとbyte一致。SHA-256は
+- 固定comment PraTeX DVIは公式2920-byte DVIとbyte一致。SHA-256は
   `09802695e330d34acec9192c15debe2de65e34fcbd3f947db9c8924240b1fe0a`
 - TRIP feature binary SHA-256は
-  `be5cdc9f3563410131940c3e4389bd8f09dfd43c5f065eaf84665a2ccdd93784`
-- 隔離artifactは`/tmp/pratex-trip-hyphen-runtime-v1.oiJd5iKP`
+  `6d7eef7a7df32a75bae03f14acf94e4428da0b8d413de3261647f8989351565b`
+- 隔離artifactは`/tmp/pratex-trip-20260825.iNah6roG/current-dimension-first-token*`
 
 型付きfull LaTeX fmtは21,532,633 byteまで実測済みである。標準LaTeX互換profileと
 upLaTeX互換profileはengine偽装でなくformat／package契約として分け、各profile完成時に再測定する。

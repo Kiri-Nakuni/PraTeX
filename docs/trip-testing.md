@@ -184,3 +184,27 @@ runnerが固定するbyte入力、引数、比較順を手動で再現した。
 
 隔離artifactは`/tmp/pratex-trip-hyphen-runtime-v1.oiJd5iKP`に残した。これによりfmt wireを
 変更したcheckpointでも、binary／legacyの選択がTRIPの組版意味を変えないことを固定した。
+
+### `d5eb585` 寸法first-token handoff checkpoint
+
+寸法scannerから整数scannerへ既に展開済みのcommand/token対を直接渡すcheckpointを、
+既存の隔離targetとSHA-256検証済み公式資材で再実行した。buildと全engine runは
+CPU 0・`CARGO_BUILD_JOBS=1`で逐次実行した。
+
+- 公式archive SHA-256
+  `1d419b1bd7efa575ead0174e47d542a0099a73e0e4deb5031980d109e8c3c645`とmanifestの10資材は
+  すべて再検証に成功した。
+- TRIP feature実行file SHA-256は
+  `6d7eef7a7df32a75bae03f14acf94e4428da0b8d413de3261647f8989351565b`。
+- PLtoTF→TFtoPLの生成TFMとround-trip PLはそれぞれ公式fileへbyte一致した。
+- Stage 1 / Stage 2はともにexit 0、`tripos.tex`は公式へbyte一致、`8terminal.tex`は0 byte。
+- binary `trip.fmt`は511,386 byte、SHA-256
+  `086098b60d0093c2a07c11a43f2beb122fb1f7bb7f51cc8bf37ea2db56d80cc8`。
+- `-output-comment= TeX output 1776.07.04:1200`の固定comment runは公式DVIと2920 byteすべてが
+  一致し、双方のSHA-256は
+  `09802695e330d34acec9192c15debe2de65e34fcbd3f947db9c8924240b1fe0a`だった。
+
+隔離artifactは`/tmp/pratex-trip-20260825.iNah6roG/current-dimension-first-token`、
+`current-dimension-first-token-fixed`、`actual-dimension-first-token`に残した。fmt codec自体を
+変更するcheckpointではないため、今回は既定binary codecを一回走らせ、旧ASCIIの重複runは
+`3db344e`の双codec成功値を維持した。

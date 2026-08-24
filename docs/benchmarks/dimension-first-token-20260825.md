@@ -1,6 +1,7 @@
 # 寸法走査のfirst-token handoff
 
 更新: 2026-08-25
+採用commit: `d5eb585`
 
 ## 結論
 
