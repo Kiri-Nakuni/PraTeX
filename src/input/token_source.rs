@@ -1,8 +1,11 @@
+use super::macro_reader::MacroArguments;
 use crate::eqtb::{Eqtb, TokenListVariable};
 use crate::logger::Logger;
 use crate::print::Printer;
 use crate::token::Token;
 use crate::token_lists::{token_show, RcTokenList};
+
+use std::rc::Rc;
 
 /// A token list as input source.
 /// See 307.
@@ -16,6 +19,10 @@ pub struct TokenListReader {
 enum TokenListStorage {
     Shared(RcTokenList),
     Inline(Token),
+    MacroParameter {
+        arguments: Rc<MacroArguments>,
+        number: u8,
+    },
 }
 
 impl TokenListReader {
@@ -29,6 +36,19 @@ impl TokenListReader {
     pub fn from_token(token: Token) -> Self {
         Self {
             storage: TokenListStorage::Inline(token),
+            pos: 0,
+        }
+    }
+
+    pub fn from_macro_parameter(arguments: Rc<MacroArguments>, number: usize) -> Self {
+        arguments.parameter_bounds(number);
+        Self {
+            storage: TokenListStorage::MacroParameter {
+                arguments,
+                number: number
+                    .try_into()
+                    .expect("TeX macros have at most nine parameters"),
+            },
             pos: 0,
         }
     }
@@ -57,6 +77,9 @@ impl TokenListReader {
         match &self.storage {
             TokenListStorage::Shared(token_list) => token_list.as_slice(),
             TokenListStorage::Inline(token) => std::slice::from_ref(token),
+            TokenListStorage::MacroParameter { arguments, number } => {
+                arguments.parameter(usize::from(*number))
+            }
         }
     }
 
@@ -67,7 +90,7 @@ impl TokenListReader {
 
 #[cfg(test)]
 mod tests {
-    use super::{TokenListReader, TokenListStorage};
+    use super::{MacroArguments, TokenListReader, TokenListStorage};
     use crate::token::Token;
 
     use std::rc::Rc;
@@ -91,6 +114,29 @@ mod tests {
         };
         assert!(Rc::ptr_eq(stored, &shared));
         assert_eq!(reader.as_slice(), shared.as_slice());
+    }
+
+    #[test]
+    fn 共有macro引数の空範囲と読取位置はsourceごとに独立する() {
+        let mut arguments = MacroArguments::new(true);
+        arguments.record_scanned(0, 0);
+        arguments.record_scanned(0, 2);
+        let mut tokens = vec![Token::Letter(b'a'), Token::Letter(b'b')];
+        arguments.finish_scanning(&mut tokens);
+        let arguments = Rc::new(arguments);
+
+        let mut empty = TokenListReader::from_macro_parameter(arguments.clone(), 0);
+        assert!(empty.is_finished());
+        assert_eq!(empty.get_next_token(), None);
+
+        let mut first = TokenListReader::from_macro_parameter(arguments.clone(), 1);
+        let mut second = TokenListReader::from_macro_parameter(arguments, 1);
+        assert_eq!(first.get_next_token(), Some(Token::Letter(b'a')));
+        assert_eq!(second.get_next_token(), Some(Token::Letter(b'a')));
+        first.deplete();
+        assert!(first.is_finished());
+        assert_eq!(second.get_next_token(), Some(Token::Letter(b'b')));
+        assert!(second.is_finished());
     }
 }
 

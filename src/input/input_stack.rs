@@ -1,5 +1,5 @@
 use super::line_lexer::LineLexer;
-use super::macro_reader::MacroReader;
+use super::macro_reader::{MacroArguments, MacroReader};
 use super::pseudo_file::{
     MAX_SCANTOKENS_BYTES_PER_SOURCE, MAX_VIRTUAL_INPUT_BYTES_LIVE, PseudoText,
 };
@@ -186,10 +186,11 @@ impl InputStack {
         &mut self,
         cs: ControlSequence,
         macro_def: Rc<Macro>,
-        parameters: Vec<RcTokenList>,
+        parameters: MacroArguments,
         eqtb: &Eqtb,
         logger: &mut Logger,
     ) {
+        let parameters = parameters.has_references().then(|| Rc::new(parameters));
         let reader = MacroReader {
             cs,
             macro_def,
@@ -539,8 +540,12 @@ impl InputStack {
                     }
                     Some(MacroToken::Normal(token)) => token,
                     Some(MacroToken::OutParam(number)) => {
-                        let parameter = reader.parameters[number as usize - 1].clone();
-                        self.insert_macro_parameter(parameter, eqtb, logger);
+                        let parameters = reader
+                            .parameters
+                            .as_ref()
+                            .expect("A replacement parameter needs scanned arguments")
+                            .clone();
+                        self.insert_macro_parameter(parameters, number as usize - 1, eqtb, logger);
                         continue;
                     }
                 },
@@ -567,10 +572,16 @@ impl InputStack {
     }
 
     /// See 359.
-    fn insert_macro_parameter(&mut self, parameter: RcTokenList, eqtb: &Eqtb, logger: &mut Logger) {
+    fn insert_macro_parameter(
+        &mut self,
+        parameters: Rc<MacroArguments>,
+        number: usize,
+        eqtb: &Eqtb,
+        logger: &mut Logger,
+    ) {
         // NOTE To avoid calling begin_token_list here as it is in the parent
         // module, we just copy the logic here.
-        let reader = TokenListReader::from_shared(parameter);
+        let reader = TokenListReader::from_macro_parameter(parameters, number);
         let input = InputSource::TokenSource {
             reader,
             source_type: TokenSourceType::Parameter,
@@ -1097,7 +1108,7 @@ pub enum NextResult {
 
 #[cfg(test)]
 mod tests {
-    use super::{print_input_bytes, InputSource, InputStack, TokenSourceType};
+    use super::{print_input_bytes, InputSource, InputStack, MacroArguments, TokenSourceType};
     use crate::eqtb::{ControlSequence, Eqtb};
     use crate::input::Scanner;
     use crate::logger::{InteractionMode, Logger};
@@ -1165,7 +1176,7 @@ mod tests {
                 parameter_text: Vec::new(),
                 replacement_text: vec![MacroToken::Normal(macro_token)],
             }),
-            Vec::new(),
+            MacroArguments::new(false),
             &eqtb,
             &mut logger,
         );

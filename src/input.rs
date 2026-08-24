@@ -69,6 +69,8 @@ pub struct Scanner {
     pub def_ref: Vec<Token>,
     /// The current argument token list under construction. This is done by temp_head in TeX82.
     pub argument: Vec<Token>,
+    /// Start of the current parameter within the invocation-wide argument buffer.
+    argument_start: usize,
     /// The current template under construction. This is done by hold_head in TeX82.
     pub template: Vec<Token>,
 
@@ -159,6 +161,7 @@ impl Scanner {
             macro_def: Macro::default(),
             def_ref: Vec::new(),
             argument: Vec::new(),
+            argument_start: 0,
             template: Vec::new(),
             long_state: LongState::Call,
 
@@ -555,7 +558,12 @@ impl Scanner {
             ScannerStatus::Matching => {
                 logger.print_nl_str("Runaway argument?");
                 logger.print_ln();
-                show_token_list(&self.argument, ERROR_LINE - 10, logger, eqtb);
+                show_token_list(
+                    &self.argument[self.argument_start..],
+                    ERROR_LINE - 10,
+                    logger,
+                    eqtb,
+                );
             }
             ScannerStatus::Aligning => {
                 logger.print_nl_str("Runaway preamble?");

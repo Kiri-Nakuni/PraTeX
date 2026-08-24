@@ -1,3 +1,4 @@
+use super::macro_reader::MacroArguments;
 use super::{LongState, Scanner, ScannerStatus, Token};
 
 use crate::command::MacroCall;
@@ -5,7 +6,7 @@ use crate::eqtb::{ControlSequence, Eqtb, IntegerVariable};
 use crate::logger::Logger;
 use crate::macros::{macro_show, Macro, ParamToken};
 use crate::print::Printer;
-use crate::token_lists::{show_token_list, RcTokenList};
+use crate::token_lists::show_token_list;
 
 use std::rc::Rc;
 
@@ -32,7 +33,22 @@ pub fn macro_expand(
     scanner.warning_index = cs;
     let is_long_call = macro_call.long;
     let macro_def = macro_call.macro_def;
-    let mut pstack = Vec::new();
+    let has_parameters = macro_def
+        .parameter_text
+        .iter()
+        .any(|token| matches!(token, ParamToken::Match(_)));
+    let referenced_parameter_mask = if has_parameters {
+        macro_def
+            .replacement_text
+            .iter()
+            .fold(0u16, |mask, token| match token {
+                crate::macros::MacroToken::Normal(_) => mask,
+                crate::macros::MacroToken::OutParam(number) => mask | (1 << (number - 1)),
+            })
+    } else {
+        0
+    };
+    let mut parameters = MacroArguments::new(referenced_parameter_mask != 0);
     if eqtb.integer(IntegerVariable::TracingMacros) > 0 {
         show_text_of_macro_being_expanded(cs, &macro_def, eqtb, logger);
     }
@@ -42,9 +58,12 @@ pub fn macro_expand(
         .first()
         .is_some_and(|token| *token != ParamToken::End)
     {
+        scanner.argument.clear();
+        scanner.argument_start = 0;
         match scan_parameters(
             &macro_def.parameter_text,
-            &mut pstack,
+            &mut parameters,
+            referenced_parameter_mask,
             cs,
             is_long_call,
             scanner,
@@ -58,8 +77,14 @@ pub fn macro_expand(
                 return;
             }
         }
+        if parameters.has_references() {
+            parameters.finish_scanning(&mut scanner.argument);
+        } else {
+            debug_assert!(scanner.argument.is_empty());
+        }
+        scanner.argument_start = 0;
     }
-    feed_macro_body_and_parameters_to_scanner(cs, macro_def, pstack, scanner, eqtb, logger);
+    feed_macro_body_and_parameters_to_scanner(cs, macro_def, parameters, scanner, eqtb, logger);
     scanner.scanner_status = save_scanner_status;
     scanner.warning_index = save_warning_index;
 }
@@ -69,7 +94,7 @@ pub fn macro_expand(
 fn feed_macro_body_and_parameters_to_scanner(
     cs: ControlSequence,
     macro_def: Rc<Macro>,
-    parameters: Vec<RcTokenList>,
+    parameters: MacroArguments,
     scanner: &mut Scanner,
     eqtb: &Eqtb,
     logger: &mut Logger,
@@ -89,7 +114,8 @@ fn feed_macro_body_and_parameters_to_scanner(
 /// See 391.
 fn scan_parameters(
     parameter_text: &[ParamToken],
-    pstack: &mut Vec<RcTokenList>,
+    parameters: &mut MacroArguments,
+    referenced_parameter_mask: u16,
     cs: ControlSequence,
     is_long_call: bool,
     scanner: &mut Scanner,
@@ -115,7 +141,15 @@ fn scan_parameters(
     while let ParamToken::Match(match_chr) = parameter_text[pos] {
         pos += 1;
         let m = scan_a_parameter(parameter_text, &mut pos, cs, scanner, eqtb, logger)?;
-        tidy_up_parameter_just_scanned(m, pstack, match_chr, scanner, eqtb, logger);
+        tidy_up_parameter_just_scanned(
+            m,
+            parameters,
+            referenced_parameter_mask,
+            match_chr,
+            scanner,
+            eqtb,
+            logger,
+        );
 
         // If we reached the end-match token, we are done.
         if parameter_text[pos] == ParamToken::End {
@@ -135,7 +169,6 @@ fn scan_prefix(
     eqtb: &mut Eqtb,
     logger: &mut Logger,
 ) -> Result<usize, MacroCallError> {
-    scanner.argument = Vec::new();
     let mut pos = 0;
     let mut input_token = scanner.get_token(eqtb, logger);
     while ParamToken::Normal(input_token) == parameter_text[pos] {
@@ -171,7 +204,7 @@ fn scan_a_parameter(
     eqtb: &mut Eqtb,
     logger: &mut Logger,
 ) -> Result<usize, MacroCallError> {
-    scanner.argument = Vec::new();
+    scanner.argument_start = scanner.argument.len();
     let delimiter_start = *pos;
     let mut m = 0;
     loop {
@@ -311,6 +344,41 @@ mod format_compatibility_tests {
     use crate::logger::{InteractionMode, Logger};
     use crate::macros::MacroToken;
 
+    fn macroを呼ぶ(
+        parameter_text: Vec<ParamToken>,
+        replacement_text: Vec<MacroToken>,
+        input: Vec<Token>,
+    ) -> (Scanner, Eqtb, Logger) {
+        let mut scanner = Scanner::new(Vec::new(), 0);
+        let mut eqtb = Eqtb::new();
+        let mut logger = Logger::new(String::new(), InteractionMode::Batch);
+        scanner.back_list(input, &eqtb, &mut logger);
+        macro_expand(
+            MacroCall {
+                long: false,
+                outer: false,
+                protected: false,
+                macro_def: Rc::new(Macro {
+                    parameter_text,
+                    replacement_text,
+                }),
+            },
+            Token::CSToken {
+                cs: ControlSequence::Undefined,
+            },
+            &mut scanner,
+            &mut eqtb,
+            &mut logger,
+        );
+        (scanner, eqtb, logger)
+    }
+
+    fn 引数個数だけのparameter_text(count: usize) -> Vec<ParamToken> {
+        let mut parameter_text = vec![ParamToken::Match(u32::from(b'#')); count];
+        parameter_text.push(ParamToken::End);
+        parameter_text
+    }
+
     #[test]
     fn 空のparameter_textを従来の無引数macroとして展開する() {
         let result = Token::Letter(b'x');
@@ -338,6 +406,113 @@ mod format_compatibility_tests {
         );
 
         assert_eq!(scanner.get_token(&mut eqtb, &mut logger), result);
+    }
+
+    #[test]
+    fn 八個の空引数を共有bufferの独立範囲として展開する() {
+        let mut input = Vec::new();
+        for _ in 0..8 {
+            input.extend([Token::LeftBrace(b'{'), Token::RightBrace(b'}')]);
+        }
+        let sentinel = Token::Letter(b'z');
+        let mut replacement_text = (1..=8).map(MacroToken::OutParam).collect::<Vec<_>>();
+        replacement_text.push(MacroToken::Normal(sentinel));
+        let (mut scanner, mut eqtb, mut logger) =
+            macroを呼ぶ(引数個数だけのparameter_text(8), replacement_text, input);
+
+        assert_eq!(scanner.get_token(&mut eqtb, &mut logger), sentinel);
+    }
+
+    #[test]
+    fn 未参照のmacro引数bufferを次の走査scratchとして保持する() {
+        let mut input = vec![Token::LeftBrace(b'{')];
+        input.extend((0..64).map(|index| Token::Letter(b'a' + (index % 26) as u8)));
+        input.push(Token::RightBrace(b'}'));
+        for _ in 1..8 {
+            input.extend([Token::LeftBrace(b'{'), Token::RightBrace(b'}')]);
+        }
+        let sentinel = Token::Letter(b'z');
+        let (mut scanner, mut eqtb, mut logger) = macroを呼ぶ(
+            引数個数だけのparameter_text(8),
+            vec![MacroToken::Normal(sentinel)],
+            input,
+        );
+
+        assert!(scanner.argument.is_empty());
+        assert!(scanner.argument.capacity() >= 64);
+        assert_eq!(scanner.get_token(&mut eqtb, &mut logger), sentinel);
+    }
+
+    #[test]
+    fn 空と単字と入れ子groupを混ぜても外側だけを除く() {
+        let input = vec![
+            Token::Letter(b'a'),
+            Token::LeftBrace(b'{'),
+            Token::RightBrace(b'}'),
+            Token::LeftBrace(b'{'),
+            Token::Letter(b'b'),
+            Token::Letter(b'c'),
+            Token::RightBrace(b'}'),
+            Token::LeftBrace(b'{'),
+            Token::LeftBrace(b'{'),
+            Token::Letter(b'd'),
+            Token::RightBrace(b'}'),
+            Token::RightBrace(b'}'),
+            Token::Letter(b'e'),
+            Token::Letter(b'f'),
+            Token::Letter(b'g'),
+            Token::Letter(b'h'),
+        ];
+        let sentinel = Token::Letter(b'z');
+        let replacement_text = vec![
+            MacroToken::OutParam(1),
+            MacroToken::OutParam(2),
+            MacroToken::OutParam(3),
+            MacroToken::OutParam(4),
+            MacroToken::OutParam(1),
+            MacroToken::Normal(sentinel),
+        ];
+        let (mut scanner, mut eqtb, mut logger) =
+            macroを呼ぶ(引数個数だけのparameter_text(8), replacement_text, input);
+        let expected = [
+            Token::Letter(b'a'),
+            Token::Letter(b'b'),
+            Token::Letter(b'c'),
+            Token::LeftBrace(b'{'),
+            Token::Letter(b'd'),
+            Token::RightBrace(b'}'),
+            Token::Letter(b'a'),
+            sentinel,
+        ];
+
+        for token in expected {
+            assert_eq!(scanner.get_token(&mut eqtb, &mut logger), token);
+        }
+    }
+
+    #[test]
+    fn 重なる区切りの再一致後も引数範囲をずらさない() {
+        let sentinel = Token::Letter(b'z');
+        let (mut scanner, mut eqtb, mut logger) = macroを呼ぶ(
+            vec![
+                ParamToken::Match(u32::from(b'#')),
+                ParamToken::Normal(Token::Letter(b'a')),
+                ParamToken::Normal(Token::Letter(b'b')),
+                ParamToken::End,
+            ],
+            vec![MacroToken::OutParam(1), MacroToken::Normal(sentinel)],
+            vec![
+                Token::Letter(b'a'),
+                Token::Letter(b'a'),
+                Token::Letter(b'b'),
+            ],
+        );
+
+        assert_eq!(
+            scanner.get_token(&mut eqtb, &mut logger),
+            Token::Letter(b'a')
+        );
+        assert_eq!(scanner.get_token(&mut eqtb, &mut logger), sentinel);
     }
 }
 
@@ -459,33 +634,38 @@ fn contribute_entire_group_to_current_parameter(
 /// See 400.
 fn tidy_up_parameter_just_scanned(
     m: usize,
-    pstack: &mut Vec<RcTokenList>,
+    parameters: &mut MacroArguments,
+    referenced_parameter_mask: u16,
     match_chr: u32,
     scanner: &mut Scanner,
     eqtb: &Eqtb,
     logger: &mut Logger,
 ) {
-    let mut parameter = std::mem::take(&mut scanner.argument);
     // If a single group has been scanned, we want to strip the enclosing braces.
-    if m == 1
-        && (parameter
+    let strip_outer_group = m == 1
+        && (scanner
+            .argument
             .last()
             .expect("We just checked that at least one token was contributed")
-            .is_right_brace())
-    {
-        parameter.remove(0);
-        parameter.pop();
+            .is_right_brace());
+    if strip_outer_group {
+        scanner.argument.remove(scanner.argument_start);
+        scanner.argument.pop();
     }
-    pstack.push(std::rc::Rc::new(parameter));
+    let parameter_number = parameters.len();
+    let range = scanner.argument_start..scanner.argument.len();
     if eqtb.integer(IntegerVariable::TracingMacros) > 0 {
         logger.begin_diagnostic(eqtb.tracing_online());
         logger.print_nl_uptex(match_chr);
-        logger.print_int(pstack.len() as i32);
+        logger.print_int((parameter_number + 1) as i32);
         logger.print_str("<-");
-        let list = &pstack[pstack.len() - 1];
-        show_token_list(list, 1000, logger, eqtb);
+        show_token_list(&scanner.argument[range], 1000, logger, eqtb);
         logger.end_diagnostic(false);
     }
+    if referenced_parameter_mask & (1 << parameter_number) == 0 {
+        scanner.argument.truncate(scanner.argument_start);
+    }
+    parameters.record_scanned(scanner.argument_start, scanner.argument.len());
 }
 
 /// See 401.
