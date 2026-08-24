@@ -1,6 +1,6 @@
 # PraTeX 作業引継ぎ
 
-更新: 2026-08-25（`d5eb585`、寸法first-token handoff、全release・TRIP成功）
+更新: 2026-08-25（`9776e1a`、糊first-token handoff、全release・TRIP成功）
 
 この文書は、現在の Codex セッションから別のエージェントへ作業が移っても、
 検証済みの境界と未commitの作業を失わないための生きた引継ぎである。
@@ -21,12 +21,16 @@
 ## 枝と共有状態
 
 - 現在の統合・性能枝: `codex3/perf-integration`。`codex2/perf-resolver-index`の
-  `f414757`から分岐した。最新code checkpointは`d5eb585`で、`origin`と`github`の同名枝へ
-  push済みである。`d5eb585`は寸法scannerが既に得た展開済みcommand/token対を
-  整数scannerへ直接渡し、差戻しと即時再取得を除く。`3db344e`は既定fmtを
+  `f414757`から分岐した。最新code checkpointは`9776e1a`である。`9776e1a`は糊scannerが
+  既に得た展開済みcommand/token対を寸法scannerへ直接渡し、明示糊幅の差戻しと即時再取得を
+  除く。`d5eb585`は同じ境界を通常寸法から整数scannerへ接続した。`3db344e`は既定fmtを
   version付きsectioned binaryへ変え、実行時に不要な
   `PreTrie`とbuild hashを保存しない`HyphenRuntimeV1`を導入した。旧ASCII fmtは自動読込と
   `PRATEX_FMT_CODEC=legacy-text`による生成を維持する。
+- `9776e1a`の全releaseは**935 passed、0 failed、11 ignored**。公式TRIPはStage 1/2とも
+  exit 0、`tripos.tex`・PLtoTF→TFtoPLはbyte一致、`8terminal.tex`は0 byte、固定comment DVIは
+  公式2,920 byteと完全一致した。糊microの31交互組はwall幾何平均比0.965541、299頁20組は
+  0.994623である。後者は20組中11組だけcandidateが短く、gate達成へ外挿しない。
 - `d5eb585`の全releaseは**934 passed、0 failed、11 ignored**。公式TRIPはStage 1/2とも
   exit 0、`tripos.tex`・PLtoTF→TFtoPLはbyte一致、固定comment DVIは公式2,920 byteと
   完全一致した。寸法microの31交互組はwall幾何平均比0.965479、299頁20組は
@@ -616,6 +620,20 @@ instructions 0.964690。全31組でcandidateが短かった。299頁の20組はw
 約0.35%の差はnoise内として過大評価しない。DVI・aux・局所logはbyte一致、全releaseと
 公式TRIPも成功した。次はglueとe-TeX式の同様のfirst-token往復を別candidateで測る。
 
+## 完了済み性能checkpoint: 糊first-token handoff
+
+`9776e1a`は、`scan_glue`が既に取得したcommand/token対と先頭符号を、`inf=false`固定の
+寸法入口へ直接渡す。明示糊の符号は幅だけに掛け、内部Glue/MuGlueを全成分反転する既存branchは
+変更しない。通常寸法の薄いwrapperはalways-inlineにし、共通core抽出による中間callを
+最終binaryへ残さない。
+
+糊幅1,600,000代入の31交互組で、paired幾何平均比はwall 0.965541、task-clock 0.965646、
+instructions 0.960493。wallは30/31組、task-clockとinstructionsは31/31組でcandidateが短かった。
+299頁20組はwall 0.994623、task-clock 0.994808で、各11/20組だけ短いため局所勝利として扱う。
+DVI・aux・局所logは意味一致、全releaseは935 passed、公式TRIPも成功した。次はe-TeX式の
+first-token往復またはtoken-only取得を別candidateで測り、同時に非perf継続枝をこのcheckpointから
+分ける。
+
 ## 固定済み巨大文書基線と教材DVI残件
 
 `efa9ddd`の`tools/bench-document-throughput-linux.sh`は、PraTeX、upLaTeX、LuaLaTeX DVIをCPU 0で
@@ -677,7 +695,7 @@ page builder、出力box直前の寸法を自作probeで比較し、原因を直
 
 ## 検証
 
-`d5eb585`のcheckpointでfocused test、全release、公式TRIPを通した。再開時も
+`9776e1a`のcheckpointでfocused test、全release、公式TRIPを通した。再開時も
 変更対象のfocused testを先に走らせ、全releaseと必要なTRIP/DVI・PDF意味gateへ戻る。
 
 ```powershell
@@ -694,14 +712,15 @@ pwsh -NoProfile -File tools/run-trip.ps1
 
 2026-08-25の直近既知正常値:
 
-- `d5eb585`の全release: 934 passed、0 failed、11 ignored
+- `9776e1a`の全release: 935 passed、0 failed、11 ignored
 - TRIP Stage1/Stage2がともにexit 0
 - `tripos.tex` byte一致、`8terminal.tex` 0 byte、PLtoTF→TFtoPL byte一致
 - 固定comment PraTeX DVIは公式2920-byte DVIとbyte一致。SHA-256は
   `09802695e330d34acec9192c15debe2de65e34fcbd3f947db9c8924240b1fe0a`
 - TRIP feature binary SHA-256は
-  `6d7eef7a7df32a75bae03f14acf94e4428da0b8d413de3261647f8989351565b`
-- 隔離artifactは`/tmp/pratex-trip-20260825.iNah6roG/current-dimension-first-token*`
+  `f34ab2265e45ad6d4a9d1189ec872b6069045798293fdf4db4bf1c9ab7cd458b`
+- 隔離artifactは`/tmp/pratex-trip-20260825.iNah6roG/current-glue-first-token*`と
+  `actual-glue-first-token`
 
 型付きfull LaTeX fmtは21,532,633 byteまで実測済みである。標準LaTeX互換profileと
 upLaTeX互換profileはengine偽装でなくformat／package契約として分け、各profile完成時に再測定する。

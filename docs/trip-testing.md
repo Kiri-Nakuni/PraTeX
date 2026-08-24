@@ -208,3 +208,27 @@ CPU 0・`CARGO_BUILD_JOBS=1`で逐次実行した。
 `current-dimension-first-token-fixed`、`actual-dimension-first-token`に残した。fmt codec自体を
 変更するcheckpointではないため、今回は既定binary codecを一回走らせ、旧ASCIIの重複runは
 `3db344e`の双codec成功値を維持した。
+
+### `9776e1a` 糊first-token handoff checkpoint
+
+糊scannerから寸法scannerへ既に展開済みのcommand/token対を直接渡すcheckpointを、Vaak
+`7dc011b23da7bd78bad1e0031d5e601b014cc7fe`のclean detached worktreeと、同じ公式資材を使って
+再実行した。TRIP featureのbuildだけは利用者許可後の4 job、engineとTeXwareはCPU 0で逐次実行した。
+
+- 公式archive SHA-256
+  `1d419b1bd7efa575ead0174e47d542a0099a73e0e4deb5031980d109e8c3c645`とmanifestの10資材を
+  再検証した。
+- TRIP feature実行fileは18,163,096 byte、SHA-256
+  `f34ab2265e45ad6d4a9d1189ec872b6069045798293fdf4db4bf1c9ab7cd458b`。
+- PLtoTF→TFtoPLの生成TFMとround-trip PLはそれぞれ公式fileへbyte一致した。
+- Stage 1 / Stage 2はともにexit 0、`tripos.tex`は公式へbyte一致、`8terminal.tex`は0 byte。
+- binary `trip.fmt`は511,386 byte、SHA-256
+  `2c9bbab7abb91c9b4cac42016a0f5a67b0e5252c45668a328326146ebb3bcf07`。
+- `-output-comment= TeX output 1776.07.04:1200`の固定comment runは公式DVIと2,920 byteすべてが
+  一致し、双方のSHA-256は
+  `09802695e330d34acec9192c15debe2de65e34fcbd3f947db9c8924240b1fe0a`だった。
+- TeX Live 2026 DVItype出力は先頭のtool版表示だけを正規化すると公式`trip.typ`へ一致した。
+
+隔離artifactは`/tmp/pratex-trip-20260825.iNah6roG/current-glue-first-token`、
+`current-glue-first-token-fixed`、`actual-glue-first-token`に残した。fmt codecを変えないため、
+旧ASCIIの重複runは`3db344e`の双codec成功値を維持した。
