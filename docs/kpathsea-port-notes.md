@@ -83,6 +83,36 @@ PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig" cargo build --release \
   --no-default-features --features stats,system-kpathsea
 ```
 
+### 配布側libraryの手動実link gate
+
+明示`system-kpathsea`経路を既定bundled経路から独立して検査するrunnerを
+[`test-system-kpathsea-linux.sh`](../tools/test-system-kpathsea-linux.sh)に置く。runner自身は
+downloadやlibrary buildを行わず、`PRATEX_KPATHSEA_PREFIX`と外部TeX treeを要求する。
+一CPU jobでsystem featureだけをbuildし、指定prefixの`libkpathsea.so.6`を`ldd`で確認した後、
+program別`TEXINPUTS.pratex`、TEX/TFM/JFM/VFのhit/miss、JFM no-copy DVI、
+`strace -f -e trace=process`上の子process 0を一続きで検査する。
+
+元の`codex2/kpathsea-linux-gate`で2026-08-24に使った外部資材は次である。repositoryへvendorしていない。
+
+| asset | URL | bytes | SHA-256 |
+|---|---|---:|---|
+| TeX Live 2026 source snapshot | `https://mirrors.ctan.org/systems/texlive/Source/texlive-20260301-source.tar.xz` | 99,342,236 | `32ea827edd3fb80a682ffbdf95d7ba6139ff074516e660c8923260fc82f5e0f0` |
+| uptex-fonts 2025-02-18 | `https://mirrors.ctan.org/install/fonts/uptex-fonts.tds.zip` | 4,961,904 | `d187b57c3abb5a31380b6798f0d374712a97dafccd1e33476fe6485008736a91` |
+| Computer Modern TFM | `https://mirrors.ctan.org/fonts/cm/tfm.zip` | 69,512 | `9c0f99fa34c7d801c40f6b5ff60bc28f200e8ef6ffb2fe75e54ca835c67fc04c` |
+
+当時のGCC 14.2.0、GNU ld 2.42、GNU Make 4.3による共有`libkpathsea.so.6.4.2`は
+450,904 bytes、SHA-256 `1cb15a0e5de1b47f1f6ec2039ab0faa275bac8147ff3de5a6fd64df653e399ac`。
+ignored linked test 1件が成功し、native/local DVIは260 bytes、SHA-256
+`49bd1e1cd78832c970e7d6283cee99213cb6e21e8a628fe299484e11d1eb81f9`で一致、traceは一PID・
+process生成0だった。`codex3/perf-integration`ではrunnerを現行featureへ移植したが、同じ外部artifactが
+このmachineにないため再実行していない。既往値を現在binaryの性能値として扱わない。
+
+```sh
+PRATEX_KPATHSEA_PREFIX="$PREFIX" \
+PRATEX_KPATHSEA_TEXMF_DIST="$PREFIX/share/texmf-dist" \
+tools/test-system-kpathsea-linux.sh
+```
+
 2026-08-24のWSL buildでは、TeX Liveがなくsystem Kpathseaもない環境で、固定revisionを取得して
 55個のC sourceからrelease binaryを5分19秒でlinkした。この値はcold source buildの成功記録であり、
 runtime探索性能ではない。子process 0、hit/miss、DVI意味は別のruntime gateで固定する。

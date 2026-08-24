@@ -392,6 +392,70 @@ mod tests {
         }
     }
 
+    /// 配布側の公式libkpathseaへ実linkしたLinuxだけで明示実行するgate。
+    ///
+    /// 既定の組込みbuildとは別に、`system-kpathsea` featureがprogram名と用途を
+    /// 同じC API境界へ渡すことを実TeX treeで固定する。
+    #[cfg(all(feature = "system-kpathsea", target_os = "linux"))]
+    #[test]
+    #[ignore = "tools/test-system-kpathsea-linux.shが公式libkpathseaと実TeX treeを用意して実行する"]
+    fn 配布側libkpathseaがpratex名でtexとtfmとjfmとvfのhit_missを分ける() {
+        assert_eq!(
+            std::env::var("PRATEX_TEST_SYSTEM_KPATHSEA").as_deref(),
+            Ok("1")
+        );
+        assert!(
+            !PathBuf::from("japanese-live-two-jfm.tex").exists(),
+            "TEXのprogram名gateは同名fileがcurrent directoryにない場所から実行する"
+        );
+
+        let expected = [
+            (
+                FileKind::Tex,
+                "japanese-live-two-jfm.tex",
+                canonical_external_fixture("PRATEX_KPATHSEA_EXPECT_TEX"),
+            ),
+            (
+                FileKind::Tfm,
+                "cmr10.tfm",
+                canonical_external_fixture("PRATEX_KPATHSEA_EXPECT_TFM"),
+            ),
+            (
+                FileKind::Tfm,
+                "upjisr-h.tfm",
+                canonical_external_fixture("PRATEX_KPATHSEA_EXPECT_JFM"),
+            ),
+            (
+                FileKind::Vf,
+                "upjisr-h.vf",
+                canonical_external_fixture("PRATEX_KPATHSEA_EXPECT_VF"),
+            ),
+        ];
+        let mut fast = KpathseaFastPath::new();
+
+        for (kind, logical_name, expected_path) in expected {
+            let actual = match fast.resolve(kind, &LogicalFileName::new(logical_name)) {
+                FastPathLookup::Found(path) => fs::canonicalize(&path).unwrap_or_else(|error| {
+                    panic!("配布側linked hitをcanonicalizeできない: {path:?}: {error}")
+                }),
+                other => panic!("{kind:?} {logical_name}が配布側linked hitでない: {other:?}"),
+            };
+            assert_eq!(actual, expected_path, "{kind:?} {logical_name}");
+        }
+
+        for (kind, logical_name) in [
+            (FileKind::Tex, "pratex-system-kpathsea-absent.tex"),
+            (FileKind::Tfm, "pratex-system-kpathsea-absent.tfm"),
+            (FileKind::Vf, "pratex-system-kpathsea-absent.vf"),
+        ] {
+            assert_eq!(
+                fast.resolve(kind, &LogicalFileName::new(logical_name)),
+                FastPathLookup::Missing,
+                "{kind:?} {logical_name}"
+            );
+        }
+    }
+
     struct TempFile {
         directory: PathBuf,
         path: PathBuf,
