@@ -115,6 +115,13 @@ encoding、generic header、font programが複数並んでも、未使用entry�
 TFMについてだけ、現在対応するPFBが一個、encodingが高々一個であることを検査する。
 `.t3`等の未対応headerや複数PFBを黙って選ばない。
 
+同じ論理TFMを同じchecksum、design size、実在code集合のまま異なる`at_size`で定義した場合、
+run-local cacheはmap、PFB、AFMを一回だけ読み、FontFile、FontDescriptor、Font objectを一組だけ
+作る。`at_size`はcontent streamの`Tf`にだけ残し、page resourceも同じ型付きhandleを参照する。
+論理名、checksum、design size、実在code集合のいずれかが異なる定義は共有しない。したがって、
+異なる論理名が同じ物理PFBを指すaliasまでまとめる一般のphysical resource cacheやsubset共有を
+実装したものではない。
+
 mapの`fontflags`省略時はpdfTeX manualが定める既定値4（Symbolic）を使い、明記値とは別に
 保持する。PDFで必須の`StemV`をAFMが省略した場合は、PFBのeexec部を公開Type 1仕様どおり
 safe Rustでstream復号し、最初の四byteを捨ててPrivate辞書の`/StdVW [number]`だけを読む。
@@ -190,8 +197,9 @@ PDF primitive/font処理が完成したという意味ではない。
 
 ## 6. 次の段階
 
-1. 上記の欧文font-family回帰matrixを固定し、通常mapのType 1 subset埋込みと、同じ物理fontを
-   異なるsizeで使う時のobject共有へ進む。
+1. 同じ論理TFM・同じ文字集合の異なるsizeはType 1 objectを共有済み。上記の欧文font-family
+   回帰matrixを固定し、通常mapのType 1 subset埋込みと、異なる論理名が同じ物理fontを指す
+   場合の共有へ進む。
 2. 実装済みpapersize specialと同じ型付き媒体境界へ、PraTeX正規名のpage-size primitiveを
    接続する。pdfTeX互換名は意味が一致してから別途扱う。
 3. Type 1が揃ってから `\pdfoutput` を登録し、LaTeXのpdfTeX backend判定を有効にする。

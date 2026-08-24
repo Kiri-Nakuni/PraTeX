@@ -24,7 +24,8 @@ font routing、OpenType language/`locl`、region別fallback、約物・禁則へ
   `\pratexversion=0`、`\pratexrevision=0.1.0-dev`で、完成前に版1を名乗らない
 - `-output-format=pdf`による外部DVI driverを必要としないPDF直接出力
 - PDFへの暫定的なStandard 14 font出力と、明示したmapによるType 1 font全埋込み。実配布
-  `pdftex.map`の複数resource構文、flags既定値、PFB Private `StdVW` fallbackまで読める
+  `pdftex.map`の複数resource構文、flags既定値、PFB Private `StdVW` fallbackまで読める。
+  同じ論理TFM・同じ文字集合を異なるsizeで選んだ時は埋込みobjectを一組だけ共有する
 - 明示した一つのprofileで、横組JFMのBMP wide glyphを非埋込みType 0/CIDFontType0と
   `UniJIS-UCS2-H`へ出す最小PDF基線。BMP source code用の`/ToUnicode`を持つが、字形は
   埋め込まず、表示はviewer側fontに依存する
