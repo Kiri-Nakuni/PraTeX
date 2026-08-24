@@ -241,8 +241,9 @@ TRIP再現用の単精度`glue_set`境界は`trip` featureだけへ閉じ込め�
 2026-08-23にpage body 183 bytesの差分0を確認した。LaTeX DVIの完全回帰は`latex.ltx`を
 LaPraTeX用に適合させるまでは要求しない。ただし`efa9ddd`の教材型298頁fixtureでは、同じpage数、
 aux、tocにもかかわらず最初の脚注内部でupLaTeXと1,161 spの縦位置差を検出した。通常版の倍精度
-`glue_set`境界が候補であり、font番号差として正規化したり性能標本へ採用したりせず、単精度候補を
-全release・TRIP・plain DVI・教材DVIでA/Bする。
+`glue_set`を全面的に単精度化するcandidateは対象差を変えず、目次へ新しい1 sp差を作ったため撤回済み。
+この仮説を繰り返さず、font番号差として正規化したり性能標本へ採用したりせず、footnote insertionと
+page builderが出力boxへ渡す寸法を調べる。
 
 upLaTeX比1.2未満の最終gateは維持する。今回の性能専用作業では、同じ入力・同じTeX tree・
 同等DVIのupTeX系比較でPraTeXを1.3倍未満へ置くことをroadmap再開の中間条件とする。
@@ -273,6 +274,8 @@ control-sequence区間15.79%、fmt全体10.73%、wall 5.36%を短縮した。DVI
    KOMA-ScriptのgateにはTeX Liveの標準`hyphen.cfg`を使い、同じbinaryでfmtを再生成する。
 9. DVIのraw hashが違う時はfont番号、opcode整数幅、pointer、paddingだけを正規化できる。
    glyph、rule、special、stack、移動量の差は小さくても意味差であり、許容幅を設けて性能gateへ入れない。
+10. 教材脚注の1,161 sp差は全`make_glue_ratio`の単精度化では直らない。対象値は不変のまま、
+    それ以前の目次へ新しい1 sp差を作ることを確認済みなので、このcandidateを再実装しない。
 
 ---
 

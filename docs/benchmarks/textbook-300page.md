@@ -55,6 +55,14 @@ encoding差ではない。この時のraw DVIはPraTeX 507,472 byte、upLaTeX 50
 1.962だが、計測runnerが当時realtime clockを使っており、さらに上記DVI意味差があるため正式な性能標本へ
 採用しない。修正後は`perf duration_time`へ移行済みであり、1,161 sp差を解消してから15組を取り直す。
 
+原因候補として、箱へ保存する全`glue_set`を通常版でも単精度境界へ揃えたcandidateを同日A/Bした。
+focused release testは1件成功したが、candidate binary
+`ebf0425fdc04c7fa722938ccf645d4ec2b212a5cc81795038fe1178cfb0c90b8`でもcanonical record 61,819の
+PraTeX移動量は11,461,561 spのままで、脚注の1,161 sp差を解消しなかった。さらにrecord 254で、
+従来一致していた横移動17,480,301 spを17,480,300 spへ変える新しい1 sp差が生じた。全面的な単精度化は
+原因でなく意味退行なので破棄し、sourceは変更前へ戻した。candidate測定は別agentのCPU 0観測と競合したため
+wallを一切採用しない。次の調査対象はfootnote insertion、page builder、出力boxを作る前の寸法決定である。
+
 初回runtimeはPGF/TikZ 3.1.11aである。`tikz.sty` SHA-256は
 `6e39ff4fdf9f126aff28880a7dd59fccc0e6735409d92ca455cdd2a4f2b4db53`、`tikz.code.tex`は
 `5cf22e53ee27e044a06a4aebdd77924101a491915021428a61cd6ff3ff2c8e0e`、`pgf.revision.tex`は

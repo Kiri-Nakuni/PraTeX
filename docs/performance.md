@@ -94,6 +94,11 @@ raw 54標本は
 変更後の`macro_expand`は0.67%だった。従ってfmtだけを完全に消しても1.3未満には届かず、
 undumpとloaded-engineの展開・走査を別々の同一DVI A/Bで短縮する必要がある。
 
+教材型298頁で見つかった脚注内1,161 sp差に対し、通常版の全`make_glue_ratio`をTRIP同様の単精度へ
+揃えるcandidateも試した。しかし対象の縦移動は変わらず、目次に新しい1 sp差を作ったため即時撤回した。
+これは速度A/Bではなく意味原因の切分けであり、競合したwall値は保存しない。全面的なf32化を再提案せず、
+footnote insertionとpage builderが出力boxへ渡す寸法を公式binaryの自作probeで比較する。
+
 ## 現在の一頁budget（Linux perf、`82fa3a2`）
 
 TeX Live 2026、同じ一頁入力を15回測った既知の分解は次である。これは機能完成後の

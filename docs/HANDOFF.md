@@ -592,8 +592,9 @@ stretch 0.98未満のすべてに未達である。Samplyではloaded engine 67.
 
 教材型fixtureは24章×12 lesson、298頁、PGF/TikZ 3.1.11a、数式・float・脚注・相互参照を含む。
 PraTeX/upLaTeX/LuaLaTeXのauxとtocは同じhashへ収束した。一方PraTeX通常版の倍精度`glue_set`と
-TeX系の単精度境界が有力な1,161 sp差を最初の脚注に検出した。次は`make_glue_ratio`の単精度候補を
-教材DVIへ当て、全release、公式TRIP、plain DVIを通してから採否を決める。
+TeX系の単精度境界を最初に疑ったが、全`make_glue_ratio`を単精度化しても1,161 sp差は不変で、
+目次に新しい1 sp差を作った。candidateは撤回してsourceを戻したので再実装しない。次はfootnote insertion、
+page builder、出力box直前の寸法を自作probeで比較し、原因を直してから全release、公式TRIP、plain DVIへ戻る。
 
 ## 性能優先と、その後のLaTeX・日本語組版順
 
