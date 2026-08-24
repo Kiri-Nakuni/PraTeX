@@ -85,7 +85,7 @@ error回復、fmt往復、DVI/PDFへの効果を該当機能ごとに試験し�
 共通寸法、Close/Open spacing、文字・数値delimiter、診断回復、fmt/表示は自作TFMを生成する
 [process試験](../tests/etex_middle.rs)で固定し、原実装sourceや上流testは参照していない。
 
-`\showtokens`は同manual 3.5のgeneral text契約から、入口の展開と本文の非展開走査を既存scannerで
+`\showtokens`は同manual 3.3・3.12・5.1のgeneral text契約から、入口の展開と本文の非展開走査を既存scannerで
 分離し、表示は`Token::display`へ集約した。公式TeX Live 2026のe-TeXとe-upTeXに対する自作
 black-boxで、入れ子brace、制御綴後の空白、catcode 6のparameter tokenが`##`になること、
 和文token、和文glyph間でJFM continuityを切ることを照合した。実装sourceや上流testは参照していない。

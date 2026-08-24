@@ -39,6 +39,15 @@ fn 成功(output: &Output, context: &str) {
     );
 }
 
+fn show診断後まで完走(output: &Output, context: &str) {
+    assert!(
+        output.status.success() || output.status.code() == Some(1),
+        "{context}:\nstdout={}\nstderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 fn 結合log(path: &Path) -> String {
     String::from_utf8_lossy(&std::fs::read(path).unwrap()).replace(['\r', '\n'], "")
 }
@@ -51,7 +60,7 @@ fn plain実行(name: &str, body: &str) -> String {
     )
     .unwrap();
     let output = 実行(&directory, &["t.tex"]);
-    成功(&output, name);
+    show診断後まで完走(&output, name);
     結合log(&directory.join("t.log"))
 }
 
@@ -86,12 +95,16 @@ fn showtokensは空白と制御綴の既存表示規則を共有する() {
         "空白と制御綴",
         "\\showtokens{}
          \\showtokens{{}}
+         \\showtokens{ }
+         \\showtokens{ A }
          \\showtokens{A   B}
          \\showtokens{\\relax A}
          \\showtokens{\\?A}",
     );
     assert!(log.contains("> ."), "{log}");
     assert!(log.contains("> {}."), "{log}");
+    assert!(log.contains(">  ."), "{log}");
+    assert!(log.contains(">  A ."), "{log}");
     assert!(log.contains("> A B."), "{log}");
     assert!(log.contains("> \\relax A."), "{log}");
     assert!(log.contains("> \\?A."), "{log}");
@@ -127,15 +140,17 @@ fn showtokensは全modeでnodeを残さず後続処理を続ける() {
 
 #[test]
 fn showtokensは百一回でも通常errorの上限へ数えない() {
-    let mut body = String::new();
-    for _ in 0..101 {
-        body.push_str("\\showtokens{}\n");
+    for (name, interaction) in [("batch", "\\batchmode"), ("nonstop", "\\nonstopmode")] {
+        let mut body = format!("{interaction}\n");
+        for _ in 0..101 {
+            body.push_str("\\showtokens{}\n");
+        }
+        body.push_str("\\message{[done]}");
+        let log = plain実行(&format!("百一回-{name}"), &body);
+        assert_eq!(log.matches("> .").count(), 101, "{name}: {log}");
+        assert!(log.contains("[done]"), "{name}: {log}");
+        assert!(!log.contains("100 errors"), "{name}: {log}");
     }
-    body.push_str("\\message{[done]}");
-    let log = plain実行("百一回", &body);
-    assert_eq!(log.matches("> .").count(), 101, "{log}");
-    assert!(log.contains("[done]"), "{log}");
-    assert!(!log.contains("100 errors"), "{log}");
 }
 
 #[test]
@@ -177,7 +192,7 @@ fn showtokensのprimitiveとaliasはformatを往復する() {
     )
     .unwrap();
     let load = 実行(&directory, &["&mk", "use.tex"]);
-    成功(&load, "showtokens format読戻し");
+    show診断後まで完走(&load, "showtokens format読戻し");
     let log = 結合log(&directory.join("use.log"));
     assert!(
         log.contains("[primitive=\\showtokens/alias=\\showtokens]"),

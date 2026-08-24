@@ -13,7 +13,7 @@ LaTeX / expl3 は互換性を測る試験入力としてのみ使い、実装の
 
 ## `\showtokens`
 
-公開manual §3.5の`<general text>`契約に従い、左braceを探す入口では通常どおりmacroを展開し、
+公開manual §3.3・3.12・5.1の`<general text>`契約に従い、左braceを探す入口では通常どおりmacroを展開し、
 brace内のbalanced textは展開せずtoken列として吸収する。従って`\showtokens{\value}`は
 `\value`を表示し、`\showtokens\expandafter{\value}`だけが入口の`\expandafter`で値を先に置く。
 外側braceは表示しない。
