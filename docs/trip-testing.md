@@ -163,3 +163,24 @@ output commentへ固定したbyte比較を使う。logのmemory表示、拡張re
 従ってVaak commitだけで当該binaryを同定せず、上のPraTeX実行file hashと`13d1ab1`を記録する。
 TRIPの意味合否は生成済みbinaryに対して完結しているが、配布再現性gateではcleanなVaak checkpointを
 別途固定する。
+
+### `3db344e` HyphenRuntimeV1 fmt checkpoint
+
+`PRATEXF\0`のsectioned binary fmtを既定にし、旧ASCII fmtを明示生成・自動読込に残した
+checkpointを、同じ公式資材から一coreの隔離targetへbuildした。この環境にPowerShell 7がないため、
+runnerが固定するbyte入力、引数、比較順を手動で再現した。
+
+- TRIP feature実行file SHA-256:
+  `be5cdc9f3563410131940c3e4389bd8f09dfd43c5f065eaf84665a2ccdd93784`
+- binary既定と`PRATEX_FMT_CODEC=legacy-text`の双方でStage 1 / Stage 2がexit 0。
+- 双方で`tripos.tex`は公式へbyte一致、`8terminal.tex`は0 byte、PLtoTF→TFtoPLはbyte一致。
+- binary `trip.fmt`は511,381 byte、SHA-256
+  `176eb86087a512305fde18cda4a7ce83361fda78ea3676c7015a2cb4d9abb89a`。
+- legacy `trip.fmt`は516,268 byte、SHA-256
+  `e8b403371b14783d8440aedb6f0c806546af72c40fda4c935ac0b1d6998b03ee`。
+- 両fmtのDVIは相互にbyte一致した。`-output-comment= TeX output 1776.07.04:1200`を与えたrunは
+  公式2920-byte DVIともbyte一致し、SHA-256は
+  `09802695e330d34acec9192c15debe2de65e34fcbd3f947db9c8924240b1fe0a`。
+
+隔離artifactは`/tmp/pratex-trip-hyphen-runtime-v1.oiJd5iKP`に残した。これによりfmt wireを
+変更したcheckpointでも、binary／legacyの選択がTRIPの組版意味を変えないことを固定した。
