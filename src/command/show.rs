@@ -8,6 +8,7 @@ pub enum ShowCommand {
     Show,
     ShowBox,
     ShowThe,
+    ShowTokens,
     ShowLists,
 }
 
@@ -17,6 +18,7 @@ impl ShowCommand {
             Self::Show => printer.print_esc_str(b"show"),
             Self::ShowBox => printer.print_esc_str(b"showbox"),
             Self::ShowThe => printer.print_esc_str(b"showthe"),
+            Self::ShowTokens => printer.print_esc_str(b"showtokens"),
             Self::ShowLists => printer.print_esc_str(b"showlists"),
         }
     }
@@ -28,6 +30,7 @@ impl Dumpable for ShowCommand {
             Self::Show => writeln!(target, "Show")?,
             Self::ShowBox => writeln!(target, "ShowBox")?,
             Self::ShowThe => writeln!(target, "ShowThe")?,
+            Self::ShowTokens => writeln!(target, "ShowTokens")?,
             Self::ShowLists => writeln!(target, "ShowLists")?,
         }
         Ok(())
@@ -39,6 +42,7 @@ impl Dumpable for ShowCommand {
             "Show" => Ok(Self::Show),
             "ShowBox" => Ok(Self::ShowBox),
             "ShowThe" => Ok(Self::ShowThe),
+            "ShowTokens" => Ok(Self::ShowTokens),
             "ShowLists" => Ok(Self::ShowLists),
             _ => Err(FormatError::ParseError),
         }

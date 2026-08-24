@@ -1,7 +1,7 @@
 # PraTeXのTeX82外機能と独立実装
 
 更新: 2026-08-24
-監査対象: `codex2/jlreq-script-spacing`
+監査対象: `codex2/etex-showtokens`（統合基点 `cfa6ece`）
 
 この文書は、PraTeXが現在持つ機能のうちTeX82の中核にはないものと、PraTeXで新たに
 書いた実装を区別して記録する。将来構想を現在の対応機能として数えないこと、既存engineの
@@ -56,7 +56,8 @@
 | 部分 | tracing register | `\tracingscantokens`は疑似fileの開始時に判定し、値が途中で変わっても対応する括弧を閉じる。他の`\tracingassigns`、`\tracinggroups`、`\tracingifs`、`\tracingnesting`は値の代入・group・fmtだけ |
 | 実装 | `\savinghyphcodes` | 正値の`\patterns`時に現在の`\lccode`をlanguage別にsnapshotし、pattern圧縮後の通常hyphenationと`\hyphenation`例外へ適用する。同一languageの正値は置換し、0以下は既存snapshotを保持する。e-TeXのdense 8-bit表とPraTeX Latin-UCS拡張を別型にし、fmt検証を含む |
 | 表面のみ | その他の組版制御register | `\predisplaydirection`、`\lastlinefit`、`\savingvdiscards`、`\TeXXeTstate`は値を保持するだけで、組版・discard保存・TeX--XeT動作は未接続。`\TeXXeTstate`だけはfmt読込時0へ戻す |
-| 未実装 | 拡張表示 | `\showtokens`、`\showgroups`、`\showifs` |
+| 実装 | token列表示 `\showtokens` | general textの入口だけを展開して左braceを探し、balanced text本体は未展開token列のまま既存`token_show`で表示する。外側braceを除外し、入れ子、parameter token、和文token、全mode、101回の非加算、`\let` alias、fmt往復、JFMのnode-less境界をprocess試験済み。公式Web2Cのexit 1に対してPraTeXが0を返す全診断共通のCLI差分は別残件 |
+| 未実装 | group/if拡張表示 | `\showgroups`、`\showifs` |
 | 実装 | parshape照会 `\parshapelength/indent/dimen` | 現在のpair数、各行のindent・length、奇偶interleaveを内部寸法として返す。非正index、最終pair反復、式・表示、fmtを含む |
 | 実装 | 可変delimiter列 `\middle` | `\left`--`\right`内をsegmentごとのsave groupに分け、局所状態を復元して元のmath styleから次のlistを始める。全segmentの最大height/depthを全delimiterへ共有する。境界の左はRight、右はLeft相当のspacingとし、文字・数値delimiter走査、欠落・不対応時の回復、表示、fmtをprocess試験する |
 | 実装 | penalty配列 | `\interlinepenalties`、`\clubpenalties`、`\widowpenalties`、`\displaywidowpenalties`。正の個数と整数列、0以下のreset、局所／大域代入、内部照会、fmtを持ち、通常段落とdisplay直前のpost-line-break penaltyへ接続する |
@@ -66,6 +67,7 @@
 実装と試験の主な場所は
 [primitive登録](../src/eqtb/primitives.rs)、
 [e-TeX基本試験](../tests/etex.rs)、
+[showtokens試験](../tests/etex_showtokens.rs)、
 [式試験](../tests/etexexpr.rs)、
 [mark試験](../tests/etex_marks.rs)、
 [糊成分試験](../tests/etex_glue.rs)、
@@ -228,7 +230,7 @@ runtimeは別MIT projectを依存として使う。PraTeX側からMITのVaakへG
 | 未実装 | `^^^^hhhh`、`^^^^^^hhhhhh` | TeX82の`^^`だけ。XeTeX/LuaTeX型の4/6 caret Unicode入力はない |
 | 未実装 | Web2C TCX input translation | `--translate-file`、`%& -translate-file`、`-8bit`、TCXの`xord/xchr/xprn`三表はまだない。既定UTF-8と分けたlegacy input profileは[文字identity roadmap](glyph-identity-roadmap.md)で設計のみ |
 | 未実装 | OTF/TrueTypeとRustyBuzz | dependencyもbackendもない。JFM/TFM出力基線後にdefault-offで接続し、PraTeX側はsafe Rust、依存のlicense・unsafe利用・binary sizeを採用前に監査する |
-| 未実装 | 完全なe-TeX | `\showtokens`、`\showgroups`、`\showifs`、`\pagediscards`、`\splitdiscards`、`\beginL/\endL/\beginR/\endR`などが残る |
+| 未実装 | 完全なe-TeX | `\showgroups`、`\showifs`、`\pagediscards`、`\splitdiscards`、`\beginL/\endL/\beginR/\endR`などが残る |
 | 部分 | 横組・縦組の日本語組版 | 横組JFM font、wide node、main-loop JFM pair/禁則、close-timeの仮想K・material X、句読点＋横組括弧12対の禁則、box/line幅、DVI glyphまでのBuiltIn基線を実装。main-loopのbox/disc・未検証command境界、完全JLReq、方向node、縦組が残る |
 | 部分 | class/package互換 | `article`、宣言的和文NFSS/relation fontを持つ`prjsarticle`、`pratex-japanese`を明示したKOMA-Script 3.49.2 `scrartcl`、`graphicx`、`xcolor`、`hyperref`、TikZ/PGF、`siunitx`の限定smokeをDVIまで実測。package全API、`jsarticle`、`jlreq`、`ltjsarticle`の実用互換を保証しない |
 

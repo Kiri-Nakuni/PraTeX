@@ -287,6 +287,7 @@ mod latin_ucs_case_tests {
 /// See 1293.
 pub fn show_whatever(
     show_command: ShowCommand,
+    command_token: Token,
     nest: &SemanticState,
     page_builder: &PageBuilder,
     scanner: &mut Scanner,
@@ -301,6 +302,9 @@ pub fn show_whatever(
         }
         ShowCommand::ShowThe => {
             show_current_value_of_some_parameter_or_register(scanner, eqtb, logger)
+        }
+        ShowCommand::ShowTokens => {
+            show_unexpanded_general_text(command_token, scanner, eqtb, logger)
         }
         ShowCommand::ShowLists => {
             logger.begin_diagnostic(eqtb.tracing_online());
@@ -327,6 +331,21 @@ pub fn show_whatever(
         ]
     };
     logger.error(help, scanner, eqtb);
+}
+
+fn show_unexpanded_general_text(
+    command_token: Token,
+    scanner: &mut Scanner,
+    eqtb: &mut Eqtb,
+    logger: &mut Logger,
+) {
+    let cs = match command_token {
+        Token::CSToken { cs } => cs,
+        _ => ControlSequence::NullCs,
+    };
+    let token_list = scanner.scan_toks(cs, false, eqtb, logger);
+    logger.print_nl_str("> ");
+    token_show(&token_list, logger, eqtb);
 }
 
 /// See 1294.

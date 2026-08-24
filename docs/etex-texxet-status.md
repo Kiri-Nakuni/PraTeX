@@ -5,7 +5,7 @@
 ## 結論
 
 PraTeXはe-TeXのmacro処理・拡張register・class別mark・式・typed疑似入力をかなり実装しているが、
-**e-TeX完全対応ではない**。組版、表示、discardに未実装が残る。
+**e-TeX完全対応ではない**。組版、group/if表示、discardに未実装が残る。
 TeX--XeTは二つの整数parameterを保存できるだけで、**組版機能としては未実装**である。
 
 この文書の「実装」は、primitive名が登録されているだけでなく、本来の処理へ接続され、
@@ -32,7 +32,8 @@ TeX--XeTは二つの整数parameterを保存できるだけで、**組版機能�
 | penalty配列 | 実装 | `\interlinepenalties`、`\clubpenalties`、`\widowpenalties`、`\displaywidowpenalties`は正の個数に続く整数列を局所／大域代入でき、0以下でresetする。内部整数照会は負添字またはresetで0、添字0で長さ、正添字で値を返し、範囲外では末尾を反復する。4配列をfmtへ保存し、通常段落とdisplay直前の部分段落でpost-line-break penaltyへ接続する。`\interlinepenalties`だけは段落終了時に`\parshape`と同じreset経路を通る。独立process試験で照会、group・`\globaldefs`、fmt、実node列を固定済み |
 | discard list | 未実装 | `\pagediscards`、`\splitdiscards`がない。`\savingvdiscards`は値だけを保存する |
 | math | 実装 | `\middle`は`\left`--`\right`内部をsegmentごとのsave groupへ分け、各境界で局所代入を復元して元のmath styleから次のlistを始める。全delimiterを全segmentの最大height/depthから同じ大きさにし、左右のspacingをそれぞれClose/Openとして扱う。文字・`\delimiter`走査、delimiter欠落と対応しない境界の回復、表示、fmtを独立process試験済み |
-| tracing/show | 部分／未実装 | `\tracingscantokens`は実出力へ接続済み。他のtracing parameterは値だけで、`\showtokens`、`\showgroups`、`\showifs`と対応trace出力がない |
+| `\showtokens` | 実装 | 入口で左braceを探す間だけ通常展開を許し、balanced text本体を展開せず既存token表示へ渡す。外側brace除外、入れ子、parameter tokenの二重表示、和文token、全mode、通常error上限への非加算、`\let` alias、fmt、JFM continuity切断をprocess試験済み。公式Web2Cのshow診断がexit 1になるのに対しPraTeXの通常終了statusは0である既存CLI差分は別残件 |
+| tracing/show | 部分／未実装 | `\tracingscantokens`は実出力へ接続済み。他のtracing parameterは値だけで、`\showgroups`、`\showifs`と対応trace出力がない |
 | `\savinghyphcodes` | 実装 | 正値の`\patterns`時にlanguage別の小文字写像を保存し、pattern圧縮後の通常hyphenationと例外登録へ使う。同一languageの再snapshot、0以下での保持、fmt、8-bitとPraTeX Latin-UCS拡張の型分離を試験済み |
 | その他の組版制御 | 表面のみ | `\lastlinefit`は処理本体へ未接続 |
 
@@ -83,6 +84,11 @@ error回復、fmt往復、DVI/PDFへの効果を該当機能ごとに試験し�
 完成済みの内部listを次segmentのleft boundaryとして引き継ぐ形で独立実装した。全delimiterの
 共通寸法、Close/Open spacing、文字・数値delimiter、診断回復、fmt/表示は自作TFMを生成する
 [process試験](../tests/etex_middle.rs)で固定し、原実装sourceや上流testは参照していない。
+
+`\showtokens`は同manual 3.5のgeneral text契約から、入口の展開と本文の非展開走査を既存scannerで
+分離し、表示は`Token::display`へ集約した。公式TeX Live 2026のe-TeXとe-upTeXに対する自作
+black-boxで、入れ子brace、制御綴後の空白、catcode 6のparameter tokenが`##`になること、
+和文token、和文glyph間でJFM continuityを切ることを照合した。実装sourceや上流testは参照していない。
 
 4つのpenalty配列は同manual 3.8の公開契約から、添字方向と末尾反復を一つのtyped storageへ
 集約して独立実装した。従来の単一parameterへ戻るreset状態、部分段落ごとのclub添字、段落末から

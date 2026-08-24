@@ -11,6 +11,41 @@ e-TeX の原実装は参照せず、公開マニュアルとブラックボッ�
 
 LaTeX / expl3 は互換性を測る試験入力としてのみ使い、実装の資料にはしない。
 
+## `\showtokens`
+
+公開manual §3.5の`<general text>`契約に従い、左braceを探す入口では通常どおりmacroを展開し、
+brace内のbalanced textは展開せずtoken列として吸収する。従って`\showtokens{\value}`は
+`\value`を表示し、`\showtokens\expandafter{\value}`だけが入口の`\expandafter`で値を先に置く。
+外側braceは表示しない。
+
+走査はmain-controlから既存`scan_toks(current_cs, false)`へ入り、表示は既存`token_show`へ渡す。
+これにより制御語後の区切り空白、`\escapechar`、折返し、catcode 6のparameter tokenを`##`とする
+規則、PraTeXのwide/CJK tokenを別実装にしない。`\let` aliasでは実行時の制御綴をwarning indexへ
+渡し、primitive identityは`ShowCommand`のfmt表現で往復する。horizontal modeでは既存`Show(_)`
+境界と同じくJFM pair continuityを切り、診断命令自身はnodeを作らない。
+
+公式TeX Live 2026のe-TeXとe-upTeXへ自作最小入力を与え、未展開本文、入口展開、入れ子brace、
+parameter token、和文token、和文JFM pairの分断をblack-boxで照合した。原実装sourceと上流testは
+参照していない。実装側は[専用process試験](../tests/etex_showtokens.rs)と
+[日本語spacing finalizer試験](../tests/japanese_spacing_finalizer.rs)で固定する。
+
+照合資材はCTAN tlnetの2026-08-24時点の配布物である。
+
+- `pdftex.windows` revision 78097（874,164 bytes、archive SHA-256
+  `6794c3c173d1c3e9add63ed3d631b07312c208ed7d60dbed7764f588ce09ee6e`）。`etex.exe`は
+  pdfTeX 3.141592653-2.6-1.40.29で、SHA-256は
+  `4b582d0be712b74ae5090aba2d7338f185082f6446cbee7b26115e8ab6e21184`。
+- `uptex.windows` revision 78020（1,431,444 bytes、archive SHA-256
+  `c878983da002f32a24a507680ccf00261a3761089ed324892668ded589bf9c0d`）。`euptex.exe`は
+  e-upTeX 3.141592653-p4.1.2-u2.02-251130-2.6で、SHA-256は
+  `9f35e1fbb5b3a4b71bd1fed7c634b8876bcd965eaa0865c6b6424eb99a301c2e`。
+- 取得元は`https://mirrors.ctan.org/systems/texlive/tlnet/archive/<package>.tar.xz`。
+
+公式binaryではbatch/nonstopの101回も通常error上限へ数えず最後まで到達する一方、show診断を
+process historyへ残してexit 1になる。PraTeXは全ての非fatal診断後の通常終了statusを現在0へ固定
+しており、これは`\showtokens`固有ではない既存CLI差分である。本sliceではerror countとinteractionを
+既存show shellに合わせ、終了statusの全体修正を混ぜない。
+
 ## `\everyeof`
 
 公開マニュアル §3.7 の契約:

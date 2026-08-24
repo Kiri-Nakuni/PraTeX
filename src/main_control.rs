@@ -215,7 +215,15 @@ pub fn main_control(
                 }
                 UnexpandableCommand::Show(show_command) => {
                     hmode.break_jfm_pair_continuity(eqtb);
-                    show_whatever(show_command, nest, page_builder, scanner, eqtb, logger)
+                    show_whatever(
+                        show_command,
+                        token,
+                        nest,
+                        page_builder,
+                        scanner,
+                        eqtb,
+                        logger,
+                    )
                 }
                 UnexpandableCommand::MakeBox(make_box) => begin_box(
                     make_box,
@@ -600,9 +608,15 @@ pub fn main_control(
                 UnexpandableCommand::Mark(class) => {
                     vmode.append_node(make_mark(token, class, scanner, eqtb, logger), eqtb)
                 }
-                UnexpandableCommand::Show(show_command) => {
-                    show_whatever(show_command, nest, page_builder, scanner, eqtb, logger)
-                }
+                UnexpandableCommand::Show(show_command) => show_whatever(
+                    show_command,
+                    token,
+                    nest,
+                    page_builder,
+                    scanner,
+                    eqtb,
+                    logger,
+                ),
                 UnexpandableCommand::IgnoreSpaces => {
                     (unexpandable_command, token) =
                         scanner.get_next_non_blank_non_call_token(eqtb, logger);
@@ -870,9 +884,15 @@ pub fn main_control(
                 UnexpandableCommand::Mark(class) => {
                     mmode.append_node(make_mark(token, class, scanner, eqtb, logger), eqtb)
                 }
-                UnexpandableCommand::Show(show_command) => {
-                    show_whatever(show_command, nest, page_builder, scanner, eqtb, logger)
-                }
+                UnexpandableCommand::Show(show_command) => show_whatever(
+                    show_command,
+                    token,
+                    nest,
+                    page_builder,
+                    scanner,
+                    eqtb,
+                    logger,
+                ),
                 UnexpandableCommand::Vadjust => begin_adjust(nest, scanner, eqtb, logger),
                 UnexpandableCommand::IgnoreSpaces => {
                     (unexpandable_command, token) =

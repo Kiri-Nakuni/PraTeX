@@ -365,11 +365,12 @@ fn nodeを作らない境界はjfmを二分し除去済みnodeを閉じる時に
          \\setbox12=\\hbox{{）\\begingroup\\endgroup （}}
          \\setbox13=\\hbox{{）\\count0=0 （}}
          \\setbox14=\\hbox{{）\\showthe\\count0 （}}
-         \\showbox0 \\showbox1 \\showbox2 \\showbox3 \\showbox4 \\showbox5 \\showbox6 \\showbox7 \\showbox8 \\showbox9 \\showbox10
+         \\setbox15=\\hbox{{）\\showtokens{{}}（}}
+         \\showbox0 \\showbox1 \\showbox2 \\showbox3 \\showbox4 \\showbox5 \\showbox6 \\showbox7 \\showbox8 \\showbox9 \\showbox10 \\showbox15
          \\message{{[hybrid-widths=\\the\\wd0/\\the\\wd1/\\the\\wd2/\\the\\wd3/\\the\\wd4]}}
          \\message{{[broken-k-widths=\\the\\wd5/\\the\\wd6]}}
          \\message{{[one-sided-widths=\\the\\wd7/\\the\\wd8/\\the\\wd9/\\the\\wd10]}}
-         \\message{{[command-widths=\\the\\wd11/\\the\\wd12/\\the\\wd13/\\the\\wd14]}}
+         \\message{{[command-widths=\\the\\wd11/\\the\\wd12/\\the\\wd13/\\the\\wd14/\\the\\wd15]}}
          \\shipout\\box4 \\end\n",
         common_prefix()
     );
@@ -388,6 +389,12 @@ fn nodeを作らない境界はjfmを二分し除去済みnodeを閉じる時に
     assert_eq!(box_segment(2).matches("\\glue(\\pratexjfm)").count(), 2);
     assert_eq!(box_segment(3).matches("\\glue(\\pratexjfm)").count(), 1);
     assert_eq!(box_segment(4).matches("\\glue(\\pratexjfm)").count(), 2);
+    let showtokens_segment = log
+        .split("> \\box15=")
+        .nth(1)
+        .expect("showtokensを含むboxの表示がある");
+    assert_eq!(showtokens_segment.matches("\\glue(\\pratexjfm)").count(), 2);
+    assert!(!showtokens_segment.contains("\\glue(\\kanjiskip)"));
     assert!(
         log.contains("[hybrid-widths=12.5pt/15.0pt/15.0pt/12.5pt/15.0pt]"),
         "{log}"
@@ -398,7 +405,7 @@ fn nodeを作らない境界はjfmを二分し除去済みnodeを閉じる時に
         "{log}"
     );
     assert!(
-        log.contains("[command-widths=15.0pt/15.0pt/15.0pt/15.0pt]"),
+        log.contains("[command-widths=15.0pt/15.0pt/15.0pt/15.0pt/15.0pt]"),
         "{log}"
     );
 

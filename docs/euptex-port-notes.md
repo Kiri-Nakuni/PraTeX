@@ -143,8 +143,8 @@ U+2E7F 以下でも `15..20` と表示される。この回復も回帰試験へ
 | 1b | 疎レジスタ（0–32767） | **済**（低位密＋高位疎、6種、挿入番号は別型） |
 | 1c | e-TeX のmark class（0–32767） | **済**（class 0は従来状態、非0は疎表、pageと`\vsplit`） |
 | 1d | e-TeX の糊成分問い合わせと型変換 | **済**（伸縮の係数と次数、`\mutoglue` / `\gluetomu`、通常糊・数式糊・式・fmt） |
-| 2 | e-TeX の**字句系** | **一部済**（`\detokenize` `\unexpanded` `\readline` `\protected` `\everyeof` `\scantokens`。拡張表示等は未） |
-| 3 | e-TeX の**内省** | **一部済**（`\currentgroup*` `\currentif*` `\lastnodetype` `\iffontchar`。`\fontchar*` `\showgroups` `\showtokens` 等は未） |
+| 2 | e-TeX の**字句系** | **一部済**（`\detokenize` `\unexpanded` `\readline` `\protected` `\everyeof` `\scantokens`） |
+| 3 | e-TeX の**内省** | **一部済**（`\currentgroup*` `\currentif*` `\lastnodetype` `\iffontchar` `\fontchar*` `\showtokens`。`\showgroups` `\showifs` 等は未） |
 | 4a | **Unicode block 分類表と `\kcatcode`**（代入・group・fmtまで） | **済**（U+10FFFFまで） |
 | 4b | **UTF-8 字句解析と CJK文字 token**（`16`〜`20`を一文字一token、分類をtokenへ固定） | **済**（typed制御綴、条件・展開・表示・fmtまで。JFM/文字nodeは後段） |
 | 4c | **Unicode欧文 token とpattern alphabet**（`14`を一文字一token、cat/lc/uc/sf・case・active・fmt・hyphen trieまで） | **済**（U+0080〜U+2E7F。wide font nodeとnamespaced Unicode active生成は後段） |
