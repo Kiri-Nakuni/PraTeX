@@ -61,16 +61,19 @@ pub(super) fn linux_absolute_path_to_unc(
     if !linux_path.starts_with('/') || linux_path.starts_with("//") {
         return Err("kpsewhich path is not an absolute Linux path");
     }
-    let mut result = context.unc_root.clone();
+    let mut result = context.unc_root.as_os_str().to_os_string();
     let components = &linux_path[1..];
     if components.is_empty() {
-        return Ok(result);
+        return Ok(PathBuf::from(result));
     }
-    for component in components.split('/') {
+    for (index, component) in components.split('/').enumerate() {
         validate_component(component)?;
+        if index != 0 {
+            result.push("\\");
+        }
         result.push(component);
     }
-    Ok(result)
+    Ok(PathBuf::from(result))
 }
 
 pub(super) fn translate_linux_search_path(

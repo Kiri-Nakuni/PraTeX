@@ -479,7 +479,12 @@ fn 縦組jfmは横組primitiveで黙って選ばれない() {
          \\pratexjfont\\J=vertical at 10pt\n\\J\n\\kcatcode\"3042=16\nあ\n\\end\n",
     )
     .unwrap();
-    let output = run_rtex(&directory, &["t.tex"]);
+    let output = Command::new(env!("CARGO_BIN_EXE_rtex"))
+        .arg("t.tex")
+        .current_dir(&directory)
+        .env("TFMFONTS", directory.join("存在しないtfm探索先"))
+        .output()
+        .unwrap();
     assert_success(&output, "縦組JFMの診断入力を完走できなかった");
     let log = std::fs::read_to_string(directory.join("t.log"))
         .unwrap()
