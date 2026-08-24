@@ -197,7 +197,7 @@ def font_table(path: pathlib.Path) -> dict[int, FontIdentity]:
     return fonts
 
 
-def canonical(path: pathlib.Path) -> Iterator[tuple]:
+def canonical_with_stack(path: pathlib.Path) -> Iterator[tuple]:
     fonts = font_table(path)
     current_font: FontIdentity | None = None
     registers = [0, 0, 0, 0]  # w, x, y, z
@@ -322,6 +322,42 @@ def canonical(path: pathlib.Path) -> Iterator[tuple]:
 
     if not saw_pre or not saw_post or in_page or stack:
         raise DviError(f"{path}: incomplete DVI structure")
+
+
+def without_empty_stack_frames(events: Iterator[tuple]) -> Iterator[tuple]:
+    """Remove stack frames that cannot affect a rendered DVI event.
+
+    Empty nested boxes can produce push/pop pairs in one engine but no DVI
+    records in another.  Keep every frame containing a movement, glyph,
+    rule, or special; only frames containing stack operations themselves are
+    discarded.
+
+    >>> list(without_empty_stack_frames(iter([("push",), ("pop",)])))
+    []
+    >>> list(without_empty_stack_frames(iter([
+    ...     ("push",), ("push",), ("pop",), ("right", 1), ("pop",)
+    ... ])))
+    [('push',), ('right', 1), ('pop',)]
+    """
+    pending_pushes = 0
+    for event in events:
+        if event == ("push",):
+            pending_pushes += 1
+            continue
+        if event == ("pop",) and pending_pushes:
+            pending_pushes -= 1
+            continue
+        while pending_pushes:
+            yield ("push",)
+            pending_pushes -= 1
+        yield event
+    while pending_pushes:
+        yield ("push",)
+        pending_pushes -= 1
+
+
+def canonical(path: pathlib.Path) -> Iterator[tuple]:
+    yield from without_empty_stack_frames(canonical_with_stack(path))
 
 
 def compare(left: pathlib.Path, right: pathlib.Path) -> int:

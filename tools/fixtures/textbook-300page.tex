@@ -34,7 +34,11 @@
 
 \setcounter{tocdepth}{1}
 \setcounter{secnumdepth}{1}
-\raggedbottom
+% upLaTeX's format layer and the standard LaTeX format place the tiny
+% \raggedbottom tail glue on opposite sides of footnotes.  Keep the engine
+% throughput gate on one output-routine meaning instead of measuring that
+% format-level policy difference.
+\flushbottom
 
 \newcount\TextbookChapter
 \TextbookChapter=0

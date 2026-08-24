@@ -39,6 +39,18 @@
 - 縦組側は右綴じ、奇偶頁、柱・ノンブル、白頁、縦中横、割注を追加
 - pLaTeX、upLaTeX、LuaLaTeXの公式profileを別oracleにし、平均化しない
 
+### `latex-output-routine-profile`
+
+PraTeXの標準LaTeX profileとupLaTeX互換profileをengine偽装なしで分ける。少なくとも
+`\raggedbottom` / `\flushbottom`、脚注、split footnote、top/bottom float、`\@texttop` /
+`\@textbottom`、output socket順を自作fixtureで比較する。2026-08-25の観測では、
+標準LaTeXとPraTeXは`\raggedbottom`の`0pt plus 0.0001fil`を脚注の後へ置き、upLaTeX formatは
+脚注の前へ置いた。これはengineのglue計算差へ帰属せず、明示format/package互換profileの差として扱う。
+
+既定PraTeX profileは公開LaTeXの意味を保ち、upLaTeX互換profileは観測したpLaTeX系差だけを個別契約にする。
+`\fmtname`、version primitive、bannerで他engineを名乗らせてpackage検査を通さない。性能corpusでは
+比較対象のoutput-routine policyを明示し、profile差を速度差へ混ぜない。
+
 ### `dvi-pdf-backend`
 
 `graphicx + xcolor + hyperref`、p/up側の`pxjahyper`を用い、PNG/PDF/EPS、色、内部link、

@@ -56,7 +56,8 @@ primary throughput fixtureにした。TeX Live 2026の実測は299頁、1,396,45
 realtime clockでなくLinux `perf stat`の`duration_time`をnanosecondで記録し、GNU timeから
 user/systemとpeak RSSを別に取る。PraTeX/upLaTeXは固定preamble commentのraw DVIが一致するか、
 一致しなければ[`compare-dvi-semantics.py`](../tools/compare-dvi-semantics.py)がfont番号、整数幅、
-file pointer、paddingだけを正規化した公開opcode列で同等かをhard gateにする。LuaLaTeX DVIは
+file pointer、paddingと、描画eventを一つも含まない空stack frameだけを正規化した公開opcode列で
+同等かをhard gateにする。movement、glyph、rule、specialを含むframeは保持する。LuaLaTeX DVIは
 format、font番号、backend recordが同じoracleではないため別workload列である。
 
 この基線はwarm-up 3回後、各15回を測った。PraTeX binary SHA-256は
@@ -96,8 +97,29 @@ undumpとloaded-engineの展開・走査を別々の同一DVI A/Bで短縮する
 
 教材型298頁で見つかった脚注内1,161 sp差に対し、通常版の全`make_glue_ratio`をTRIP同様の単精度へ
 揃えるcandidateも試した。しかし対象の縦移動は変わらず、目次に新しい1 sp差を作ったため即時撤回した。
-これは速度A/Bではなく意味原因の切分けであり、競合したwall値は保存しない。全面的なf32化を再提案せず、
-footnote insertionとpage builderが出力boxへ渡す寸法を公式binaryの自作probeで比較する。
+後続の一頁自作probeは同じ種類の1,371 sp差を再現した。PraTeXのDVIは公式LaTeX（pdfTeXのDVI mode）と
+byte一致し、upLaTeXだけが異なった。logのbox列から、標準LaTeXの`\raggedbottom`が作る
+`0pt plus 0.0001fil`をupLaTeX formatが脚注の反対側へ置くformat-level policy差だと確定した。
+従ってengineのglue ratio退行ではない。
+
+教材fixtureを`\flushbottom`へ固定すると、PraTeX/upLaTeXの残差はPraTeX側にだけある空のDVI
+`push`/`pop`一組だった。空frameだけを除く比較では298頁、247,136 canonical eventが一致し、
+元の`\raggedbottom` probeの実座標差は引き続き検出した。性能gateは同一output-routine policyで測り、
+canonical SHA-256は`0782322f1ed2cf7531aeefba1139c445af7e26b0b2db5519c004edbae7fa9508`だった。
+標準LaTeX profileとupLaTeX互換profileの差は組版互換fixtureで別に保持する。この確認runはwarm-upなし
+各一回なので、得たwallを性能標本には採用しない。
+
+### 公式upLaTeX binaryのcounter分解（2026-08-25）
+
+公式sourceを見ず、strip済みTeX Live 2026 binaryへ自作probe、`perf`、`strace`だけを与えた比較では、
+空実行/fmtがPraTeX 859.62 ms、upLaTeX 295.45 msで2.91倍、299頁から空実行を引いたcounter差が
+PraTeX 1,349.67 ms、upLaTeX 641.03 msで2.11倍だった。どちらか一方だけを同等化しても全体は
+1.60--1.76倍に留まるため、0.98にはfmtとloaded-engineの双方が必要である。
+
+PraTeXのASCII `latex.fmt`は57,221,231 byte、公式gzip `uplatex.fmt`は3,641,570 byte、展開後でも
+14,995,744 byteだった。最初のsafe Rust A/Bをversion付きbinary fmt、検証済み件数からの一回確保、
+decode中のtrie検証統合とする。counter、観測上の関数対応、clean-room限界は
+[`benchmarks/uptex-binary-blackbox-20260825.md`](benchmarks/uptex-binary-blackbox-20260825.md)を一次資料にする。
 
 ## 現在の一頁budget（Linux perf、`82fa3a2`）
 

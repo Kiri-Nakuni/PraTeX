@@ -1,0 +1,28 @@
+% Self-authored one-page probe for the textbook fixture's footnote placement.
+\documentclass[10pt,oneside,openany]{book}
+\usepackage{amsmath}
+% Deliberately expose the format-profile difference: upLaTeX moves this
+% tiny tail glue across the footnote, while standard LaTeX and PraTeX do not.
+\raggedbottom
+\def~{\leavevmode\nobreak\ }
+\tracingoutput=1
+\showboxbreadth=10000
+\showboxdepth=10000
+\begin{document}
+\mainmatter
+\chapter{Measured Transformations}
+\section{Model and vocabulary}
+A measured transformation begins with a state, accepts a controlled input,
+and produces a new state. The purpose of the model is not to predict every
+detail. It is to expose which quantities are preserved, which quantities are
+supplied, and which observations would disprove the explanation. This module
+uses a deliberately small vocabulary so that each later argument can be
+checked from the same definitions.\footnote{The prose and numerical examples
+in this fixture are synthetic and have no external source.}
+\begin{equation}
+  s_{k+1}=s_k+u_k-e_k .
+\end{equation}
+Here $s_k$ is the stored state, $u_k$ is a supplied increment, and $e_k$ is
+an observed loss. Equation (1.1) is a bookkeeping identity; interpretation
+enters only when the three terms are measured.
+\end{document}
