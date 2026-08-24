@@ -475,7 +475,12 @@ WSL成功の意味は変更しない。
    Unixでsystem libraryへlinkできた時だけ明示`pratex`、非UTF-8 `PathBuf`、C返値解放、typed formatの
    fast pathを使い、library不在とencoding非対応だけ既存safe resolverへ戻す。外部fmtは`--engine=rtex`
    意味を保つためsafe経路のままである。Windowsはallocator/CRT境界未実測なのでtyped fallback、WASMは
-   dependencyなしである。次はLinuxで実linkし、子process 0、hit/miss、DVI意味、end-to-endを再測定する。
+   dependencyなしである。公式TeX Live 2026 sourceからbuildしたKpathsea 6.4.2へのLinux実linkでは、
+   `TEXINPUTS.pratex`、欧文TFM、JFM、VFのhit/miss、distinct PID 1・子process生成0を確認した。
+   JFM no-copy runとlocal referenceの260-byte DVIもSHA-256
+   `49bd1e1cd78832c970e7d6283cee99213cb6e21e8a628fe299484e11d1eb81f9`で一致する。再現runnerは
+   `tools/test-kpathsea-linux.sh`、source/asset hashとbuild手順は`docs/kpathsea-port-notes.md`。
+   次は利用者と同一のLaTeX corpusでupLaTeXとの交互end-to-end測定を行う。
 2. 接続済みmain-loop JFM/禁則をbox/disc・残るcommand境界へ広げ、discの枝別意味を完成する。
 3. `\tfont`と縦組metric/node/outputを追加し、spacingと禁則を横組から縦組へ広げる。
 4. discard、`\showgroups` / `\showifs`、tracing等のe-TeX残件とTeX--XeTのLR組版を進める。

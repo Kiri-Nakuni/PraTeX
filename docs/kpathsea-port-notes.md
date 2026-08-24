@@ -59,21 +59,60 @@ TUGのLinux binary treeはKpathseaを各engineへlinkし、standalone `libkpaths
 pinしており、TL2026 oracleと版が違うのでPraTeXでは有効にしない。
 
 共有・静的のどちらも、Cargoの前段で公式TL2026 source archiveまたはinstalled distributionと一致する
-公式revisionを取得する。URL/revision、取得日、archive SHA-256、展開tree manifest hash、installed
-`kpsewhich --version`を記録し、digestで固定したcompiler/container、`config.status`、`config.log`、
-compiler/binutils/make/autoconf版も保存する。generated headerと通常Automake buildを使い、crate内の
-TL2025 header/source listを流用しない。このmachineには公式sourceがないためhashを推測して書かない。
+公式revisionを取得する。URL/revision、取得日、archive SHA-256、installed `kpsewhich --version`、
+compiler/binutils/make版を記録し、generated headerと通常Automake buildを使う。crate内のTL2025
+header/source listは流用しない。
 
-共有libraryは概ね次の形で別prefixへinstallし、その`.so`と`.pc`をPraTeX buildへ渡す。配布では同じ
-libraryを同梱してinstallation-relative rpathを設定するか、system loaderの通常位置へinstallする。
+2026-08-24のWSL Ubuntu実測では、CTANの年次snapshotをrepository外の`/tmp`へ取得した。
+Kpathsea C sourceや生成物はPraTeXへvendorしていない。font assetもgate用外部TeX treeだけへ展開した。
+
+| asset | URL | byte | SHA-256 |
+|---|---|---:|---|
+| TeX Live 2026 source snapshot | `https://mirrors.ctan.org/systems/texlive/Source/texlive-20260301-source.tar.xz` | 99,342,236 | `32ea827edd3fb80a682ffbdf95d7ba6139ff074516e660c8923260fc82f5e0f0` |
+| uptex-fonts 2025-02-18 | `https://mirrors.ctan.org/install/fonts/uptex-fonts.tds.zip` | 4,961,904 | `d187b57c3abb5a31380b6798f0d374712a97dafccd1e33476fe6485008736a91` |
+| Computer Modern TFM | `https://mirrors.ctan.org/fonts/cm/tfm.zip` | 69,512 | `9c0f99fa34c7d801c40f6b5ff60bc28f200e8ef6ffb2fe75e54ca835c67fc04c` |
+
+source configure summaryはTeX Live 2026-03-02、Kpathsea 6.4.2だった。GCC 14.2.0、GNU ld 2.42、
+GNU Make 4.3で、次のstandalone out-of-tree buildを使った。build directoryを`kpathsea`という
+子directoryにするのは、生成した`kpathsea/c-auto.h`を`-I..`から読む公式build規則のためである。
 
 ```sh
-mkdir Work && cd Work
-../configure --disable-native-texlive-build --enable-shared \
-  --disable-static --disable-all-pkgs --prefix="$PREFIX"
-make -C texk/kpathsea
-make -C texk/kpathsea install
-PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig" cargo build --release
+mkdir -p "$WORK/build/kpathsea" "$PREFIX"
+cd "$WORK/build/kpathsea"
+"$SOURCE/texk/kpathsea/configure" \
+  --prefix="$PREFIX" --enable-shared --disable-static \
+  --disable-mktexmf-default --disable-mktexpk-default \
+  --disable-mktextfm-default --disable-mktexfmt-default -C
+make -j4
+make install
+PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig" cargo build --release --locked
+```
+
+このbuildの`libkpathsea.so.6.4.2`は450,904 byte、SHA-256
+`1cb15a0e5de1b47f1f6ec2039ab0faa275bac8147ff3de5a6fd64df653e399ac`だった。これは同一artifactの
+監査記録であり、絶対prefix等を含むためbyte再現性の保証値ではない。KpathseaはLGPL-2.1-or-laterであり、
+共有libraryはPraTeX本体と別の外部prefixに置いた。
+
+`tools/test-kpathsea-linux.sh`は、そのprefixと外部TeX treeを明示して次を一続きで検査する。
+
+- `ldd`が指定prefixの`libkpathsea.so.6`を選ぶ。
+- generic `TEXINPUTS`を不在pathへ向け、`TEXINPUTS.pratex`だけからTEXを引く。
+- TEX、欧文TFM、JFM、VFのlinked hitと、用途別missを同じhandleで分ける。
+- JFM no-copy runとlocal direct-path referenceのDVIをbyte比較する。
+- `strace -f -e trace=process`でdistinct PIDが1、`clone` / `fork` / `vfork`が0である。
+
+実測はignored linked test 1 passed、DVI 1 page / 260 byte、両経路のSHA-256
+`49bd1e1cd78832c970e7d6283cee99213cb6e21e8a628fe299484e11d1eb81f9`で一致した。process traceも
+distinct PID 1、子process生成call 0だった。VFは現在のDVI engineが先読みしないため、DVI runではなく
+同じlinked resolverの用途別gateで確認している。これは探索意味とDVI不変の合格であり、利用者の
+LaTeX corpusをupLaTeXと比較するend-to-end性能gateの達成ではない。
+
+実行例:
+
+```sh
+PRATEX_KPATHSEA_PREFIX="$PREFIX" \
+PRATEX_KPATHSEA_TEXMF_DIST="$PREFIX/share/texmf-dist" \
+tools/test-kpathsea-linux.sh
 ```
 
 制御されたstatic A/Bでは`--disable-shared --enable-static`で同じsourceをbuildし、

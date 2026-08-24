@@ -125,7 +125,15 @@ authoritativeとする。library不在とpath encoding非対応だけが、既�
 typed fallbackのままで性能改善はなく、WASMは依存をcompileしない。feature treeは
 `tools/check-kpathsea-features.ps1`で固定する。Rust wrapperのFFI `unsafe`はvendor内へ隔離し、
 PraTeXの`src`はsafe Rustだけである。Linuxでsystem libraryをlinkしたend-to-end、子process 0、
-hit/miss、DVI意味の再測定は未実施なので、このcheckpointを1.2倍gate達成とは数えない。
+hit/miss、DVI意味の実機gateは2026-08-24に公式TeX Live 2026 sourceのKpathsea 6.4.2で実施した。
+generic `TEXINPUTS`を不在にして`TEXINPUTS.pratex`だけからTEXを引き、欧文TFM、JFM、VFと
+用途別missを同じlinked handleで確認した。JFM no-copy runとlocal direct-path referenceのDVIは
+260 byte、SHA-256
+`49bd1e1cd78832c970e7d6283cee99213cb6e21e8a628fe299484e11d1eb81f9`でbyte一致した。
+`strace -f -e trace=process`はdistinct PID 1、`clone` / `fork` / `vfork` 0だった。
+fixture、source/asset hash、build手順、runnerは`docs/kpathsea-port-notes.md`と
+`tools/test-kpathsea-linux.sh`に固定している。ただしこれは短いINITEX fixtureの正しさgateであり、
+利用者の同一LaTeX corpusをupLaTeXと交互測定していないため、1.2倍gate達成とは数えない。
 静的linkを配布する場合はLGPLのsource提供・relink条件、版pin、offline再現、binary sizeを別gateにする。
 
 ## 横組JFM glyph sliceの欧文DVI gate（2026-08-23）

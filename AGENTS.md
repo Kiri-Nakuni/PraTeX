@@ -299,15 +299,18 @@ control-sequence区間15.79%、fmt全体10.73%、wall 5.36%を短縮した。DVI
   そこから`system-probe`を解決する。一run一handleのlinked hit/missを先に使い、
   library不在とencoding非対応だけ既存safe resolverへ戻す。外部fmtは`--engine=rtex`を保つsafe経路である。
   Windowsはallocator/CRT境界未実測のためtyped fallbackで性能改善なし、WASMはdependencyをcompileしない。
-  Linuxのsystem library link、子process 0、DVI意味とend-to-end性能はまだ実機未検証である。
+  公式TeX Live 2026 sourceからbuildしたKpathsea 6.4.2へのLinux実linkでは、program名`pratex`、
+  TEX/欧文TFM/JFM/VFのhit/miss、distinct PID 1・子process生成0を実測した。JFM no-copy runと
+  local referenceの260-byte DVIはSHA-256
+  `49bd1e1cd78832c970e7d6283cee99213cb6e21e8a628fe299484e11d1eb81f9`で一致する。
+  再現runnerは`tools/test-kpathsea-linux.sh`。利用者LaTeX corpusのupLaTeX対比性能は未再測定である。
 - 名前空間はPhase 0--7済み。Phase 8のTRIPとalignment再利用検証が残る。
 
 ## 直近の実装順
 
-1. Linuxで監査済みin-process Kpathsea adapterをsystem libraryへ実linkし、同じfixtureの
-   `kpsewhich` argvと子process 0、hit/miss、alias、非UTF-8 path、DVI意味を照合する。TUG TeX Liveが
-   standalone libraryを配らない場合はexact TL2026 sourceから共有libraryを再現し、静的linkは版pin・
-   LGPL source/relink条件・再現性・binary sizeを別gateにする。Windows fast pathはallocator対応後に測る。
+1. 利用者と同一のLinux LaTeX corpusでin-process Kpathsea版とupLaTeXを交互測定し、process数、
+   cold/warm wall、DVI意味を固定する。aliasと非UTF-8 pathの実lib gate、静的linkの版pin・LGPL
+   source/relink条件・再現性・binary sizeは別gateにする。Windows fast pathはallocator対応後に測る。
 2. 接続済みmain-loop JFM/禁則をbox/disc・残るcommand境界へ広げ、discの枝別意味を完成する。
 3. compile済み汎用script class対tableをlist単位dispatcherと中央finalizerへ接続する。
 4. `\tfont`と縦組metric/node/outputを追加し、JFM/K/X/禁則を横組から縦組へ広げる。
