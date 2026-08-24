@@ -1,0 +1,2 @@
+# Preserve the audited mail patch byte-for-byte; its SHA-256 is provenance.
+third_party/rust-kpathsea/UPSTREAM-PATCH.patch whitespace=-blank-at-eol,-blank-at-eof

@@ -293,16 +293,21 @@ control-sequence区間15.79%、fmt全体10.73%、wall 5.36%を短縮した。DVI
   `aliases`はboundedに読み、一致・壊れた場合だけone-shotへ戻し、無関係aliasで後続の一意hitを
   捨てない。公式DB発見と最初の`--show-path=tex`による最低2 processはまだ残り、実Linux再測定も未実施。
   用途pathの祖先に偶然ある`ls-R`へ昇格するcold bootstrap案は`TEXMFDBS`意味を破るため採用しない。
-  Rust `kpathsea` 0.3.4はin-process候補だが、明示`pratex` program名、非UTF-8 `PathBuf`、C返値解放、
-  typed format、subprocess禁止APIを上流または監査済み依存境界で解決するまで無修正で既定化しない。
+  Rust `kpathsea` 0.3.4 / `kpathsea_sys` 0.2.3を基点に、明示`pratex` program名、非UTF-8
+  `PathBuf`、UnixのC返値解放、typed format、subprocess禁止constructorを持つ監査済みforkを接続した。
+  dependencyはUnix non-WASMだけで、`default-features=false`、`in-process-only-caller`を固定し、
+  そこから`system-probe`を解決する。一run一handleのlinked hit/missを先に使い、
+  library不在とencoding非対応だけ既存safe resolverへ戻す。外部fmtは`--engine=rtex`を保つsafe経路である。
+  Windowsはallocator/CRT境界未実測のためtyped fallbackで性能改善なし、WASMはdependencyをcompileしない。
+  Linuxのsystem library link、子process 0、DVI意味とend-to-end性能はまだ実機未検証である。
 - 名前空間はPhase 0--7済み。Phase 8のTRIPとalignment再利用検証が残る。
 
 ## 直近の実装順
 
-1. Linuxで同じfixtureの`kpsewhich` argvと回数を再traceし、run-local共有とalias修正後の2 process
-   checkpointを測る。次に明示`pratex` program名とowned path解放を持つin-process Kpathsea adapterを
-   一run一instanceで接続し、通常TeX/JFM/TFM lookupの子process 0を実測する。system libraryが無ければ
-   crate側subprocessへ落とさずsafe resolverを使い、TL2026静的linkは版pin・LGPL・再現性を別gateにする。
+1. Linuxで監査済みin-process Kpathsea adapterをsystem libraryへ実linkし、同じfixtureの
+   `kpsewhich` argvと子process 0、hit/miss、alias、非UTF-8 path、DVI意味を照合する。TUG TeX Liveが
+   standalone libraryを配らない場合はexact TL2026 sourceから共有libraryを再現し、静的linkは版pin・
+   LGPL source/relink条件・再現性・binary sizeを別gateにする。Windows fast pathはallocator対応後に測る。
 2. 接続済みmain-loop JFM/禁則をbox/disc・残るcommand境界へ広げ、discの枝別意味を完成する。
 3. compile済み汎用script class対tableをlist単位dispatcherと中央finalizerへ接続する。
 4. `\tfont`と縦組metric/node/outputを追加し、JFM/K/X/禁則を横組から縦組へ広げる。

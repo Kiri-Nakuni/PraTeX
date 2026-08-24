@@ -114,12 +114,19 @@ basenameから取り、PraTeXが必要とする明示`pratex`を渡せない。�
 利用できるとは仮定できない。`build-from-source` featureはLGPLのKpathseaを静的に組み込むが、0.2.3時点の
 pinはTeX Live 2025/Kpathsea 6.4.1であり、TeX Live 2026 oracleと版が一致しない。
 
-採用時は、(1) `pratex`を明示するconstructor、(2)必要formatのtyped定数、(3)非UTF-8をpanicにしない
-`PathBuf`結果とC allocationの全経路解放、(4)in-processであることを確認できなければPraTeX自身のsafe
-resolverへ戻すadapter、(5)WASMでは依存をcompileしないtarget/feature境界を先に用意する。crate側の
-subprocess backendをPraTeXのfallbackに重ねず、
-通常Linux buildで子process 0を実測してから既定化する。静的linkを配布する場合はLGPLのsource提供・再link
-条件、版pin、offline再現、binary sizeを別gateにする。
+Linux-first checkpointでは、これらを監査済みforkとPraTeX側のsafe adapterへ接続した。依存は
+`default-features=false`で`in-process-only-caller`だけを明示し、そこから`system-probe`を解決してcrate側の
+`subprocess-backend`をcompileしない。Unix nativeでlinkできた時だけprogram名`pratex`、typed format、
+native `OsStr`/`PathBuf`を一run一handleへ渡す。linked hitは通常fileとして再確認し、linked missは
+authoritativeとする。library不在とpath encoding非対応だけが、既存safe resolverを遅延利用する。
+外部fmtは`--engine=rtex`の意味を保つためin-processへ渡さない。
+
+依存はUnix non-WASM targetだけに置く。WindowsはC返値のallocator/CRT対応を実測できていないため
+typed fallbackのままで性能改善はなく、WASMは依存をcompileしない。feature treeは
+`tools/check-kpathsea-features.ps1`で固定する。Rust wrapperのFFI `unsafe`はvendor内へ隔離し、
+PraTeXの`src`はsafe Rustだけである。Linuxでsystem libraryをlinkしたend-to-end、子process 0、
+hit/miss、DVI意味の再測定は未実施なので、このcheckpointを1.2倍gate達成とは数えない。
+静的linkを配布する場合はLGPLのsource提供・relink条件、版pin、offline再現、binary sizeを別gateにする。
 
 ## 横組JFM glyph sliceの欧文DVI gate（2026-08-23）
 

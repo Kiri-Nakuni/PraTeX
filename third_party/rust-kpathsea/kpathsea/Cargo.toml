@@ -1,0 +1,48 @@
+[package]
+name = "kpathsea"
+version = "0.3.4"
+authors = ["Deyan Ginev <deyan.ginev@gmail.com>", "Emily Eisenberg <xymostech@gmail.com>"]
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/dginev/rust-kpathsea"
+homepage = "https://github.com/dginev/rust-kpathsea"
+documentation = "https://docs.rs/crate/kpathsea"
+description = """
+Rust interface to the kpathsea TeX file management library.
+"""
+
+[lib]
+name = "kpathsea"
+
+[features]
+default = ["subprocess-backend", "system-probe"]
+# Forward kpathsea_sys's static build-from-source link: fetch + compile a static
+# libkpathsea for an in-process, self-contained link. The audited exact-path
+# boundary is Unix-only; Windows remains on the subprocess backend until an
+# allocator-matching returned-path release shim exists. Off by default.
+build-from-source = ["system-probe", "kpathsea_sys/build_from_source"]
+# Probe libkpathsea for callers which require the in-process backend and own
+# their fallback. This deliberately does not enable the subprocess backend.
+in-process-only-caller = ["system-probe"]
+# Keep the crates.io behaviour behind the default feature, while allowing a
+# caller which owns its fallback resolver to omit `which` completely.
+subprocess-backend = ["dep:which"]
+# System/DLL probing is an explicit layer. It may report linked=0 without
+# turning the in-process-only API into a subprocess API.
+system-probe = ["dep:which", "kpathsea_sys/system_probe"]
+
+[dependencies]
+kpathsea_sys = { version = "0.2.3", path = "../kpathsea_sys", default-features = false }
+which = { version = "8", optional = true }
+
+[build-dependencies]
+# The install-time toolchain check resolves `kpsewhich` with the same
+# per-platform PATH rules as the runtime (PATHEXT/.exe on Windows).
+which = { version = "8", optional = true }
+
+# `cfg(kpathsea_linked)` is registered via `cargo:rustc-check-cfg` in
+# build.rs, next to where the cfg itself is emitted.
+#
+# No docs.rs cfg override needed anymore: kpathsea_sys no longer panics
+# when libkpathsea is absent, so docs.rs builds (which have no TeX) work
+# out of the box — the crate then documents the subprocess configuration.

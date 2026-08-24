@@ -1,0 +1,48 @@
+[package]
+name = "kpathsea_sys"
+version = "0.2.3"
+authors = ["Deyan Ginev <deyan.ginev@gmail.com>"]
+edition = "2024"
+links = "kpathsea"
+build = "build.rs"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/dginev/rust-kpathsea"
+homepage = "https://github.com/dginev/rust-kpathsea"
+documentation = "https://docs.rs/crate/kpathsea_sys"
+description = """
+Bindings to libkpathsea for efficient file management in the TeX ecosystem
+"""
+categories = ["external-ffi-bindings"]
+
+[lib]
+name = "kpathsea_sys"
+
+[features]
+default = ["system_probe"]
+# Build a static libkpathsea from source with `cc`, instead of locating a
+# system library — an in-process, self-contained link. The current high-level
+# ownership boundary enables it only on Unix (verified on Linux); Windows
+# remains unlinked until an allocator-matching returned-path release shim is
+# available. The kpathsea source is NOT bundled (it is LGPL; this crate stays
+# MIT/Apache): it is fetched at build time (pinned commit) or taken from
+# `KPATHSEA_SRC_DIR`. Only our own config headers live in-tree (`common/`,
+# `msvc/`, `unix/`, all original). Opt-in; off by default. See `common/README.md`.
+build_from_source = ["system_probe"]
+# When disabled, build.rs only publishes linked=0. This makes the exact same
+# Rust API available to a caller which provides its own resolver fallback,
+# without resolving probe-only build dependencies.
+system_probe = ["dep:pkg-config", "dep:which", "dep:cc"]
+
+[build-dependencies]
+pkg-config = { version = "0.3", optional = true }
+# Tool discovery for system/source probes. The Windows DLL path is retained as
+# future probe code but is not selected until its allocation contract is safe.
+which = { version = "8", optional = true }
+cc = { version = "1", optional = true }
+
+# `cfg(kpathsea_linked)` is registered via `cargo:rustc-check-cfg` in
+# build.rs, next to where the cfg itself is emitted.
+#
+# No docs.rs cfg override needed anymore: the build script no longer panics
+# when libkpathsea is absent, so docs.rs builds (which have no TeX) work
+# out of the box in the unlinked configuration.

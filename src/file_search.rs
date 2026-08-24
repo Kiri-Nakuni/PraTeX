@@ -1,13 +1,15 @@
 //! TeX の論理ファイル名を、実際に開く物理パスへ解決する。
 //!
-//! 外部探索は `kpsewhich` の公開 CLI だけを利用する。シェルや kpathsea の C API は
-//! 介さないため、この層は safe Rust のままであり、問い合わせに見せた名前も
-//! `OsString` のまま保たれる。
+//! Unix nativeでは監査済みRust wrapperを介したin-process Kpathseaを先に試し、
+//! library不在またはpath encoding非対応の時だけ既存のsafe resolverへ戻る。
+//! PraTeX自身のこの層はsafe Rustのままで、問い合わせに見せた名前も`OsString`のまま保つ。
 
+mod in_process;
 mod lsr;
 mod search_path;
 mod wsl;
 
+use self::in_process::{FastPathFailure, NativeFirstResolver};
 use self::lsr::{AliasMatch, LsRDatabase};
 use self::search_path::{SearchPath, SearchPathElement};
 use self::wsl::{
@@ -93,6 +95,7 @@ impl AsRef<OsStr> for LogicalFileName {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ResolutionSource {
     DirectPath,
+    InProcessKpathsea,
     FilenameDatabase,
     Kpsewhich,
     WslKpsewhich,
@@ -251,7 +254,7 @@ impl RunFileResolver {
 
 impl Default for RunFileResolver {
     fn default() -> Self {
-        Self::new(KpsewhichResolver::default())
+        Self::new(NativeFirstResolver::default())
     }
 }
 
@@ -299,6 +302,45 @@ impl CommandExecutor for ProcessCommandExecutor {
 struct Query {
     kind: FileKind,
     logical_name: LogicalFileName,
+}
+
+enum LocalBoundary {
+    Resolved(Option<ResolvedFile>),
+    External(Query),
+}
+
+fn resolve_local_boundary(
+    kind: FileKind,
+    logical_name: &LogicalFileName,
+    external_format_search: ExternalFormatSearch,
+) -> Result<LocalBoundary, ResolveError> {
+    let direct_path = PathBuf::from(logical_name.as_os_str());
+    match fs::metadata(&direct_path) {
+        Ok(metadata) if metadata.is_file() => {
+            return Ok(LocalBoundary::Resolved(Some(ResolvedFile {
+                logical_name: logical_name.clone(),
+                physical_path: direct_path,
+                source: ResolutionSource::DirectPath,
+            })));
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(source) => {
+            return Err(ResolveError::InspectDirectPath {
+                path: direct_path,
+                source,
+            });
+        }
+    }
+
+    if kind == FileKind::Format && external_format_search == ExternalFormatSearch::LocalOnly {
+        return Ok(LocalBoundary::Resolved(None));
+    }
+
+    Ok(LocalBoundary::External(Query {
+        kind,
+        logical_name: logical_name.clone(),
+    }))
 }
 
 #[derive(Clone, Debug)]
@@ -437,38 +479,23 @@ impl<E: CommandExecutor> FileResolver for KpsewhichResolver<E> {
         kind: FileKind,
         logical_name: &LogicalFileName,
     ) -> Result<Option<ResolvedFile>, ResolveError> {
-        let direct_path = PathBuf::from(logical_name.as_os_str());
-        match fs::metadata(&direct_path) {
-            Ok(metadata) if metadata.is_file() => {
-                return Ok(Some(ResolvedFile {
-                    logical_name: logical_name.clone(),
-                    physical_path: direct_path,
-                    source: ResolutionSource::DirectPath,
-                }));
-            }
-            Ok(_) => {}
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(source) => {
-                return Err(ResolveError::InspectDirectPath {
-                    path: direct_path,
-                    source,
-                });
-            }
-        }
-
-        if kind == FileKind::Format
-            && self.options.external_format_search == ExternalFormatSearch::LocalOnly
-        {
-            return Ok(None);
-        }
-
-        let query = Query {
+        let query = match resolve_local_boundary(
             kind,
-            logical_name: logical_name.clone(),
+            logical_name,
+            self.options.external_format_search,
+        )? {
+            LocalBoundary::Resolved(resolved) => return Ok(resolved),
+            LocalBoundary::External(query) => query,
         };
+        self.resolve_external(query)
+    }
+}
+
+impl<E: CommandExecutor> KpsewhichResolver<E> {
+    fn resolve_external(&mut self, query: Query) -> Result<Option<ResolvedFile>, ResolveError> {
         if let Some(cached_resolution) = self.external_cache.get(&query) {
             return Ok(cached_resolution.clone().map(|cached| ResolvedFile {
-                logical_name: logical_name.clone(),
+                logical_name: query.logical_name.clone(),
                 physical_path: cached.physical_path,
                 source: cached.source,
             }));
@@ -479,9 +506,9 @@ impl<E: CommandExecutor> FileResolver for KpsewhichResolver<E> {
                 physical_path: physical_path.clone(),
                 source: ResolutionSource::FilenameDatabase,
             };
-            self.external_cache.insert(query, Some(cached));
+            self.external_cache.insert(query.clone(), Some(cached));
             return Ok(Some(ResolvedFile {
-                logical_name: logical_name.clone(),
+                logical_name: query.logical_name.clone(),
                 physical_path,
                 source: ResolutionSource::FilenameDatabase,
             }));
@@ -503,7 +530,7 @@ impl<E: CommandExecutor> FileResolver for KpsewhichResolver<E> {
             }
         };
         self.external_cache.insert(
-            query,
+            query.clone(),
             physical_path
                 .clone()
                 .map(|physical_path| CachedExternalResolution {
@@ -512,7 +539,7 @@ impl<E: CommandExecutor> FileResolver for KpsewhichResolver<E> {
                 }),
         );
         Ok(physical_path.map(|physical_path| ResolvedFile {
-            logical_name: logical_name.clone(),
+            logical_name: query.logical_name,
             physical_path,
             source,
         }))
@@ -1076,6 +1103,14 @@ pub(crate) enum ResolveError {
         path: PathBuf,
         source: io::Error,
     },
+    InProcessKpathsea(FastPathFailure),
+    InspectInProcessPath {
+        path: PathBuf,
+        source: io::Error,
+    },
+    InProcessPathNotFile {
+        path: PathBuf,
+    },
     LaunchKpsewhich {
         program: OsString,
         source: io::Error,
@@ -1107,6 +1142,19 @@ impl fmt::Display for ResolveError {
             Self::InspectDirectPath { path, source } => {
                 write!(formatter, "cannot inspect `{}`: {source}", path.display())
             }
+            Self::InProcessKpathsea(reason) => {
+                write!(formatter, "in-process kpathsea lookup failed: {reason}")
+            }
+            Self::InspectInProcessPath { path, source } => write!(
+                formatter,
+                "in-process kpathsea found `{}`, but it cannot be inspected: {source}",
+                path.display()
+            ),
+            Self::InProcessPathNotFile { path } => write!(
+                formatter,
+                "in-process kpathsea found `{}`, but it is not a regular file",
+                path.display()
+            ),
             Self::LaunchKpsewhich { program, source } => write!(
                 formatter,
                 "cannot launch `{}`: {source}",
@@ -1152,10 +1200,13 @@ impl std::error::Error for ResolveError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::InspectDirectPath { source, .. }
+            | Self::InspectInProcessPath { source, .. }
             | Self::LaunchKpsewhich { source, .. }
             | Self::LaunchWsl { source, .. }
             | Self::InspectWslPath { source, .. } => Some(source),
-            Self::WslDiscoveryFailed { .. }
+            Self::InProcessKpathsea(_)
+            | Self::InProcessPathNotFile { .. }
+            | Self::WslDiscoveryFailed { .. }
             | Self::MalformedWslOutput(_)
             | Self::UnrepresentableWslArgument
             | Self::KpsewhichFailed { .. }

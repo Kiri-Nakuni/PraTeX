@@ -122,6 +122,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "kpathsea"
+version = "0.3.4"
+dependencies = [
+ "kpathsea_sys",
+ "which",
+]
+
+[[package]]
+name = "kpathsea_sys"
+version = "0.2.3"
+dependencies = [
+ "cc",
+ "pkg-config",
+ "which",
+]
+
+[[package]]
 name = "libc"
 version = "0.2.189"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -155,6 +172,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 
 [[package]]
+name = "pkg-config"
+version = "0.3.34"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
+
+[[package]]
 name = "proc-macro2"
 version = "1.0.107"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -177,6 +200,7 @@ name = "rtex"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "kpathsea",
  "vaak",
 ]
 
@@ -262,6 +286,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7ef64dbcc55df09c7e5a46182d181c2cfa3e925f3da937ea764728b4bbb9dcbf"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "which"
+version = "8.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f3ef584124b911bcc3875c2f1472e80f24361ceb789bd1c62b3e9a3df9ff43c"
+dependencies = [
+ "libc",
 ]
 
 [[package]]
