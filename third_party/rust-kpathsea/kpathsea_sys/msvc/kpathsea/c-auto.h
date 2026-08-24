@@ -56,12 +56,12 @@
 #define PACKAGE "kpathsea"
 #define PACKAGE_NAME "Kpathsea"
 #define PACKAGE_TARNAME "kpathsea"
-#define PACKAGE_VERSION "6.4.1"
-#define PACKAGE_STRING "Kpathsea 6.4.1"
+#define PACKAGE_VERSION "6.4.2"
+#define PACKAGE_STRING "Kpathsea 6.4.2"
 #define PACKAGE_BUGREPORT "tex-k@tug.org"
 #define PACKAGE_URL ""
-#define VERSION "6.4.1"
-#define KPSEVERSION "kpathsea version 6.4.1"
+#define VERSION "6.4.2"
+#define KPSEVERSION "kpathsea version 6.4.2"
 
 /* MSVC's snprintf is C99-conformant (VS2015+); config.h still wraps on WIN32. */
 

@@ -16,7 +16,7 @@ function Get-CargoMetadata([string] $Platform) {
         --offline `
         --filter-platform $Platform `
         --no-default-features `
-        --features system-kpathsea
+        --features bundled-kpathsea
     if ($LASTEXITCODE -ne 0) {
         throw "Could not read Cargo's $Platform feature tree.`n$($metadataOutput -join "`n")"
     }
@@ -25,6 +25,14 @@ function Get-CargoMetadata([string] $Platform) {
 }
 
 $metadata = Get-CargoMetadata $Target
+
+$rootPackage = @($metadata.packages | Where-Object { $_.name -eq 'rtex' })
+if ($rootPackage.Count -ne 1) {
+    throw "Expected one rtex root package, found $($rootPackage.Count)."
+}
+if ('bundled-kpathsea' -notin @($rootPackage[0].features.default)) {
+    throw "The rtex default feature set must include bundled-kpathsea."
+}
 
 function Get-ResolvedFeatures([string] $PackageName) {
     $packages = @($metadata.packages | Where-Object { $_.name -eq $PackageName })
@@ -58,12 +66,12 @@ function Assert-Features(
 
 Assert-Features `
     -PackageName 'kpathsea' `
-    -Required @('in-process-only-caller', 'system-probe') `
-    -Forbidden @('default', 'subprocess-backend', 'build-from-source')
+    -Required @('build-from-source', 'in-process-only-caller', 'system-probe') `
+    -Forbidden @('default', 'subprocess-backend')
 Assert-Features `
     -PackageName 'kpathsea_sys' `
-    -Required @('system_probe') `
-    -Forbidden @('default', 'build_from_source')
+    -Required @('build_from_source', 'system_probe') `
+    -Forbidden @('default')
 
 function Assert-KpathseaAbsent([string] $Platform) {
     $platformMetadata = Get-CargoMetadata $Platform
@@ -83,4 +91,4 @@ function Assert-KpathseaAbsent([string] $Platform) {
 Assert-KpathseaAbsent $WasmTarget
 Assert-KpathseaAbsent $OtherUnixTarget
 
-Write-Output "Kpathsea feature contract verified (Linux: $Target; excluded: $WasmTarget, $OtherUnixTarget)."
+Write-Output "Bundled Kpathsea feature contract verified (Linux: $Target; excluded: $WasmTarget, $OtherUnixTarget)."

@@ -21,9 +21,8 @@ use std::path::PathBuf;
 ///
 /// Probe order:
 ///  1. `KPATHSEA_NO_LINK` env override — build WITHOUT linking even if the
-///     library could be found (forces the high-level crate onto its
-///     subprocess backend; used by CI to test that path on hosts that
-///     also have the library).
+///     library could be found. The high-level crate then follows its selected
+///     feature contract; in-process-only callers receive unavailable.
 ///  2. `KPATHSEA_LIB_DIR` env override — link against the given directory
 ///     unconditionally (for TeX trees that ship the library without a
 ///     `kpathsea.pc`, or cross-compilation setups).
@@ -41,12 +40,12 @@ use std::path::PathBuf;
 ///     `libkpathsea-dev`, Homebrew `texlive`, vanilla TL source installs).
 ///  4. Windows builds remain unlinked until TeX Live exposes an
 ///     allocator-matching release boundary for returned filenames. The
-///     high-level crate retains its legacy behavior through `kpsewhich`.
+///     high-level crate decides whether an explicit safe fallback is allowed.
 ///  5. Nothing found: build WITHOUT linking. This is graceful by design —
 ///     MacTeX/BasicTeX, for example, ship no `libkpathsea` at all (no
 ///     header, no dylib, no .pc), so there is nothing to link against.
-///     The high-level `kpathsea` crate reads the `linked` metadata below
-///     and falls back to its subprocess-`kpsewhich` backend automatically.
+///     The high-level `kpathsea` crate reads the `linked` metadata below;
+///     callers using `in-process-only-caller` receive a typed unavailable error.
 pub(super) fn run() {
   println!("cargo:rerun-if-env-changed=KPATHSEA_NO_LINK");
   println!("cargo:rerun-if-env-changed=KPATHSEA_STATIC");
@@ -55,10 +54,16 @@ pub(super) fn run() {
   println!("cargo:rustc-check-cfg=cfg(kpathsea_linked)");
 
   if env::var_os("KPATHSEA_NO_LINK").is_some() {
+    if env::var_os("CARGO_FEATURE_BUILD_FROM_SOURCE").is_some() {
+      panic!(
+        "kpathsea_sys: KPATHSEA_NO_LINK cannot be combined with build-from-source; \
+         disable the bundled feature explicitly for an unlinked diagnostic build"
+      );
+    }
     println!(
       "cargo:warning=kpathsea_sys: KPATHSEA_NO_LINK is set; building \
-       without linking. The `kpathsea` crate will use its \
-       subprocess-`kpsewhich` backend."
+       without linking. In-process-only callers will receive an \
+       unavailable result."
     );
     println!("cargo:linked=0");
     return;
@@ -67,13 +72,13 @@ pub(super) fn run() {
   // TeX Live's Windows DLL does not expose an allocator-matching release
   // function for paths returned by kpathsea_find_file. Linking it would leave
   // the high-level crate choosing between a permanent leak and freeing across
-  // an unverified DLL/CRT boundary. Keep Windows on the compatible subprocess
-  // backend until a TeX Live-owned release shim has been built and tested.
+  // an unverified DLL/CRT boundary. Keep Windows unlinked until a TeX
+  // Live-owned release shim has been built and tested.
   if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
     println!(
       "cargo:warning=kpathsea_sys: Windows in-process lookup is disabled until \
        returned path ownership has an allocator-matching release API; building \
-       without linking and using the subprocess backend."
+       without linking."
     );
     println!("cargo:linked=0");
     return;
@@ -84,9 +89,15 @@ pub(super) fn run() {
   // (returns false) on unsupported targets, which then keep the probe order.
   // Gated on the Cargo-set CARGO_FEATURE_* env var, not `cfg!(feature=…)`
   // (whose availability in build scripts is not contractual).
-  if env::var_os("CARGO_FEATURE_BUILD_FROM_SOURCE").is_some() && try_build_from_source() {
-    emit_linked();
-    return;
+  if env::var_os("CARGO_FEATURE_BUILD_FROM_SOURCE").is_some() {
+    if try_build_from_source() {
+      emit_linked();
+      return;
+    }
+    panic!(
+      "kpathsea_sys: bundled Kpathsea was requested but the pinned source could not be obtained; \
+       install git/network access or set KPATHSEA_SRC_DIR to an exact TeX Live 2026 texk/kpathsea tree"
+    );
   }
 
   // Static vs. shared link mode. `static=` bakes `libkpathsea.a` into the
@@ -143,8 +154,7 @@ pub(super) fn run() {
   println!(
     "cargo:warning=kpathsea_sys: libkpathsea not found (no pkg-config entry, \
          no KPATHSEA_LIB_DIR, no TeX Live kpathsea DLL); building without \
-         linking. In-process kpathsea calls are unavailable - the `kpathsea` \
-         crate will use its subprocess-`kpsewhich` backend instead."
+         linking. In-process kpathsea calls are unavailable."
   );
   println!("cargo:linked=0");
 }
@@ -359,10 +369,10 @@ const KPATHSEA_COMMON_SOURCES: &[&str] = &[
   "getopt1.c",
 ];
 
-/// kpathsea source pin: the TeX Live source-mirror commit whose kpathsea (6.4.1,
-/// TL2025) matches `bindings_windows.rs` — the same commit latexml-oxide's
-/// `build_static_kpathsea.sh` uses on Linux/macOS. Overridable via `KPSE_REF`.
-const KPSE_REF: &str = "def12ffd4d6e46bae03b3e5c7ff6f5f14dced3ab";
+/// Kpathsea source pin: the official TeX Live branch2026 source-mirror commit
+/// `svn78399`. It contains released Kpathsea 6.4.2. Overridable via `KPSE_REF`
+/// only for an explicit downstream rebuild.
+const KPSE_REF: &str = "fb6158926661cb7a7246b3a94a0cb170a9624d5a";
 
 /// Fetch `texk/kpathsea` from the TeX Live source mirror (sparse, shallow) at
 /// [`KPSE_REF`] into `<out>/kpathsea-src`, returning the `texk/kpathsea` path.
@@ -419,8 +429,8 @@ fn fetch_kpathsea_src(out: &std::path::Path) -> Option<PathBuf> {
 /// The DLL resolves at run time through PATH — the same PATH entry that
 /// made `kpsewhich.exe` findable.
 ///
-/// Every failure path returns `false` and the build degrades to the
-/// subprocess backend, exactly as if the DLL were absent. MiKTeX's
+/// Every failure path returns `false` and leaves the build unlinked, exactly as
+/// if the DLL were absent. MiKTeX's
 /// reimplementation DLLs (`miktex-kpathsea*.dll`) are deliberately not
 /// matched: only TL's own build is known ABI-compatible with the
 /// declarations in `bindings_windows.rs`. [`run`] currently returns an

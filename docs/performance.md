@@ -103,7 +103,8 @@ token-list走査、`Vec`再確保が次の候補である。sample数をwall ms�
 `kpathsea_sys` 0.2.3
 （SHA-256 `72d72f7d17fa1de89f3fd72ca949733f937ef3ac37a1ba98d36fe09d8f9a0074`）を監査した。
 両crateはMIT OR Apache-2.0で、高位crateはsystem `libkpathsea`がbuild時に見つかればin-process FFI、
-見つからなければ独自のsubprocess backendを選ぶ。in-process経路は今回のprocess列を消せる有力候補である。
+見つからなければ独自のsubprocess backendを選ぶ。PraTeXはこの自動選択を使わず、監査済みforkの
+in-process-only境界だけを使う。
 
 ただし0.3.4のまま既定resolverへ置換しない。現APIは初期化時のprogram nameを`kpsewhich` executableの
 basenameから取り、PraTeXが必要とする明示`pratex`を渡せない。公開format定数はTFM、VF、AFM、ENC、FMTを
@@ -111,21 +112,31 @@ basenameから取り、PraTeXが必要とする明示`pratex`を渡せない。�
 `kpathsea_find_file`のowned返値をcopy後に解放しておらず、lookupごとにpath bufferを失う。system libraryが
 なければsubprocessへ黙って戻る。
 提供profileのloaded-library表にも`libkpathsea.so`は現れず、同じTeX Live binary treeでdynamic libraryが
-利用できるとは仮定できない。`build-from-source` featureはLGPLのKpathseaを静的に組み込むが、0.2.3時点の
-pinはTeX Live 2025/Kpathsea 6.4.1であり、TeX Live 2026 oracleと版が一致しない。
+利用できるとは仮定できない。TUGのTeX Live 2026 build資料でも、binary distributionはstandalone
+libraryをinstallしない。このためsystem libraryが偶然あれば速い、なければCLIへ戻る構成は通常配布の
+性能契約にならない。
 
-Linux-first checkpointでは、これらを監査済みforkとPraTeX側のsafe adapterへ接続した。依存は
-`default-features=false`で`in-process-only-caller`だけを明示し、そこから`system-probe`を解決してcrate側の
-`subprocess-backend`をcompileしない。Linuxでlinkできた時だけprogram名`pratex`、typed format、
-native `OsStr`/`PathBuf`を一run一handleへ渡す。linked hitは通常fileとして再確認し、linked missは
-authoritativeとする。library不在とpath encoding非対応だけが、既存safe resolverを遅延利用する。
-外部fmtは`--engine=rtex`の意味を保つためin-processへ渡さない。
+Linux-first checkpointでは、これらを監査済みforkとPraTeX側のsafe adapterへ接続した。その次の
+bundled checkpointで、PraTeXのLinux既定featureを`bundled-kpathsea`へ変更した。これは
+`default-features=false`のwrapperへ`in-process-only-caller`と`build-from-source`を明示し、公式
+TeX Live source mirrorの`fb6158926661cb7a7246b3a94a0cb170a9624d5a`（`svn78399`、
+Kpathsea 6.4.2）を静的にbuildする。Kpathsea C sourceはrepositoryへvendorしない。offline buildは
+exact treeを`KPATHSEA_SRC_DIR`で与え、取得またはbuildに失敗した場合はCLIへ黙って性能退行せず
+buildを失敗させる。既定featureと`KPATHSEA_NO_LINK`の併用も拒否する。crate側の
+`subprocess-backend`はcompileしない。
+
+runtimeではprogram名`pratex`、typed format、native `OsStr`/`PathBuf`を一run一handleへ渡す。
+linked hitは通常fileとして再確認し、linked missはauthoritativeとする。外部fmtだけは
+`--engine=rtex`の意味を保つためin-processへ渡さない。配布側がKpathsea 6.4.2 development libraryを
+管理する場合は、`--no-default-features --features stats,system-kpathsea`で従来のdynamic/static
+system linkを明示できる。
 
 依存はLinux targetだけに置く。WindowsはC返値のallocator/CRT対応を実測できていないため
 typed fallbackのままで性能改善はなく、WASMとその他Unixは依存をcompileしない。feature treeは
 `tools/check-kpathsea-features.ps1`で固定する。Rust wrapperのFFI `unsafe`はvendor内へ隔離し、
-PraTeXの`src`はsafe Rustだけである。Linuxでsystem libraryをlinkしたend-to-end、子process 0、
-hit/miss、DVI意味の再測定は未実施なので、このcheckpointを1.2倍gate達成とは数えない。
+PraTeXの`src`はsafe Rustだけである。2026-08-24にTeX Liveもsystem KpathseaもないWSLでrelease buildを
+行い、固定revisionを取得して55個のC sourceから5分19秒でlinkできることを確認した。これはbuild gateであり、
+子process 0、hit/miss、DVI意味、実TeX treeでのend-to-end性能は次のruntime gateまで未達とする。
 静的linkを配布する場合はLGPLのsource提供・relink条件、版pin、offline再現、binary sizeを別gateにする。
 
 ## 横組JFM glyph sliceの欧文DVI gate（2026-08-23）

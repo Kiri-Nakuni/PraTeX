@@ -26,7 +26,8 @@ default = ["system_probe"]
 # available. The kpathsea source is NOT bundled (it is LGPL; this crate stays
 # MIT/Apache): it is fetched at build time (pinned commit) or taken from
 # `KPATHSEA_SRC_DIR`. Only our own config headers live in-tree (`common/`,
-# `msvc/`, `unix/`, all original). Opt-in; off by default. See `common/README.md`.
+# `msvc/`, `unix/`, all original). Opt-in for this crate; PraTeX enables it in
+# its default Linux feature. See `common/README.md`.
 build_from_source = ["system_probe"]
 # When disabled, build.rs only publishes linked=0. This makes the exact same
 # Rust API available to a caller which provides its own resolver fallback,

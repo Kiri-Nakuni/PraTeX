@@ -2,11 +2,11 @@
 
 更新: 2026-08-24
 
-PraTeXはKpathsea libraryを再実装したものではない。基線となるsafe resolverは公開されている
-`kpsewhich` CLIと`ls-R`の書式を境界にして、TeX Liveの探索結果をPraTeXへ接続する。
-Linux-first checkpointでは、監査して必要最小限をvendorしたRust wrapperからsystem
-`libkpathsea`をin-processで呼べる場合だけ先行させる。KpathseaのC sourceは移植・vendorせず、
-libraryが使えない環境は同じsafe resolverへ戻す。
+PraTeXはKpathsea libraryを再実装しない。Linuxの既定buildは、監査して必要最小限をvendorした
+Rust wrapperから、公式TeX Live 2026のexact revisionにあるKpathsea 6.4.2を静的にbuildし、
+in-processで呼ぶ。KpathseaのC sourceはrepositoryへvendorせず、build時に固定revisionを取得するか、
+同じsource treeを`KPATHSEA_SRC_DIR`で与える。Windows、WASM、未監査Unixと、明示的なsystem-library
+buildでlibraryを利用できない場合だけ、公開`kpsewhich` CLIと`ls-R`を境界にしたsafe resolverへ戻す。
 
 ## 現在の探索順
 
@@ -16,8 +16,9 @@ libraryが使えない環境は同じsafe resolverへ戻す。
 2. formatがlocal限定policyなら、外部探索を行わず不在を返す。
 3. 外部formatは`--engine=rtex`を必要とするため、program名しか渡せないin-process APIへ
    意味を読み替えず、従来のsafe resolverへ渡す。
-4. その他の外部探索は、Linuxでsystem `libkpathsea`へlinkできた時だけ、一runに一個の
-   handleへprogram名`pratex`、用途別format、`must_exist=true`を渡す。
+4. その他の外部探索は、Linux既定buildでは静的に組み込んだKpathseaの一run一handleへ、
+   program名`pratex`、用途別format、`must_exist=true`を渡す。明示的な`system-kpathsea` buildも、
+   system libraryへlinkできた場合は同じ経路を使う。
 5. linked hitは通常fileであることを再確認して採用し、linked missはauthoritativeな不在として
    safe resolverへ戻さない。library不在またはpath encoding非対応だけをtyped fallbackにする。
 6. fallback後は同じfile種別と論理名について、run-localの成功・不在cacheを引く。
@@ -30,19 +31,22 @@ libraryが使えない環境は同じsafe resolverへ戻す。
 ## in-process Kpathseaの依存境界
 
 PraTeXは`kpathsea` 0.3.4と`kpathsea_sys` 0.2.3を基点にした監査済みforkを
-`third_party/rust-kpathsea`へ固定する。crateのdefault featureは使わず、consumerから明示的に
-`in-process-only-caller`だけを有効にし、そこから`system-probe`を解決する。`subprocess-backend`を有効にしないため、
-system libraryを発見できなかったbuildでもRust crateが別の`kpsewhich` subprocessを構築することは
-ない。typedな`InProcessUnavailable`を受けて初めてPraTeX自身のsafe resolverを遅延利用する。
+`third_party/rust-kpathsea`へ固定する。crateのdefault featureは使わない。PraTeXのLinux既定feature
+`bundled-kpathsea`は`in-process-only-caller`と`build-from-source`を明示し、そこから
+`system-probe`を解決する。`subprocess-backend`はcompileしないため、source取得やbuildに失敗した時に
+別の`kpsewhich`へ黙って性能退行せず、buildを失敗させる。明示的なsystem-library buildで受けた
+typedな`InProcessUnavailable`、またはKpathseaをcompileしないtargetでだけ、PraTeX自身のsafe
+resolverを遅延利用する。
 
 依存は`cfg(target_os = "linux")`のoptional target dependencyである。
 WindowsはC返値とCRT allocatorの対応を実測できていないので、このcheckpointでは依存をcompileせず
 typed fallbackに固定する。WASMとその他Unixも依存をcompileしない。これらの環境の探索性能は改善しておらず、
-full upstream APIやWindows fast pathの完成を意味しない。Linuxでもsystem libraryが共有・静的libraryを
-提供しなければsafe resolverのままである。
+full upstream APIやWindows fast pathの完成を意味しない。Linuxで配布側のlibraryを使う場合だけ、
+`--no-default-features --features stats,system-kpathsea`を明示する。
 
-featureの退行は次で検査する。これは`kpathsea`のdefault、`subprocess-backend`、`build-from-source`と、
-`kpathsea_sys`のdefault、`build_from_source`が解決treeへ混入したら失敗する。
+featureの退行は次で検査する。Linuxについて`build-from-source`、`in-process-only-caller`、
+`system-probe`を要求し、`kpathsea`のdefaultと`subprocess-backend`、`kpathsea_sys`のdefaultが
+解決treeへ混入したら失敗する。WASMと未監査Unixに両crateが現れても失敗する。
 
 ```powershell
 tools/check-kpathsea-features.ps1
@@ -52,20 +56,22 @@ tools/check-kpathsea-features.ps1
 従ってsourceをvendorしても、これらのcrateを初めて取得するmachineではCargo registry accessまたは
 事前に固定したvendor sourceが必要である。依存取得不能をprobe無効化で黙って迂回しない。
 
-### TeX Live 2026のexact libraryを用意する場合
+### TeX Live 2026のexact library
 
-TUGのLinux binary treeはKpathseaを各engineへlinkし、standalone `libkpathsea.so`をinstallしないことが
-ある。そのtreeへ`KPATHSEA_LIB_DIR`を向けるだけでは解決しない。crateの`build-from-source`はTL2025を
-pinしており、TL2026 oracleと版が違うのでPraTeXでは有効にしない。
+TUGのLinux binary treeはKpathseaを各engineへlinkし、standalone `libkpathsea.so`をinstallしない。
+そのtreeへ`KPATHSEA_LIB_DIR`を向けるだけでは解決しないため、PraTeXのLinux既定buildは
+`fb6158926661cb7a7246b3a94a0cb170a9624d5a`（TeX Live source mirror `svn78399`、
+Kpathsea 6.4.2）をpinし、静的libraryを直接作る。`KPSE_REF`によるoverrideはdownstreamの明示的な
+再build用であり、PraTeX releaseの版契約を変更しない。
 
-共有・静的のどちらも、Cargoの前段で公式TL2026 source archiveまたはinstalled distributionと一致する
-公式revisionを取得する。URL/revision、取得日、archive SHA-256、展開tree manifest hash、installed
-`kpsewhich --version`を記録し、digestで固定したcompiler/container、`config.status`、`config.log`、
-compiler/binutils/make/autoconf版も保存する。generated headerと通常Automake buildを使い、crate内の
-TL2025 header/source listを流用しない。このmachineには公式sourceがないためhashを推測して書かない。
+sourceはbuild scriptが公式mirrorからsparse fetchする。networkを使えないbuildでは同じrevisionの
+`texk/kpathsea` directoryを`KPATHSEA_SRC_DIR`で渡す。sourceを取得できない時はfail closedとし、
+system libraryやCLIへ黙って切り替えない。既定featureと`KPATHSEA_NO_LINK`の併用もbuild errorにし、
+unlinked診断buildは既定featureを明示的に外す。pinを更新する時はURL/revision、取得日、archive SHA-256、
+source manifest、生成header、source list、公式`kpsewhich --version`を再監査する。
 
-共有libraryは概ね次の形で別prefixへinstallし、その`.so`と`.pc`をPraTeX buildへ渡す。配布では同じ
-libraryを同梱してinstallation-relative rpathを設定するか、system loaderの通常位置へinstallする。
+distributionが共有libraryを管理する場合は概ね次の形で別prefixへinstallし、その`.so`と`.pc`を
+PraTeXの明示的なsystem-library buildへ渡す。
 
 ```sh
 mkdir Work && cd Work
@@ -73,13 +79,17 @@ mkdir Work && cd Work
   --disable-static --disable-all-pkgs --prefix="$PREFIX"
 make -C texk/kpathsea
 make -C texk/kpathsea install
-PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig" cargo build --release
+PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig" cargo build --release \
+  --no-default-features --features stats,system-kpathsea
 ```
 
-制御されたstatic A/Bでは`--disable-shared --enable-static`で同じsourceをbuildし、
-`KPATHSEA_LIB_DIR="$PREFIX/lib" KPATHSEA_STATIC=1 cargo build --release`とする。static配布にはexact LGPL
-source・noticeと利用者がrelinkするためのmaterialが必要なので、releaseは共有libraryを優先する。
-どちらもlibrary artifactと実際に探索するTeX treeは別物であり、runtime program名は`pratex`のままである。
+2026-08-24のWSL buildでは、TeX Liveがなくsystem Kpathseaもない環境で、固定revisionを取得して
+55個のC sourceからrelease binaryを5分19秒でlinkした。この値はcold source buildの成功記録であり、
+runtime探索性能ではない。子process 0、hit/miss、DVI意味は別のruntime gateで固定する。
+
+静的配布にはexact LGPL source・noticeと、利用者がPraTeXを改変済みKpathseaへrelinkできるmaterialが
+必要である。source pinとbuild scriptだけで配布義務を満たしたとみなさない。共有・静的のどちらでも、
+library artifactと実際に探索するTeX treeは別物であり、runtime program名は`pratex`のままである。
 
 `FileKind`ごとに`tex`、`tfm`、`vf`、`map`、`enc files`、`type1 fonts`、`afm`などの公開format名を
 対応させる。TeX入力、`\input`、`\openin`、`\pdffilesize`、TFM、PDF map、encoding、

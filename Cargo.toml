@@ -12,14 +12,19 @@ lto = true
 debug = 1
 
 [features]
-default = ["stats", "system-kpathsea"]
+default = ["stats", "bundled-kpathsea"]
 
 # Enables statistics
 stats = []
 
-# Linux builds try the linked, in-process Kpathsea adapter first. Other
-# targets do not compile the dependency and keep the existing resolver boundary.
+# Linux distro builds may use an externally supplied Kpathsea 6.4.2 library.
+# Other targets do not compile the dependency and keep the existing resolver boundary.
 system-kpathsea = ["dep:kpathsea"]
+
+# TUG TeX Live binary trees normally do not install a standalone libkpathsea.
+# The default Linux build therefore compiles the exact pinned TL2026 library
+# into PraTeX, while preserving the same run-local safe Rust adapter.
+bundled-kpathsea = ["system-kpathsea", "kpathsea/build-from-source"]
 
 # For TRIP testing
 trip = ["stats"]

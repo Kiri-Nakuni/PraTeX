@@ -32,9 +32,11 @@ the tests which established the boundary before this snapshot was copied.
 ## License and unsafe audit
 
 Both Rust crates declare `MIT OR Apache-2.0`; copies of both license texts are
-included in each crate directory. The optional system `libkpathsea` is an
-external LGPL-2.1-or-later library and is not vendored here. Building or
-distributing a static Kpathsea has separate source/relink obligations; see
+included in each crate directory. Kpathsea itself is LGPL-2.1-or-later and is
+not vendored here. The default Linux build fetches official TeX Live 2026
+commit `fb6158926661cb7a7246b3a94a0cb170a9624d5a` (`svn78399`), or uses an
+exact `KPATHSEA_SRC_DIR`, and links Kpathsea 6.4.2 statically. Building or
+distributing that binary has source/relink obligations; see
 `docs/kpathsea-port-notes.md`.
 
 The vendored wrapper necessarily contains `unsafe` at its audited FFI edge:
@@ -53,19 +55,21 @@ contains no `unsafe` for this integration.
 
 ## Consumer feature contract
 
-PraTeX depends on this fork with `default-features = false` and explicitly
-enables only `in-process-only-caller`. That feature includes `system-probe`,
-and the resolved tree must contain both names. The
-following features must never be unified into the production graph:
+PraTeX depends on this fork with `default-features = false`. The default Linux
+feature `bundled-kpathsea` explicitly enables `in-process-only-caller` and
+`build-from-source`; both include `system-probe`. The resolved tree must contain
+those names while the subprocess backend remains absent. The following
+features must never be unified into the production graph:
 
 - `kpathsea/default`
 - `kpathsea/subprocess-backend`
-- `kpathsea/build-from-source`
 - `kpathsea_sys/default`
-- `kpathsea_sys/build_from_source`
 
 Run `tools/check-kpathsea-features.ps1` to inspect Cargo's resolved Linux
-feature tree. `system-probe` resolves `which`, `pkg-config`, and `cc` even when
-no system library is found. A fresh offline machine therefore needs a verified
-Cargo vendor source for those transitive packages; disabling the probe is not
-an equivalent production build.
+feature tree. `build-from-source` resolves `which`, `pkg-config`, and `cc` and
+requires the pinned source through git or `KPATHSEA_SRC_DIR`. A fresh offline
+machine therefore needs both a verified Cargo vendor source for those
+transitive packages and the exact Kpathsea source tree; disabling the feature
+is not an equivalent production build. Distro builders may opt out of default
+features and enable `stats,system-kpathsea` to link a separately supplied
+Kpathsea 6.4.2 library instead.

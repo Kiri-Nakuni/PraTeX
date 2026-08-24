@@ -25,8 +25,8 @@ Hand-written stand-ins for kpathsea's autoconf output (the `cc` build has no
 `build.rs` obtains the `texk/kpathsea` C sources from:
 1. `KPATHSEA_SRC_DIR` if set (offline / pre-fetched builds), else
 2. a sparse, shallow `git` fetch from the TeX Live source mirror at the pinned
-   commit `KPSE_REF` (default = kpathsea **6.4.1 / TL2025**, matching
-   `bindings_windows.rs` and latexml-oxide's `build_static_kpathsea.sh`).
+   commit `KPSE_REF` (PraTeX pin =
+   `fb6158926661cb7a7246b3a94a0cb170a9624d5a`, kpathsea **6.4.2 / TL2026**).
 
 It then compiles the per-OS source set (`KPATHSEA_COMMON_SOURCES` plus the leg's
 units, in `build.rs`) with these headers → a static libkpathsea → in-process,
@@ -35,12 +35,14 @@ patches.**
 
 ## When to use it
 
-On Unix the packaged library is the normal route: the default probe finds
-`libkpathsea` via pkg-config (Debian/Ubuntu `libkpathsea-dev`, Homebrew
-`texlive`, …), and `KPATHSEA_STATIC=1` statically links the system
-`libkpathsea.a`. `build_from_source` is the portable fallback — a binary pinned
-to exactly `KPSE_REF`, independent of any system install (minimal containers,
-musl, parity with the Windows build). Only Windows/MSVC truly needs it.
+The crate itself keeps `build_from_source` opt-in. PraTeX enables it in its
+default Linux feature because the TUG TeX Live binary distribution does not
+install a standalone library. This produces a binary pinned to exactly
+`KPSE_REF`, independent of a development package. Distribution builders can
+instead use the normal system probe (`pkg-config`, `KPATHSEA_LIB_DIR`, and
+optional `KPATHSEA_STATIC=1`) through PraTeX's explicit `system-kpathsea`
+feature. Windows/MSVC remains outside PraTeX's enabled dependency graph until
+the returned-path allocator contract has been verified.
 
 ## Licensing (why the source is fetched, not bundled)
 
@@ -50,7 +52,7 @@ than committed here. Only the original config headers above ship in-tree.
 
 Note that a binary which **statically links** the fetched libkpathsea contains
 LGPL code and so carries LGPL §6 obligations (source availability + a relink
-provision). The `build_from_source` feature is opt-in and off by default; the
-crate's own default builds link nothing of kpathsea's. Downstreams that enable it
-for distribution must satisfy §6 (e.g. ship this crate + the `KPSE_REF` pin as
-the "scripts used to control compilation").
+provision). The `build_from_source` feature is opt-in and off by default for
+this crate, but PraTeX enables it by default on Linux. Downstreams that
+distribute such binaries must satisfy §6; shipping only this crate and the
+`KPSE_REF` pin is not by itself the required source/relink offer.
