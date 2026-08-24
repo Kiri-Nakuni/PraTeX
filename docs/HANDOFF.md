@@ -1,6 +1,6 @@
 # PraTeX 作業引継ぎ
 
-更新: 2026-08-24（統合枝 `codex2/jlreq-script-spacing`）
+更新: 2026-08-24（機能枝 `codex2/etex-showtokens`、統合枝 `codex2/jlreq-script-spacing`）
 
 この文書は、現在の Codex セッションから別のエージェントへ作業が移っても、
 検証済みの境界と未commitの作業を失わないための生きた引継ぎである。
@@ -20,14 +20,18 @@
 
 ## 枝と共有状態
 
-- 枝: `codex2/jlreq-script-spacing`
-- push済み実装checkpoint: `fe9fa5c`
+- 現在の枝: `codex2/etex-showtokens`
+- push済み統合checkpoint: `cfa6ece`
+- local機能checkpoint: `6b03b70`（具体的payloadへのremote push承認待ち）
 - push済み`\scantokens` code checkpoint: `d90e98f`（歴史的基点は`6ce8315`）
 - 日本語CID PDFの検証済み元commit: `8035d1c`
 - 基点のrelease全suite: **564 passed、0 failed、6 ignored**（Vaak `89804b4`）
-- 最新の記録済みrelease全suite: `4acf8a8`で**836 passed、0 failed、9 ignored**。
-  NFSS、fmt予約、WSL発見失敗cacheのcheckpointを含む。
+- 最新の記録済みrelease全suite: `6b03b70`で**857 passed、0 failed、10 ignored**。
+  plain DVI byte回帰、`\showtokens`、NFSS、fmt索引改善、WSL発見失敗cacheを含む。
 - 直近の共有commit:
+  - `6b03b70`: show診断の既存終了status差分を試験に固定しない
+  - `46ff19a`: 未展開token列の表示をgeneral textとJFM境界へ接続
+  - `cfa6ece`: global制御綴名をfmt読込時に二度hashしない
   - `fe9fa5c`: 別engine名を使わず本文・見出しJFM/VFのno-copy TeX Live gateを固定
   - `4acf8a8`: 発見不能なWSL backendをoptional lookupごとに再起動しない
   - `3a4aaaf`: fmt予約A/Bを再検証できるraw標本と予約上限を固定
@@ -465,10 +469,11 @@ WSL成功の意味は変更しない。
 
 ## LaTeXと日本語組版の次順
 
-1. 接続済みmain-loop JFM/禁則をbox/disc・残るcommand境界へ広げ、discの枝別意味を完成する。
-2. `\tfont`と縦組metric/node/outputを追加し、spacingと禁則を横組から縦組へ広げる。
-3. discard/show/tracing等のe-TeX残件とTeX--XeTのLR組版を進める。
-4. 同一corpusでhot pathを測り、意味を変えないsafe Rustの性能改善をcheckpointごとに入れる。
+1. 利用者Linux profileでwallの過半を占めた`kpsewhich`を最優先にし、process traceで固定bootstrapと
+   queryごとのone-shotを分ける。反復ならnative alias、固定2回ならadaptive cold strategyを先に試す。
+2. 接続済みmain-loop JFM/禁則をbox/disc・残るcommand境界へ広げ、discの枝別意味を完成する。
+3. `\tfont`と縦組metric/node/outputを追加し、spacingと禁則を横組から縦組へ広げる。
+4. discard、`\showgroups` / `\showifs`、tracing等のe-TeX残件とTeX--XeTのLR組版を進める。
 
 日本語の最低線は横組smokeではなくpTeX相当とJLReq native対応であり、縦組を含む。縦中横と
 割注は2026-08-23に案Bへ決定した。coreでは縦中横を固定`InlineObject`、割注を分割可能な

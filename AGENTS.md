@@ -13,7 +13,9 @@ PraTeX側が必要とするAPIは `src/vaak.rs`、`docs/vaak-embedding-api-desig
 `for_CLAUDE.md` に契約として残し、Vaak側の変更はClaudeに伝える。
 
 通常作業の枝は **`codex2/<目的>`** とする。現在の統合枝は
-`codex2/jlreq-script-spacing`であり、2026-08-24のpush済み実装checkpointは`c87b97c`。
+`codex2/jlreq-script-spacing`であり、2026-08-24のpush済み実装checkpointは`cfa6ece`。
+現在の機能枝`codex2/etex-showtokens`は`6b03b70`までcommit済みで、remote pushは具体的payloadへの
+明示承認待ちである。
 `\detokenize`から`\scantokens`、横組JFM glyph、K/X/finalizer、JLReqの最小禁則、
 直接PDFのnamed CIDと限定`/ToUnicode`、WASM ABI 0.0のwire/domain境界、
 e-TeX `\middle`まで取り込み済みである。
@@ -177,9 +179,9 @@ cargo test --release --locked --no-fail-fast
 ```
 
 機能追加ではfocused testを先に通し、その後に全release、必要ならTRIPとDVI/PDF意味比較を行う。
-`4acf8a8`で実行した`cargo test --release --locked --no-fail-fast`は
-**836 passed、0 failed、9 ignored**（2026-08-24）。全integration suiteにplain DVI byte回帰、
-e-TeX `\middle`とpenalty配列、日本語spacingと和文NFSS relation、PDF、Vaak連携を含む。
+`6b03b70`で実行した`cargo test --release --locked --no-fail-fast`は
+**857 passed、0 failed、10 ignored**（2026-08-24）。全integration suiteにplain DVI byte回帰、
+e-TeX `\middle`・`\showtokens`・penalty配列、日本語spacingと和文NFSS relation、PDF、Vaak連携を含む。
 ignoredは実TeX Live、配布JFM、公式dvipdfmx、pinned CTAN、doctestの明示手動gateである。
 `\scantokens` code checkpoint前に同日実施した公式CTAN TRIPは両段exit 0、`tripos.tex`一致、
 DVI hashは既知正常値
@@ -243,6 +245,10 @@ control-sequence区間15.79%、fmt全体10.73%、wall 5.36%を短縮した。DVI
   Close/Open spacing、fmt/error回復をprocess試験する。`\scantokens`はboundedな
   typed疑似fileとして接続済みで、実file・疑似fileとも`\everyeof`は自然EOFだけで
   一度発火し、`\endinput`では発火しない。fmtとKOMA-Scriptの動的catcode経路も試験済み。
+- `\showtokens`はgeneral text入口だけを展開し、本文を未展開token列のまま既存表示へ渡す。
+  外側brace、入れ子、空白、catcode 6/12、制御語・記号、和文token、全mode、101回、alias、fmt、
+  JFMのnode-less境界を公式TeX Live 2026へ照合済み。公式Web2Cはshow診断後exit 1だが、PraTeXは
+  全非fatal診断後の通常終了を0にする既存CLI差分があり、primitive意味と混ぜず別残件にする。
 - `\interlinepenalties`、`\clubpenalties`、`\widowpenalties`、
   `\displaywidowpenalties`は局所／大域代入、内部照会、fmt、通常段落とdisplay直前の
   post-line-break nodeまで接続済み。discard保存は未実装。
@@ -281,15 +287,20 @@ control-sequence区間15.79%、fmt全体10.73%、wall 5.36%を短縮した。DVI
   なお部分実装である。named CIDのBMP content codeには限定`/ToUnicode`があり、
   copy/searchは改善したが、FontFileはなく字形表示はviewer側fontに依存する。
 - 現resolverは曖昧・stale・未対応pathでone-shot `kpsewhich`へ戻る。これは移行実装であり、
-  通常lookupの最終設計ではない。
+  通常lookupの最終設計ではない。Linux一頁測定では外部探索がwallの過半であり、現source監査でも
+  一resolverの最初のTex hitに`ls-R`発見と`--show-path=tex`の最低2 processが必要である。
+  Scannerと直接PDF loaderはresolverを共有せず、`aliases`がある先行rootのmissは後続pathの一意hitを
+  捨ててone-shotへ戻る。次の専用枝ではprocess trace、alias、cold bootstrap、run-global化を優先する。
 - 名前空間はPhase 0--7済み。Phase 8のTRIPとalignment再利用検証が残る。
 
 ## 直近の実装順
 
-1. 接続済みmain-loop JFM/禁則をbox/disc・残るcommand境界へ広げ、discの枝別意味を完成する。
-2. compile済み汎用script class対tableをlist単位dispatcherと中央finalizerへ接続する。
-3. `\tfont`と縦組metric/node/outputを追加し、JFM/K/X/禁則を横組から縦組へ広げる。
-4. kpathsea互換resolverをrun-global化し、native path解決を広げて通常の子process呼出しをなくす。
+1. Linuxで`kpsewhich` argvと回数をtraceし、kpathsea互換resolverをrun-global化して通常の
+   TeX/JFM/TFM lookupの子processを0へ近づける。反復one-shotならnative aliasを、固定2回なら
+   cold bootstrapを先に直す。
+2. 接続済みmain-loop JFM/禁則をbox/disc・残るcommand境界へ広げ、discの枝別意味を完成する。
+3. compile済み汎用script class対tableをlist単位dispatcherと中央finalizerへ接続する。
+4. `\tfont`と縦組metric/node/outputを追加し、JFM/K/X/禁則を横組から縦組へ広げる。
 5. discard保存、show/tracing、`\lastlinefit`、
    TeX--XeTのLR node・反転・DVI/PDF出力といったe-TeX残件を公開仕様どおり実装する。
 6. PraTeX-native package adapterを順に通し、PDF直接出力をOTFより先に完成する。

@@ -52,6 +52,29 @@ TeX tree探索を省いた非対称条件なので合格標本にせず、233 ms
 等価DVIで再測定する。JFM、K/X、縦組等を加えるたびにこの余裕を再計上し、完成間際まで借金を
 隠さない。
 
+### resolver process topology監査（2026-08-24）
+
+利用者の追加Linux profileでも`kpsewhich`がwallの過半を占めたため、HashMap等のengine内部調整より
+resolverを再び先に置く。現sourceのread-only監査では、一resolver instanceの最初の一意なTex hitにも
+次の固定費がある。
+
+1. `kpsewhich --all --must-exist --progname=pratex --format=ls-R -- ls-R`
+2. 最初の用途ごとの`kpsewhich --progname=pratex --show-path=<format>`
+
+従ってTex一用途だけでも最低2 processである。さらに曖昧、stale、未対応path式、aliasを安全に決定
+できないqueryはfileごとのone-shotへ戻る。Scannerと直接PDF resource loaderは別resolver instanceで、
+catalog、用途path、backend、query cacheを共有しない。
+
+現行のalias判定は、先行path要素に候補がなく対応DB rootへ`aliases` fileが存在するだけで、後続pathの
+一意候補を使わずone-shotへ戻る。TeX Live treeでprocessがquery数に比例する場合の第一修正候補である。
+一方、traceが固定2回だけなら、短いrunの最初の少数queryをone-shotで解決し、損益分岐後だけcatalogへ
+昇格するadaptive cold strategyをA/Bする。これは短期策であり、最終形は環境上書きと`texmf.cnf`の
+必要部分をtyped planへ原子的にcompileし、通常TeX/JFM/TFM lookupの子processを0にすることである。
+
+次のLinux gateでは`strace -f -T -e trace=process`でargvと件数だけを分類し、wall測定自体はtraceなしで
+15組以上交互に行う。plain、LaTeX一頁、`prjsarticle`、optional miss、alias/同名候補を同一treeで測り、
+公式`kpsewhich`との物理path・不在status、DVI hashまたはopcode/font/sp座標の一致を必須にする。
+
 ## 横組JFM glyph sliceの欧文DVI gate（2026-08-23）
 
 `origin/main`のrTeXと横組JFM glyph枝へ、同じ`cmr10.tfm`と次のbyte-only plain入力を与えた。
