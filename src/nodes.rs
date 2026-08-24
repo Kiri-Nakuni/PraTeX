@@ -102,6 +102,20 @@ pub enum Node {
 }
 
 impl Node {
+    /// A self-contained node produced by a run-local compiled spacing profile.
+    pub(crate) fn is_automatic_script_spacing(&self) -> bool {
+        matches!(
+            self,
+            Self::Glue(GlueNode {
+                subtype: GlueType::AutomaticScriptSpacing,
+                ..
+            }) | Self::Penalty(PenaltyNode {
+                subtype: PenaltySubtype::AutomaticScriptSpacing,
+                ..
+            })
+        )
+    }
+
     /// 横組listのfast gate用に、unshifted hbox内まで和文glyphの存在だけを見る。
     ///
     /// edgeとして使えるかの判断は中央spacing finalizerが行う。ここではASCII-only
@@ -784,6 +798,10 @@ pub enum GlueType {
     Normal,
     Skip(SkipVariable),
     AutomaticJapanese(AutomaticJapaneseGlue),
+    /// A host-compiled script-pair profile produced this glue at list close.
+    ///
+    /// The value is self-contained; no provider handle or table generation enters the node/fmt.
+    AutomaticScriptSpacing,
     NonScript,
     MuGlue,
     Leaders {
@@ -836,6 +854,13 @@ impl GlueNode {
     ) -> Self {
         Self {
             subtype: GlueType::AutomaticJapanese(kind),
+            glue_spec,
+        }
+    }
+
+    pub(crate) fn new_automatic_script_spacing(glue_spec: std::rc::Rc<GlueSpec>) -> Self {
+        Self {
+            subtype: GlueType::AutomaticScriptSpacing,
             glue_spec,
         }
     }
@@ -924,6 +949,10 @@ impl GlueNode {
                 });
                 logger.print_char(b')');
                 logger.print_char(b' ');
+                self.glue_spec.print_spec(None, logger);
+            }
+            GlueType::AutomaticScriptSpacing => {
+                logger.print_esc_str(b"glue(pratexscriptspacing) ");
                 self.glue_spec.print_spec(None, logger);
             }
             GlueType::NonScript => {
@@ -1249,6 +1278,7 @@ pub struct PenaltyNode {
 pub(crate) enum PenaltySubtype {
     Normal,
     AutomaticJapaneseKinsoku,
+    AutomaticScriptSpacing,
 }
 
 impl PenaltyNode {
@@ -1264,6 +1294,13 @@ impl PenaltyNode {
         Self {
             penalty,
             subtype: PenaltySubtype::AutomaticJapaneseKinsoku,
+        }
+    }
+
+    pub(crate) fn new_automatic_script_spacing(penalty: i32) -> Self {
+        Self {
+            penalty,
+            subtype: PenaltySubtype::AutomaticScriptSpacing,
         }
     }
 

@@ -10,8 +10,11 @@ use super::planner::{
     LayoutCharacterCode, MainLoopBoundaryEvent, PlannedSpacingAction, PlannerJfmClassId,
     PtexSpacingState, ScriptSpacingListState, SpacingActionPhase,
 };
-use super::FixedGlue;
-use crate::eqtb::{Eqtb, SkipVariable};
+use super::{
+    BoundaryMetricSnapshot, FixedGlue, ScriptSpacingAction, ScriptSpacingBreakRule,
+    ScriptSpacingLineEdgeRule, ScriptSpacingProfileRef, WritingMode,
+};
+use crate::eqtb::{Eqtb, FontIndex, SkipVariable};
 use crate::japanese_fonts::JapaneseFontIndex;
 use crate::nodes::{
     AutomaticJapaneseGlue, GlueNode, GlueSpec, GlueType, HlistOrVlist, JfmBoundaryBefore, KernNode,
@@ -23,6 +26,7 @@ use std::rc::Rc;
 #[derive(Clone, Copy)]
 struct ObservedBoundary {
     atom: BoundaryAtom,
+    latin_font: Option<FontIndex>,
     japanese_font: Option<JapaneseFontIndex>,
     jfm_boundary_before: JfmBoundaryBefore,
 }
@@ -71,7 +75,11 @@ pub(crate) fn append_node_with_main_loop_spacing(
     eqtb: &Eqtb,
 ) {
     if let Some(current) = observe_glyph_boundary(&node, eqtb) {
-        list_state.observe(current.atom);
+        list_state.observe_with_profile(
+            current.atom,
+            eqtb.script_spacing_activation_id(),
+            eqtb.language_region(),
+        );
         let previous = list_state.observe_main_loop_boundary(current.atom);
         if let Some((left, continuity)) = previous {
             if !left.is_japanese() && !current.atom.is_japanese() {
@@ -109,6 +117,9 @@ pub(crate) fn append_node_with_main_loop_spacing(
 
     if node.contains_horizontal_japanese_glyph() {
         list_state.observe_japanese();
+    }
+    if node.is_automatic_script_spacing() {
+        list_state.observe_existing_compiled_spacing();
     }
     if !is_main_loop_spacing(&node) && !matches!(node, Node::Penalty(_)) {
         list_state.reset_main_loop_boundary();
@@ -168,7 +179,15 @@ pub(crate) fn finalize_horizontal_list_if_needed(
     list_state: ScriptSpacingListState,
     eqtb: &Eqtb,
 ) {
-    let _ = list_state.finalize_if_needed(|| finalize_horizontal_list(list, eqtb));
+    let _ = list_state.finalize_if_needed(|| {
+        let (activation, region) = list_state
+            .compiled_profile_context()
+            .map_or((None, Default::default()), |(activation, region)| {
+                (Some(activation), region)
+            });
+        let profile = eqtb.select_script_spacing_profile(activation, region);
+        finalize_horizontal_list(list, eqtb, profile);
+    });
 }
 
 fn spacing_state_snapshot(eqtb: &Eqtb) -> PtexSpacingState {
@@ -181,7 +200,11 @@ fn spacing_state_snapshot(eqtb: &Eqtb) -> PtexSpacingState {
     )
 }
 
-fn finalize_horizontal_list(list: &mut Vec<Node>, eqtb: &Eqtb) {
+fn finalize_horizontal_list(
+    list: &mut Vec<Node>,
+    eqtb: &Eqtb,
+    profile: ScriptSpacingProfileRef<'_>,
+) {
     let state = spacing_state_snapshot(eqtb);
     let planner = JapaneseSpacingPlanner::built_in_ptex();
     let original = std::mem::take(list);
@@ -207,10 +230,19 @@ fn finalize_horizontal_list(list: &mut Vec<Node>, eqtb: &Eqtb) {
                     &planner,
                     &state,
                     eqtb,
+                    profile,
                 );
             }
             if let Some(left) = previous {
-                append_boundary_spacing(&mut rebuilt, left, current, &planner, &state, eqtb);
+                append_boundary_spacing(
+                    &mut rebuilt,
+                    left,
+                    current,
+                    &planner,
+                    &state,
+                    eqtb,
+                    profile,
+                );
             }
             previous = Some(current);
             rebuilt.push(node);
@@ -226,6 +258,7 @@ fn finalize_horizontal_list(list: &mut Vec<Node>, eqtb: &Eqtb) {
                     &planner,
                     &state,
                     eqtb,
+                    profile,
                 );
             }
             if let (Some(left), Some(first)) = (previous, edges.first) {
@@ -239,6 +272,7 @@ fn finalize_horizontal_list(list: &mut Vec<Node>, eqtb: &Eqtb) {
                     &planner,
                     &state,
                     eqtb,
+                    profile,
                 );
             }
             rebuilt.push(node);
@@ -284,6 +318,53 @@ fn append_boundary_spacing(
     planner: &JapaneseSpacingPlanner,
     state: &PtexSpacingState,
     eqtb: &Eqtb,
+    profile: ScriptSpacingProfileRef<'_>,
+) {
+    let indirect_edge = left.indirect_edge || right.indirect_edge;
+    let jfm_pairs = (!indirect_edge)
+        .then(|| pair_table_for_boundary(left.boundary, right.boundary, eqtb))
+        .flatten();
+    if let ScriptSpacingProfileRef::CompiledTable { table, region } = profile {
+        // Region provenance for indirect box/discretionary edges is not yet stored in nodes.
+        // Applying a close-time region there would be silently wrong, so keep the complete
+        // boundary on the native path until the typed region marker checkpoint lands.
+        if !indirect_edge {
+            let left_scalar =
+                char::from_u32(left.boundary.atom.trailing_character().to_public_integer());
+            let right_scalar =
+                char::from_u32(right.boundary.atom.leading_character().to_public_integer());
+            if let (Some(left_scalar), Some(right_scalar)) = (left_scalar, right_scalar) {
+                if let (Some(left_class), Some(right_class)) = (
+                    table.classify_scalar(left_scalar, region, WritingMode::Horizontal),
+                    table.classify_scalar(right_scalar, region, WritingMode::Horizontal),
+                ) {
+                    let action =
+                        table.action_for(left_class, right_class, region, WritingMode::Horizontal);
+                    if append_compiled_boundary_action(
+                        rebuilt,
+                        action,
+                        left.boundary,
+                        right.boundary,
+                        state,
+                        eqtb,
+                    ) {
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    append_built_in_boundary_spacing(rebuilt, left, right, planner, state, jfm_pairs);
+}
+
+fn append_built_in_boundary_spacing(
+    rebuilt: &mut Vec<Node>,
+    left: BoundaryEndpoint,
+    right: BoundaryEndpoint,
+    planner: &JapaneseSpacingPlanner,
+    state: &PtexSpacingState,
+    jfm_pairs: Option<&CompiledJfmPairSpacingTable>,
 ) {
     let indirect_edge = left.indirect_edge || right.indirect_edge;
     let context = if indirect_edge {
@@ -303,9 +384,6 @@ fn append_boundary_spacing(
             jfm_glue: JfmGlueControl::Allow,
         }
     };
-    let jfm_pairs = (!indirect_edge)
-        .then(|| pair_table_for_boundary(left.boundary, right.boundary, eqtb))
-        .flatten();
     let plan = planner.plan_boundary(
         left.boundary.atom,
         right.boundary.atom,
@@ -330,6 +408,122 @@ fn append_boundary_spacing(
     );
 }
 
+/// Returns `true` when the compiled table made a complete decision for this boundary. A
+/// context-dependent length that cannot be resolved falls back before any node is appended.
+fn append_compiled_boundary_action(
+    rebuilt: &mut Vec<Node>,
+    action: ScriptSpacingAction,
+    left: ObservedBoundary,
+    right: ObservedBoundary,
+    state: &PtexSpacingState,
+    eqtb: &Eqtb,
+) -> bool {
+    match action {
+        ScriptSpacingAction::BuiltInFallback => false,
+        ScriptSpacingAction::NoAutomaticSpace => true,
+        ScriptSpacingAction::KanjiSkip => {
+            let glue = if state.auto().kanji() {
+                state.kanji_skip()
+            } else {
+                FixedGlue::ZERO
+            };
+            rebuilt.push(automatic_script_spacing_glue(glue));
+            true
+        }
+        ScriptSpacingAction::XKanjiSkip => {
+            let glue = if state.auto().xkanji() {
+                state.xkanji_skip()
+            } else {
+                FixedGlue::ZERO
+            };
+            rebuilt.push(automatic_script_spacing_glue(glue));
+            true
+        }
+        ScriptSpacingAction::FixedGlue(glue) => {
+            rebuilt.push(automatic_script_spacing_glue(glue));
+            true
+        }
+        ScriptSpacingAction::BoundaryRule(rule) => {
+            let Some(metrics) = boundary_metric_snapshot(left, right, eqtb) else {
+                return false;
+            };
+            let Ok(resolved) = rule.resolve(metrics) else {
+                return false;
+            };
+            // Adjustment tiers and discard-at-line-edge need the later line-breaking slice. Do
+            // not silently erase their meaning merely because the glue dimensions resolved.
+            if resolved.tiers() != (0, 0)
+                || matches!(
+                    resolved.line_edge_rule(),
+                    ScriptSpacingLineEdgeRule::DiscardAtStart
+                        | ScriptSpacingLineEdgeRule::DiscardAtEnd
+                        | ScriptSpacingLineEdgeRule::DiscardAtBoth
+                )
+            {
+                return false;
+            }
+            if resolved.break_rule() != ScriptSpacingBreakRule::UseBuiltIn {
+                remove_current_boundary_built_in_kinsoku(rebuilt);
+            }
+            let penalty = match resolved.break_rule() {
+                ScriptSpacingBreakRule::UseBuiltIn | ScriptSpacingBreakRule::Allow => None,
+                ScriptSpacingBreakRule::Forbid => Some(10_000),
+                ScriptSpacingBreakRule::Penalty => Some(resolved.penalty()),
+            };
+            if let Some(penalty) = penalty {
+                rebuilt.push(Node::Penalty(PenaltyNode::new_automatic_script_spacing(
+                    penalty,
+                )));
+            }
+            rebuilt.push(automatic_script_spacing_glue(resolved.glue()));
+            true
+        }
+    }
+}
+
+fn remove_current_boundary_built_in_kinsoku(rebuilt: &mut Vec<Node>) {
+    let boundary_start = rebuilt
+        .iter()
+        .rposition(|node| matches!(node, Node::Char(_) | Node::Ligature(_) | Node::WideChar(_)))
+        .map_or(0, |index| index + 1);
+    let mut index = rebuilt.len();
+    while index > boundary_start {
+        index -= 1;
+        if matches!(
+            rebuilt[index],
+            Node::Penalty(PenaltyNode {
+                subtype: PenaltySubtype::AutomaticJapaneseKinsoku,
+                ..
+            })
+        ) {
+            rebuilt.remove(index);
+        }
+    }
+}
+
+fn boundary_metric_snapshot(
+    left: ObservedBoundary,
+    right: ObservedBoundary,
+    eqtb: &Eqtb,
+) -> Option<BoundaryMetricSnapshot> {
+    let (left_em, left_zw) = boundary_metrics(left, eqtb)?;
+    let (right_em, right_zw) = boundary_metrics(right, eqtb)?;
+    BoundaryMetricSnapshot::new(left_em, right_em, left_zw, right_zw).ok()
+}
+
+fn boundary_metrics(boundary: ObservedBoundary, eqtb: &Eqtb) -> Option<(i32, i32)> {
+    if let Some(font) = boundary.japanese_font {
+        let zw = eqtb.japanese_fonts.get(font.position())?.zw();
+        // A JFM has no independent TeX fontdimen quad. Its scaled class-0 advance is the stable
+        // em-like metric available at this host-owned boundary.
+        return Some((zw, zw));
+    }
+    let font = boundary.latin_font?;
+    let em = eqtb.fonts.get(font as usize)?.quad();
+    // Latin TFM has no JFM zw; the existing PraTeX `zw` fallback is the current TFM em.
+    Some((em, em))
+}
+
 fn append_disc_right_spacing(
     rebuilt: &mut [Node],
     pending: PendingDiscRightEdges,
@@ -337,6 +531,7 @@ fn append_disc_right_spacing(
     planner: &JapaneseSpacingPlanner,
     state: &PtexSpacingState,
     eqtb: &Eqtb,
+    profile: ScriptSpacingProfileRef<'_>,
 ) {
     let Node::Disc(disc) = &mut rebuilt[pending.rebuilt_index] else {
         unreachable!("pending discretionary index must name a DiscNode")
@@ -352,6 +547,7 @@ fn append_disc_right_spacing(
             planner,
             state,
             eqtb,
+            profile,
         );
     }
     if let Some(left) = pending.edges.post_break {
@@ -365,6 +561,7 @@ fn append_disc_right_spacing(
             planner,
             state,
             eqtb,
+            profile,
         );
     }
 }
@@ -374,8 +571,7 @@ fn remove_trailing_disc_right_spacing(nodes: &mut Vec<Node>) {
         nodes.last(),
         Some(Node::Glue(GlueNode {
             subtype: GlueType::AutomaticJapanese(
-                AutomaticJapaneseGlue::MaterialKanjiSkip
-                    | AutomaticJapaneseGlue::XKanjiSkip
+                AutomaticJapaneseGlue::MaterialKanjiSkip | AutomaticJapaneseGlue::XKanjiSkip
             ),
             ..
         }))
@@ -401,6 +597,7 @@ fn observe_glyph_boundary(node: &Node, eqtb: &Eqtb) -> Option<ObservedBoundary> 
             atom: BoundaryAtom::Latin(LatinBoundary::new(
                 LayoutCharacterCode::from_public_integer(u32::from(character.character)).ok()?,
             )),
+            latin_font: Some(character.font_index),
             japanese_font: None,
             jfm_boundary_before: JfmBoundaryBefore::Continuous,
         }),
@@ -420,6 +617,7 @@ fn observe_glyph_boundary(node: &Node, eqtb: &Eqtb) -> Option<ObservedBoundary> 
                     font.metric_id(),
                     PlannerJfmClassId::new(class.number()),
                 )),
+                latin_font: None,
                 japanese_font: Some(*font_index),
                 jfm_boundary_before: *jfm_boundary_before,
             })
@@ -494,6 +692,7 @@ fn observe_ligature(ligature: &LigatureNode) -> Option<ObservedBoundary> {
             LayoutCharacterCode::from_public_integer(u32::from(leading)).ok()?,
             LayoutCharacterCode::from_public_integer(u32::from(trailing)).ok()?,
         )),
+        latin_font: Some(ligature.font_index),
         japanese_font: None,
         jfm_boundary_before: JfmBoundaryBefore::Continuous,
     })
@@ -538,6 +737,12 @@ fn is_list_finalizer_spacing(node: &Node) -> bool {
                     | AutomaticJapaneseGlue::MaterialKanjiSkip
                     | AutomaticJapaneseGlue::XKanjiSkip
             ),
+            ..
+        }) | Node::Glue(GlueNode {
+            subtype: GlueType::AutomaticScriptSpacing,
+            ..
+        }) | Node::Penalty(PenaltyNode {
+            subtype: PenaltySubtype::AutomaticScriptSpacing,
             ..
         })
     )
@@ -612,4 +817,157 @@ fn automatic_glue(kind: AutomaticJapaneseGlue, glue: FixedGlue) -> Node {
             shrink: glue.shrink(),
         }),
     ))
+}
+
+fn automatic_script_spacing_glue(glue: FixedGlue) -> Node {
+    Node::Glue(GlueNode::new_automatic_script_spacing(Rc::new(GlueSpec {
+        width: glue.width(),
+        stretch: glue.stretch(),
+        shrink: glue.shrink(),
+    })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::nodes::CharNode;
+    use crate::script_spacing::{
+        FixedGlueProposal, ProviderRegionMask, ProviderScriptClassId, ProviderWritingModeMask,
+        ScriptPairRuleProposal, ScriptSpacingActionProposal, ScriptSpacingTableProposal,
+        UnicodeScalarRangeProposal,
+    };
+
+    fn character(value: u8) -> Node {
+        Node::Char(CharNode {
+            font_index: 0,
+            character: value,
+            width: 0,
+            height: 0,
+            depth: 0,
+            italic: 0,
+        })
+    }
+
+    fn fixed_table(width: i64) -> ScriptSpacingTableProposal {
+        let class = |value| ProviderScriptClassId::from_wire(value);
+        ScriptSpacingTableProposal::new(
+            2,
+            vec![
+                UnicodeScalarRangeProposal::new(
+                    u32::from('A'),
+                    u32::from('A'),
+                    class(1),
+                    ProviderRegionMask::all(),
+                    ProviderWritingModeMask::all(),
+                ),
+                UnicodeScalarRangeProposal::new(
+                    u32::from('B'),
+                    u32::from('B'),
+                    class(2),
+                    ProviderRegionMask::all(),
+                    ProviderWritingModeMask::all(),
+                ),
+            ],
+            vec![ScriptPairRuleProposal::new(
+                class(1),
+                class(2),
+                Default::default(),
+                WritingMode::Horizontal,
+                ScriptSpacingActionProposal::FixedGlue(FixedGlueProposal::new(width, 0, 0, 0, 0)),
+            )],
+        )
+    }
+
+    #[test]
+    fn 登録済み表はlist終端で固定糊を実nodeへする() {
+        let mut eqtb = Eqtb::new();
+        eqtb.try_install_script_spacing_table(fixed_table(123))
+            .unwrap();
+        let mut state = ScriptSpacingListState::default();
+        let mut list = Vec::new();
+        append_node_with_main_loop_spacing(&mut list, &mut state, character(b'A'), &eqtb);
+        append_node_with_main_loop_spacing(&mut list, &mut state, character(b'B'), &eqtb);
+
+        finalize_horizontal_list_if_needed(&mut list, state, &eqtb);
+
+        assert_eq!(list.len(), 3);
+        let Node::Glue(glue) = &list[1] else {
+            panic!("文字対の間に糊が必要");
+        };
+        assert!(matches!(glue.subtype, GlueType::AutomaticScriptSpacing));
+        assert_eq!(glue.glue_spec.width, 123);
+        assert_eq!(crate::packaging::measure_hlist(&list).width, 123);
+    }
+
+    #[test]
+    fn list途中の表交換は新旧規則を混ぜず全体を組込みへ戻す() {
+        let mut eqtb = Eqtb::new();
+        eqtb.try_install_script_spacing_table(fixed_table(123))
+            .unwrap();
+        let mut state = ScriptSpacingListState::default();
+        let mut list = Vec::new();
+        append_node_with_main_loop_spacing(&mut list, &mut state, character(b'A'), &eqtb);
+        eqtb.try_install_script_spacing_table(fixed_table(456))
+            .unwrap();
+        append_node_with_main_loop_spacing(&mut list, &mut state, character(b'B'), &eqtb);
+
+        finalize_horizontal_list_if_needed(&mut list, state, &eqtb);
+
+        assert_eq!(list.len(), 2);
+        assert!(list.iter().all(|node| !matches!(
+            node,
+            Node::Glue(GlueNode {
+                subtype: GlueType::AutomaticScriptSpacing,
+                ..
+            })
+        )));
+    }
+
+    #[test]
+    fn list途中のregion変更は終端値で過去文字を再分類しない() {
+        let mut eqtb = Eqtb::new();
+        eqtb.try_install_script_spacing_table(fixed_table(123))
+            .unwrap();
+        let mut state = ScriptSpacingListState::default();
+        let mut list = Vec::new();
+        append_node_with_main_loop_spacing(&mut list, &mut state, character(b'A'), &eqtb);
+        eqtb.language_region_define(crate::eqtb::LanguageRegion::Ja, true);
+        append_node_with_main_loop_spacing(&mut list, &mut state, character(b'B'), &eqtb);
+
+        finalize_horizontal_list_if_needed(&mut list, state, &eqtb);
+
+        assert_eq!(list.len(), 2);
+    }
+
+    #[test]
+    fn fmt後にproviderが無いunboxは古いcompiled糊を残さない() {
+        let mut source_eqtb = Eqtb::new();
+        source_eqtb
+            .try_install_script_spacing_table(fixed_table(123))
+            .unwrap();
+        let mut source_state = ScriptSpacingListState::default();
+        let mut list = Vec::new();
+        append_node_with_main_loop_spacing(
+            &mut list,
+            &mut source_state,
+            character(b'A'),
+            &source_eqtb,
+        );
+        append_node_with_main_loop_spacing(
+            &mut list,
+            &mut source_state,
+            character(b'B'),
+            &source_eqtb,
+        );
+        finalize_horizontal_list_if_needed(&mut list, source_state, &source_eqtb);
+        assert!(list.iter().any(Node::is_automatic_script_spacing));
+
+        let restored_eqtb = Eqtb::new();
+        let mut restored_state = ScriptSpacingListState::default();
+        restored_state.observe_existing_compiled_spacing();
+        finalize_horizontal_list_if_needed(&mut list, restored_state, &restored_eqtb);
+
+        assert_eq!(list.len(), 2);
+        assert!(list.iter().all(|node| !node.is_automatic_script_spacing()));
+    }
 }

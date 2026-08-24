@@ -4,8 +4,9 @@
 //! parameter snapshot だけから action を再計算する。このため自動 K/X を除去して同じ入力を
 //! 再評価しても、planner 自身は重複 node を作らない。
 
-use super::FixedGlue;
+use super::{FixedGlue, ScriptSpacingActivationId};
 use crate::dimension::MAX_DIMEN;
+use crate::eqtb::LanguageRegion;
 use crate::format::{Dumpable, FormatError};
 use crate::nodes::{DimensionOrder, GlueSpec, HigherOrderDimension};
 
@@ -1096,14 +1097,14 @@ pub(crate) enum MainLoopBoundaryEvent {
 }
 
 impl BoundaryAtom {
-    const fn leading_character(self) -> LayoutCharacterCode {
+    pub(crate) const fn leading_character(self) -> LayoutCharacterCode {
         match self {
             Self::Latin(atom) => atom.leading_character,
             Self::Japanese(atom) => atom.character,
         }
     }
 
-    const fn trailing_character(self) -> LayoutCharacterCode {
+    pub(crate) const fn trailing_character(self) -> LayoutCharacterCode {
         match self {
             Self::Latin(atom) => atom.trailing_character,
             Self::Japanese(atom) => atom.character,
@@ -1247,6 +1248,18 @@ pub(crate) struct ScriptSpacingListState {
     needs_script_spacing: bool,
     previous_main_loop_boundary: Option<BoundaryAtom>,
     pending_jfm_continuity: JfmPairContinuity,
+    compiled_profile: CompiledProfileObservation,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+enum CompiledProfileObservation {
+    #[default]
+    Unseen,
+    Stable {
+        activation: Option<ScriptSpacingActivationId>,
+        region: LanguageRegion,
+    },
+    Inconsistent,
 }
 
 impl ScriptSpacingListState {
@@ -1255,10 +1268,67 @@ impl ScriptSpacingListState {
         self.needs_script_spacing |= atom.is_japanese();
     }
 
+    /// Records the run-local profile and layout region seen by each direct glyph in this list.
+    ///
+    /// Until region markers are carried by nodes, a mixed-region list cannot be classified
+    /// faithfully. Such a list, or one spanning an activation replacement, is therefore sent to
+    /// the built-in profile as one atomic unit.
+    #[inline]
+    pub(crate) fn observe_with_profile(
+        &mut self,
+        atom: BoundaryAtom,
+        activation: Option<ScriptSpacingActivationId>,
+        region: LanguageRegion,
+    ) {
+        self.observe(atom);
+        self.needs_script_spacing |= activation.is_some();
+        self.compiled_profile = match self.compiled_profile {
+            CompiledProfileObservation::Unseen => {
+                CompiledProfileObservation::Stable { activation, region }
+            }
+            CompiledProfileObservation::Stable {
+                activation: previous_activation,
+                region: previous_region,
+            } if previous_activation == activation
+                && (activation.is_none() || previous_region == region) =>
+            {
+                CompiledProfileObservation::Stable {
+                    activation,
+                    region: previous_region,
+                }
+            }
+            CompiledProfileObservation::Stable { .. }
+            | CompiledProfileObservation::Inconsistent => CompiledProfileObservation::Inconsistent,
+        };
+    }
+
+    pub(crate) const fn compiled_profile_context(
+        &self,
+    ) -> Option<(ScriptSpacingActivationId, LanguageRegion)> {
+        match self.compiled_profile {
+            CompiledProfileObservation::Stable {
+                activation: Some(activation),
+                region,
+            } => Some((activation, region)),
+            CompiledProfileObservation::Unseen
+            | CompiledProfileObservation::Stable {
+                activation: None, ..
+            }
+            | CompiledProfileObservation::Inconsistent => None,
+        }
+    }
+
     /// Node追加時のASCII fast gate用。分類tableやprovider registryを引かない。
     #[inline]
     pub(crate) fn observe_japanese(&mut self) {
         self.needs_script_spacing = true;
+    }
+
+    /// A bulk-unboxed compiled node has no trustworthy run-local generation provenance. Ensure
+    /// finalization removes it, but never reuse the close-time active table for the old list.
+    pub(crate) fn observe_existing_compiled_spacing(&mut self) {
+        self.needs_script_spacing = true;
+        self.compiled_profile = CompiledProfileObservation::Inconsistent;
     }
 
     pub(crate) const fn needs_script_spacing(&self) -> bool {

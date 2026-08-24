@@ -2,15 +2,16 @@
 //!
 //! このmoduleはwire/raw proposalを受け取らない。W0-Aが全件検証してcanonical化した
 //! [`CanonicalSpacingTableCandidateV0`]だけをconsumeし、共有domain codecでdense class IDへ写した後、
-//! native側の唯一のtable compilerへ渡す。runtime、provider registration、active dispatcherへの接続は
-//! このbounded checkpointの範囲外である。
+//! native側の唯一のtable compilerへ渡す。runtime/provider registration自体はまだ後段だが、
+//! 検証済みcandidateをrun-local active dispatcherへ原子的に公開する最終host入口もここに置く。
 
+use crate::eqtb::Eqtb;
 use crate::script_spacing::{
     CanonicalScriptSpacingRange, CanonicalScriptSpacingRule, CanonicalScriptSpacingTableCandidate,
     CompiledScriptSpacingTable, ContextualSpacingLength, ContextualSpacingLengthBasis,
     ProviderRegionMask, ProviderWritingModeMask, ScriptClassId, ScriptSpacingAction,
-    ScriptSpacingBoundaryRule, ScriptSpacingBreakRule, ScriptSpacingLineEdgeRule,
-    ScriptSpacingTableError,
+    ScriptSpacingActivationId, ScriptSpacingBoundaryRule, ScriptSpacingBreakRule,
+    ScriptSpacingLineEdgeRule, ScriptSpacingTableError,
 };
 use crate::spacing_table_domain::provider_class_index;
 use crate::wasm_spacing_table_v0::{
@@ -41,6 +42,21 @@ pub(crate) fn compile_spacing_table_candidate_v0(
     let candidate = into_native_candidate(candidate)?;
     CompiledScriptSpacingTable::compile_canonical(candidate)
         .map_err(SpacingTableCompileErrorV0::NativeTable)
+}
+
+/// Compiles a fully validated candidate before publishing it to this run's list dispatcher.
+/// Neither the provider handle nor the activation generation is written to fmt or a node.
+pub(crate) fn install_spacing_table_candidate_v0(
+    eqtb: &mut Eqtb,
+    candidate: CanonicalSpacingTableCandidateV0,
+) -> Result<ScriptSpacingActivationId, SpacingTableCompileErrorV0> {
+    let table = compile_spacing_table_candidate_v0(candidate)?;
+    Ok(eqtb.install_script_spacing_table(table))
+}
+
+/// Revokes the active capability-owned table for this run and invalidates open lists.
+pub(crate) fn revoke_spacing_table_candidate_v0(eqtb: &mut Eqtb) {
+    eqtb.clear_script_spacing_table();
 }
 
 /// Compiles completely before publishing the replacement.
@@ -202,7 +218,8 @@ mod tests {
     use crate::eqtb::LanguageRegion;
     use crate::nodes::DimensionOrder;
     use crate::script_spacing::{
-        BoundaryMetricSnapshot, ContextualSpacingResolutionError, WritingMode,
+        BoundaryMetricSnapshot, ContextualSpacingResolutionError, ScriptSpacingProfileRef,
+        WritingMode,
     };
     use crate::spacing_table_domain::{VALID_LANGUAGE_REGION_MASK, VALID_WRITING_MODE_MASK};
     use crate::wasm_spacing_table_v0::{
@@ -435,6 +452,25 @@ mod tests {
             assert_eq!(resolved.penalty(), i32::MIN);
             assert_eq!(resolved.reason_id(), 3);
         }
+    }
+
+    #[test]
+    fn wasm候補はcompile完了後だけrun_local_dispatcherへ公開する() {
+        let mut eqtb = Eqtb::new();
+        let activation =
+            install_spacing_table_candidate_v0(&mut eqtb, validated_external_candidate()).unwrap();
+        assert_eq!(eqtb.script_spacing_activation_id(), Some(activation));
+        assert!(matches!(
+            eqtb.select_script_spacing_profile(Some(activation), LanguageRegion::Ja),
+            ScriptSpacingProfileRef::CompiledTable { .. }
+        ));
+
+        revoke_spacing_table_candidate_v0(&mut eqtb);
+        assert_eq!(eqtb.script_spacing_activation_id(), None);
+        assert!(matches!(
+            eqtb.select_script_spacing_profile(Some(activation), LanguageRegion::Ja),
+            ScriptSpacingProfileRef::BuiltIn
+        ));
     }
 
     #[test]

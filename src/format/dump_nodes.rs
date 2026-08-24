@@ -586,6 +586,7 @@ impl Dumpable for GlueType {
                     }
                 )?;
             }
+            Self::AutomaticScriptSpacing => writeln!(target, "AutomaticScriptSpacing")?,
             Self::NonScript => writeln!(target, "NonScript")?,
             Self::MuGlue => writeln!(target, "MuGlue")?,
             Self::Leaders {
@@ -618,6 +619,7 @@ impl Dumpable for GlueType {
             "AutomaticJapaneseXKanjiSkip" => {
                 Self::AutomaticJapanese(AutomaticJapaneseGlue::XKanjiSkip)
             }
+            "AutomaticScriptSpacing" => Self::AutomaticScriptSpacing,
             "NonScript" => Self::NonScript,
             "MuGlue" => Self::MuGlue,
             "Leaders" => {
@@ -691,6 +693,7 @@ impl Dumpable for PenaltyNode {
             match self.subtype {
                 PenaltySubtype::Normal => "Normal",
                 PenaltySubtype::AutomaticJapaneseKinsoku => "AutomaticJapaneseKinsoku",
+                PenaltySubtype::AutomaticScriptSpacing => "AutomaticScriptSpacing",
             }
         )?;
         self.penalty.dump(target)?;
@@ -701,6 +704,7 @@ impl Dumpable for PenaltyNode {
         let subtype = match lines.next().ok_or(FormatError::IncompleteFile)? {
             "Normal" => PenaltySubtype::Normal,
             "AutomaticJapaneseKinsoku" => PenaltySubtype::AutomaticJapaneseKinsoku,
+            "AutomaticScriptSpacing" => PenaltySubtype::AutomaticScriptSpacing,
             _ => return Err(FormatError::ParseError),
         };
         let penalty = i32::undump(lines)?;
@@ -1657,7 +1661,7 @@ mod tests {
     }
 
     #[test]
-    fn 自動和文spacingのprovenanceをfmtで全種類往復する() {
+    fn 自動script_spacingのprovenanceをfmtで全種類往復する() {
         let spec = std::rc::Rc::new(GlueSpec {
             width: 11,
             stretch: HigherOrderDimension {
@@ -1684,13 +1688,15 @@ mod tests {
             )),
             Node::Glue(GlueNode::new_automatic_japanese(
                 AutomaticJapaneseGlue::XKanjiSkip,
-                spec,
+                spec.clone(),
             )),
+            Node::Glue(GlueNode::new_automatic_script_spacing(spec)),
             Node::Kern(KernNode {
                 subtype: KernSubtype::AutomaticJapaneseJfm,
                 width: -17,
             }),
             Node::Penalty(PenaltyNode::new_automatic_japanese(10_000)),
+            Node::Penalty(PenaltyNode::new_automatic_script_spacing(321)),
         ];
         let mut file = Vec::new();
         nodes.dump(&mut file).unwrap();

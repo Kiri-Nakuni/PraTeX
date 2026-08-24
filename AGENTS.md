@@ -273,7 +273,11 @@ control-sequence区間15.79%、fmt全体10.73%、wall 5.36%を短縮した。DVI
   mailbox範囲、transport返値、lease上限のbyte codecを`src/wasm_wire_v0.rs`へ実装した。
   `SpacingTableUpload`はscalar/mask/class/context重複の共通domain validator、有理数長さ、
   tier/break/edge/penalty/reason、atomic candidate交換に加え、canonical候補を共通native表へ
-  compileするsealed境界を持つ。runtimeからの登録とdispatcher接続はまだない。
+  compileするsealed境界を持つ。compile完了後だけrun-local dispatcherへ原子的にinstallする
+  host入口と、list単位の世代・region一貫性を検査する中央finalizer接続も実装済みである。
+  direct glyph境界ではclass pairのNoSpace/K/X/fixed glueと、表現可能なboundary glue/penaltyを
+  実nodeへ変換する。RegionNode、indirect box/discのcustom規則、adjustment tier、line-edge discardは
+  未接続なので、その意味を黙って落とさずBuiltInへ境界単位でfallbackする。
   module profile、export検査、affine lease、runtime、provider registrationは未実装であり、
   TeX sourceから自己承認する経路はない。標準日本語はこの境界を通らずcallback 0回を維持する。
 - 生文字列registerは`\rawstring`、`\rawstringdef`、`\therawstring`、専用`\showthe`、
@@ -321,7 +325,8 @@ control-sequence区間15.79%、fmt全体10.73%、wall 5.36%を短縮した。DVI
    standalone libraryを配らない場合はexact TL2026 sourceから共有libraryを再現し、静的linkは版pin・
    LGPL source/relink条件・再現性・binary sizeを別gateにする。Windows fast pathはallocator対応後に測る。
 2. 接続済みmain-loop JFM/禁則をshifted/vbox・残るcommand境界へ広げ、discの枝内JFM class・禁則・unbox再評価matrixを完成する。
-3. compile済み汎用script class対tableをlist単位dispatcherと中央finalizerへ接続する。
+3. glyph時点のRegionNode/context伝播をbox/disc/unboxへ接続し、compiled tableのindirect edge、
+   adjustment tier、line-edge discardをline breakerまで完成する。
 4. `\tfont`と縦組metric/node/outputを追加し、JFM/K/X/禁則を横組から縦組へ広げる。
 5. discard保存、show/tracing、`\lastlinefit`を接続し、TeX--XeTの実装済み
    restricted hbox sliceをparagraph・display・mathへ広げるe-TeX残件を公開仕様どおり実装する。
