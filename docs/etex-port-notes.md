@@ -46,6 +46,29 @@ process historyへ残してexit 1になる。PraTeXは全ての非fatal診断後
 しており、これは`\showtokens`固有ではない既存CLI差分である。本sliceではerror countとinteractionを
 既存show shellに合わせ、終了statusの全体修正を混ぜない。
 
+## `\pagediscards`と`\splitdiscards`
+
+公開manual §3.11と§5.2に従い、正の`\savingvdiscards`でpage builderまたは公開`\vsplit`が
+先頭から捨てるglue・kern・penaltyだけを、二つのrun-local special listへ順序どおり保存する。
+`\pagediscards`と`\splitdiscards`は`\unvbox`と同様にnodeの所有権を現在のvertical listへ移し、
+同じ保存listから二度は読めない。page listはoutput routine終端、split listはvoidまたは
+不適合boxを含む各`\vsplit`開始時にも空へ戻す。内部の挿入分割は公開`\vsplit`ではないため
+split listを更新しない。special listはrun-localでありfmtへ保存せず、primitive identityだけを保存する。
+
+自作最小入力を公式TeX Live 2026 pdfTeX 3.141592653-2.6-1.40.29へ与えたblack-boxでは、
+split側がbreak penalty `-10000`に続いて2 pt glue、3 pt kern、penalty 123を返し、page側も
+2 pt glue、3 pt kern、penalty 123を同順で返した。どちらも回収boxの高さは5 ptで、output
+routine終端後の`\pagediscards`にはそれらが残らず、空box終端のpenalty 10000だけを観測した。
+PraTeXの[process試験](../tests/etex_vdiscards.rs)で同じnode順、寸法、消去時点に加え、
+非正値、次の`\vsplit`、fmt往復とrun-local空状態を固定する。原実装sourceと上流testは参照していない。
+
+照合資材は2026-08-24取得のCTAN tlnet `pdftex.windows` revision 78097である。archiveは
+`pdftex.windows.tar.xz`（874,164 bytes、SHA-256
+`6794c3c173d1c3e9add63ed3d631b07312c208ed7d60dbed7764f588ce09ee6e`）、取得元は
+`https://mirrors.ctan.org/systems/texlive/tlnet/archive/pdftex.windows.tar.xz`。
+`pdftex.exe`のSHA-256は
+`4b582d0be712b74ae5090aba2d7338f185082f6446cbee7b26115e8ab6e21184`である。
+
 ## `\everyeof`
 
 公開マニュアル §3.7 の契約:

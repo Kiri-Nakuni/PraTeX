@@ -326,6 +326,19 @@ Unicode差分も`src/eqtb.rs`を触るため、安全なcheckpointを優先し�
 - 公式e-TeX manual §3.10と、SHA-256を固定したTeX Live 2026 e-upTeXへの自作probeだけを
   clean-room oracleにした。契約とhashは`docs/etex-savinghyphcodes.md`に記録している。
 
+## 完了済み: vertical discard special list
+
+状態: **`codex2/etex-discards`の`9c70a6c`で実装・commit・push済み**。
+
+- 正の`\savingvdiscards`でpage builderと公開`\vsplit`が先頭から捨てるglue・kern・penaltyを、
+  page/split別のrun-local listへ順序どおり保存する。
+- `\pagediscards` / `\splitdiscards`は`\unvbox`同様にnodeの所有権を現在のvertical listへ移し、
+  同じlistから二度は取り出せない。
+- page listはoutput routine終端、split listはvoid/incompatibleを含む各`\vsplit`開始時に消去する。
+  primitive identityはfmtを往復するが、run-local listはfmtへ保存しない。
+- 公開e-TeX manual 3.11・5.2と、SHA-256を固定したTeX Live 2026 pdfTeXへの自作probeだけを
+  clean-room oracleにした。node順、5 pt寸法、回収と世代切替は`tests/etex_vdiscards.rs`に固定する。
+
 ## 完了済みproduction slice: `\scantokens`と最小`scrartcl`
 
 状態: **`d90e98f`で実装・commit・push済み**。
@@ -509,7 +522,7 @@ WSL成功の意味は変更しない。
    子process 0、hit/miss、DVI意味、end-to-endを再測定する。
 2. 接続済みmain-loop JFM/禁則をshifted/vbox・残るcommand境界へ広げ、discの全JFM class・禁則・unbox matrixを完成する。
 3. `\tfont`と縦組metric/node/outputを追加し、spacingと禁則を横組から縦組へ広げる。
-4. discard、`\showgroups` / `\showifs`、tracing等のe-TeX残件を接続し、TeX--XeTの
+4. `\showgroups` / `\showifs`、tracing、`\lastlinefit`等のe-TeX残件を接続し、TeX--XeTの
    restricted hbox checkpointをparagraph、display、mathへ広げる。
 
 日本語の最低線は横組smokeではなくpTeX相当とJLReq native対応であり、縦組を含む。縦中横と
