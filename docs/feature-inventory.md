@@ -137,7 +137,7 @@ CJK tokenを現在変更しない。
 
 | 状態 | 機能 | 現在の範囲と境界 |
 |---|---|---|
-| 部分 | kpathsea/web2c相当の探索 | 直接pathを優先し、用途別`--show-path`とrun-local `ls-R`索引で一意な候補を証明できれば外部processを省く。曖昧・stale・未対応ならshellを介さないone-shot `kpsewhich`へ戻す。TeX入力、`\openin`、`\pdffilesize`、TFM/JFM、VF、map、encoding、Type 1、AFM、Vaak入力へ接続し、run内で成功・不在をcacheする。DVI modeのVF consumerはPraTeXでなくDVI driverなので先読みしない |
+| 部分 | kpathsea/web2c相当の探索 | 別engine名を使わず`--progname=pratex`とし、直接pathを優先する。用途別`--show-path`とrun-local `ls-R`索引で一意な候補を証明できれば外部processを省く。曖昧・stale・未対応ならshellを介さないone-shot `kpsewhich`へ戻す。TeX入力、`\openin`、`\pdffilesize`、TFM/JFM、VF、map、encoding、Type 1、AFM、Vaak入力へ接続し、run内で成功・不在をcacheする。DVI modeのVF consumerはPraTeXでなくDVI driverなので先読みしない。TeX Live 2026で`upjisr-h` / `upjisg-h`をcopyせずDVI→dvipdfmxまで通すignored gateあり |
 | 部分 | Windows--WSL TeX Live bridge | production既定値ではnative `kpsewhich`の起動fileがない時だけ既定WSLへ移り、選んだbackendをresolver instance内で固定する。Linux絶対pathと探索pathを検証つきUNCへ写す。nativeの不在回答や異常を別TeX Liveで覆わない。ScannerとPDF loaderを跨ぐrun-global固定は未実装 |
 | 実装 | 論理名と物理pathの分離 | 解決したTEXMF上のpathをTFM名、DVI font名、PDF map keyなどの論理identityへ漏らさない |
 | 部分 | OS固有file名 | CLIは`args_os`、Unixの非UTF-8名はbyteのまま、WindowsのUnicode名は`OsString`で運ぶ。単一argv中の空白やWindows絶対pathをTeX入力としてどう引用するかは未解決 |

@@ -21,13 +21,14 @@
 ## 枝と共有状態
 
 - 枝: `codex2/jlreq-script-spacing`
-- push済み実装checkpoint: `4acf8a8`
+- push済み実装checkpoint: `fe9fa5c`
 - push済み`\scantokens` code checkpoint: `d90e98f`（歴史的基点は`6ce8315`）
 - 日本語CID PDFの検証済み元commit: `8035d1c`
 - 基点のrelease全suite: **564 passed、0 failed、6 ignored**（Vaak `89804b4`）
 - 最新の記録済みrelease全suite: `4acf8a8`で**836 passed、0 failed、9 ignored**。
   NFSS、fmt予約、WSL発見失敗cacheのcheckpointを含む。
 - 直近の共有commit:
+  - `fe9fa5c`: 別engine名を使わず本文・見出しJFM/VFのno-copy TeX Live gateを固定
   - `4acf8a8`: 発見不能なWSL backendをoptional lookupごとに再起動しない
   - `3a4aaaf`: fmt予約A/Bを再検証できるraw標本と予約上限を固定
   - `22a8bdd`: fmt復元collectionの再確保をboundedな初期予約で削減

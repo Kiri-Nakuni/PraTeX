@@ -13,10 +13,13 @@ PraTeX側が必要とするAPIは `src/vaak.rs`、`docs/vaak-embedding-api-desig
 `for_CLAUDE.md` に契約として残し、Vaak側の変更はClaudeに伝える。
 
 通常作業の枝は **`codex2/<目的>`** とする。現在の統合枝は
-`codex2/jlreq-script-spacing`であり、2026-08-24のpush済み実装checkpointは`4acf8a8`。
+`codex2/jlreq-script-spacing`であり、2026-08-24のpush済み実装checkpointは`fe9fa5c`。
 `\detokenize`から`\scantokens`、横組JFM glyph、K/X/finalizer、JLReqの最小禁則、
 直接PDFのnamed CIDと限定`/ToUnicode`、WASM ABI 0.0のwire/domain境界、
 e-TeX `\middle`まで取り込み済みである。
+`fe9fa5c`ではresolverの公開program名を`pratex`へ正し、TeX Live 2026の`upjisr-h` / `upjisg-h`
+TFM・VFを作業directoryへcopyせず、PraTeX DVIから同じtreeの`dvipdfmx`による明朝・ゴシック
+Type 0/CID PDFまで実測した。Linux no-copy gate 1件と公開CLI argvのfocused test 1件は成功済み。
 `main`は歴史的基点として触らない。`full`へ直接実装はせず、focused test、全release、必要な
 TRIP/DVI・PDF意味比較を通して十分に固まった機能checkpointを`codex2/*`から順次mergeする。
 設計文書だけ、production未接続、既知の意味退行があるsliceは`full`へ送らない。
@@ -259,6 +262,9 @@ run-local状態へ固定した。これはLinuxの通常探索や利用者の9.1
   `prjsarticle`の通常font roleはこの宣言面を使い、手続き的な和欧hook列を使わない。
   `\tfont`、縦組、main-loop JFM/完全禁則は未接続。PDF和文glyphは明示named CID profileを
   使う非埋込みBMP最小経路だけ接続済みで、portableな字形表示ではない。
+- TeX Live探索の既定CLI名は`--progname=pratex`であり、別engine名へ偽装しない。通常DVIでは
+  PraTeXがTFM/JFMを解決し、VFはDVI driver自身が解決する。本文用`upjisr-h`だけでなく
+  `prjsarticle`見出し用`upjisg-h`もno-copy実機gateでDVI→Type 0/CID PDFまで確認済み。
 - plain formatで`\directvaak`、`\vaakdef`、`let` / `var`、host aliasを使う実行例は
   `examples/plain-vaak.tex`。静的失敗はprepare段階・行・桁・診断本文を表示して0へ展開する。
 - `\pdfmdfivesum file{...}`はresolver経由の実file byte列をincremental MD5へ流し、最小
