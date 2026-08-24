@@ -6,7 +6,8 @@
 
 PraTeXはe-TeXのmacro処理・拡張register・class別mark・式・typed疑似入力をかなり実装しているが、
 **e-TeX完全対応ではない**。組版、group/if表示、discardに未実装が残る。
-TeX--XeTは二つの整数parameterを保存できるだけで、**組版機能としては未実装**である。
+TeX--XeTはrestricted hboxの方向区間・反転・共通DVI/PDF shipoutまでの最初sliceだけ実装した。
+paragraph、display、math、改行をまたぐLR stackは未実装なので、**TeX--XeT対応完了ではない**。
 
 この文書の「実装」は、primitive名が登録されているだけでなく、本来の処理へ接続され、
 対象を固定する試験があることをいう。値の代入、group復元、fmt保存だけなら「表面のみ」とする。
@@ -35,6 +36,7 @@ TeX--XeTは二つの整数parameterを保存できるだけで、**組版機能�
 | `\showtokens` | 実装 | 入口で左braceを探す間だけ通常展開を許し、balanced text本体を展開せず既存token表示へ渡す。外側brace除外、入れ子、parameter tokenの二重表示、和文token、全mode、通常error上限への非加算、`\let` alias、fmt、JFM continuity切断をprocess試験済み。公式Web2Cのshow診断がexit 1になるのに対しPraTeXの通常終了statusは0である既存CLI差分は別残件 |
 | tracing/show | 部分／未実装 | `\tracingscantokens`は実出力へ接続済み。他のtracing parameterは値だけで、`\showgroups`、`\showifs`と対応trace出力がない |
 | `\savinghyphcodes` | 実装 | 正値の`\patterns`時にlanguage別の小文字写像を保存し、pattern圧縮後の通常hyphenationと例外登録へ使う。同一languageの再snapshot、0以下での保持、fmt、8-bitとPraTeX Latin-UCS拡張の型分離を試験済み |
+| TeX--XeT | 部分 | `\TeXXeTstate>0`の明示restricted hboxで`\beginL` / `\endL` / `\beginR` / `\endR`をtyped方向nodeへし、入れ子LR stackを明示反転して通常DVI/PDFへ書く。区間内inline mathはatomic LTR。方向nodeがない純LTRは単一passの従来経路でallocationなし。disc枝、alignment span、unbox、paragraph、display、math mode内方向primitiveは未実装 |
 | その他の組版制御 | 表面のみ | `\lastlinefit`は処理本体へ未接続 |
 
 fmtの表現があることと、読み戻した値が全ての後段へ効くことは分けて検査する。現在の
@@ -42,16 +44,29 @@ process-level fmt往復試験はregister、mark、糊成分を中心とし、全
 
 ## TeX--XeT
 
-現状の`\TeXXeTstate`と`\predisplaydirection`は整数の登録、代入、group復元だけであり、
-`\TeXXeTstate`はformatへ非零値を持ち越さず既定offに戻す。`\predisplaydirection`は自動計算を
-まだ行わない。次の意味論は一つも実装していない。
+現状の`\TeXXeTstate`はformatから非零値を持ち越さず既定offに戻す。正値の明示restricted hbox内では
+`\beginL`、`\endL`、`\beginR`、`\endR`を幅0のtyped math/direction nodeとして保持する。
+backend共通のshipout直前に入れ子区間を解決し、RTL区間はengineが明示的にnode順を反転して
+通常DVI/PDFへ書く。対応しないendと閉じないbeginはtyped診断にし、shipout時のhlist終端で決定的に回復する。
+方向nodeがない純LTR listは従来順を借用し、並べ替え用allocationを行わない。fmtにはnodeの型を保存する。
+shipoutは従来のnode走査中に最初の方向境界を見つけた時だけ、残りsuffixを型付き順序へ変換する。
+従って方向nodeのない通常hlistを二重scanしない。入れ子frameはtreeのまま閉じ、最後に
+一回だけiterativeに平坦化するため、深いLR入れ子で子treeを繰り返しcopyしない。
+inline mathの`MathNodeKind::Before`--`After`はmath-surround幅を含むatomic LTR groupにし、
+外側RTLでも数式内node順を反転しない。
+同じrestricted horizontal modeを内部利用するdiscretionary枝とalignment spanでは方向primitiveを
+診断してnode化しない。方向node入りhboxの`\unhbox` / `\unhcopy`はboxを復元して拒否し、
+未対応のparagraphやdisc/alignment listへ境界を漏らさない。
+RTL区間がdiscretionary nodeを直接含む場合は、no-break枝だけを元順のまま残す部分反転をせず、
+そhlistの方向変換全体を破棄して診断する。
 
-- `\beginL`、`\endL`、`\beginR`、`\endR`
-- LR方向nodeと対応するstackの整合性検査
-- paragraph、line breaking、hpackにおける方向区間
-- 区間の反転と境界処理
-- DVI/PDF shipoutでの方向付き配置
-- TeX--XeT専用の回帰試験
+未実装は次のとおり。
+
+- unrestricted paragraphと改行ごとのLR stack補修
+- discretionary枝、alignment span、unboxをまたぐLR stackの実意味
+- line breaking、hpack、displayにおける方向境界
+- math mode内の方向primitive、display配置、`\predisplaydirection`の自動計算
+- 上記を含むerror回復とDVI/PDF幾何の網羅
 
 したがってPraTeXを「TeX--XeT対応」とは表示しない。pTeXの横・縦方向とTeX--XeTの
 left-to-right/right-to-left区間は公開意味論が異なるため、一つの互換primitiveへ潰さない。
@@ -64,8 +79,8 @@ left-to-right/right-to-left区間は公開意味論が異なるため、一つ�
 1. 実装済みの`FontCharDimension` query種別を、将来JFM・Unicode font metricへ広げる。
    e-TeX primitiveの公開文字番号は0--255のまま保ち、別の文字identityを暗黙に混ぜない。
 2. discard保存、`\lastlinefit`、show/tracingを実処理へ接続する。
-3. TeX--XeTはrestricted hboxで方向node、LR stack、共通DVI/PDF shipoutまでを最初の縦sliceにし、
-   次にparagraph、display、mathへ広げる。parameterだけ先に「対応済み」へ格上げしない。
+3. TeX--XeTの実装済みrestricted hbox sliceを崩さず、paragraph、display、mathへ広げる。
+   parameterと限定sliceだけで「対応済み」へ格上げしない。
 
 完全対応の完了条件は、公開e-TeX manualの全primitiveを一覧照合し、通常実行、group、
 error回復、fmt往復、DVI/PDFへの効果を該当機能ごとに試験した状態である。LaTeXが通ることだけを
@@ -79,6 +94,11 @@ error回復、fmt往復、DVI/PDFへの効果を該当機能ごとに試験し�
 - [e-TeX移植記録](etex-port-notes.md)
 - [`\savinghyphcodes`実装契約](etex-savinghyphcodes.md)
 - [TeXにない機能の実装一覧](feature-inventory.md)
+
+restricted hboxのTeX--XeT sliceは同manual 4.1の公開契約から、既定off、engine内反転、
+通常DVI出力を独立実装した。幅の異なるrule列で反転後のDVI opcode順を検査し、
+無効stateの診断回復とfmt往復を[process試験](../tests/etex_texxet_restricted.rs)で固定する。
+原実装sourceや上流testは参照していない。
 
 `\middle`は同manual 3.9と5.4の公開契約から、segmentごとに元のstyleの新しいgroup/math listを始め、
 完成済みの内部listを次segmentのleft boundaryとして引き継ぐ形で独立実装した。全delimiterの

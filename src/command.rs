@@ -143,6 +143,8 @@ pub enum UnexpandableCommand {
     CloseOut,
     Special,
     SetLanguage,
+    /// e-TeX TeX--XeT の方向境界。組方向そのものは node 側の型へ変換する。
+    TextDirection(TextDirectionCommand),
     Immediate,
     OpenIn,
     CloseIn,
@@ -259,6 +261,7 @@ impl UnexpandableCommand {
             | Self::CloseOut
             | Self::Special
             | Self::SetLanguage
+            | Self::TextDirection(_)
             | Self::Immediate
             | Self::OpenIn
             | Self::CloseIn
@@ -432,6 +435,7 @@ impl UnexpandableCommand {
             Self::CloseOut => printer.print_esc_str(b"closeout"),
             Self::Special => printer.print_esc_str(b"special"),
             Self::SetLanguage => printer.print_esc_str(b"setlanguage"),
+            Self::TextDirection(direction) => direction.display(printer),
             Self::Immediate => printer.print_esc_str(b"immediate"),
             Self::OpenIn => printer.print_esc_str(b"openin"),
             Self::CloseIn => printer.print_esc_str(b"closein"),
@@ -478,6 +482,28 @@ impl UnexpandableCommand {
             }
             &Self::Prefixable(prefixable_command) => prefixable_command.display(fonts, printer),
         }
+    }
+}
+
+/// e-TeX が公開する四つの TeX--XeT text-direction primitive。
+///
+/// pTeX の横・縦方向とは公開意味論が異なるため、同じ primitive や生整数へ潰さない。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextDirectionCommand {
+    BeginLeft,
+    EndLeft,
+    BeginRight,
+    EndRight,
+}
+
+impl TextDirectionCommand {
+    pub fn display(self, printer: &mut impl Printer) {
+        printer.print_esc_str(match self {
+            Self::BeginLeft => b"beginL",
+            Self::EndLeft => b"endL",
+            Self::BeginRight => b"beginR",
+            Self::EndRight => b"endR",
+        });
     }
 }
 

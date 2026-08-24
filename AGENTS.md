@@ -255,7 +255,16 @@ control-sequence区間15.79%、fmt全体10.73%、wall 5.36%を短縮した。DVI
 - `\savinghyphcodes`は正値の`\patterns`時にlanguage別の小文字写像を保存し、pattern圧縮後の
   通常hyphenationと例外登録へ接続済み。同一languageの再snapshot、0以下での保持、fmt、
   PraTeX Latin-UCS拡張を試験する。e-TeXの8-bit表とPraTeX拡張は別型に保つ。
-- `\TeXXeTstate`はfmt読込時0へ戻るが、LR組版自体は未実装。
+- `\TeXXeTstate`はfmt読込時0へ戻る。正値の明示restricted hboxでは
+  `\beginL` / `\endL` / `\beginR` / `\endR`をtyped方向nodeにし、入れ子LR stackを
+  backend共通shipoutで明示反転して通常DVI/PDFへ書く最初sliceを接続した。
+  inline mathはmath-surroundを含むatomic LTRとして外側RTLから守る。方向nodeのない純LTRは
+  従来のnode走査中にmarkerを確認する単一passでallocationなし、LR frameはtreeのまま
+  閉じて最後に一回だけiterativeに平坦化する。paragraph、display、math mode内方向primitive、
+  改行をまたぐLR stackは未実装であり、TeX--XeT完了とは表示しない。
+  disc枝・alignment spanの直接方向primitiveと方向node入りhboxのunboxは診断し、
+  未対応listへ方向境界を漏らさない。
+  RTL区間がdisc nodeを直接含む場合も部分反転をせず、hlist全体の方向変換を破棄して診断する。
 - 外向きWASM provider ABI 0.0は、version range、required/optional feature、capability、
   operationのruntime非依存交渉を`src/wasm_provider_abi.rs`へ、固定envelope、section集合、
   mailbox範囲、transport返値、lease上限のbyte codecを`src/wasm_wire_v0.rs`へ実装した。
@@ -311,8 +320,8 @@ control-sequence区間15.79%、fmt全体10.73%、wall 5.36%を短縮した。DVI
 2. 接続済みmain-loop JFM/禁則をbox/disc・残るcommand境界へ広げ、discの枝別意味を完成する。
 3. compile済み汎用script class対tableをlist単位dispatcherと中央finalizerへ接続する。
 4. `\tfont`と縦組metric/node/outputを追加し、JFM/K/X/禁則を横組から縦組へ広げる。
-5. discard保存、show/tracing、`\lastlinefit`、
-   TeX--XeTのLR node・反転・DVI/PDF出力といったe-TeX残件を公開仕様どおり実装する。
+5. discard保存、show/tracing、`\lastlinefit`を接続し、TeX--XeTの実装済み
+   restricted hbox sliceをparagraph・display・mathへ広げるe-TeX残件を公開仕様どおり実装する。
 6. PraTeX-native package adapterを順に通し、PDF直接出力をOTFより先に完成する。
 7. Vaak table uploadとversion付きWASM ABIは、内部表現を固定した段階から並行して適合試験を作る。
 8. WASM target自体のcompile実験と性能調整は、横組みcheckpoint後に行う。

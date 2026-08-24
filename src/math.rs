@@ -2906,6 +2906,7 @@ pub fn resume_after_display(
             },
             space_factor: 1000,
             script_spacing: Default::default(),
+            accepts_text_direction_boundaries: false,
         }),
         &scanner.input_stack,
         eqtb,

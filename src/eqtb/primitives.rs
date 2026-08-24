@@ -8,7 +8,7 @@ use crate::command::{
     FontCharDimension, FractionCommand, FractionType, GlueComponent, GlueConversion, Hskip, IfTest,
     LimitType, MakeBox, MarkClassOperand, MarkCommand, MarkQuery, MathCommand, PageDimension,
     ParShapeDimension, Prefix, PrefixableCommand, RawStringCommand, RemoveItem, ShorthandDef,
-    ShowCommand, UnexpandableCommand, Vskip,
+    ShowCommand, TextDirectionCommand, UnexpandableCommand, Vskip,
 };
 use crate::logger::InteractionMode;
 use crate::math::MathStyle;
@@ -482,6 +482,22 @@ impl Eqtb {
             UnexpandableCommand::Prefixable(PrefixableCommand::Integer(
                 IntegerVariable::TeXXeTState,
             )),
+        );
+        self.primitive_unexpandable(
+            b"beginL",
+            UnexpandableCommand::TextDirection(TextDirectionCommand::BeginLeft),
+        );
+        self.primitive_unexpandable(
+            b"endL",
+            UnexpandableCommand::TextDirection(TextDirectionCommand::EndLeft),
+        );
+        self.primitive_unexpandable(
+            b"beginR",
+            UnexpandableCommand::TextDirection(TextDirectionCommand::BeginRight),
+        );
+        self.primitive_unexpandable(
+            b"endR",
+            UnexpandableCommand::TextDirection(TextDirectionCommand::EndRight),
         );
         self.primitive_unexpandable(
             b"namespacechar",

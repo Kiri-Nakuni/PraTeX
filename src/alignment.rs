@@ -499,6 +499,7 @@ fn determine_mode(nest: &SemanticState) -> RichMode {
             subtype: HorizontalModeType::Restricted,
             space_factor: hmode.space_factor,
             script_spacing: Default::default(),
+            accepts_text_direction_boundaries: false,
         }),
         RichMode::Math(_) => {
             let RichMode::Vertical(outer_vmode) = nest.outer_mode() else {
@@ -589,6 +590,7 @@ impl Alignment {
                 // diagnostic messages.
                 space_factor: 0,
                 script_spacing: Default::default(),
+                accepts_text_direction_boundaries: false,
             }),
             RichMode::Horizontal(_) => {
                 // The prev_depth is not used but we keep this for backward compatibility in

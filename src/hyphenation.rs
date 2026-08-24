@@ -81,6 +81,7 @@ impl Hyphenator {
                     auto_breaking = match math_node.kind {
                         MathNodeKind::Before => false,
                         MathNodeKind::After => true,
+                        MathNodeKind::Begin(_) | MathNodeKind::End(_) => auto_breaking,
                     };
                     hyphenated_hlist.push(node);
                 }
