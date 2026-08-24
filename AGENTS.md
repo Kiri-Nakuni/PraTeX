@@ -288,7 +288,9 @@ control-sequence区間15.79%、fmt全体10.73%、wall 5.36%を短縮した。DVI
   全非fatal診断後の通常終了を0にする既存CLI差分があり、primitive意味と混ぜず別残件にする。
 - `\interlinepenalties`、`\clubpenalties`、`\widowpenalties`、
   `\displaywidowpenalties`は局所／大域代入、内部照会、fmt、通常段落とdisplay直前の
-  post-line-break nodeまで接続済み。discard保存は未実装。
+  post-line-break nodeまで接続済み。正の`\savingvdiscards`によるpage builder／公開`\vsplit`の
+  discard保存と、所有権を一度だけ移す`\pagediscards`／`\splitdiscards`も接続済み。
+  page listはoutput routine終端、split listは各`\vsplit`開始時に世代を切り、fmtには保存しない。
 - `\savinghyphcodes`は正値の`\patterns`時にlanguage別の小文字写像を保存し、pattern圧縮後の
   通常hyphenationと例外登録へ接続済み。同一languageの再snapshot、0以下での保持、fmt、
   PraTeX Latin-UCS拡張を試験する。e-TeXの8-bit表とPraTeX拡張は別型に保つ。
@@ -359,7 +361,7 @@ control-sequence区間15.79%、fmt全体10.73%、wall 5.36%を短縮した。DVI
 2. 接続済みmain-loop JFM/禁則をshifted/vbox・残るcommand境界へ広げ、discの枝内JFM class・禁則・unbox再評価matrixを完成する。
 3. compile済み汎用script class対tableをlist単位dispatcherと中央finalizerへ接続する。
 4. `\tfont`と縦組metric/node/outputを追加し、JFM/K/X/禁則を横組から縦組へ広げる。
-5. discard保存、show/tracing、`\lastlinefit`を接続し、TeX--XeTの実装済み
+5. show/tracing、`\lastlinefit`を接続し、TeX--XeTの実装済み
    restricted hbox sliceをparagraph・display・mathへ広げるe-TeX残件を公開仕様どおり実装する。
 6. PraTeX-native package adapterを順に通し、PDF直接出力をOTFより先に完成する。
 7. Vaak table uploadとversion付きWASM ABIは、内部表現を固定した段階から並行して適合試験を作る。

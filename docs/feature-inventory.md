@@ -55,13 +55,13 @@
 | 実装 | 糊成分の照会と型変換 | `\gluestretch`、`\glueshrink`、`\gluestretchorder`、`\glueshrinkorder`、`\mutoglue`、`\gluetomu`。normal/fil/fill/filll、負値、零係数、数式糊の回復、fmtを扱う |
 | 部分 | tracing register | `\tracingscantokens`は疑似fileの開始時に判定し、値が途中で変わっても対応する括弧を閉じる。他の`\tracingassigns`、`\tracinggroups`、`\tracingifs`、`\tracingnesting`は値の代入・group・fmtだけ |
 | 実装 | `\savinghyphcodes` | 正値の`\patterns`時に現在の`\lccode`をlanguage別にsnapshotし、pattern圧縮後の通常hyphenationと`\hyphenation`例外へ適用する。同一languageの正値は置換し、0以下は既存snapshotを保持する。e-TeXのdense 8-bit表とPraTeX Latin-UCS拡張を別型にし、fmt検証を含む |
-| 表面のみ | その他の組版制御register | `\predisplaydirection`、`\lastlinefit`、`\savingvdiscards`は値を保持するだけで、display方向・last-line fit・discard保存は未接続 |
+| 表面のみ | その他の組版制御register | `\predisplaydirection`、`\lastlinefit`は値を保持するだけで、display方向・last-line fitは未接続 |
 | 実装 | token列表示 `\showtokens` | general textの入口だけを展開して左braceを探し、balanced text本体は未展開token列のまま既存`token_show`で表示する。外側braceを除外し、入れ子、parameter token、和文token、全mode、101回の非加算、`\let` alias、fmt往復、JFMのnode-less境界をprocess試験済み。公式Web2Cのexit 1に対してPraTeXが0を返す全診断共通のCLI差分は別残件 |
 | 未実装 | group/if拡張表示 | `\showgroups`、`\showifs` |
 | 実装 | parshape照会 `\parshapelength/indent/dimen` | 現在のpair数、各行のindent・length、奇偶interleaveを内部寸法として返す。非正index、最終pair反復、式・表示、fmtを含む |
 | 実装 | 可変delimiter列 `\middle` | `\left`--`\right`内をsegmentごとのsave groupに分け、局所状態を復元して元のmath styleから次のlistを始める。全segmentの最大height/depthを全delimiterへ共有する。境界の左はRight、右はLeft相当のspacingとし、文字・数値delimiter走査、欠落・不対応時の回復、表示、fmtをprocess試験する |
 | 実装 | penalty配列 | `\interlinepenalties`、`\clubpenalties`、`\widowpenalties`、`\displaywidowpenalties`。正の個数と整数列、0以下のreset、局所／大域代入、内部照会、fmtを持ち、通常段落とdisplay直前のpost-line-break penaltyへ接続する |
-| 未実装 | discard保存 | `\pagediscards`、`\splitdiscards` |
+| 実装 | discard保存 | 正の`\savingvdiscards`でpage builderと公開`\vsplit`が捨てた先頭glue・kern・penaltyを別々のrun-local listへ保存する。`\pagediscards` / `\splitdiscards`は`\unvbox`同様に一度だけ現在のvertical listへ移し、output routine終端／各`\vsplit`開始時の消去、非正値、fmt identityをprocess試験する |
 | 部分 | TeX--XeT組版 | `\TeXXeTstate`は値を保持しfmt読込時0へ戻す。正値の明示restricted hbox内で`\beginL`/`\endL`/`\beginR`/`\endR`をtyped方向nodeとし、入れ子LR stackをbackend共通で明示反転して通常DVI/PDFへ書く。inline mathはatomic LTR。通常hlistは単一pass・allocation 0、LR treeは最後に一回だけ平坦化する。disc/alignmentでの直接利用と方向hboxのunboxは未対応listへ漏らず診断する。RTL区間がdiscを含む時は部分反転せず方向変換全体を破棄。paragraph、line packing、display、math mode内方向primitiveは未実装 |
 
 実装と試験の主な場所は
@@ -77,6 +77,7 @@
 [parshape照会試験](../tests/etex_parshape.rs)、
 [`\middle`試験](../tests/etex_middle.rs)、
 [`\scantokens`試験](../tests/etex_scantokens.rs)、
+[vertical discard試験](../tests/etex_vdiscards.rs)、
 [TeX--XeT restricted hbox試験](../tests/etex_texxet_restricted.rs) である。仕様からの書き直し方は
 [e-TeX移植記録](etex-port-notes.md)、完全性とTeX--XeTの監査は
 [e-TeXとTeX--XeTの対応状況](etex-texxet-status.md) に記録している。
@@ -233,7 +234,7 @@ runtimeは別MIT projectを依存として使う。PraTeX側からMITのVaakへG
 | 未実装 | OTF/TrueTypeとRustyBuzz | dependencyもbackendもない。JFM/TFM出力基線後にdefault-offで接続し、PraTeX側はsafe Rust、依存のlicense・unsafe利用・binary sizeを採用前に監査する |
 | ロードマップ | PraTeX-native OpenType package | native OTF loader・metric・shaping完成後、PraTeX固有feature queryで`fontspec`上位互換面を作る。和文NFSS/JFM、文字class、exact code point、Unicode範囲・面、`LanguageRegion`、fallback chain別のfont routingを宣言時にhost tableへcompileする。同じHan scalarのja/zh-Hans/zh-Hant地域字形、OpenType language/`locl`、regionを跨がないfallback、元scalarを保つToUnicode、Babel言語区間adapterをcompletion gateにする。単一packageか二層かはAPI実験で決め、XeTeX/LuaTeXのversion primitiveを偽装しない。詳細は[OpenType package roadmap](opentype-package-roadmap.md) |
 | ロードマップ | native絵文字 | 通常OTF loader・shaping・fallback・PDF subset完成後に行う。plain UTF-8のVS15/VS16、modifier、flag、keycap、tag、ZWJ sequenceを壊せないclusterとして扱い、cluster単位fallback、COLR/CPAL等のcolor glyph、縦横組、PDF ToUnicode/ActualTextを検査する。現状は入力・node・font・出力とも未実装。詳細は[native emoji roadmap](emoji-native-roadmap.md) |
-| 部分 | e-TeX完全性gate | `\showgroups`、`\showifs`、`\pagediscards`、`\splitdiscards`、TeX--XeTのparagraph・display・math mode内方向・disc/alignment/unbox等が残る。四方向primitive自体は明示restricted hboxの限定sliceに実接続済み |
+| 部分 | e-TeX完全性gate | `\showgroups`、`\showifs`、未接続tracing、`\lastlinefit`、TeX--XeTのparagraph・display・math mode内方向・disc/alignment/unbox等が残る。vertical discard listと四方向primitiveの明示restricted hbox限定sliceは実接続済み |
 | 部分 | 横組・縦組の日本語組版 | 横組JFM font、wide node、main-loop JFM pair/禁則、close-timeの仮想K・material X、discの枝内K/Xと右端条件付きmaterial K/X、句読点＋横組括弧12対の禁則、box/line幅、DVI glyphまでのBuiltIn基線を実装。main-loopのshifted/vbox・未検証command境界、discの全JFM class/禁則matrix、完全JLReq、paragraph方向node、縦組が残る |
 | 部分 | class/package互換 | `article`、宣言的和文NFSS/relation fontを持つ`prjsarticle`、`pratex-japanese`を明示したKOMA-Script 3.49.2 `scrartcl`、`graphicx`、`xcolor`、`hyperref`、TikZ/PGF、`siunitx`の限定smokeをDVIまで実測。package全API、`jsarticle`、`jlreq`、`ltjsarticle`の実用互換を保証しない |
 

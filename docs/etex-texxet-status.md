@@ -5,7 +5,7 @@
 ## 結論
 
 PraTeXはe-TeXのmacro処理・拡張register・class別mark・式・typed疑似入力をかなり実装しているが、
-**e-TeX完全対応ではない**。組版、group/if表示、discardに未実装が残る。
+**e-TeX完全対応ではない**。組版、group/if表示、tracingに未実装が残る。
 TeX--XeTはrestricted hboxの方向区間・反転・共通DVI/PDF shipoutまでの最初sliceだけ実装した。
 paragraph、display、math mode内の方向primitive、改行をまたぐLR stackは未実装なので、**TeX--XeT対応完了ではない**。
 
@@ -31,7 +31,7 @@ paragraph、display、math mode内の方向primitive、改行をまたぐLR stac
 | `\iffontchar` | 実装 | font identifierと0--255の文字番号を読み、8-bit TFMの存在判定へ接続する。範囲外文字番号は中央scannerで診断してcode 0へ回復し、欠落字とnullfontは偽を返す。code 0だけを持つ自作TFMでprocess試験済み |
 | parshape拡張 | 実装 | `\parshapelength`、`\parshapeindent`、`\parshapedimen`は現在の`\parshape`を内部寸法として照会する。非正index、最終pair反復、奇偶のinterleave、式・`\the`・`\number`、fmtを試験済み |
 | penalty配列 | 実装 | `\interlinepenalties`、`\clubpenalties`、`\widowpenalties`、`\displaywidowpenalties`は正の個数に続く整数列を局所／大域代入でき、0以下でresetする。内部整数照会は負添字またはresetで0、添字0で長さ、正添字で値を返し、範囲外では末尾を反復する。4配列をfmtへ保存し、通常段落とdisplay直前の部分段落でpost-line-break penaltyへ接続する。`\interlinepenalties`だけは段落終了時に`\parshape`と同じreset経路を通る。独立process試験で照会、group・`\globaldefs`、fmt、実node列を固定済み |
-| discard list | 未実装 | `\pagediscards`、`\splitdiscards`がない。`\savingvdiscards`は値だけを保存する |
+| discard list | 実装 | 正の`\savingvdiscards`でpage builderと公開`\vsplit`が先頭で捨てたglue・kern・penaltyを順序どおり保存する。`\pagediscards` / `\splitdiscards`は`\unvbox`同様に所有権ごと一度だけ現在のvertical listへ移す。page listはoutput routine終端、split listは各`\vsplit`開始時にも消去し、run-local listをfmtへ保存しない。公式TeX Live 2026 pdfTeXとの自作black-box照合とprocess試験を持つ |
 | math | 実装 | `\middle`は`\left`--`\right`内部をsegmentごとのsave groupへ分け、各境界で局所代入を復元して元のmath styleから次のlistを始める。全delimiterを全segmentの最大height/depthから同じ大きさにし、左右のspacingをそれぞれClose/Openとして扱う。文字・`\delimiter`走査、delimiter欠落と対応しない境界の回復、表示、fmtを独立process試験済み |
 | `\showtokens` | 実装 | 入口で左braceを探す間だけ通常展開を許し、balanced text本体を展開せず既存token表示へ渡す。外側brace除外、入れ子、parameter tokenの二重表示、和文token、全mode、通常error上限への非加算、`\let` alias、fmt、JFM continuity切断をprocess試験済み。公式Web2Cのshow診断がexit 1になるのに対しPraTeXの通常終了statusは0である既存CLI差分は別残件 |
 | tracing/show | 部分／未実装 | `\tracingscantokens`は実出力へ接続済み。他のtracing parameterは値だけで、`\showgroups`、`\showifs`と対応trace出力がない |
@@ -78,7 +78,7 @@ left-to-right/right-to-left区間は公開意味論が異なるため、一つ�
 
 1. 実装済みの`FontCharDimension` query種別を、将来JFM・Unicode font metricへ広げる。
    e-TeX primitiveの公開文字番号は0--255のまま保ち、別の文字identityを暗黙に混ぜない。
-2. discard保存、`\lastlinefit`、show/tracingを実処理へ接続する。
+2. `\lastlinefit`、show/tracingを実処理へ接続する。
 3. TeX--XeTの実装済みrestricted hbox sliceを崩さず、paragraph、display、math mode内の方向primitiveへ広げる。
    parameterと限定sliceだけで「対応済み」へ格上げしない。
 
@@ -99,6 +99,13 @@ restricted hboxのTeX--XeT sliceは同manual 4.1の公開契約から、既定of
 通常DVI出力を独立実装した。幅の異なるrule列で反転後のDVI opcode順を検査し、
 無効stateの診断回復とfmt往復を[process試験](../tests/etex_texxet_restricted.rs)で固定する。
 原実装sourceや上流testは参照していない。
+
+vertical discard listは同manual 3.11と5.2の公開契約から独立実装した。正の
+`\savingvdiscards`だけがpage builderと公開`\vsplit`の先頭で捨てるglue・kern・penaltyを保存し、
+`\pagediscards` / `\splitdiscards`は保存listを空にしながら現在のvertical listへ移す。
+page listはoutput routine終端、split listは各`\vsplit`開始時に世代を切る。内部の挿入分割は
+公開`\vsplit`ではないためsplit listを更新しない。所有権、順序、非正値、消去時点、fmt上の
+primitive identityとrun-local空状態を[process試験](../tests/etex_vdiscards.rs)で固定する。
 
 `\middle`は同manual 3.9と5.4の公開契約から、segmentごとに元のstyleの新しいgroup/math listを始め、
 完成済みの内部listを次segmentのleft boundaryとして引き継ぐ形で独立実装した。全delimiterの
