@@ -114,3 +114,30 @@ fmt の表現は倍精度のまま変えていない。
 log / terminal transcript には、e-TeX拡張レジスタの範囲、追加単位、memory統計を
 実装していないこと、入力promptの整形などの診断差が残る。runner はこれらを許容差へ
 隠さず `different` として保存するため、DVIの意味一致とlogの未解消差を混同しないこと。
+
+## 2026-08-25 `codex3/perf-integration`の再測定
+
+文書checkpoint `89e1d25`（code checkpoint `a2765c7`）をLinux上で一coreの隔離targetへbuildした。
+この環境にはPowerShell 7がないため、`tools/run-trip.ps1`に固定したbyte入力と引数を同じ順で
+手動実行した。隔離領域は`/tmp/pratex-trip-20260825.iNah6roG`に保存している。
+
+- 公式archive SHA-256:
+  `1d419b1bd7efa575ead0174e47d542a0099a73e0e4deb5031980d109e8c3c645`
+- manifestの十資材は全件SHA-256一致。
+- `CARGO_BUILD_JOBS=1 cargo build --release --features trip --locked`はexit 0。
+- PLtoTF→TFtoPLは生成TFMとround-trip PLがそれぞれ公式fileとbyte一致。
+- Stage 1 / Stage 2はともにexit 0。`tripos.tex`はbyte一致、`8terminal.tex`は0 byte。
+- 既定PraTeX DVIは2924 bytes、当該runのSHA-256は
+  `d0649a49b61c792808e8967aff6d549fecaa7b6193f1cd830fd4b470d6da80da`。この値は
+  ` PraTeX output 2026.08.25:0059`という実時刻preambleを含むので再利用可能なhard gateではない。
+- TeX Live 2026 DVItypeの全出力は、tool version行、preamble comment、byte offset、postamble offsetを
+  除くと公式出力と差分0だった。
+- 独立decoderは両DVIを999 records、16 pages、最大stack 17として復号し、BOP逆参照、post、
+  post_post、push/popを検証した。preamble comment、file pointer、paddingを除く意味差は0 records。
+- `-output-comment= TeX output 1776.07.04:1200`を与えた対照runでは、PraTeX DVIが公式2920-byte
+  DVIとbyte単位で一致し、双方のSHA-256は
+  `09802695e330d34acec9192c15debe2de65e34fcbd3f947db9c8924240b1fe0a`だった。
+
+したがって、今後のgateは実時刻を含む既定raw hashではなく、独立record比較または明示的に同じ
+output commentへ固定したbyte比較を使う。logのmemory表示、拡張register、追加単位、診断文言・順序の
+差は今回も残り、DVI意味一致とは別に`different`として扱う。

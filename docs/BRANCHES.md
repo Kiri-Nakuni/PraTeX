@@ -27,7 +27,7 @@ main (f174f44)                         素のTeX82
 `full`は長く歴史的baselineで止まっていたが、2026-08-23以後は**検証済み機能の統合先**として
 再び進める。作業を`full`上で直接行わず、現在は`codex3/*`で意味と試験を固定してから順次mergeする。
 `codex3/perf-integration`は分裂していた機能枝を集約した後、同一DVIを保つ性能作業を行う枝である。
-全releaseと必要なTRIP/DVI・PDF意味gateが終わるまでは`full`へ送らない。
+全releaseとTRIP/DVI意味gateは通過した。性能gate前なので、まだ`full`へ送らない。
 
 ## 現在地
 
@@ -40,7 +40,7 @@ main (f174f44)                         素のTeX82
 | `codex/perf-wsl-euptex-safe` | 検証済み `9bb6023` | WSL同士の1.2倍gateを固定。keyword成功経路と最上位整数代入をsafe Rustで短縮。release 507通過、TRIP意味差0 |
 | `codex/euptex-integration-resume` | 統合基線 `6ce8315` | e-TeX/pdfTeX、LaTeX、日本語組版、resolver、PDF/Type 1を統合した基線 |
 | `codex2/perf-resolver-index` | `codex3`基点 `f414757` | Linux既定の組込みKpathsea、run-local resolver、固定CTAN tree測定、性能probeと不採用cacheの根拠を統合 |
-| `codex3/perf-integration` | 現在の統合・性能枝 | vertical discard、run-local compiled spacing dispatcher、最小横組`prjlreq`を統合。`a2765c7`で全release 915 passed / 0 failed / 11 ignored、plain DVI byte回帰成功。公式CTAN TRIPは未実施 |
+| `codex3/perf-integration` | 現在の統合・性能枝、`89e1d25`まで両remoteへpush済み | vertical discard、run-local compiled spacing dispatcher、最小横組`prjlreq`を統合。`a2765c7`で全release 915 passed / 0 failed / 11 ignored、plain DVI byte回帰成功。公式CTAN TRIPは両段exit 0、999 records・意味差0。公式comment固定時は公式DVIとbyte一致 |
 
 R0は組版localeの状態、group/global/fmt、表示だけであり、まだJFM、文字間隔、禁則、
 font選択、DVI/PDF出力を変えない。R1以降は

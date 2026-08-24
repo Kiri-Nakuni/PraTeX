@@ -666,3 +666,8 @@ GPL側のPraTeX sourceもVaakへ移していない。
 当面は同じ入力・TeX tree・cold/warm条件・同等DVIでupTeX系比1.3未満をroadmap再開条件として
 性能調整を優先する。最終upLaTeX比1.2未満は維持する。この性能作業もVaakの意味論や公開APIを
 推測変更せず、PraTeX側の測定とsafe Rust hot pathに閉じる。
+
+2026-08-25にcode checkpoint `a2765c7`の全releaseは915 passed、0 failed、11 ignoredとなり、
+plain DVI byte回帰も成功した。文書checkpoint `89e1d25`で公式CTAN TRIPを再実行し、両段exit 0、
+`tripos.tex` byte一致、PLtoTF→TFtoPL byte一致、DVIは999 records・意味差0を確認した。
+公式27-byte commentへ固定した対照runでは公式DVIとbyte一致した。これに伴うVaak API変更はない。

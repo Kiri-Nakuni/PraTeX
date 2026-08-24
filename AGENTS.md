@@ -217,14 +217,18 @@ cargo test --release --locked --no-fail-fast
 ```
 
 機能追加ではfocused testを先に通し、その後に全release、必要ならTRIPとDVI/PDF意味比較を行う。
-`6b03b70`で実行した`cargo test --release --locked --no-fail-fast`は
-**857 passed、0 failed、10 ignored**（2026-08-24）。全integration suiteにplain DVI byte回帰、
-e-TeX `\middle`・`\showtokens`・penalty配列、日本語spacingと和文NFSS relation、PDF、Vaak連携を含む。
-ignoredは実TeX Live、配布JFM、公式dvipdfmx、pinned CTAN、doctestの明示手動gateである。
-`\scantokens` code checkpoint前に同日実施した公式CTAN TRIPは両段exit 0、`tripos.tex`一致、
-DVI hashは既知正常値
-`b20af20a1463c6846f0c4c1ce687cd6354ce1a5f65ee401507627570787ae9fe`を維持した。
-このmachineにはDVItypeが無いため、その測定時のrecord意味比較はhash一致で代替している。
+code checkpoint `a2765c7`で実行した`cargo test --release --locked --no-fail-fast`は
+**915 passed、0 failed、11 ignored**（2026-08-25）。全integration suiteにplain DVI byte回帰、
+e-TeX `\middle`・`\showtokens`・penalty配列・discard、日本語spacingと和文NFSS relation、PDF、
+Vaak連携を含む。ignoredは実TeX Live、配布JFM、公式dvipdfmx、pinned CTAN、doctest等の明示手動gateである。
+
+文書checkpoint `89e1d25`では公式CTAN TRIPを一coreの隔離buildで再実行した。両段exit 0、
+`tripos.tex` byte一致、`8terminal.tex` 0 byte、PLtoTF→TFtoPL往復byte一致である。TeX Live 2026
+DVItypeと独立decoderでは公式・PraTeXとも999 records、16 pages、最大stack 17で、preamble comment、
+それに伴うfile pointer、末尾paddingを除く意味差0だった。既定DVIのraw hashは実時刻commentで変わるため
+gateにしない。公式の27-byte commentを`-output-comment`で固定した対照runは公式DVIとbyte一致し、
+SHA-256 `09802695e330d34acec9192c15debe2de65e34fcbd3f947db9c8924240b1fe0a`だった。
+log/terminalの既知の拡張診断差はDVI一致へ混ぜず、別の未解消差として保持する。
 
 plain formatの欧文DVIは`origin/main`のrTeXにopcode・座標を含めて完全回帰させる。
 TRIP再現用の単精度`glue_set`境界は`trip` featureだけへ閉じ込める。通常版の基準fixtureでは

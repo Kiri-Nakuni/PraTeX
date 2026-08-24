@@ -1,6 +1,6 @@
 # PraTeX 作業引継ぎ
 
-更新: 2026-08-25（統合・性能枝 `codex3/perf-integration`、全release成功・TRIP前）
+更新: 2026-08-25（統合・性能枝 `codex3/perf-integration`、全release・TRIP意味gate成功）
 
 この文書は、現在の Codex セッションから別のエージェントへ作業が移っても、
 検証済みの境界と未commitの作業を失わないための生きた引継ぎである。
@@ -21,10 +21,16 @@
 ## 枝と共有状態
 
 - 現在の統合・性能枝: `codex3/perf-integration`。`codex2/perf-resolver-index`の
-  `f414757`から分岐し、まだpushしていない。
+  `f414757`から分岐した。`89e1d25`まで`origin`と`github`の同名枝へpush済みである。
 - code checkpoint `a2765c7`で`cargo test --release --locked --no-fail-fast`は
   **915 passed、0 failed、11 ignored**。plain欧文DVIの`origin/main` byte回帰も成功した。
-  `8fc3371`は検証連絡directoryだけを加えた文書commitである。公式CTAN TRIP等の手動gateは未実施。
+  `8fc3371`は検証連絡directory、`89e1d25`はAUTOCHECKDATABASEへの初回返答とVaak境界連絡を
+  加えた文書commitであり、code checkpointを変えない。
+- `89e1d25`で公式CTAN TRIPを再実行した。両段exit 0、`tripos.tex` byte一致、
+  `8terminal.tex` 0 byte、PLtoTF→TFtoPL往復byte一致。DVItypeと独立decoderは双方999 records、
+  16 pages、最大stack 17、preamble comment・file pointer・paddingを除く意味差0である。
+  公式commentを明示した対照runは公式DVIとbyte一致した。既定raw DVI hashは実時刻で変わるため
+  hard gateへ流用しない。隔離artifactは`/tmp/pratex-trip-20260825.iNah6roG`に残した。
 - 現在枝へ統合済み:
   - vertical discard: `700973b` / `06a5b25` / `1a518cd`。`etex_vdiscards` 6件成功
   - run-local script spacing dispatcher: `58b9589` / `0e55c20`。
