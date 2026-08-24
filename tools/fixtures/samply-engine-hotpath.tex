@@ -1,0 +1,17 @@
+% Samplyで外部file探索とengine内部のCPU処理を分離するself-contained入力。
+% font、format、TeX Live treeを使わず、macro引数走査とtoken-list展開を反復する。
+\catcode`\{=1 \catcode`\}=2 \catcode`\#=6
+\count0=0
+\def\consume#1#2#3#4#5#6#7#8{}
+\def\batch{%
+  \consume abcdefgh\consume jklmnopq\consume stuvwxyz\consume bcdefghi%
+  \consume klmnopqr\consume tuvwxyza\consume cdefghij\consume lmnopqrs%
+  \consume uvwxyzab\consume defghijk\consume mnopqrst\consume vwxyzabc%
+  \consume efghijkl\consume nopqrstu\consume wxyzabcd\consume fghijklm}
+\def\again{%
+  \batch
+  \advance\count0 by1
+  \ifnum\count0<100000 \let\next\again\else\let\next\relax\fi
+  \next}
+\again
+\end
