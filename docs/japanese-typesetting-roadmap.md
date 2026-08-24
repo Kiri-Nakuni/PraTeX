@@ -1,6 +1,6 @@
 # pTeX相当からJLReq一級対応へ進む日本語組版roadmap
 
-更新: 2026-08-24
+更新: 2026-08-25
 
 ## 方針
 
@@ -43,8 +43,14 @@ fullwidth互換形を使う実装慣行を注記している。このためBuilt
 guillemet `U+00AB/U+00BB`、縦組限定の`U+301D/U+301F`、Appendixがそのcode pointを
 挙げない`U+FF5F/U+FF60`はこのbounded subsetへ拡張しない。
 
-main-loopでの早期挿入、box/discretionary境界の完成、禁則class全体、`\tfont`と縦組は
-未完了であり、P0全体や「日本語組版対応」の完了ではない。
+main-loopでのJFM pair・最小禁則の早期挿入と、unshifted hbox／discretionaryの限定境界は
+接続済みである。shifted/vbox、未検証command、discの全JFM class・禁則・unbox matrix、
+禁則class全体、`\tfont`と縦組は未完了であり、P0全体や「日本語組版対応」の完了ではない。
+
+明示installされた検証済みscript class対tableは、run-local dispatcherがlistごとに一度選び、
+世代とregionが安定したdirect glyph境界でfixed/K/X/no-spaceと限定boundary glue/penaltyへ
+materializeできる。RegionNode、indirect box/disc、adjustment tier、line-edge discard、公開provider
+registration/runtimeは未接続で、標準日本語のBuiltIn経路はcallback 0のままである。
 
 `\kanjiskip` / `\xkanjiskip`の実spacing、JFMとのhybrid、暗黙K、
 script-pair拡張のclean-room設計は

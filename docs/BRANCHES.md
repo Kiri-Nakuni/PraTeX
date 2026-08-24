@@ -1,6 +1,6 @@
 # 枝の地図
 
-更新: 2026-08-23
+更新: 2026-08-25
 
 **`main` は触らない。** tyti氏のTeX82実装を保存する歴史的な基点である。
 
@@ -19,29 +19,48 @@ main (f174f44)                         素のTeX82
                                 └─ codex/ptex-jfm-core
                                     └─ codex/perf-wsl-euptex-safe
                                         └─ codex/euptex-integration-resume
-                                            └─ codex2/jlreq-script-spacing  現在の作業枝
+                                            └─ ... codex2の機能・性能checkpoint
+                                                └─ codex2/perf-resolver-index (f414757)
+                                                    └─ codex3/perf-integration  現在の統合・性能枝
 ```
 
 `full`は長く歴史的baselineで止まっていたが、2026-08-23以後は**検証済み機能の統合先**として
-再び進める。作業を`full`上で直接行わず、`codex2/*`で意味と試験を固定してから順次mergeする。
-現在はe-TeX、PDF、resolver、PraTeX CLI、互換性試験が65 commit先に積まれているため、最初の
-更新は小さなcherry-pickを重ねず、全releaseとTRIPを通した統合checkpointへのfast-forwardを使う。
+再び進める。作業を`full`上で直接行わず、現在は`codex3/*`で意味と試験を固定してから順次mergeする。
+`codex3/perf-integration`は分裂していた機能枝を集約した後、同一DVIを保つ性能作業を行う枝である。
+全releaseと必要なTRIP/DVI・PDF意味gateが終わるまでは`full`へ送らない。
 
 ## 現在地
 
 | 枝 | 状態 | 固定した結果 |
 |---|---|---|
 | `codex/kpse-lsr-index` | push済みbaseline `dc1c554` | release test 455通過、失敗0、4 ignored。bounded `ls-R`索引とWindows--WSL探索境界 |
-| `codex/cjkv-region-layout` | 現在の統合枝、R0 `ac6ad90` | typed `LanguageRegion`と`\pratexregion`。release test 466通過、失敗0、4 ignored。TRIPのDVI意味比較差0 |
+| `codex/cjkv-region-layout` | 歴史的R0 `ac6ad90` | typed `LanguageRegion`と`\pratexregion`。release test 466通過、失敗0、4 ignored。TRIPのDVI意味比較差0 |
 | `codex/pdf-texlive-type1` | push済み `bb7235f` | TeX Live mapの複数resource、flags既定値、PFB Private `StdVW`。全release失敗0、4 ignored、TRIP 999 recordsで意味差0 |
 | `codex/ptex-jfm-core` | push済み `4745f3c` | 公開仕様だけによるbounded JFM reader/model。release 503通過、失敗0、6 ignored。配布JFM 96件とTRIPを通過 |
 | `codex/perf-wsl-euptex-safe` | 検証済み `9bb6023` | WSL同士の1.2倍gateを固定。keyword成功経路と最上位整数代入をsafe Rustで短縮。release 507通過、TRIP意味差0 |
 | `codex/euptex-integration-resume` | 統合基線 `6ce8315` | e-TeX/pdfTeX、LaTeX、日本語組版、resolver、PDF/Type 1を統合した基線 |
-| `codex2/jlreq-script-spacing` | 現在の作業枝 | K/X parameterと、JLReqへ広げられるscript class対spacingの内部境界を実装する |
+| `codex2/perf-resolver-index` | `codex3`基点 `f414757` | Linux既定の組込みKpathsea、run-local resolver、固定CTAN tree測定、性能probeと不採用cacheの根拠を統合 |
+| `codex3/perf-integration` | 現在の統合・性能枝 | vertical discard、run-local compiled spacing dispatcher、最小横組`prjlreq`を統合。focused test済み、全release/TRIPは未実施 |
 
 R0は組版localeの状態、group/global/fmt、表示だけであり、まだJFM、文字間隔、禁則、
 font選択、DVI/PDF出力を変えない。R1以降は
 [拡張可能なscript境界組版](extensible-layout-roadmap.md)で段階を分ける。
+
+## 2026-08-24の分裂枝監査
+
+`codex3/perf-integration`を作る際、remoteの未統合patchをproduction機能、検証補助、測定記録に
+分けた。異なる基点の枝をmerge commitごと重ねず、必要な意味commitだけを現在基点へ移した。
+
+| 元の枝 | 採否 | 現在の扱い |
+|---|---|---|
+| `codex2/etex-discards` | 統合 | 元`9c70a6c` / `b790ee3` / `6eed748`を`700973b` / `06a5b25` / `1a518cd`として移植。focused 6件成功 |
+| `codex2/script-spacing-dispatcher` | 統合 | 元`3633878` / `763bbe4`を`58b9589` / `0e55c20`として移植。lib 43件、process 18件成功 |
+| `codex2/prjlreq` | 統合 | 元`d8952d7` / `f94adac`を`971073b` / `c493a94`として移植。静的契約試験3件成功。現在枝でのprocess再測定は未実施 |
+| `codex2/samply-windows-profile` | 既存と同値 | patchは`f414757`の祖先に既に含まれるため重ねなかった |
+| `codex2/kpathsea-linux-gate` | 後続実装＋手動gateを統合 | Linux既定productionは後続bundled Kpathseaへ置換済み。配布側library用のignored testと実TeX tree runnerは現行`system-kpathsea` featureへ移植 |
+| `etex-latex` | 既存と同値 | 全patchが現在基点の祖先またはpatch同値だったため重ねなかった |
+| `codex3/main`、`claude/for-codex` | 測定・連絡資料 | production差分ではない。binary由来を確定できない値はhard gateにせず、再現可能な条件だけを[性能測定](performance.md)へ残す |
+| `suima/perf` | 不採用 | release debug情報の増量と生成flamegraphだけでproduction機能ではない。巨大生成物を版方へ入れない |
 
 ## 主な機能系列
 
@@ -61,7 +80,7 @@ font選択、DVI/PDF出力を変えない。R1以降は
 
 ## 枝とcommitの規律
 
-- safe Rustの通常作業は目的ごとの`codex2/*`枝で行い、意味を固定する試験と一緒にcommitする。
+- safe Rustの通常作業は目的ごとの`codex3/*`枝で行い、意味を固定する試験と一緒にcommitする。
 - 十分に固まったcheckpointは`full`へ順次mergeしてpushする。最低条件はfocused test、全release、
   必要なTRIP/DVI・PDF意味比較、`git diff --check`であり、production未接続の設計だけを完成機能と
   してmergeしない。

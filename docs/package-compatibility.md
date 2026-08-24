@@ -3,7 +3,8 @@
 2026-08-24時点の結論は、`article`、最小`scrartcl`、`graphicx`、`xcolor`、
 `hyperref`、TikZ/PGF、`siunitx`、代表`prjsarticle`は同一のPraTeX生成`latex.fmt`から
 DVIまで到達する。`pxrubrica`はgeneric fallbackで最小文書が通るだけで、
-PraTeX-native対応とは数えない。
+PraTeX-native対応とは数えない。別枠で、BSD 2-Clauseの上流`jlreq`から派生した
+最小横組`prjlreq` v0.1を統合したが、下の9 probeと現在のprocess実測にはまだ加えていない。
 
 これは最小入力のload/compile smoke testである。package全API、DVI specialの後段driver、
 表示品質、LaTeX DVIの他engineとの一致、pTeX/upTeX互換、JLReq適合を保証しない。
@@ -57,6 +58,19 @@ TikZ/PGFは`eTeXversion`だけではgateを越えなかったが、展開可能�
 `pxrubrica`の既存Unicode/pTeX系branchは、`kchardef`、和文spacing、penalty等の
 engine固有契約を前提にする。engine identityやprimitiveを偽装するadapterは作らなかった。
 PraTeX固有feature queryと実在する和文node/spacing契約を使う隔離adapterは未完成である。
+
+## `prjlreq` v0.1の別枠checkpoint
+
+`prjlreq`は上流`jlreq`互換を独立実装したものではなく、固定した上流commitから権利表示を
+保って移植した派生classである。来歴、BSD 2-Clause全文、参照範囲、未対応optionは
+[prjlreqの来歴と移植境界](prjlreq-provenance.md)に固定した。v0.1はPraTeX固有identityでだけ
+横組`article`を選び、`pratex-japanese`、`\jlreqkanjiskip`、`\jlreqxkanjiskip`、一字下げを扱う。
+縦組、book/report、版面・見出し・割注等の一般APIを対応済みとはしない。
+
+`codex3/perf-integration`ではclass、license、fixtureを読む静的契約試験3件が成功した。
+来歴文書に記録したexit 0、DVI 396 bytes、SHA-256 `110e8fd50c4d06442be913ee7c5f4c6d568331b7c7cccc9f4c6ab4befa55d747`
+は基点`8ce1ad2`のrelease binaryによる既往測定であり、現在枝の9-probe matrixへ混ぜない。
+現在枝のbinaryと同じbinaryから生成したfmtで再実行してから、matrixとrunnerへ昇格する。
 
 ## 再現方法
 

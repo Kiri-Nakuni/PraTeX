@@ -33,12 +33,17 @@ font routing、OpenType language/`locl`、region別fallback、約物・禁則へ
 - `\kanjiskip` / `\xkanjiskip`の通常glue parameter面、`\autospacing` / `\autoxspacing`の
   switch、`\xspcode`、`\inhibitxspcode`と、横組の和和・和欧・欧和境界へ一度だけ挿入する
   BuiltIn最小finalizer
+- 検証済みscript class対tableをrun-localにinstallし、安定したdirect glyph境界だけを
+  fixed/K/X/no-spaceと限定boundary glue/penaltyへ変換するdispatcher。標準日本語はcallback 0
 - boundedな横組JFMを読む`\pratexjfont`（横組定義・選択だけ`\jfont` alias）、current和文font、
   `zw`/`zh`、Unicode/JFM class付きwide node、class対glue/kern、DVI `set2`/`set3`の最小基線
 - `\pratexregion=0..5`によるCJKV組版locale状態。group/global/fmt/表示は対応済みだが、
-  まだ文字間隔やfont選択には影響しない
-- `ls-R`索引と`kpsewhich`の公開CLIを組み合わせたTeX入力、font、mapなどの部分的な探索
+  BuiltIn規則やfont選択はまだ変えず、明示install済みcompiled tableのlist一貫性keyにだけ使う
+- Linux既定buildで公式TeX Live 2026 Kpathsea 6.4.2を静的に組み込み、Scanner、Output、
+  直接PDF loaderが一つのrun-local resolverを共有するin-process探索
 - native `kpsewhich`がないWindowsから、resolver内でbackendを混ぜずに既定WSLを使うfallback
+- 正の`\savingvdiscards`で保存したpage/split discardを`\pagediscards` / `\splitdiscards`から
+  一度だけ回収するe-TeX special list
 - `\directvaak`、`\vaakdef`、`\vaakinput`によるVaakとの実験的な連携。静的な失敗は
   parse/check/type-checkの段階、行・桁、Vaak側の理由をTeXの診断へ残す
 
@@ -83,6 +88,9 @@ subset未実装中は意図的に拒否します。
 `article`、`scrartcl`、`graphicx`、`xcolor`、`hyperref`、TikZ/PGF、`siunitx`、
 代表`prjsarticle`が最小DVIへ到達しています。`pxrubrica`はgeneric fallback smokeだけです。
 これは各packageの限定入力であり、全APIや実用文書の互換性を保証しません。
+BSD 2-Clauseの上流`jlreq`から権利表示を保って派生した最小横組`prjlreq` v0.1も同梱しますが、
+現在枝で再実行済みなのは静的契約試験です。既往のprocess測定と未対応範囲は
+[docs/prjlreq-provenance.md](docs/prjlreq-provenance.md)に分け、上の同一fmt 9-probe実測へは混ぜません。
 
 `\scantokens` code checkpoint直前に得たTRIP DVIのhashは、独立decoderで全999 recordの
 意味差0を確認した既知正常値と一致しています。ただし、
@@ -121,7 +129,8 @@ cargo run --release --locked --bin rtex -- '&plain' file.tex
 ```
 
 TeX Live側のformat、TFM/JFM、標準LaTeX class・package、fontは同梱していません。
-PraTeX固有の`prjsarticle.cls`、`pratex-japanese.sty`と実行例はrepositoryにあります。
+PraTeX固有の`prjsarticle.cls`、`pratex-japanese.sty`、最小横組`prjlreq.cls`と実行例は
+repositoryにあります。`prjlreq`の上流licenseも同じdirectoryに収録しています。
 Linuxの既定buildは、公式TeX Live 2026の固定revisionからKpathsea 6.4.2を静的に組み込み、
 通常のTEX/TFM/JFM等をin-processで探索します。初回buildには`git`とnetwork、または同じ
 `texk/kpathsea` treeを指す`KPATHSEA_SRC_DIR`が必要です。配布側のKpathsea development libraryを
@@ -378,7 +387,8 @@ packageは実装の資料として写さず、互換性を測る外部入力と�
 - 通常OTF対応後のnative絵文字。plain UTF-8のemoji sequenceをcluster単位でshape・fallbackし、
   color font描画と元Unicode列のPDF抽出まで扱う。現在はroadmapのみ
 - `texmf.cnf`、全path expression、alias、`mktex*`を含むkpathseaの完全な互換性
-- `jsarticle`、`jlreq`、`ltjsarticle`、`hyperref`を実用的に動かすための互換層
+- `jsarticle`、上流`jlreq`、`ltjsarticle`、`hyperref`を実用的に動かすための互換層と、
+  現在v0.1横組だけの`prjlreq`を版面・見出し・縦組へ広げる作業
 - 実行ごとに明示して有効化するVaak callbackと、低頻度で複雑な拡張向けWASM ABI
 - 生文字列registerのliteral/file producerと`\the\rawstring`改行契約、TCX legacy input、`^^^^` / `^^^^^^`
 - IVS、外字、嘘字/TRON資産、造字を分けて保つ文字identityとfont mapping
@@ -403,12 +413,12 @@ packageは実装の資料として写さず、互換性を測る外部入力と�
 - [多言語・混植組版調査](docs/research/multilingual-typesetting/README.md)
 - [LaPraTeX](docs/lapratex-roadmap.md)
 
-直接pathは外部探索より常に優先します。索引から探索順を一意に証明できない場合は
-one-shot `kpsewhich`へ戻ります。外部programを起動できない場合、TeX入力などは従来の
-ローカル探索へ戻り、PDF font資材などは探索errorとして報告します。
-Windowsではnative `kpsewhich`の起動fileがない時だけ既定WSLを選び、各resolver instance内で
-backendを混ぜません。現在はScannerとPDF資材loaderが別instanceなので、run-globalに一つの
-TeX Liveを固定するところまでは未実装です。完全なKpathsea互換も保証しません。
+直接pathは外部探索より常に優先します。Linux既定buildではrun全体で一つの組込みKpathsea
+resolverをScanner、Output、直接PDF資材loaderが共有し、通常のTEX/TFM/JFM等を子processなしで
+探索します。外部fmtの`--engine=rtex`経路、明示`system-kpathsea` build、Windows等の段階的
+CLI/WSL fallbackは別契約として残します。Windowsではnative `kpsewhich`の起動fileがない時だけ
+既定WSLを選び、run-local resolver内でbackendを混ぜません。`texmf.cnf`全意味、`mktex*`、
+全platformのallocator境界までを含む完全なKpathsea互換はまだ保証しません。
 PDF出力も現段階では文字の見た目やtext extractionまでpdfTeX相当ではありません。
 
 ## 実装方針と権利
@@ -420,6 +430,8 @@ Vaakへコードを移すことはしません。
 実装と性能調整はsafe Rustだけを使います。頻出経路を測り、出力とTRIPの結果を固定したうえで
 最適化します。DVI modeでは同一入力・同一TeX tree・同等DVIでupLaTeXの実行時間の
 1.2倍未満を最終的なhard gateとし、探索・fmt復元・組版・出力も分けて追跡します。
+現在の`codex3`性能作業では、同条件のupTeX系比較で1.3倍未満をroadmap再開の中間条件とし、
+plain/upTeXとLaTeX/upLaTeXの標本を混ぜません。この中間条件は最終1.2倍gateを緩めません。
 `22a8bdd` / `3a4aaaf`のfmt予約checkpointはWindowsのwarm内部A/Bでwallを7.31--15.26%
 短縮しましたが、利用者のLinux TeX Live文書で観測されたPraTeX 9.14 sを再測定した結果ではなく、
 end-to-end差の解消を意味しません。48標本のraw値は
@@ -430,4 +442,3 @@ e-TeX、pTeX、upTeX、pdfTeX由来の拡張は、上流の実装コードを移
 許可された黒箱観測から書き直します。特にpTeX／upTeX系は由来ごとにライセンスが異なる
 ため、一括してBSDとみなしません。境界と根拠は
 [docs/euptex-port-notes.md](docs/euptex-port-notes.md) および各移植ノートに記録します。
-

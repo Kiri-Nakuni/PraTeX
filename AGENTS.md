@@ -12,11 +12,13 @@ PraTeX は `Cargo.toml` から **`../vaak`** をpath dependencyとして使う�
 PraTeX側が必要とするAPIは `src/vaak.rs`、`docs/vaak-embedding-api-design.md`、
 `for_CLAUDE.md` に契約として残し、Vaak側の変更はClaudeに伝える。
 
-通常作業の枝は **`codex2/<目的>`** とする。現在の統合枝は
-`codex2/jlreq-script-spacing`である。2026-08-24にin-process Kpathsea境界`4152a1e`、
-JLReq/JFM discretionary枝`1a46cb1`、TeX--XeT restricted hbox `53fe28a`を統合した
-push済み意味checkpointは`6bc9ba4`で、`cargo test --release --locked --no-fail-fast`はexit 0。
-この統合時のaggregate件数は記録していないため、過去checkpointの件数を流用しない。
+現在の通常作業枝は **`codex3/<目的>`** とする。統合・性能作業枝は
+`codex3/perf-integration`である。`codex2/perf-resolver-index`の`f414757`を基点に、
+vertical discard、run-local script spacing dispatcher、最小横組`prjlreq`を取り込んだ。
+各focused testは成功済みだが、この`codex3`統合後の全releaseとTRIP/DVI意味比較は未実施なので、
+まだpush済み意味checkpointとは呼ばない。旧統合checkpoint `6bc9ba4`は
+`cargo test --release --locked --no-fail-fast` exit 0だが、aggregate件数を記録していないため、
+過去checkpointの件数を流用しない。
 `\detokenize`から`\scantokens`、横組JFM glyph、K/X/finalizer、JLReqの最小禁則、
 直接PDFのnamed CIDと限定`/ToUnicode`、WASM ABI 0.0のwire/domain境界、
 e-TeX `\middle`まで取り込み済みである。
@@ -24,7 +26,7 @@ e-TeX `\middle`まで取り込み済みである。
 TFM・VFを作業directoryへcopyせず、PraTeX DVIから同じtreeの`dvipdfmx`による明朝・ゴシック
 Type 0/CID PDFまで実測した。Linux no-copy gate 1件と公開CLI argvのfocused test 1件は成功済み。
 `main`は歴史的基点として触らない。`full`へ直接実装はせず、focused test、全release、必要な
-TRIP/DVI・PDF意味比較を通して十分に固まった機能checkpointを`codex2/*`から順次mergeする。
+TRIP/DVI・PDF意味比較を通して十分に固まった機能checkpointを`codex3/*`から順次mergeする。
 設計文書だけ、production未接続、既知の意味退行があるsliceは`full`へ送らない。
 
 ---
@@ -227,7 +229,9 @@ TRIP再現用の単精度`glue_set`境界は`trip` featureだけへ閉じ込め�
 2026-08-23にpage body 183 bytesの差分0を確認した。LaTeX DVIの完全回帰は`latex.ltx`を
 LaPraTeX用に適合させるまでは要求しない。
 
-upLaTeX比1.2未満の最終gateは維持するが、正しさの実装を止めてtuningへ移らない。
+upLaTeX比1.2未満の最終gateは維持する。今回の性能専用作業では、同じ入力・同じTeX tree・
+同等DVIのupTeX系比較でPraTeXを1.3倍未満へ置くことをroadmap再開の中間条件とする。
+比較対象がplain/upTeXかLaTeX/upLaTeXかをcorpusごとに記録し、異なる仕事の値を混ぜない。
 `22a8bdd` / `3a4aaaf`ではfmt collectionの初期予約をuntrustedな宣言長から切り離し、
 Windowsのwarm A/Bでwallを7.31--15.26%短縮した。これは利用者のLinux end-to-end 9.14 sを
 再測定した値ではなく、差の解消を意味しない。48標本のraw値は
@@ -358,19 +362,22 @@ control-sequence区間15.79%、fmt全体10.73%、wall 5.36%を短縮した。DVI
 
 ## 直近の実装順
 
-1. Linux既定bundled Kpathseaの合成treeと固定CTAN tree gateは済んだ。alias、非UTF-8 path、版pin、
-   offline source、LGPL source/relink条件、再現性、binary sizeを配布gateにし、実TeX Liveと利用者corpusで
-   engine三回＋driver一回を再測定する。並行してfmt undump、macro/token走査、control-sequence hashを
-   同じDVIの局所A/Bで測る。Windows fast pathはallocator対応後に測る。
-2. 接続済みmain-loop JFM/禁則をshifted/vbox・残るcommand境界へ広げ、discの枝内JFM class・禁則・unbox再評価matrixを完成する。
-3. glyph時点のRegionNode/context伝播をbox/disc/unboxへ接続し、compiled tableのindirect edge、
+1. `codex3/perf-integration`へ取り込んだ全機能についてfocused test、全release、plain DVI、必要な
+   TRIP/PDF意味gateを通し、統合checkpointを固定する。
+2. Linux既定bundled Kpathseaの合成treeと固定CTAN tree gateを基線に、実TeX Liveと同一corpusで
+   PraTeXとupTeX系を交互測定する。engine三回＋driver一回を分け、DVI意味を先に照合する。
+   fmt undump、macro/token走査、control-sequence hash等の支配区間を同じ出力の局所A/Bで測り、
+   safe Rustだけで中間条件の1.3倍未満まで性能調整を優先する。
+3. 中間条件を満たした後、接続済みmain-loop JFM/禁則をshifted/vbox・残るcommand境界へ広げ、
+   discの枝内JFM class・禁則・unbox再評価matrixを完成する。
+4. glyph時点のRegionNode/context伝播をbox/disc/unboxへ接続し、compiled tableのindirect edge、
    adjustment tier、line-edge discardをline breakerまで完成する。
-4. `\tfont`と縦組metric/node/outputを追加し、JFM/K/X/禁則を横組から縦組へ広げる。
-5. show/tracing、`\lastlinefit`を接続し、TeX--XeTの実装済み
+5. `\tfont`と縦組metric/node/outputを追加し、JFM/K/X/禁則を横組から縦組へ広げる。
+6. show/tracing、`\lastlinefit`を接続し、TeX--XeTの実装済み
    restricted hbox sliceをparagraph・display・mathへ広げるe-TeX残件を公開仕様どおり実装する。
-6. PraTeX-native package adapterを順に通し、PDF直接出力をOTFより先に完成する。
-7. Vaak table uploadとversion付きWASM ABIは、内部表現を固定した段階から並行して適合試験を作る。
-8. WASM target自体のcompile実験と性能調整は、横組みcheckpoint後に行う。
+7. PraTeX-native package adapterを順に通し、PDF直接出力をOTFより先に完成する。
+8. Vaak table uploadとversion付きWASM ABIは、内部表現を固定した段階から並行して適合試験を作る。
+9. WASM target自体のcompile実験は、横組みcheckpoint後に行う。性能gateはroadmap再開後も継続する。
 
 `\kanjiskip` / `\xkanjiskip`をLaTeX検出だけ通すstubにしない。INITEX既定0、代入、群、
 `\globaldefs`、算術、内部量、表示、fmtを既存glue経路へ通し、その後の実spacingへ連続して接続する。

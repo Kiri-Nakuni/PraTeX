@@ -1,6 +1,6 @@
 # PraTeX 作業引継ぎ
 
-更新: 2026-08-24（統合枝 `codex2/jlreq-script-spacing`、意味checkpoint `6bc9ba4`）
+更新: 2026-08-25（統合・性能枝 `codex3/perf-integration`、全release検証前）
 
 この文書は、現在の Codex セッションから別のエージェントへ作業が移っても、
 検証済みの境界と未commitの作業を失わないための生きた引継ぎである。
@@ -9,7 +9,7 @@
 ## 最初に守ること
 
 1. リポジトリ直下の `AGENTS.md` を最初から最後まで読む。
-2. 現在の統合枝は `codex2/jlreq-script-spacing`。`main`と歴史的`full`を汚さない。
+2. 現在の統合・性能枝は `codex3/perf-integration`。`main`と歴史的`full`を汚さない。
 3. 横組JFM、K/X、WASM仕様、plain DVI回帰、実時刻、日本語CID PDFの統合済み差分を
    無関係な変更として差し戻さない。日本語CID PDFの検証済み元commitは`8035d1c`である。
 4. 通常実装と性能調整はsafe Rustだけで行う。
@@ -20,8 +20,15 @@
 
 ## 枝と共有状態
 
-- 現在の統合枝: `codex2/jlreq-script-spacing`
-- push済み意味checkpoint: `6bc9ba4`。in-process Kpathsea境界`4152a1e`、JLReq/JFMの
+- 現在の統合・性能枝: `codex3/perf-integration`。`codex2/perf-resolver-index`の
+  `f414757`から分岐し、まだpushも全release後の意味checkpoint化もしていない。
+- 現在枝へ統合済み:
+  - vertical discard: `700973b` / `06a5b25` / `1a518cd`。`etex_vdiscards` 6件成功
+  - run-local script spacing dispatcher: `58b9589` / `0e55c20`。
+    lib `script_spacing` 43件、`japanese_spacing_finalizer` 18件成功
+  - 最小横組`prjlreq`: `971073b` / `c493a94`。静的契約試験3件成功。
+    現在枝のbinaryによるprocess再測定は未実施
+- 直前のpush済み意味checkpointは`6bc9ba4`。in-process Kpathsea境界`4152a1e`、JLReq/JFMの
   discretionary枝`1a46cb1`、TeX--XeT restricted hbox `53fe28a`を統合済み。
 - `6bc9ba4`での`cargo test --release --locked --no-fail-fast`はexit 0。aggregate件数は
   記録していないため、過去checkpointの集計をこの統合結果として引用しない。
@@ -60,7 +67,7 @@
   - `565c0d3`: Unicode欧文token、u16 hyphen trie、`\lastnodetype` page状態
 - 旧性能枝 `codex/perf-wsl-euptex-safe` は `9bb6023`までpush済みで停止中。新しいfmt予約の
   checkpointは統合枝の`22a8bdd` / `3a4aaaf`に入った
-- Claudeの連絡枝 `origin/claude/for-codex` は `82fa3a2`まで確認済み
+- Claudeの連絡枝 `origin/claude/for-codex` は `42c2800`まで確認済み
 - Vaak `origin/codex/main` は `64ccf4e`まで確認済み
 - Vaakの壊れていた`full`は`codex2/full`の`7c5ccd7`で修復済み。release全suiteは
   **727 passed、0 failed、1 ignored**で、GPL側のPraTeX sourceは一行も移していない。
@@ -330,7 +337,7 @@ Unicode差分も`src/eqtb.rs`を触るため、安全なcheckpointを優先し�
 
 ## 完了済み: vertical discard special list
 
-状態: **`codex2/etex-discards`の`9c70a6c`で実装・commit・push済み**。
+状態: **`codex3/perf-integration`の`700973b` / `06a5b25` / `1a518cd`へ統合済み**。
 
 - 正の`\savingvdiscards`でpage builderと公開`\vsplit`が先頭から捨てるglue・kern・penaltyを、
   page/split別のrun-local listへ順序どおり保存する。
@@ -340,6 +347,18 @@ Unicode差分も`src/eqtb.rs`を触るため、安全なcheckpointを優先し�
   primitive identityはfmtを往復するが、run-local listはfmtへ保存しない。
 - 公開e-TeX manual 3.11・5.2と、SHA-256を固定したTeX Live 2026 pdfTeXへの自作probeだけを
   clean-room oracleにした。node順、5 pt寸法、回収と世代切替は`tests/etex_vdiscards.rs`に固定する。
+
+## 統合済みproduction slice: `prjlreq` v0.1横組
+
+状態: **`codex3/perf-integration`の`971073b` / `c493a94`へ統合済み**。
+
+- 公開class名は`prjlreq`で、PraTeXをpTeX/upTeX/LuaTeX等へ偽装せず、`\pratexversion`の
+  存在だけで検出する。開発中の値0も正当なPraTeXとして受け入れる。
+- v0.1は横組`article`、PraTeX固有和文font境界、`\jlreqkanjiskip`、
+  `\jlreqxkanjiskip`、一字下げだけを扱う。縦組、book/report、版面・見出し全API等は拒否する。
+- `tests/prjlreq.rs`の3件はclass、license、fixtureを読む静的契約試験であり、engine process試験ではない。
+- `docs/prjlreq-provenance.md`にあるexit 0、DVI 396 bytes、SHA-256 `110e8fd...`は基点
+  `8ce1ad2`での既往測定である。現在枝で再実行するまで、現在checkpointの実測値として引用しない。
 
 ## 完了済みproduction slice: `\scantokens`と最小`scrartcl`
 
@@ -516,9 +535,12 @@ WSL成功の意味は変更しない。
 上限効果で、Linuxの9.14 s benchmarkへ外挿しない。詳細なraw三組とbinary hashは
 [`performance.md`](performance.md)にある。
 
-## LaTeXと日本語組版の次順
+## 性能優先と、その後のLaTeX・日本語組版順
 
-1. 利用者Linux profileで9回・1.372秒を占めた`kpsewhich`を最優先にする。resolver専用枝では
+1. まず現在の分裂枝統合について全release、plain DVI、必要なTRIP/PDF意味gateを完了する。
+   その後、同じ入力・TeX tree・cold/warm条件・同等DVIでupTeX系と交互測定し、end-to-end比
+   1.3未満まで性能作業を優先する。これはroadmap再開条件であり、最終upLaTeX比1.2未満は維持する。
+2. 利用者Linux profileで9回・1.372秒を占めた`kpsewhich`について、resolver専用枝では
    Scanner/PDFをrun-local共有し、無関係aliasによるqueryごとのone-shotを解消した。続くLinux-first
    checkpointで、監査済みRust Kpathsea forkのsubprocess禁止constructorを一run一instanceで接続した。
    Linux既定buildは公式TL2026 revision
@@ -533,9 +555,12 @@ WSL成功の意味は変更しない。
    DVIは全組`3ae145d...`、treeのprocess生成は0だった。再現runnerは
    `tools/bench-bundled-kpathsea-ctan-linux.sh`。これは利用者の30×`lipsum`や`dvipdfmx`を含まないため、
    次は実TeX Live treeと利用者corpusでengine三回、driver一回、DVI意味を再測定する。
-2. 接続済みmain-loop JFM/禁則をshifted/vbox・残るcommand境界へ広げ、discの全JFM class・禁則・unbox matrixを完成する。
-3. `\tfont`と縦組metric/node/outputを追加し、spacingと禁則を横組から縦組へ広げる。
-4. `\showgroups` / `\showifs`、tracing、`\lastlinefit`等のe-TeX残件を接続し、TeX--XeTの
+3. 1.3未満を確認後、接続済みmain-loop JFM/禁則をshifted/vbox・残るcommand境界へ広げ、
+   discの全JFM class・禁則・unbox matrixを完成する。
+4. glyph時点のRegionNode/context伝播、compiled tableのindirect edge、adjustment tier、
+   line-edge discardをbox/disc/unboxとline breakerへ接続する。
+5. `\tfont`と縦組metric/node/outputを追加し、spacingと禁則を横組から縦組へ広げる。
+6. `\showgroups` / `\showifs`、tracing、`\lastlinefit`等のe-TeX残件を接続し、TeX--XeTの
    restricted hbox checkpointをparagraph、display、mathへ広げる。
 
 日本語の最低線は横組smokeではなくpTeX相当とJLReq native対応であり、縦組を含む。縦中横と
@@ -575,7 +600,7 @@ Unicode table追加後の最小fmt増分は上記のとおり実測済み。full
 
 - binary/banner名はPraTeX。quiet modeとREADME更新は既に別commitで入っている。
 - LaTeX名はLaPraTeX。
-- 十分に固まった機能checkpointは`codex2/*`で検証後、`full`へ順次merge・pushしてよい。
+- 十分に固まった機能checkpointは`codex3/*`で検証後、`full`へ順次merge・pushしてよい。
   `main`へは入れず、設計だけ・production未接続・既知退行ありのsliceを完成機能扱いしない。
 - 生文字列registerは`\rawstring` / `\rawstringdef` / `\therawstring`、raw専用`\showthe`、
   `Rc<Vec<u8>>` storage、群・`globaldefs`、fmt、production testまで実装済みである。
@@ -608,6 +633,6 @@ git log --oneline --decorate -8
 git diff --stat
 ```
 
-`codex2/jlreq-script-spacing`ではK/X、汎用spacing、性能条件、各国単位の文書を同時に更新している。
+`codex3/perf-integration`では分裂枝の意味を統合した後、性能条件を満たす作業を優先している。
 まず`AGENTS.md`、本書、`docs/kanjiskip-core-design.md`、`docs/etex-texxet-status.md`を読み、
 誰の変更かを確認してから触る。

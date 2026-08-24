@@ -28,6 +28,15 @@ pipelineと別に測る。
 
 最適化はsafe Rustの範囲だけで行う。`unsafe`を前提にした案はこの性能計画の候補に含めない。
 
+### 今回のroadmap再開条件
+
+2026-08-24に始めた`codex3/perf-integration`では、分裂枝の意味統合を先に固定し、その後は
+性能作業を優先する。同じ入力・同じTeX tree・同じcold/warm条件・同等DVIを満たすupTeX系との
+end-to-end比が**1.3未満**になった時点で、JLReq/JFM等の実装roadmapを再開する。
+plain/engine corpusはupTeX、LaTeX corpusはupLaTeXというように比較対象を記録し、異なるformatや
+処理段階の値を一つの比へ合算しない。この1.3は作業順を決める中間条件であり、上記の
+upLaTeX比1.2未満という最終hard gateを緩めない。
+
 性能変更は、同じrelease設定・同じ合成入力で変更前後を交互に走らせ、出力の一致を
 確認してから採用する。測定用入力、実行ファイルの複製、logはリポジトリ外の
 `%TEMP%` にだけ置き、版方へ入れない。

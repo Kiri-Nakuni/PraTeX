@@ -1,7 +1,7 @@
 # PraTeXのTeX82外機能と独立実装
 
-更新: 2026-08-24
-監査対象: `codex2/etex-showtokens`（統合基点 `cfa6ece`）
+更新: 2026-08-25
+監査対象: `codex3/perf-integration`（統合基点 `f414757`、全release検証前）
 
 この文書は、PraTeXが現在持つ機能のうちTeX82の中核にはないものと、PraTeXで新たに
 書いた実装を区別して記録する。将来構想を現在の対応機能として数えないこと、既存engineの
@@ -142,17 +142,17 @@ CJK tokenを現在変更しない。
 
 | 状態 | 機能 | 現在の範囲と境界 |
 |---|---|---|
-| 部分 | kpathsea/web2c相当の探索 | 別engine名を使わず`--progname=pratex`とし、直接pathを優先する。用途別`--show-path`とrun-local `ls-R`索引で一意な候補を証明できれば外部processを省く。曖昧・stale・未対応ならshellを介さないone-shot `kpsewhich`へ戻す。TeX入力、`\openin`、`\pdffilesize`、TFM/JFM、VF、map、encoding、Type 1、AFM、Vaak入力へ接続し、run内で成功・不在をcacheする。DVI modeのVF consumerはPraTeXでなくDVI driverなので先読みしない。TeX Live 2026で`upjisr-h` / `upjisg-h`をcopyせずDVI→dvipdfmxまで通すignored gateあり |
-| 部分 | Windows--WSL TeX Live bridge | production既定値ではnative `kpsewhich`の起動fileがない時だけ既定WSLへ移り、選んだbackendをresolver instance内で固定する。Linux絶対pathと探索pathを検証つきUNCへ写す。nativeの不在回答や異常を別TeX Liveで覆わない。ScannerとPDF loaderを跨ぐrun-global固定は未実装 |
+| 部分 | kpathsea/web2c相当の探索 | 別engine名を使わずprogram名`pratex`をカノンとし、直接pathを優先する。Scanner、Output、直接PDF loaderが一つのrun-local resolverとpositive/negative cacheを共有する。Linux既定は公式TeX Live 2026 Kpathsea 6.4.2を静的buildしたsubprocess禁止C API境界でTEX/TFM/JFM等をin-process探索し、source/build失敗時にCLIへ黙って退行しない。外部fmtの`--engine=rtex`だけは既存safe経路を保つ。明示`system-kpathsea` build、Windows等のtyped CLI/WSL fallbackも残す。VFはDVI driverのconsumerなのでPraTeXが先読みしない。合成treeで子process 0・local/tree DVI byte一致、固定CTAN treeで15組のprocess 0とDVI一致を確認済み |
+| 部分 | Windows--WSL TeX Live bridge | native `kpsewhich`の起動fileがない時だけ既定WSLへ移り、選んだbackendをrun-local resolver内で固定する。Linux絶対pathと探索pathを検証つきUNCへ写し、nativeの不在回答や異常を別TeX Liveで覆わない。allocator/CRT境界が未監査なのでWindowsへin-process Kpathseaを有効化しない |
 | 実装 | 論理名と物理pathの分離 | 解決したTEXMF上のpathをTFM名、DVI font名、PDF map keyなどの論理identityへ漏らさない |
 | 部分 | OS固有file名 | CLIは`args_os`、Unixの非UTF-8名はbyteのまま、WindowsのUnicode名は`OsString`で運ぶ。単一argv中の空白やWindows絶対pathをTeX入力としてどう引用するかは未解決 |
 | 実装 | CRLF入力 | `\r\n`を一つの行末として読み、出力先名などへ`\r`を混ぜない |
 | 実装 | 引用符つきfile名 | `\openin0="target file.tex"`の引用符を名前から除き、空白を含む論理名として扱う |
 
-これはkpathsea C APIの実装ではない。`ls-R`と展開済み探索pathの保守的な部分集合だけを
-読む。`texmf.cnf`、未展開変数・brace等を含む完全なpath expression、alias、case folding、
-mktex生成は未実装である。一意性を証明できないcache missでは`kpsewhich` processを起動する。
-実装と合成試験は [file resolver](../src/file_search.rs) と
+Linux既定は監査済みforkを介してKpathsea C APIを使うが、PraTeXの通常sourceはsafe Rustだけである。
+既定Linux以外の段階的fallbackが読む`ls-R`索引は完全なKpathsea再実装ではなく、`texmf.cnf`の
+全展開、case folding、`mktex*`等は未完成である。Kpathsea source取得、LGPL source/relink条件、
+offline build、再現性、binary sizeは配布gateとして残る。実装と合成試験は [file resolver](../src/file_search.rs) と
 [入力接続試験](../src/input/file_search_tests.rs)、対応境界は
 [TeX Live探索の移植記録](kpathsea-port-notes.md) にある。
 
@@ -165,7 +165,7 @@ mktex生成は未実装である。一意性を証明できないcache missで�
 |---|---|---|
 | 部分 | Vaak bridge | `\directvaak{...}`、`\vaakdef\cs{...}`、`\vaakinput file`。終了値を10進整数として展開し、低位`count[0..255]`と`dimen[0..255]`をi32として読み書きする。書戻しはTeXの保存stackを通りgroupで戻る。同一sourceの`PreparedProgram`と`EmbeddingRunner`を再利用し、固定`HostLayout`の順序・型・名付き型schemaを実行前に照合する |
 | 部分 | 名前空間つき制御綴 | catcode 16、`\namespace`、`\usingnamespace`、`\namespacechar`。一文字・複数文字・active・Unicode制御綴、group/global、参照時探索、表示、fmtまで実装。interface名の確定、`\halign` preamble再利用などPhase 8の検証は残る |
-| 実装 | typedな組版region状態 | `\pratexregion=0..5`で`und`、`ja`、`zh-Hans`、`zh-Hant`、`ko`、`vi`を選ぶ。local/global/globaldefs、save stack、fmt、`\the`、`\showthe`、`\meaning`、`\let`を通し、TeX `\language`から独立する。R0の状態だけで、まだ組版結果に影響しない |
+| 実装 | typedな組版region状態 | `\pratexregion=0..5`で`und`、`ja`、`zh-Hans`、`zh-Hant`、`ko`、`vi`を選ぶ。local/global/globaldefs、save stack、fmt、`\the`、`\showthe`、`\meaning`、`\let`を通し、TeX `\language`から独立する。BuiltIn既定規則自体はまだregionで変わらないが、明示install済みcompiled tableのlist一貫性keyとして使う |
 | 実装 | PraTeXの実行名 | primary/default binaryとbannerは`pratex`。移行用の`rtex`互換binaryは残す。crate/library名も現在は`rtex`のまま |
 | 実装 | 自動出力だけを抑える`--quiet` | banner、file括弧、page番号、通常summaryだけをterminalから消す。log、明示`\message`、`\write16`、`\show`、tracing、error、promptは残す |
 | 実装 | Type 1埋込みの明示opt-in | `--pdf-font-map`を指定した時だけ限定map parserと埋込み経路を有効にし、暗黙のresource選択を避ける |
@@ -236,7 +236,7 @@ runtimeは別MIT projectを依存として使う。PraTeX側からMITのVaakへG
 | ロードマップ | native絵文字 | 通常OTF loader・shaping・fallback・PDF subset完成後に行う。plain UTF-8のVS15/VS16、modifier、flag、keycap、tag、ZWJ sequenceを壊せないclusterとして扱い、cluster単位fallback、COLR/CPAL等のcolor glyph、縦横組、PDF ToUnicode/ActualTextを検査する。現状は入力・node・font・出力とも未実装。詳細は[native emoji roadmap](emoji-native-roadmap.md) |
 | 部分 | e-TeX完全性gate | `\showgroups`、`\showifs`、未接続tracing、`\lastlinefit`、TeX--XeTのparagraph・display・math mode内方向・disc/alignment/unbox等が残る。vertical discard listと四方向primitiveの明示restricted hbox限定sliceは実接続済み |
 | 部分 | 横組・縦組の日本語組版 | 横組JFM font、wide node、main-loop JFM pair/禁則、close-timeの仮想K・material X、discの枝内K/Xと右端条件付きmaterial K/X、句読点＋横組括弧12対の禁則、box/line幅、DVI glyphまでのBuiltIn基線を実装。main-loopのshifted/vbox・未検証command境界、discの全JFM class/禁則matrix、完全JLReq、paragraph方向node、縦組が残る |
-| 部分 | class/package互換 | `article`、宣言的和文NFSS/relation fontを持つ`prjsarticle`、`pratex-japanese`を明示したKOMA-Script 3.49.2 `scrartcl`、`graphicx`、`xcolor`、`hyperref`、TikZ/PGF、`siunitx`の限定smokeをDVIまで実測。package全API、`jsarticle`、`jlreq`、`ltjsarticle`の実用互換を保証しない |
+| 部分 | class/package互換 | `article`、宣言的和文NFSS/relation fontを持つ`prjsarticle`、`pratex-japanese`を明示したKOMA-Script 3.49.2 `scrartcl`、`graphicx`、`xcolor`、`hyperref`、TikZ/PGF、`siunitx`の限定smokeをDVIまで実測。BSD 2-Clauseの上流`jlreq`から権利表示を保って派生した最小横組`prjlreq` v0.1も持つが、現在統合枝では静的契約試験だけを再実行済み。package全API、`jsarticle`、上流`jlreq`、`ltjsarticle`の実用互換を保証しない |
 
 文字分類の実装済み境界と未実装部分は
 [拡張可能な文字分類器](character-classifier-extension.md) に分離している。
