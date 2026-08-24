@@ -7,7 +7,7 @@
 PraTeXはe-TeXのmacro処理・拡張register・class別mark・式・typed疑似入力をかなり実装しているが、
 **e-TeX完全対応ではない**。組版、group/if表示、discardに未実装が残る。
 TeX--XeTはrestricted hboxの方向区間・反転・共通DVI/PDF shipoutまでの最初sliceだけ実装した。
-paragraph、display、math、改行をまたぐLR stackは未実装なので、**TeX--XeT対応完了ではない**。
+paragraph、display、math mode内の方向primitive、改行をまたぐLR stackは未実装なので、**TeX--XeT対応完了ではない**。
 
 この文書の「実装」は、primitive名が登録されているだけでなく、本来の処理へ接続され、
 対象を固定する試験があることをいう。値の代入、group復元、fmt保存だけなら「表面のみ」とする。
@@ -58,7 +58,7 @@ inline mathの`MathNodeKind::Before`--`After`はmath-surround幅を含むatomic 
 診断してnode化しない。方向node入りhboxの`\unhbox` / `\unhcopy`はboxを復元して拒否し、
 未対応のparagraphやdisc/alignment listへ境界を漏らさない。
 RTL区間がdiscretionary nodeを直接含む場合は、no-break枝だけを元順のまま残す部分反転をせず、
-そhlistの方向変換全体を破棄して診断する。
+そのhlistの方向変換全体を破棄して診断する。
 
 未実装は次のとおり。
 
@@ -79,7 +79,7 @@ left-to-right/right-to-left区間は公開意味論が異なるため、一つ�
 1. 実装済みの`FontCharDimension` query種別を、将来JFM・Unicode font metricへ広げる。
    e-TeX primitiveの公開文字番号は0--255のまま保ち、別の文字identityを暗黙に混ぜない。
 2. discard保存、`\lastlinefit`、show/tracingを実処理へ接続する。
-3. TeX--XeTの実装済みrestricted hbox sliceを崩さず、paragraph、display、mathへ広げる。
+3. TeX--XeTの実装済みrestricted hbox sliceを崩さず、paragraph、display、math mode内の方向primitiveへ広げる。
    parameterと限定sliceだけで「対応済み」へ格上げしない。
 
 完全対応の完了条件は、公開e-TeX manualの全primitiveを一覧照合し、通常実行、group、
