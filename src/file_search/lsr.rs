@@ -4,7 +4,7 @@
 //! GNU `ls -R` 形式だけを扱う。探索 path の優先順位はここでは決めず、候補を呼び出し側へ
 //! 返す。これにより、曖昧な場合は公開 CLI の `kpsewhich` へ戻せる。
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ffi::{OsStr, OsString};
 use std::fmt;
 use std::fs::{self, File, Metadata};
@@ -13,8 +13,10 @@ use std::path::{Component, Path, PathBuf};
 use std::time::SystemTime;
 
 const DEFAULT_MAX_DATABASE_BYTES: u64 = 256 * 1024 * 1024;
+const DEFAULT_MAX_ALIASES_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_LINE_BYTES: usize = 1024 * 1024;
 const MAX_ENTRIES: usize = 8_000_000;
+const MAX_ALIASES: usize = 1_000_000;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct DatabaseSnapshot {
@@ -58,6 +60,20 @@ pub(super) struct LsRDatabase {
     snapshot: DatabaseSnapshot,
     directories: Vec<PathBuf>,
     by_basename: HashMap<OsString, CandidateDirectories>,
+    aliases: AliasIndex,
+}
+
+#[derive(Debug)]
+struct AliasIndex {
+    snapshot: Option<DatabaseSnapshot>,
+    names: HashSet<OsString>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum AliasMatch {
+    No,
+    Yes,
+    UnsupportedName,
 }
 
 /// 大半の basename は一つの directory にしか現れないため、その場合は heap 上の
@@ -146,12 +162,14 @@ impl LsRDatabase {
         }
 
         let (directories, by_basename) = parse_database(&root, &bytes)?;
+        let aliases = load_aliases(&root)?;
         Ok(Self {
             database_path,
             root,
             snapshot: after,
             directories,
             by_basename,
+            aliases,
         })
     }
 
@@ -163,17 +181,26 @@ impl LsRDatabase {
         &self.root
     }
 
-    pub(super) fn may_have_aliases(&self) -> bool {
-        fs::metadata(self.root.join("aliases"))
-            .map(|metadata| metadata.is_file())
-            .unwrap_or(false)
+    pub(super) fn alias_match(&self, logical_name: &OsStr) -> AliasMatch {
+        if self.aliases.names.is_empty() {
+            return AliasMatch::No;
+        }
+        if !is_plain_basename(logical_name) {
+            return AliasMatch::UnsupportedName;
+        }
+        if self.aliases.names.contains(logical_name) {
+            AliasMatch::Yes
+        } else {
+            AliasMatch::No
+        }
     }
 
     /// run-local snapshot が書き換わっていない場合だけ true を返す。
     pub(super) fn is_unchanged(&self) -> bool {
-        fs::metadata(&self.database_path)
+        let database_unchanged = fs::metadata(&self.database_path)
             .map(|metadata| DatabaseSnapshot::from_metadata(&metadata) == self.snapshot)
-            .unwrap_or(false)
+            .unwrap_or(false);
+        database_unchanged && aliases_are_unchanged(&self.root, self.aliases.snapshot.as_ref())
     }
 
     /// 論理名の basename と、指定されていれば directory suffix を満たす候補を返す。
@@ -217,6 +244,121 @@ impl LsRDatabase {
             });
         });
         Some(candidates)
+    }
+}
+
+fn load_aliases(root: &Path) -> Result<AliasIndex, LsRError> {
+    load_aliases_with_limit(root, DEFAULT_MAX_ALIASES_BYTES)
+}
+
+fn load_aliases_with_limit(root: &Path, max_bytes: u64) -> Result<AliasIndex, LsRError> {
+    let path = root.join("aliases");
+    let file = match File::open(&path) {
+        Ok(file) => file,
+        Err(source) if source.kind() == io::ErrorKind::NotFound => {
+            return Ok(AliasIndex {
+                snapshot: None,
+                names: HashSet::new(),
+            });
+        }
+        Err(source) => return Err(LsRError::Open { path, source }),
+    };
+    let before = file.metadata().map_err(|source| LsRError::Inspect {
+        path: path.clone(),
+        source,
+    })?;
+    if !before.is_file() {
+        return Err(LsRError::MalformedAliases("aliases is not a regular file"));
+    }
+    if before.len() > max_bytes {
+        return Err(LsRError::AliasesTooLarge { limit: max_bytes });
+    }
+
+    let capacity = before.len().min(max_bytes).min(usize::MAX as u64) as usize;
+    let mut bytes = Vec::with_capacity(capacity);
+    file.take(max_bytes.saturating_add(1))
+        .read_to_end(&mut bytes)
+        .map_err(|source| LsRError::Read {
+            path: path.clone(),
+            source,
+        })?;
+    if bytes.len() as u64 > max_bytes {
+        return Err(LsRError::AliasesTooLarge { limit: max_bytes });
+    }
+
+    let after = fs::metadata(&path).map_err(|source| LsRError::Inspect {
+        path: path.clone(),
+        source,
+    })?;
+    let before = DatabaseSnapshot::from_metadata(&before);
+    let after = DatabaseSnapshot::from_metadata(&after);
+    if before != after {
+        return Err(LsRError::AliasesChangedDuringRead);
+    }
+
+    Ok(AliasIndex {
+        snapshot: Some(after),
+        names: parse_aliases(&bytes)?,
+    })
+}
+
+fn parse_aliases(bytes: &[u8]) -> Result<HashSet<OsString>, LsRError> {
+    let mut names = HashSet::new();
+    let mut entry_count = 0usize;
+    for raw_line in bytes.split(|&byte| byte == b'\n') {
+        let line = raw_line.strip_suffix(b"\r").unwrap_or(raw_line);
+        if line.len() > MAX_LINE_BYTES {
+            return Err(LsRError::AliasLineTooLong {
+                limit: MAX_LINE_BYTES,
+            });
+        }
+        if line.contains(&0) {
+            return Err(LsRError::MalformedAliases("NUL byte in aliases"));
+        }
+        if line.iter().all(|byte| byte.is_ascii_whitespace())
+            || matches!(line.first(), Some(b'%' | b'#'))
+        {
+            continue;
+        }
+        let mut words = line
+            .split(|byte| byte.is_ascii_whitespace())
+            .filter(|word| !word.is_empty());
+        let real = words
+            .next()
+            .ok_or(LsRError::MalformedAliases("aliases entry has no real name"))?;
+        let alias = words.next().ok_or(LsRError::MalformedAliases(
+            "aliases entry has no alias name",
+        ))?;
+        if words.next().is_some() {
+            return Err(LsRError::MalformedAliases(
+                "aliases entry has more than two words",
+            ));
+        }
+        let real = os_string_from_aliases(real.to_vec())?;
+        let alias = os_string_from_aliases(alias.to_vec())?;
+        if !is_plain_basename(&real) || !is_plain_basename(&alias) {
+            return Err(LsRError::MalformedAliases(
+                "aliases names are not basenames",
+            ));
+        }
+        entry_count = entry_count
+            .checked_add(1)
+            .ok_or(LsRError::TooManyAliases { limit: MAX_ALIASES })?;
+        if entry_count > MAX_ALIASES {
+            return Err(LsRError::TooManyAliases { limit: MAX_ALIASES });
+        }
+        names.insert(alias);
+    }
+    Ok(names)
+}
+
+fn aliases_are_unchanged(root: &Path, snapshot: Option<&DatabaseSnapshot>) -> bool {
+    match (snapshot, fs::metadata(root.join("aliases"))) {
+        (None, Err(error)) if error.kind() == io::ErrorKind::NotFound => true,
+        (Some(expected), Ok(metadata)) if metadata.is_file() => {
+            DatabaseSnapshot::from_metadata(&metadata) == *expected
+        }
+        _ => false,
     }
 }
 
@@ -370,6 +512,19 @@ fn os_string_from_database(bytes: Vec<u8>) -> Result<OsString, LsRError> {
         .map_err(|_| LsRError::Malformed("ls-R is not valid UTF-8"))
 }
 
+#[cfg(unix)]
+fn os_string_from_aliases(bytes: Vec<u8>) -> Result<OsString, LsRError> {
+    use std::os::unix::ffi::OsStringExt;
+    Ok(OsString::from_vec(bytes))
+}
+
+#[cfg(not(unix))]
+fn os_string_from_aliases(bytes: Vec<u8>) -> Result<OsString, LsRError> {
+    String::from_utf8(bytes)
+        .map(OsString::from)
+        .map_err(|_| LsRError::MalformedAliases("aliases is not valid UTF-8"))
+}
+
 #[derive(Debug)]
 pub(super) enum LsRError {
     Open { path: PathBuf, source: io::Error },
@@ -378,8 +533,13 @@ pub(super) enum LsRError {
     TooLarge { limit: u64 },
     LineTooLong { limit: usize },
     TooManyEntries { limit: usize },
+    AliasesTooLarge { limit: u64 },
+    AliasLineTooLong { limit: usize },
+    TooManyAliases { limit: usize },
     ChangedDuringRead,
+    AliasesChangedDuringRead,
     Malformed(&'static str),
+    MalformedAliases(&'static str),
 }
 
 impl fmt::Display for LsRError {
@@ -399,8 +559,19 @@ impl fmt::Display for LsRError {
             Self::TooManyEntries { limit } => {
                 write!(formatter, "ls-R contains more than {limit} entries")
             }
+            Self::AliasesTooLarge { limit } => write!(formatter, "aliases exceeds {limit} bytes"),
+            Self::AliasLineTooLong { limit } => {
+                write!(formatter, "aliases line exceeds {limit} bytes")
+            }
+            Self::TooManyAliases { limit } => {
+                write!(formatter, "aliases contains more than {limit} entries")
+            }
             Self::ChangedDuringRead => write!(formatter, "ls-R changed while it was read"),
+            Self::AliasesChangedDuringRead => {
+                write!(formatter, "aliases changed while it was read")
+            }
             Self::Malformed(reason) => write!(formatter, "malformed ls-R: {reason}"),
+            Self::MalformedAliases(reason) => write!(formatter, "malformed aliases: {reason}"),
         }
     }
 }
@@ -414,15 +585,20 @@ impl std::error::Error for LsRError {
             Self::TooLarge { .. }
             | Self::LineTooLong { .. }
             | Self::TooManyEntries { .. }
+            | Self::AliasesTooLarge { .. }
+            | Self::AliasLineTooLong { .. }
+            | Self::TooManyAliases { .. }
             | Self::ChangedDuringRead
-            | Self::Malformed(_) => None,
+            | Self::AliasesChangedDuringRead
+            | Self::Malformed(_)
+            | Self::MalformedAliases(_) => None,
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{LsRDatabase, LsRError};
+    use super::{load_aliases_with_limit, AliasMatch, LsRDatabase, LsRError};
     #[cfg(unix)]
     use std::ffi::OsString;
     use std::fs;
@@ -451,6 +627,12 @@ mod tests {
             fs::write(&path, bytes).unwrap();
             path
         }
+
+        fn write_aliases(&self, bytes: &[u8]) -> PathBuf {
+            let path = self.root.join("aliases");
+            fs::write(&path, bytes).unwrap();
+            path
+        }
     }
 
     impl Drop for TestTree {
@@ -476,6 +658,71 @@ mod tests {
         );
         let root = index.candidates("root.tex".as_ref()).unwrap();
         assert_eq!(root[0].path(), tree.root.join("root.tex"));
+    }
+
+    #[test]
+    fn aliasesは実名とaliasの二語を読みcommentと空行を無視する() {
+        let tree = TestTree::new("aliases");
+        let database = tree.write_database(b"./tex:\nreal.tex\nother.tex\n");
+        tree.write_aliases(
+            b"% generated aliases\r\n# second comment\n\n \t\r\nreal.tex alias.tex\r\nother.tex\tsecond.tex\n",
+        );
+        let index = LsRDatabase::load(database).unwrap();
+
+        assert_eq!(index.alias_match("alias.tex".as_ref()), AliasMatch::Yes);
+        assert_eq!(index.alias_match("second.tex".as_ref()), AliasMatch::Yes);
+        assert_eq!(index.alias_match("real.tex".as_ref()), AliasMatch::No);
+        assert_eq!(
+            index.alias_match("subdir/alias.tex".as_ref()),
+            AliasMatch::UnsupportedName
+        );
+    }
+
+    #[test]
+    fn 壊れたaliasesを部分的に使わない() {
+        for aliases in [
+            b"one-word\n".as_slice(),
+            b"real.tex alias.tex extra\n".as_slice(),
+            b"dir/real.tex alias.tex\n".as_slice(),
+            b"real.tex dir/alias.tex\n".as_slice(),
+            b"real.tex ali\0as.tex\n".as_slice(),
+        ] {
+            let tree = TestTree::new("malformed-aliases");
+            let database = tree.write_database(b"./tex:\nreal.tex\n");
+            tree.write_aliases(aliases);
+            assert!(matches!(
+                LsRDatabase::load(database),
+                Err(LsRError::MalformedAliases(_))
+            ));
+        }
+    }
+
+    #[test]
+    fn aliasesの指定上限を越えて読まない() {
+        let tree = TestTree::new("bounded-aliases");
+        tree.write_aliases(b"real.tex alias.tex\n");
+        assert!(matches!(
+            load_aliases_with_limit(&tree.root, 4),
+            Err(LsRError::AliasesTooLarge { limit: 4 })
+        ));
+    }
+
+    #[test]
+    fn aliasesの作成と変更をsnapshotで検出する() {
+        let absent = TestTree::new("aliases-created");
+        let absent_database = absent.write_database(b"./tex:\nreal.tex\n");
+        let absent_index = LsRDatabase::load(absent_database).unwrap();
+        assert!(absent_index.is_unchanged());
+        absent.write_aliases(b"real.tex alias.tex\n");
+        assert!(!absent_index.is_unchanged());
+
+        let changed = TestTree::new("aliases-changed");
+        let changed_database = changed.write_database(b"./tex:\nreal.tex\n");
+        let aliases = changed.write_aliases(b"real.tex old-name.tex\n");
+        let changed_index = LsRDatabase::load(changed_database).unwrap();
+        assert!(changed_index.is_unchanged());
+        fs::write(aliases, b"real.tex new-long-name.tex\n").unwrap();
+        assert!(!changed_index.is_unchanged());
     }
 
     #[test]

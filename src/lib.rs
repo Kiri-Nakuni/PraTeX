@@ -68,6 +68,7 @@ mod write_streams;
 
 use alignment::AlignState;
 use eqtb::{CatCode, Eqtb, IntegerVariable};
+use file_search::RunFileResolver;
 use format::{
     load_hyphenator_and_eqtb_from_default_format_file,
     load_hyphenator_and_eqtb_from_specified_format_file, store_fmt_file,
@@ -265,11 +266,13 @@ fn run_loaded_engine(
         && eqtb.cat_code(first_line[first_non_space_pos]) != CatCode::Escape;
 
     // Initialize global variables and data structures.
-    let mut output = Output::new(
+    let file_resolver = RunFileResolver::default();
+    let mut output = Output::new_with_run_file_resolver(
         output_format,
         output_comment,
         pdf_font_map,
         pdf_japanese_cid_profile,
+        file_resolver.clone(),
     );
     let mut page_builder = PageBuilder::new();
     let mut nest = SemanticState::new();
@@ -284,7 +287,8 @@ fn run_loaded_engine(
 
     // From 331.
     // Initialize Scanner stuff
-    let mut scanner = Scanner::new(first_line, first_non_space_pos);
+    let mut scanner =
+        Scanner::new_with_run_file_resolver(first_line, first_non_space_pos, file_resolver);
 
     if start_with_input {
         scanner.start_input(&mut eqtb, &mut logger);

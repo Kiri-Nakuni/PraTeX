@@ -22,8 +22,9 @@ black-box観測から独立して書く。
 
 `FileKind`ごとに`tex`、`tfm`、`vf`、`map`、`enc files`、`type1 fonts`、`afm`などの公開format名を
 対応させる。TeX入力、`\input`、`\openin`、`\pdffilesize`、TFM、PDF map、encoding、
-Type 1、AFM、Vaak入力は同じresolver契約を通る。Scannerが所有するTeX入力・TFM等は一つの
-instanceを共有するが、PDF font resource loaderは現在別instanceなのでcacheも共有しない。
+Type 1、AFM、Vaak入力は同じresolver契約を通る。2026-08-24のrun-global checkpoint以降、
+Scanner、Output、遅延生成されるPDF font resource loaderは一つのrun-local instanceを共有し、
+positive/negative cache、`ls-R` catalog、用途path、backend選択を分裂させない。
 論理名と解決後の物理pathは別の型で保持し、TEXMF上の配置をDVI font名やPDF map keyへ漏らさない。
 
 欧文TFMと、拡張子`.tfm`を共有するJFMはどちらも`FileKind::Tfm`で探す。font定義に現れた
@@ -88,9 +89,9 @@ CLIへ戻す。存在しない先行treeと`!!`で不在を証明できる要素
 
 Windowsのproduction既定resolverは、native `kpsewhich`の**起動fileが見つからない場合だけ**
 既定WSLへ移る。native programが起動できた後の「該当なし」、診断つきstatus 1、異常終了、
-権限errorをWSLの別TeX Liveで覆わない。一度選んだnative/WSL backendは、そのresolver
+権限errorをWSLの別TeX Liveで覆わない。一度選んだnative/WSL backendは、run-local resolver
 instanceの生存中は固定し、`clear_external_cache`でだけ再発見する。Scannerと
-PDF font loaderは現在別instanceなので、run-globalに一つのbackendを固定する契約ではない。
+PDF font loaderも同じhandleを使うため、一runに一つのbackendを固定する。
 埋め込み用の明示constructorではWSL fallbackを既定無効にしている。
 
 既定distributionは次の固定argvでrootのWindows表記を得る。distributionを明示するpolicyでは

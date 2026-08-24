@@ -469,8 +469,11 @@ WSL成功の意味は変更しない。
 
 ## LaTeXと日本語組版の次順
 
-1. 利用者Linux profileでwallの過半を占めた`kpsewhich`を最優先にし、process traceで固定bootstrapと
-   queryごとのone-shotを分ける。反復ならnative alias、固定2回ならadaptive cold strategyを先に試す。
+1. 利用者Linux profileで9回・1.372秒を占めた`kpsewhich`を最優先にする。resolver専用枝では
+   Scanner/PDFをrun-local共有し、無関係aliasによるqueryごとのone-shotを解消した。公式DB発見と
+   用途pathの最低2 processは残るのでLinuxで再traceする。用途pathの祖先に偶然ある`ls-R`へ昇格する
+   adaptive案は`TEXMFDBS`意味を破るため採用せず、明示`pratex` program名、非UTF-8 `PathBuf`、C返値
+   解放、subprocess禁止を満たすin-process Kpathsea adapterを一run一instanceで接続する。
 2. 接続済みmain-loop JFM/禁則をbox/disc・残るcommand境界へ広げ、discの枝別意味を完成する。
 3. `\tfont`と縦組metric/node/outputを追加し、spacingと禁則を横組から縦組へ広げる。
 4. discard、`\showgroups` / `\showifs`、tracing等のe-TeX残件とTeX--XeTのLR組版を進める。

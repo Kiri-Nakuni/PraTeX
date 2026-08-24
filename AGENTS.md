@@ -287,17 +287,22 @@ control-sequence区間15.79%、fmt全体10.73%、wall 5.36%を短縮した。DVI
   なお部分実装である。named CIDのBMP content codeには限定`/ToUnicode`があり、
   copy/searchは改善したが、FontFileはなく字形表示はviewer側fontに依存する。
 - 現resolverは曖昧・stale・未対応pathでone-shot `kpsewhich`へ戻る。これは移行実装であり、
-  通常lookupの最終設計ではない。Linux一頁測定では外部探索がwallの過半であり、現source監査でも
-  一resolverの最初のTex hitに`ls-R`発見と`--show-path=tex`の最低2 processが必要である。
-  Scannerと直接PDF loaderはresolverを共有せず、`aliases`がある先行rootのmissは後続pathの一意hitを
-  捨ててone-shotへ戻る。次の専用枝ではprocess trace、alias、cold bootstrap、run-global化を優先する。
+  通常lookupの最終設計ではない。利用者のLinux profileでは9回の子processが1.372秒、wallの45.95%を
+  占めた。`codex2/resolver-kpse-bootstrap`ではScanner、Output、直接PDF loaderを一つのrun-local
+  resolverへまとめ、positive/negative cache、`ls-R` catalog、用途path、backendを共有した。
+  `aliases`はboundedに読み、一致・壊れた場合だけone-shotへ戻し、無関係aliasで後続の一意hitを
+  捨てない。公式DB発見と最初の`--show-path=tex`による最低2 processはまだ残り、実Linux再測定も未実施。
+  用途pathの祖先に偶然ある`ls-R`へ昇格するcold bootstrap案は`TEXMFDBS`意味を破るため採用しない。
+  Rust `kpathsea` 0.3.4はin-process候補だが、明示`pratex` program名、非UTF-8 `PathBuf`、C返値解放、
+  typed format、subprocess禁止APIを上流または監査済み依存境界で解決するまで無修正で既定化しない。
 - 名前空間はPhase 0--7済み。Phase 8のTRIPとalignment再利用検証が残る。
 
 ## 直近の実装順
 
-1. Linuxで`kpsewhich` argvと回数をtraceし、kpathsea互換resolverをrun-global化して通常の
-   TeX/JFM/TFM lookupの子processを0へ近づける。反復one-shotならnative aliasを、固定2回なら
-   cold bootstrapを先に直す。
+1. Linuxで同じfixtureの`kpsewhich` argvと回数を再traceし、run-local共有とalias修正後の2 process
+   checkpointを測る。次に明示`pratex` program名とowned path解放を持つin-process Kpathsea adapterを
+   一run一instanceで接続し、通常TeX/JFM/TFM lookupの子process 0を実測する。system libraryが無ければ
+   crate側subprocessへ落とさずsafe resolverを使い、TL2026静的linkは版pin・LGPL・再現性を別gateにする。
 2. 接続済みmain-loop JFM/禁則をbox/disc・残るcommand境界へ広げ、discの枝別意味を完成する。
 3. compile済み汎用script class対tableをlist単位dispatcherと中央finalizerへ接続する。
 4. `\tfont`と縦組metric/node/outputを追加し、JFM/K/X/禁則を横組から縦組へ広げる。

@@ -62,18 +62,64 @@ resolverを再び先に置く。現sourceのread-only監査では、一resolver 
 2. 最初の用途ごとの`kpsewhich --progname=pratex --show-path=<format>`
 
 従ってTex一用途だけでも最低2 processである。さらに曖昧、stale、未対応path式、aliasを安全に決定
-できないqueryはfileごとのone-shotへ戻る。Scannerと直接PDF resource loaderは別resolver instanceで、
-catalog、用途path、backend、query cacheを共有しない。
+できないqueryはfileごとのone-shotへ戻る。2026-08-24のresolver checkpointでは、Scanner、Output、
+直接PDF resource loaderを一つのrun-local resolverへまとめ、catalog、用途path、backend、positive/
+negative query cacheを共有した。
 
-現行のalias判定は、先行path要素に候補がなく対応DB rootへ`aliases` fileが存在するだけで、後続pathの
-一意候補を使わずone-shotへ戻る。TeX Live treeでprocessがquery数に比例する場合の第一修正候補である。
-一方、traceが固定2回だけなら、短いrunの最初の少数queryをone-shotで解決し、損益分岐後だけcatalogへ
-昇格するadaptive cold strategyをA/Bする。これは短期策であり、最終形は環境上書きと`texmf.cnf`の
-必要部分をtyped planへ原子的にcompileし、通常TeX/JFM/TFM lookupの子processを0にすることである。
+同checkpointは`aliases`をboundedに読み、一致aliasまたは壊れたfileだけを公式one-shotへ戻す。
+無関係なaliasが存在するだけで後続pathの一意候補を捨てる挙動は解消した。最初のone-shot後に用途pathの
+祖先に偶然ある`ls-R`へ昇格するadaptive案は、`TEXMFDBS`外のdatabaseを公式Kpathseaと異なって採用し得る
+ためproductionへ入れなかった。最終形はin-process Kpathsea、または環境上書きと`texmf.cnf`の必要部分を
+typed planへ原子的にcompileし、通常TeX/JFM/TFM lookupの子processを0にすることである。
 
 次のLinux gateでは`strace -f -T -e trace=process`でargvと件数だけを分類し、wall測定自体はtraceなしで
 15組以上交互に行う。plain、LaTeX一頁、`prjsarticle`、optional miss、alias/同名候補を同一treeで測り、
 公式`kpsewhich`との物理path・不在status、DVI hashまたはopcode/font/sp座標の一致を必須にする。
+
+#### 利用者提供samply profileによるprocess実測
+
+利用者が同系統の入力で取得した三つのsamply processed profileを2026-08-24に受領した。
+profile自体には完全なcommand lineがないため正式な性能gateではなく、process topologyと次のhot pathを
+決める診断資料として扱う。PraTeX profileのwallは2,986.394 msで、独立した`kpsewhich` main processが
+9件記録されていた。各processの生存時間の合計は1,372.199 ms、平均152.467 ms、中央値152.785 msで、
+PraTeX wallの45.95%に当たる。9件は互いに重ならないので、この合計は並列実行で隠れていない。
+
+| profile | engine wall | SHA-256 |
+|---|---:|---|
+| `lualatex 2026-08-26 04.01 profile.json` | 3,205.070 ms | `53289bb6da0d9b189aa2cca984e3d069af33c51b1d0d90398f2e9275427233c8` |
+| `pratex 2026-08-26 04.06 profile.json` | 2,986.394 ms | `b39044680686c65946988e432caf85a66f9637eef3fb6bd096def726587a8f62` |
+| `uplatex 2026-08-26 04.10 profile.json` | 1,113.700 ms | `b9bf34b41be23f1ad351156f87025b8e0e72fbb30edd8620ab197bde076862b8` |
+
+`kpsewhich` process時間だけをPraTeX wallから機械的に引いても1,614.195 msであり、このupLaTeX標本の
+1.2倍である1,336.440 msより約277.755 ms長い。従ってprocess起動を消すことは最大の第一手だが、
+達成後はmacro展開とfmt復元も続けて測る。PraTeX main threadの1,580 samplesではresolver全体が
+inclusive 111、`LsRDatabase::load`が105 samplesに現れ、その外側ではmacro parameter走査、
+token-list走査、`Vec`再確保が次の候補である。sample数をwall msへ換算して足し引きはしない。
+
+#### Rust `kpathsea` crateのin-process候補
+
+利用者の提案を受け、crates.ioの`kpathsea` 0.3.4
+（SHA-256 `c573f825f32403aef75bbd955c3427d55e8230e40f0d9b0a98330637b5c8fe1f`）と
+`kpathsea_sys` 0.2.3
+（SHA-256 `72d72f7d17fa1de89f3fd72ca949733f937ef3ac37a1ba98d36fe09d8f9a0074`）を監査した。
+両crateはMIT OR Apache-2.0で、高位crateはsystem `libkpathsea`がbuild時に見つかればin-process FFI、
+見つからなければ独自のsubprocess backendを選ぶ。in-process経路は今回のprocess列を消せる有力候補である。
+
+ただし0.3.4のまま既定resolverへ置換しない。現APIは初期化時のprogram nameを`kpsewhich` executableの
+basenameから取り、PraTeXが必要とする明示`pratex`を渡せない。公開format定数はTFM、VF、AFM、ENC、FMTを
+網羅せず、path/resultはUTF-8 `String`に限定され、非UTF-8のC pathを`unwrap`してpanicする。さらに
+`kpathsea_find_file`のowned返値をcopy後に解放しておらず、lookupごとにpath bufferを失う。system libraryが
+なければsubprocessへ黙って戻る。
+提供profileのloaded-library表にも`libkpathsea.so`は現れず、同じTeX Live binary treeでdynamic libraryが
+利用できるとは仮定できない。`build-from-source` featureはLGPLのKpathseaを静的に組み込むが、0.2.3時点の
+pinはTeX Live 2025/Kpathsea 6.4.1であり、TeX Live 2026 oracleと版が一致しない。
+
+採用時は、(1) `pratex`を明示するconstructor、(2)必要formatのtyped定数、(3)非UTF-8をpanicにしない
+`PathBuf`結果とC allocationの全経路解放、(4)in-processであることを確認できなければPraTeX自身のsafe
+resolverへ戻すadapter、(5)WASMでは依存をcompileしないtarget/feature境界を先に用意する。crate側の
+subprocess backendをPraTeXのfallbackに重ねず、
+通常Linux buildで子process 0を実測してから既定化する。静的linkを配布する場合はLGPLのsource提供・再link
+条件、版pin、offline再現、binary sizeを別gateにする。
 
 ## 横組JFM glyph sliceの欧文DVI gate（2026-08-23）
 

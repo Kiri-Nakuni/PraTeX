@@ -1,7 +1,10 @@
 use super::Scanner;
 use crate::command::prefixable::load_font_info;
 use crate::eqtb::Eqtb;
-use crate::file_search::{CommandExecutor, CommandOutput, KpsewhichResolver, ResolverOptions};
+use crate::file_search::{
+    CommandExecutor, CommandOutput, FileKind, FileResolver, KpsewhichResolver, LogicalFileName,
+    ResolverOptions, RunFileResolver,
+};
 use crate::fonts::SizeIndicator;
 use crate::japanese_fonts::load_japanese_font_info;
 use crate::logger::{InteractionMode, Logger};
@@ -85,6 +88,76 @@ fn unique_name(label: &str) -> String {
         std::process::id(),
         NEXT_ID.fetch_add(1, Ordering::Relaxed)
     )
+}
+
+#[test]
+fn scannerと別consumerはrun内の成功cacheを共有する() {
+    let directory = temporary_directory("shared-positive-cache");
+    let physical_path = directory.join("共有された物理入力.tex");
+    fs::write(&physical_path, b"shared resolver").unwrap();
+    let logical_path = PathBuf::from(format!("{}.tex", unique_name("shared-positive")));
+    let calls = Rc::new(Cell::new(0));
+    let executor = FakeExecutor {
+        calls: Rc::clone(&calls),
+        responses: [success(&physical_path)].into_iter().collect(),
+    };
+    let run_resolver =
+        RunFileResolver::new(KpsewhichResolver::new(ResolverOptions::default(), executor));
+    let mut scanner = Scanner::new_with_run_file_resolver(Vec::new(), 0, run_resolver.clone());
+    let mut other_consumer = run_resolver;
+
+    assert_eq!(
+        scanner
+            .resolve_file_path(FileKind::Tex, &logical_path)
+            .unwrap(),
+        Some(physical_path.clone())
+    );
+    let logical_name = LogicalFileName::new(logical_path.as_os_str());
+    assert_eq!(
+        other_consumer
+            .resolve(FileKind::Tex, &logical_name)
+            .unwrap()
+            .unwrap()
+            .physical_path(),
+        physical_path
+    );
+    assert_eq!(calls.get(), 1, "handleのcloneでresolver本体を複製しない");
+
+    fs::remove_file(physical_path).unwrap();
+    fs::remove_dir(directory).unwrap();
+}
+
+#[test]
+fn scannerと別consumerはrun内の不在cacheを共有する() {
+    let logical_path = PathBuf::from(format!("{}.tex", unique_name("shared-negative")));
+    let calls = Rc::new(Cell::new(0));
+    let executor = FakeExecutor {
+        calls: Rc::clone(&calls),
+        responses: [Ok(CommandOutput {
+            code: Some(1),
+            stdout: Vec::new(),
+            stderr: Vec::new(),
+        })]
+        .into_iter()
+        .collect(),
+    };
+    let run_resolver =
+        RunFileResolver::new(KpsewhichResolver::new(ResolverOptions::default(), executor));
+    let mut scanner = Scanner::new_with_run_file_resolver(Vec::new(), 0, run_resolver.clone());
+    let mut other_consumer = run_resolver;
+
+    assert_eq!(
+        scanner
+            .resolve_file_path(FileKind::Tex, &logical_path)
+            .unwrap(),
+        None
+    );
+    let logical_name = LogicalFileName::new(logical_path.as_os_str());
+    assert!(other_consumer
+        .resolve(FileKind::Tex, &logical_name)
+        .unwrap()
+        .is_none());
+    assert_eq!(calls.get(), 1, "不在cacheもconsumerごとに分裂させない");
 }
 
 fn temporary_directory(label: &str) -> PathBuf {

@@ -3,7 +3,7 @@ use crate::eqtb::{
     ControlSequence, DimensionVariable, Eqtb, FontIndex, IntegerVariable, RegisterIndex,
 };
 use crate::error::fatal_output_error;
-use crate::file_search::{KpsewhichResolver, LogicalFileName};
+use crate::file_search::{LogicalFileName, RunFileResolver};
 use crate::font_resources::loader::{FontResourceLoader, Type1ResourceLoader};
 use crate::font_resources::named_cid::{
     BuiltInNamedCidProfileLoader, FileNamedCidProfileLoader, NamedCidFontProfileLoader,
@@ -87,6 +87,9 @@ pub struct Output {
     /// `None`なら既定upjisr-h内蔵profile、`Some`なら明示profileで上書きする。
     /// どちらもprofile対象外のJFMを暗黙fallbackさせない。
     pdf_japanese_cid_profile: Option<OsString>,
+    /// Scannerと同じrun-local resolver。PDF backendを最初のshipoutまで遅延しても、
+    /// TeX入力・TFM/JFMと同じcacheおよびnative/WSL backend選択を使う。
+    file_resolver: RunFileResolver,
     document: Option<OutputDocument>,
 
     /// 1342.
@@ -94,17 +97,35 @@ pub struct Output {
 }
 
 impl Output {
+    #[cfg(test)]
     pub fn new(
         output_format: OutputFormat,
         output_comment: Option<Vec<u8>>,
         pdf_font_map: Option<OsString>,
         pdf_japanese_cid_profile: Option<OsString>,
     ) -> Self {
+        Self::new_with_run_file_resolver(
+            output_format,
+            output_comment,
+            pdf_font_map,
+            pdf_japanese_cid_profile,
+            RunFileResolver::default(),
+        )
+    }
+
+    pub(crate) fn new_with_run_file_resolver(
+        output_format: OutputFormat,
+        output_comment: Option<Vec<u8>>,
+        pdf_font_map: Option<OsString>,
+        pdf_japanese_cid_profile: Option<OsString>,
+        file_resolver: RunFileResolver,
+    ) -> Self {
         Self {
             output_format,
             output_comment,
             pdf_font_map,
             pdf_japanese_cid_profile,
+            file_resolver,
             document: None,
             write_files: [
                 None, None, None, None, None, None, None, None, None, None, None, None, None, None,
@@ -146,6 +167,7 @@ impl Output {
                 self.output_comment.as_deref(),
                 self.pdf_font_map.as_deref(),
                 self.pdf_japanese_cid_profile.as_deref(),
+                &self.file_resolver,
                 scanner,
                 eqtb,
                 logger,
@@ -286,6 +308,7 @@ fn ensure_output_open(
     output_comment: Option<&[u8]>,
     pdf_font_map: Option<&OsStr>,
     pdf_japanese_cid_profile: Option<&OsStr>,
+    file_resolver: &RunFileResolver,
     scanner: &mut Scanner,
     eqtb: &mut Eqtb,
     logger: &mut Logger,
@@ -316,6 +339,7 @@ fn ensure_output_open(
                         output_file,
                         pdf_font_map,
                         pdf_japanese_cid_profile,
+                        file_resolver.clone(),
                         eqtb,
                     ) {
                         Ok(document) => OutputDocument::Pdf(document),
@@ -423,15 +447,13 @@ impl Document<PdfFileBackend> {
         pdf_file: BufWriter<File>,
         pdf_font_map: Option<&OsStr>,
         pdf_japanese_cid_profile: Option<&OsStr>,
+        file_resolver: RunFileResolver,
         eqtb: &Eqtb,
     ) -> Result<Self, String> {
         let type1_loader: Option<Box<dyn Type1ResourceLoader>> = match pdf_font_map {
             Some(map_name) => Some(Box::new(
-                FontResourceLoader::with_map(
-                    KpsewhichResolver::default(),
-                    LogicalFileName::from(map_name),
-                )
-                .map_err(|error| format!("PDF font map initialization failed: {error}"))?,
+                FontResourceLoader::with_map(file_resolver, LogicalFileName::from(map_name))
+                    .map_err(|error| format!("PDF font map initialization failed: {error}"))?,
             )),
             None => None,
         };
@@ -1382,5 +1404,115 @@ pub fn open_write_file(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod run_file_resolver_tests {
+    use super::{Document, Output, PdfFileBackend};
+    use crate::eqtb::Eqtb;
+    use crate::file_search::{
+        CommandExecutor, CommandOutput, FileKind, KpsewhichResolver, ResolverOptions,
+        RunFileResolver,
+    };
+    use crate::input::Scanner;
+    use crate::run_options::OutputFormat;
+    use std::cell::Cell;
+    use std::collections::VecDeque;
+    use std::ffi::{OsStr, OsString};
+    use std::fs::{self, File};
+    use std::io::{self, BufWriter};
+    use std::path::{Path, PathBuf};
+    use std::rc::Rc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct FakeExecutor {
+        calls: Rc<Cell<usize>>,
+        responses: VecDeque<io::Result<CommandOutput>>,
+    }
+
+    impl CommandExecutor for FakeExecutor {
+        fn execute(
+            &mut self,
+            _program: &OsStr,
+            _arguments: &[OsString],
+        ) -> io::Result<CommandOutput> {
+            self.calls.set(self.calls.get() + 1);
+            self.responses
+                .pop_front()
+                .expect("合成したkpsewhich応答が足りない")
+        }
+    }
+
+    fn unique_directory() -> PathBuf {
+        static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
+        let directory = std::env::temp_dir().join(format!(
+            "rtex-shared-output-resolver-{}-{}",
+            std::process::id(),
+            NEXT_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&directory).unwrap();
+        directory
+    }
+
+    fn success(path: &Path) -> io::Result<CommandOutput> {
+        let mut stdout = path.as_os_str().as_encoded_bytes().to_vec();
+        stdout.extend_from_slice(b"\r\n");
+        Ok(CommandOutput {
+            code: Some(0),
+            stdout,
+            stderr: Vec::new(),
+        })
+    }
+
+    #[test]
+    fn scannerでwarmにしたfont_map_cacheをpdf_loaderも使う() {
+        let directory = unique_directory();
+        let map_path = directory.join("共有.map");
+        let pdf_path = directory.join("output.pdf");
+        fs::write(&map_path, b"% empty map\n").unwrap();
+        let logical_map = OsString::from(format!(
+            "shared-map-{}-{}.map",
+            std::process::id(),
+            directory.file_name().unwrap().to_string_lossy()
+        ));
+        let calls = Rc::new(Cell::new(0));
+        let executor = FakeExecutor {
+            calls: Rc::clone(&calls),
+            responses: [success(&map_path)].into_iter().collect(),
+        };
+        let run_resolver =
+            RunFileResolver::new(KpsewhichResolver::new(ResolverOptions::default(), executor));
+        let mut scanner = Scanner::new_with_run_file_resolver(Vec::new(), 0, run_resolver.clone());
+        let output = Output::new_with_run_file_resolver(
+            OutputFormat::Pdf,
+            None,
+            Some(logical_map.clone()),
+            None,
+            run_resolver,
+        );
+
+        assert_eq!(
+            scanner
+                .resolve_file_path(FileKind::FontMap, Path::new(&logical_map))
+                .unwrap(),
+            Some(map_path.clone())
+        );
+        let pdf_file = BufWriter::new(File::create(&pdf_path).unwrap());
+        let document = Document::<PdfFileBackend>::create_pdf(
+            pdf_path.clone().into_os_string(),
+            pdf_file,
+            output.pdf_font_map.as_deref(),
+            output.pdf_japanese_cid_profile.as_deref(),
+            output.file_resolver.clone(),
+            &Eqtb::new(),
+        )
+        .expect("Scannerと同じresolver cacheからPDF font mapを初期化する");
+        document.finish();
+        assert_eq!(calls.get(), 1, "PDF用に別resolverを生成して再照会しない");
+
+        fs::remove_file(map_path).unwrap();
+        fs::remove_file(pdf_path).unwrap();
+        fs::remove_dir(directory).unwrap();
     }
 }

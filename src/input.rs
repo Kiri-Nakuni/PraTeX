@@ -24,9 +24,7 @@ use crate::eqtb::{
     MAX_REGISTER_INDEX,
 };
 use crate::error::fatal_error;
-use crate::file_search::{
-    FileKind, FileResolver, KpsewhichResolver, LogicalFileName, ResolveError,
-};
+use crate::file_search::{FileKind, FileResolver, LogicalFileName, ResolveError, RunFileResolver};
 use crate::integer::{Integer, IntegerExt};
 use crate::logger::Logger;
 use crate::macros::{show_macro_def, Macro};
@@ -105,7 +103,7 @@ pub struct Scanner {
 
     /// A run-local file resolver. Its positive and negative kpsewhich cache must not leak
     /// between TeX runs, whose environment and working directory may differ.
-    file_resolver: Box<dyn FileResolver>,
+    file_resolver: RunFileResolver,
 }
 
 /// The ScannerStatus is used to catch errors caused by missing opening or
@@ -138,8 +136,21 @@ enum LongState {
 
 impl Scanner {
     /// See 331.
+    #[cfg(test)]
     #[inline]
     pub fn new(first_line: Vec<u8>, first_non_space_pos: usize) -> Self {
+        Self::new_with_run_file_resolver(
+            first_line,
+            first_non_space_pos,
+            RunFileResolver::default(),
+        )
+    }
+
+    pub(crate) fn new_with_run_file_resolver(
+        first_line: Vec<u8>,
+        first_non_space_pos: usize,
+        file_resolver: RunFileResolver,
+    ) -> Self {
         Self {
             input_stack: InputStack::new(first_line, first_non_space_pos),
             align_state: 1_000_000,
@@ -171,7 +182,7 @@ impl Scanner {
 
             after_token: None,
 
-            file_resolver: Box::new(KpsewhichResolver::default()),
+            file_resolver,
         }
     }
 
@@ -181,9 +192,11 @@ impl Scanner {
         first_non_space_pos: usize,
         file_resolver: Box<dyn FileResolver>,
     ) -> Self {
-        let mut scanner = Self::new(first_line, first_non_space_pos);
-        scanner.file_resolver = file_resolver;
-        scanner
+        Self::new_with_run_file_resolver(
+            first_line,
+            first_non_space_pos,
+            RunFileResolver::from_boxed(file_resolver),
+        )
     }
 
     /// Resolve a logical file name without replacing that name in TeX's persistent state.

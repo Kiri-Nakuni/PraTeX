@@ -8,11 +8,12 @@ mod lsr;
 mod search_path;
 mod wsl;
 
-use self::lsr::LsRDatabase;
+use self::lsr::{AliasMatch, LsRDatabase};
 use self::search_path::{SearchPath, SearchPathElement};
 use self::wsl::{
     linux_absolute_path_to_unc, parse_wsl_root_output, translate_linux_search_path, WslContext,
 };
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::fmt;
@@ -21,6 +22,7 @@ use std::hash::Hash;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::rc::Rc;
 
 /// kpathsea の探索種別と一対一に対応させる、rtex 側の用途。
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -217,6 +219,50 @@ pub(crate) trait FileResolver {
         kind: FileKind,
         logical_name: &LogicalFileName,
     ) -> Result<Option<ResolvedFile>, ResolveError>;
+}
+
+/// 一つのTeX runに属するresolverを、Scannerと遅延生成される出力backendで共有するhandle。
+///
+/// PraTeX coreは単threadであり、各`resolve`は同期的に完了する。resolver本体をprocess globalや
+/// thread localへ置かず、runの所有者がこのhandleを一度だけ作って必要なconsumerへcloneする。
+/// cloneしてもpositive/negative cache、`ls-R` catalog、探索path、native/WSL backend選択は
+/// 同じresolver instanceに残る。
+#[derive(Clone)]
+pub(crate) struct RunFileResolver {
+    inner: Rc<RefCell<Box<dyn FileResolver>>>,
+}
+
+impl RunFileResolver {
+    pub(crate) fn new<R>(resolver: R) -> Self
+    where
+        R: FileResolver + 'static,
+    {
+        Self {
+            inner: Rc::new(RefCell::new(Box::new(resolver))),
+        }
+    }
+
+    pub(crate) fn from_boxed(resolver: Box<dyn FileResolver>) -> Self {
+        Self {
+            inner: Rc::new(RefCell::new(resolver)),
+        }
+    }
+}
+
+impl Default for RunFileResolver {
+    fn default() -> Self {
+        Self::new(KpsewhichResolver::default())
+    }
+}
+
+impl FileResolver for RunFileResolver {
+    fn resolve(
+        &mut self,
+        kind: FileKind,
+        logical_name: &LogicalFileName,
+    ) -> Result<Option<ResolvedFile>, ResolveError> {
+        self.inner.borrow_mut().resolve(kind, logical_name)
+    }
 }
 
 /// `Command::output` から探索層が必要とする情報だけを切り出した値。
@@ -616,10 +662,12 @@ impl<E: CommandExecutor> KpsewhichResolver<E> {
 
     fn probe_filename_database(&mut self, query: &Query) -> Option<PathBuf> {
         self.ensure_database_catalog();
+        if matches!(self.database_catalog, DatabaseCatalog::Ready(_)) {
+            self.ensure_search_path(query.kind);
+        }
         if !matches!(self.database_catalog, DatabaseCatalog::Ready(_)) {
             return None;
         }
-        self.ensure_search_path(query.kind);
         let search_path = self.search_paths.get(&query.kind)?.as_ref()?;
         let DatabaseCatalog::Ready(databases) = &self.database_catalog else {
             return None;
@@ -697,6 +745,11 @@ impl<E: CommandExecutor> KpsewhichResolver<E> {
         if self.search_paths.contains_key(&kind) {
             return;
         }
+        let search_path = self.query_search_path(kind);
+        self.search_paths.insert(kind, search_path);
+    }
+
+    fn query_search_path(&mut self, kind: FileKind) -> Option<SearchPath> {
         let mut arguments = vec![
             option_with_value("--progname=", &self.options.program_name),
             OsString::from(format!("--show-path={}", kind.kpsewhich_format())),
@@ -706,17 +759,15 @@ impl<E: CommandExecutor> KpsewhichResolver<E> {
         {
             arguments.push(OsString::from("--engine=rtex"));
         }
-        let search_path =
-            self.execute_kpsewhich(&arguments)
-                .ok()
-                .and_then(|executed| match executed.backend {
-                    ExecutedBackend::Native => parse_search_path_output(executed.output),
-                    ExecutedBackend::Wsl => parse_wsl_search_path_output(
-                        executed.output,
-                        self.wsl_context().expect("WSL backend without a context"),
-                    ),
-                });
-        self.search_paths.insert(kind, search_path);
+        self.execute_kpsewhich(&arguments)
+            .ok()
+            .and_then(|executed| match executed.backend {
+                ExecutedBackend::Native => parse_search_path_output(executed.output),
+                ExecutedBackend::Wsl => parse_wsl_search_path_output(
+                    executed.output,
+                    self.wsl_context().expect("WSL backend without a context"),
+                ),
+            })
     }
 }
 
@@ -782,7 +833,7 @@ fn choose_filename_database_hit(
             .collect::<Vec<_>>();
         if covered_databases
             .iter()
-            .any(|&index| databases[index].may_have_aliases())
+            .any(|&index| !matches!(databases[index].alias_match(logical_name), AliasMatch::No))
         {
             return None;
         }
@@ -1253,6 +1304,10 @@ mod tests {
             ResolverOptions::default().with_filename_database_search(
                 FilenameDatabaseSearch::Explicit(vec![self.database_path.clone()]),
             )
+        }
+
+        fn write_aliases(&self, bytes: &[u8]) {
+            fs::write(self.root.join("aliases"), bytes).unwrap();
         }
     }
 
@@ -2214,6 +2269,80 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(resolved.source(), ResolutionSource::FilenameDatabase);
+        assert_eq!(fake.invocation_count(), 1);
+    }
+
+    #[test]
+    fn 無関係なaliasは後続の一意なdatabase候補を妨げない() {
+        let fixture = DatabaseFixture::new(
+            "unrelated-alias",
+            b"./tex/first:\nreal.tex\n./tex/second:\ntarget.tex\n",
+            &["tex/first/real.tex", "tex/second/target.tex"],
+        );
+        fixture.write_aliases(b"real.tex unrelated.tex\n");
+        let fake = FakeExecutor::with_responses([search_path_success([
+            database_only_recursive(&fixture.root.join("tex/first")),
+            database_only_recursive(&fixture.root.join("tex/second")),
+        ])]);
+        let mut resolver = KpsewhichResolver::new(fixture.options(), fake.clone());
+
+        let resolved = resolver
+            .resolve(FileKind::Tex, &LogicalFileName::new("target.tex"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            resolved.physical_path(),
+            fixture.root.join("tex/second/target.tex")
+        );
+        assert_eq!(resolved.source(), ResolutionSource::FilenameDatabase);
+        assert_eq!(fake.invocation_count(), 1);
+    }
+
+    #[test]
+    fn 一致するaliasは直接名のshadowingをnativeに推測せずkpsewhichへ戻す() {
+        let fixture = DatabaseFixture::new(
+            "matching-alias",
+            b"./tex/first:\nreal.tex\n./tex/second:\nalias.tex\n",
+            &["tex/first/real.tex", "tex/second/alias.tex"],
+        );
+        fixture.write_aliases(b"real.tex alias.tex\n");
+        let direct_alias = fixture.root.join("tex/second/alias.tex");
+        let fake = FakeExecutor::with_responses([
+            search_path_success([
+                database_only_recursive(&fixture.root.join("tex/first")),
+                database_only_recursive(&fixture.root.join("tex/second")),
+            ]),
+            success_os(direct_alias.as_os_str()),
+        ]);
+        let mut resolver = KpsewhichResolver::new(fixture.options(), fake.clone());
+
+        let resolved = resolver
+            .resolve(FileKind::Tex, &LogicalFileName::new("alias.tex"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(resolved.physical_path(), direct_alias);
+        assert_eq!(resolved.source(), ResolutionSource::Kpsewhich);
+        assert_eq!(fake.invocation_count(), 2);
+    }
+
+    #[test]
+    fn 壊れたaliasesがあればdatabase全体を使わずkpsewhichへ戻す() {
+        let fixture = DatabaseFixture::new(
+            "malformed-alias",
+            b"./tex:\ntarget.tex\n",
+            &["tex/target.tex"],
+        );
+        fixture.write_aliases(b"one-word\n");
+        let fallback = fixture.root.join("chosen-by-kpsewhich.tex");
+        let fake = FakeExecutor::with_responses([success_os(fallback.as_os_str())]);
+        let mut resolver = KpsewhichResolver::new(fixture.options(), fake.clone());
+
+        let resolved = resolver
+            .resolve(FileKind::Tex, &LogicalFileName::new("target.tex"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(resolved.physical_path(), fallback);
+        assert_eq!(resolved.source(), ResolutionSource::Kpsewhich);
         assert_eq!(fake.invocation_count(), 1);
     }
 
