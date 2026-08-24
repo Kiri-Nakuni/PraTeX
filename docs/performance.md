@@ -121,6 +121,13 @@ PraTeXのASCII `latex.fmt`は57,221,231 byte、公式gzip `uplatex.fmt`は3,641,
 decode中のtrie検証統合とする。counter、観測上の関数対応、clean-room限界は
 [`benchmarks/uptex-binary-blackbox-20260825.md`](benchmarks/uptex-binary-blackbox-20260825.md)を一次資料にする。
 
+最初に試した行辞書＋可変長ID列は、fmtを57.2 MBから27.2 MBへ縮め、命令数を約17.5%減らしたが、
+空実行20組の交互A/Bでcache missを増やしwallを15.0%悪化させたため棄却した。engine差分は残さず、
+生counterと不採用理由だけを
+[`benchmarks/fmt-line-dictionary-rejected-20260825.md`](benchmarks/fmt-line-dictionary-rejected-20260825.md)
+へ固定した。次のA/Bでは全semantic text parseを残す圧縮を避け、loaded runに不要な`PreTrie`をwireから
+除く型付き`HyphenRuntimeV1`を最小sliceにする。
+
 ## 現在の一頁budget（Linux perf、`82fa3a2`）
 
 TeX Live 2026、同じ一頁入力を15回測った既知の分解は次である。これは機能完成後の

@@ -1,0 +1,11 @@
+kind	path_or_identity	sha256	bytes_or_value
+repository_commit	PraTeX source before experimental diff	-	91f5335
+candidate_binary	target/release/pratex	4eb5355bd47c71275b8c6bf64ad5247eaeabd92d1ba47688422e1a344932c5f2	-
+text_format	ASCII latex.fmt	4626e02f3d9f4cd710b299de0bab8a9194d1978dc17ddd6ad2cbfcd5be641465	57221231
+dictionary_format	experimental latex.fmt	4f77d4efae2b9b1105fa2c3ddc7b241eec5d20afcbfa34001b4e0356a65578a6	27228893
+fixture	stdin	-	\\end
+cpu_affinity	Linux taskset	-	CPU_0
+warmup	per format before alternation	-	3
+measurement	paired text then dictionary	-	20
+counter_tool	perf stat	-	task-clock,instructions,cache-misses
+artifact_root	temporary, not repository-owned	-	/tmp/pratex-fmt-probe.OdWphihD
