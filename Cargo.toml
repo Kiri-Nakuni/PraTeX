@@ -17,8 +17,8 @@ default = ["stats", "system-kpathsea"]
 # Enables statistics
 stats = []
 
-# Native builds try the linked, in-process Kpathsea adapter first. WASM
-# targets do not compile the dependency and keep the host resolver boundary.
+# Linux builds try the linked, in-process Kpathsea adapter first. Other
+# targets do not compile the dependency and keep the existing resolver boundary.
 system-kpathsea = ["dep:kpathsea"]
 
 # For TRIP testing
@@ -31,7 +31,7 @@ chrono = { version = "0.4.45", default-features = false, features = ["std"] }
 [target.'cfg(any(unix, windows))'.dependencies]
 chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 
-[target.'cfg(all(unix, not(target_family = "wasm")))'.dependencies]
+[target.'cfg(target_os = "linux")'.dependencies]
 kpathsea = { path = "third_party/rust-kpathsea/kpathsea", optional = true, default-features = false, features = ["in-process-only-caller"] }
 
 [[bin]]

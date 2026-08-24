@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
     [string] $Target = 'x86_64-unknown-linux-gnu',
-    [string] $WasmTarget = 'wasm32-wasip1'
+    [string] $WasmTarget = 'wasm32-wasip1',
+    [string] $OtherUnixTarget = 'aarch64-apple-darwin'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -64,17 +65,22 @@ Assert-Features `
     -Required @('system_probe') `
     -Forbidden @('default', 'build_from_source')
 
-$wasmMetadata = Get-CargoMetadata $WasmTarget
-$wasmKpathseaIds = @(
-    $wasmMetadata.packages |
+function Assert-KpathseaAbsent([string] $Platform) {
+    $platformMetadata = Get-CargoMetadata $Platform
+    $kpathseaIds = @(
+        $platformMetadata.packages |
         Where-Object { $_.name -eq 'kpathsea' -or $_.name -eq 'kpathsea_sys' } |
         ForEach-Object { $_.id }
-)
-$wasmResolvedKpathsea = @(
-    $wasmMetadata.resolve.nodes | Where-Object { $_.id -in $wasmKpathseaIds }
-)
-if ($wasmResolvedKpathsea.Count -ne 0) {
-    throw "Kpathsea must be absent from the $WasmTarget resolved graph."
+    )
+    $resolvedKpathsea = @(
+        $platformMetadata.resolve.nodes | Where-Object { $_.id -in $kpathseaIds }
+    )
+    if ($resolvedKpathsea.Count -ne 0) {
+        throw "Kpathsea must be absent from the $Platform resolved graph."
+    }
 }
 
-Write-Output "Kpathsea feature contract verified (native: $Target; WASM: $WasmTarget)."
+Assert-KpathseaAbsent $WasmTarget
+Assert-KpathseaAbsent $OtherUnixTarget
+
+Write-Output "Kpathsea feature contract verified (Linux: $Target; excluded: $WasmTarget, $OtherUnixTarget)."

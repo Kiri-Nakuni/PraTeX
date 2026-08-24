@@ -1,6 +1,6 @@
 //! TeX の論理ファイル名を、実際に開く物理パスへ解決する。
 //!
-//! Unix nativeでは監査済みRust wrapperを介したin-process Kpathseaを先に試し、
+//! Linuxでは監査済みRust wrapperを介したin-process Kpathseaを先に試し、
 //! library不在またはpath encoding非対応の時だけ既存のsafe resolverへ戻る。
 //! PraTeX自身のこの層はsafe Rustのままで、問い合わせに見せた名前も`OsString`のまま保つ。
 

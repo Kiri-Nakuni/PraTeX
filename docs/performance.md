@@ -116,13 +116,13 @@ pinはTeX Live 2025/Kpathsea 6.4.1であり、TeX Live 2026 oracleと版が一�
 
 Linux-first checkpointでは、これらを監査済みforkとPraTeX側のsafe adapterへ接続した。依存は
 `default-features=false`で`in-process-only-caller`だけを明示し、そこから`system-probe`を解決してcrate側の
-`subprocess-backend`をcompileしない。Unix nativeでlinkできた時だけprogram名`pratex`、typed format、
+`subprocess-backend`をcompileしない。Linuxでlinkできた時だけprogram名`pratex`、typed format、
 native `OsStr`/`PathBuf`を一run一handleへ渡す。linked hitは通常fileとして再確認し、linked missは
 authoritativeとする。library不在とpath encoding非対応だけが、既存safe resolverを遅延利用する。
 外部fmtは`--engine=rtex`の意味を保つためin-processへ渡さない。
 
-依存はUnix non-WASM targetだけに置く。WindowsはC返値のallocator/CRT対応を実測できていないため
-typed fallbackのままで性能改善はなく、WASMは依存をcompileしない。feature treeは
+依存はLinux targetだけに置く。WindowsはC返値のallocator/CRT対応を実測できていないため
+typed fallbackのままで性能改善はなく、WASMとその他Unixは依存をcompileしない。feature treeは
 `tools/check-kpathsea-features.ps1`で固定する。Rust wrapperのFFI `unsafe`はvendor内へ隔離し、
 PraTeXの`src`はsafe Rustだけである。Linuxでsystem libraryをlinkしたend-to-end、子process 0、
 hit/miss、DVI意味の再測定は未実施なので、このcheckpointを1.2倍gate達成とは数えない。

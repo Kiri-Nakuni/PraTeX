@@ -45,10 +45,11 @@ The vendored wrapper necessarily contains `unsafe` at its audited FFI edge:
 - `free` of those result buffers on Unix, in the same process/CRT;
 - `Send` for the owned, non-`Sync` handle.
 
-PraTeX keeps this dependency to Unix non-WASM builds and owns one handle in a
+PraTeX keeps this dependency to Linux builds and owns one handle in a
 single-threaded run-local resolver. Windows linking is deliberately disabled
-until an allocator-matching release API is measured. PraTeX production
-`src/` contains no `unsafe` for this integration.
+until an allocator-matching release API is measured; other Unix targets remain
+on PraTeX's safe resolver until their ABI is audited. PraTeX production `src/`
+contains no `unsafe` for this integration.
 
 ## Consumer feature contract
 

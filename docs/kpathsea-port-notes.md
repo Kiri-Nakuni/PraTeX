@@ -16,7 +16,7 @@ libraryが使えない環境は同じsafe resolverへ戻す。
 2. formatがlocal限定policyなら、外部探索を行わず不在を返す。
 3. 外部formatは`--engine=rtex`を必要とするため、program名しか渡せないin-process APIへ
    意味を読み替えず、従来のsafe resolverへ渡す。
-4. その他の外部探索は、Unix nativeでsystem `libkpathsea`へlinkできた時だけ、一runに一個の
+4. その他の外部探索は、Linuxでsystem `libkpathsea`へlinkできた時だけ、一runに一個の
    handleへprogram名`pratex`、用途別format、`must_exist=true`を渡す。
 5. linked hitは通常fileであることを再確認して採用し、linked missはauthoritativeな不在として
    safe resolverへ戻さない。library不在またはpath encoding非対応だけをtyped fallbackにする。
@@ -35,9 +35,9 @@ PraTeXは`kpathsea` 0.3.4と`kpathsea_sys` 0.2.3を基点にした監査済みfo
 system libraryを発見できなかったbuildでもRust crateが別の`kpsewhich` subprocessを構築することは
 ない。typedな`InProcessUnavailable`を受けて初めてPraTeX自身のsafe resolverを遅延利用する。
 
-依存は`cfg(all(unix, not(target_family = "wasm")))`のoptional target dependencyである。
+依存は`cfg(target_os = "linux")`のoptional target dependencyである。
 WindowsはC返値とCRT allocatorの対応を実測できていないので、このcheckpointでは依存をcompileせず
-typed fallbackに固定する。WASMも依存をcompileしない。この二環境の探索性能は改善しておらず、
+typed fallbackに固定する。WASMとその他Unixも依存をcompileしない。これらの環境の探索性能は改善しておらず、
 full upstream APIやWindows fast pathの完成を意味しない。Linuxでもsystem libraryが共有・静的libraryを
 提供しなければsafe resolverのままである。
 

@@ -294,11 +294,11 @@ control-sequence区間15.79%、fmt全体10.73%、wall 5.36%を短縮した。DVI
   捨てない。公式DB発見と最初の`--show-path=tex`による最低2 processはまだ残り、実Linux再測定も未実施。
   用途pathの祖先に偶然ある`ls-R`へ昇格するcold bootstrap案は`TEXMFDBS`意味を破るため採用しない。
   Rust `kpathsea` 0.3.4 / `kpathsea_sys` 0.2.3を基点に、明示`pratex` program名、非UTF-8
-  `PathBuf`、UnixのC返値解放、typed format、subprocess禁止constructorを持つ監査済みforkを接続した。
-  dependencyはUnix non-WASMだけで、`default-features=false`、`in-process-only-caller`を固定し、
+  `PathBuf`、LinuxのC返値解放、typed format、subprocess禁止constructorを持つ監査済みforkを接続した。
+  dependencyはLinuxだけで、`default-features=false`、`in-process-only-caller`を固定し、
   そこから`system-probe`を解決する。一run一handleのlinked hit/missを先に使い、
   library不在とencoding非対応だけ既存safe resolverへ戻す。外部fmtは`--engine=rtex`を保つsafe経路である。
-  Windowsはallocator/CRT境界未実測のためtyped fallbackで性能改善なし、WASMはdependencyをcompileしない。
+  Windowsはallocator/CRT境界未実測のためtyped fallbackで性能改善なし、WASMとその他Unixもdependencyをcompileしない。
   Linuxのsystem library link、子process 0、DVI意味とend-to-end性能はまだ実機未検証である。
 - 名前空間はPhase 0--7済み。Phase 8のTRIPとalignment再利用検証が残る。
 

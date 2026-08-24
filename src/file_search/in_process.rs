@@ -84,14 +84,14 @@ fn format_for_kind(kind: FileKind) -> KpathseaFormat {
 
 /// 一TeX runにつき一個だけ所有するlinked Kpathsea handle。
 ///
-/// Windowsのnarrow pathとallocator境界は未検証なので、このcheckpointでは依存自体を
-/// Unix nativeだけへ閉じ、Windows/WASMは明示的にsafe resolverへ戻す。
+/// 監査対象はLinuxのsystem library境界だけである。このcheckpointでは依存自体を
+/// Linuxへ閉じ、Windows、WASM、その他Unixは明示的にsafe resolverへ戻す。
 pub(super) struct KpathseaFastPath {
-    #[cfg(all(feature = "system-kpathsea", unix, not(target_family = "wasm")))]
+    #[cfg(all(feature = "system-kpathsea", target_os = "linux"))]
     state: NativeState,
 }
 
-#[cfg(all(feature = "system-kpathsea", unix, not(target_family = "wasm")))]
+#[cfg(all(feature = "system-kpathsea", target_os = "linux"))]
 enum NativeState {
     Ready(kpathsea::Kpaths),
     UseSafeResolver(FastPathFallback),
@@ -100,7 +100,7 @@ enum NativeState {
 
 impl KpathseaFastPath {
     fn new() -> Self {
-        #[cfg(all(feature = "system-kpathsea", unix, not(target_family = "wasm")))]
+        #[cfg(all(feature = "system-kpathsea", target_os = "linux"))]
         {
             let state = match kpathsea::Kpaths::new_in_process_with_program_name("pratex") {
                 Ok(kpaths) => NativeState::Ready(kpaths),
@@ -113,7 +113,7 @@ impl KpathseaFastPath {
             return Self { state };
         }
 
-        #[cfg(not(all(feature = "system-kpathsea", unix, not(target_family = "wasm"))))]
+        #[cfg(not(all(feature = "system-kpathsea", target_os = "linux")))]
         Self {}
     }
 }
@@ -126,7 +126,7 @@ impl Default for KpathseaFastPath {
 
 impl FastFileResolver for KpathseaFastPath {
     fn resolve(&mut self, kind: FileKind, logical_name: &LogicalFileName) -> FastPathLookup {
-        #[cfg(all(feature = "system-kpathsea", unix, not(target_family = "wasm")))]
+        #[cfg(all(feature = "system-kpathsea", target_os = "linux"))]
         {
             return match &self.state {
                 NativeState::Ready(kpaths) => match kpaths.find_file_path_with_format(
@@ -143,7 +143,7 @@ impl FastFileResolver for KpathseaFastPath {
             };
         }
 
-        #[cfg(not(all(feature = "system-kpathsea", unix, not(target_family = "wasm"))))]
+        #[cfg(not(all(feature = "system-kpathsea", target_os = "linux")))]
         {
             let _ = (kind, logical_name);
             FastPathLookup::UseSafeResolver(FastPathFallback::Unavailable)
@@ -151,7 +151,7 @@ impl FastFileResolver for KpathseaFastPath {
     }
 }
 
-#[cfg(all(feature = "system-kpathsea", unix, not(target_family = "wasm")))]
+#[cfg(all(feature = "system-kpathsea", target_os = "linux"))]
 fn classify_path_error(error: kpathsea::PathError) -> FastPathLookup {
     match error {
         kpathsea::PathError::InProcessUnavailable => {

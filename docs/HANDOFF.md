@@ -472,10 +472,11 @@ WSL成功の意味は変更しない。
 1. 利用者Linux profileで9回・1.372秒を占めた`kpsewhich`を最優先にする。resolver専用枝では
    Scanner/PDFをrun-local共有し、無関係aliasによるqueryごとのone-shotを解消した。続くLinux-first
    checkpointで、監査済みRust Kpathsea forkのsubprocess禁止constructorを一run一instanceで接続した。
-   Unixでsystem libraryへlinkできた時だけ明示`pratex`、非UTF-8 `PathBuf`、C返値解放、typed formatの
+   Linuxでsystem libraryへlinkできた時だけ明示`pratex`、非UTF-8 `PathBuf`、C返値解放、typed formatの
    fast pathを使い、library不在とencoding非対応だけ既存safe resolverへ戻す。外部fmtは`--engine=rtex`
    意味を保つためsafe経路のままである。Windowsはallocator/CRT境界未実測なのでtyped fallback、WASMは
-   dependencyなしである。次はLinuxで実linkし、子process 0、hit/miss、DVI意味、end-to-endを再測定する。
+   dependencyなしであり、その他Unixも監査完了まではsafe resolverへ戻す。次はLinuxで実linkし、
+   子process 0、hit/miss、DVI意味、end-to-endを再測定する。
 2. 接続済みmain-loop JFM/禁則をbox/disc・残るcommand境界へ広げ、discの枝別意味を完成する。
 3. `\tfont`と縦組metric/node/outputを追加し、spacingと禁則を横組から縦組へ広げる。
 4. discard、`\showgroups` / `\showifs`、tracing等のe-TeX残件とTeX--XeTのLR組版を進める。
