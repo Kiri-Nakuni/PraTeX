@@ -141,3 +141,25 @@ log / terminal transcript には、e-TeX拡張レジスタの範囲、追加単�
 したがって、今後のgateは実時刻を含む既定raw hashではなく、独立record比較または明示的に同じ
 output commentへ固定したbyte比較を使う。logのmemory表示、拡張register、追加単位、診断文言・順序の
 差は今回も残り、DVI意味一致とは別に`different`として扱う。
+
+### `13d1ab1` macro引数arena checkpoint
+
+同じ隔離rootと検証済み公式資材を再利用し、`CARGO_BUILD_JOBS=1`でtrip featureを再buildした。
+実行file SHA-256は`71dac48379842dc7b21735eaa0a20e565c7b11d432ddc22f4e726ef9d477f51c`である。
+
+- manifestの十資材、archive SHA-256
+  `1d419b1bd7efa575ead0174e47d542a0099a73e0e4deb5031980d109e8c3c645`を再検証した。
+- PLtoTF→TFtoPLのTFMとPLは公式fileへbyte一致した。
+- Stage 1 / Stage 2はともにexit 0、`tripos.tex`はbyte一致、`8terminal.tex`は0 byteだった。
+- 実時刻commentを持つ2924-byte DVIのSHA-256は
+  `c21b890625558c40e7515de7142febde0a410f120f62aeb67fb34172706552bc`。
+- 独立decoderは公式・PraTeX双方を999 records、16 pages、最大stack 17として復号し、BOP逆参照、
+  post、post_post、push/popを検証した。comment、pointer、paddingを除く意味差は0 recordsだった。
+- `-output-comment= TeX output 1776.07.04:1200`の対照runは公式DVIと2920 byteすべて一致し、
+  SHA-256は双方`09802695e330d34acec9192c15debe2de65e34fcbd3f947db9c8924240b1fe0a`だった。
+  TeX Live 2026 DVItype出力もtool版表示の一行だけを揃えると公式`trip.typ`へbyte一致した。
+
+この再build中にpath dependencyのVaak担当枝が更新され、追跡済みsourceにも未commit差分があった。
+従ってVaak commitだけで当該binaryを同定せず、上のPraTeX実行file hashと`13d1ab1`を記録する。
+TRIPの意味合否は生成済みbinaryに対して完結しているが、配布再現性gateではcleanなVaak checkpointを
+別途固定する。

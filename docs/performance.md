@@ -682,3 +682,55 @@ baseline binary SHA-256は
 [`control-sequence-direct-cache-rejected-20260824.tsv`](benchmarks/control-sequence-direct-cache-rejected-20260824.tsv)
 へ置いた。headerなし元TSVのSHA-256は
 `204d4b85a4e9501c8139273df3a64bdd2baa217772cc1c12ef19f6aa175881ef`である。
+
+## macro引数arenaと未参照引数の保持省略（2026-08-25）
+
+利用者のLinux profileで`scan_parameters`、`scan_a_parameter`、`Vec::push`、allocatorが次の支配候補に
+見えたため、`13d1ab1`ではmacro引数を引数ごとの`Rc<Vec<Token>>`へ分けず、一呼出し一個の
+`MacroArguments`へ集約した。token本体は一つの`Vec`、最大九引数の終端は固定配列で持ち、各`#n`
+readerは同じ`Rc`と引数番号を共有しながら独立した読取り位置を持つ。外側braceの除去、空引数、
+重なるdelimiter、同じ引数の複数展開、tracing、runaway診断は引数rangeだけを見る。
+
+置換本文から参照されない引数もTeXの走査・delimiter照合・診断は行うが、走査直後にscratch末尾を
+戻して保持しない。全引数が未参照ならarena用`Rc`を作らず、scannerの空`Vec`容量を次のmacro走査へ
+再利用する。無引数macroは置換本文の参照mask自体を走査しない。この経路は空の置換本文だけへの
+fixture特化ではなく、参照される引数と未参照引数が混ざるmacroにも同じ型境界を使う。
+
+診断用入力は`tools/fixtures/samply-engine-hotpath.tex`と同じ8引数macroを100,000回呼び、最後に
+同一の一頁DVIをshipoutするINITEX fixtureである。入力SHA-256は
+`6ddd791439e6c83f19a79327b4538b309e4eaff4ccde94eb0d7d601d4998173b`。TeX Live 2026の同じtree、
+release LTO、CPU 0固定、`SOURCE_DATE_EPOCH=1709210096`、4回warm-up後31組を奇偶で逆順にした。
+PraTeXと公式upTeXの全70 runは同じDVI SHA-256
+`518000c677d9c7a78cf5e4e6c533345bc48129e1179625bcf84c0f4c3390ae62`を生成した。
+
+| 実装段階 | PraTeX wall平均 / 中央値 | upTeX wall平均 / 中央値 | paired比 幾何平均 / 中央値 |
+|---|---:|---:|---:|
+| 変更前 | 1.567 / 1.550 s | 0.640 / 0.630 s | 2.454 / 2.483 |
+| 一共有buffer、開始・終端range | 1.009 / 0.980 s | 0.690 / 0.670 s | 1.462 / 1.475 |
+| 終端だけの固定range | 0.952 / 0.930 s | 0.684 / 0.650 s | 1.400 / 1.435 |
+| 未参照引数を保持しない | 0.760 / 0.750 s | 0.605 / 0.600 s | **1.257 / 1.267** |
+
+各段階のraw TSV SHA-256は順に`2c47163e8cab1bec9531eee76f066a06c4a8167231550d95e6490160e7061a55`、
+`3577c2175775e645af2e1d942ac81983c75a6c56c343fffb35c6033457896940`、
+`7d73c8bd9b54d57b493a432d766bcfd6ad3fb170e19f8fc67c0eeae46405a499`、
+`390d76940958009b906a261978e62ca2b27f91d603f3d3517ce063da6fe40ea9`である。最後の測定binaryは
+`858c1fc8b1c94e8cb62c45243b958adafcabf06f7ad7fcd6f10a67d3a7692772`。その後に加えた無引数macroの
+mask走査省略はこの8引数fixtureの実行経路を変えない。
+
+最終sourceを再buildしたbinary
+`1733817d508c23ba71cb91e6e375dc6e4c2b8a550c19d97d55e510ff05d890f8`でも31組を追測し、paired wall
+中央値比は1.259だった。ただし同時にVaak担当作業が走り、PraTeX/upTeX双方のwall中央値が
+0.92/0.82 sへ膨らむ外乱と大きなoutlierがあったため、この追測の平均や幾何平均は採否値に使わない。
+raw TSV SHA-256は`5051a6ab33d13489fb86ddea8ae775a55ab9662bbe9b947f05f097b5405c82e5`である。
+
+focused testはmacro走査7件が成功し、そのうち共有parameter source 1件も個別に再実行した。
+全releaseは922 passed、0 failed、
+11 ignored。公式CTAN TRIPも両段exit 0、`tripos.tex` byte一致、`8terminal.tex` 0 byte、
+PLtoTF→TFtoPL byte一致である。独立decoderは公式・PraTeXとも999 records、16 pages、最大stack 17、
+意味差0を確認し、固定commentでは公式DVIと2920 byteすべて一致した。
+
+これは探索・fmt・LaTeX・JFM・page buildを含まない狭いmacro診断caseであり、roadmap再開条件の
+文書end-to-end比1.3未満を単独で満たしたとは扱わない。`../vaak`も測定中にHEADとdirty差分が動いたため、
+上記binary hashを一次識別子とし、Vaak commitだけからの再現を主張しない。次は
+`docs/research/japanese-publishing/`の学術・小説fixture方針を反映した`lipsum`、日本語、和欧混植、
+禁則多用、100頁corpusを、upLaTeXとLuaLaTeXを含む同条件の文書gateとして測る。

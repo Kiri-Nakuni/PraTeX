@@ -21,16 +21,21 @@
 ## 枝と共有状態
 
 - 現在の統合・性能枝: `codex3/perf-integration`。`codex2/perf-resolver-index`の
-  `f414757`から分岐した。`89e1d25`まで`origin`と`github`の同名枝へpush済みである。
-- code checkpoint `a2765c7`で`cargo test --release --locked --no-fail-fast`は
-  **915 passed、0 failed、11 ignored**。plain欧文DVIの`origin/main` byte回帰も成功した。
+  `f414757`から分岐した。code checkpoint `13d1ab1`まで`origin`と`github`の同名枝へpush済みである。
+- 統合checkpoint `a2765c7`で`cargo test --release --locked --no-fail-fast`は
+  **915 passed、0 failed、11 ignored**。`13d1ab1`のmacro引数arena追加後は
+  **922 passed、0 failed、11 ignored**で、plain欧文DVIの`origin/main` byte回帰も維持した。
   `8fc3371`は検証連絡directory、`89e1d25`はAUTOCHECKDATABASEへの初回返答とVaak境界連絡を
   加えた文書commitであり、code checkpointを変えない。
-- `89e1d25`で公式CTAN TRIPを再実行した。両段exit 0、`tripos.tex` byte一致、
+- `13d1ab1`の実行fileで公式CTAN TRIPを再実行した。両段exit 0、`tripos.tex` byte一致、
   `8terminal.tex` 0 byte、PLtoTF→TFtoPL往復byte一致。DVItypeと独立decoderは双方999 records、
   16 pages、最大stack 17、preamble comment・file pointer・paddingを除く意味差0である。
   公式commentを明示した対照runは公式DVIとbyte一致した。既定raw DVI hashは実時刻で変わるため
   hard gateへ流用しない。隔離artifactは`/tmp/pratex-trip-20260825.iNah6roG`に残した。
+- `13d1ab1`はmacro呼出しの引数を一個の共有arenaへまとめ、置換本文で未参照の引数を
+  走査・tracing・runaway診断後に保持しない。8引数を100,000回呼ぶ狭いINITEX fixtureでは、
+  31交互標本のPraTeX/upTeX paired wall幾何平均比を2.454から1.257へ短縮し、全DVIがbyte一致した。
+  文書組版、fmt、探索、JFMを含まないため、この値だけでroadmap再開条件を達成したとは扱わない。
 - 現在枝へ統合済み:
   - vertical discard: `700973b` / `06a5b25` / `1a518cd`。`etex_vdiscards` 6件成功
   - run-local script spacing dispatcher: `58b9589` / `0e55c20`。
@@ -472,9 +477,16 @@ Claude `82fa3a2`のLinux perf分解:
 
 ## Vaakの現在地
 
-- Vaakの`codex2/pratex-embedding-api`（`4e40e4b`）で、top-level用の`HostLayout`、`PreparedProgram`、
+- Vaakの歴史的`codex2/pratex-embedding-api`（`4e40e4b`）で、top-level用の`HostLayout`、`PreparedProgram`、
   `EmbeddingRunner`を追加し、PraTeX bridgeを公開prepared APIへ移した。parse/check/type-check/compileと
   layout/schema照合はcache miss時だけで、runnerとhost値bufferを再利用する。
+- 2026-08-25のread-only観測では、Vaak担当者は`codex3/pratex-embedding-perf`の`36c28a0`で
+  再prepare・再検査と実行時間の分解を進めている。`src/embedding.rs`と`src/vm.rs`に未commit差分があり、
+  実験文書等も未追跡なので、PraTeXの正式な`directvaak`比較はcleanなpush済みcheckpointを待つ。
+  PraTeX側からVaakの作業木をcheckout、format、buildして競合させない。
+- AUTOCHECKDATABASEが必要とするUTF-8 JSON/JSONLのbounded read/write、逐次record、決定的serialize、
+  byte座標付きerrorをVaak標準libraryへ追加する依頼は
+  `docs/validation/AUTOCHECKDATABASE/to-vaak/20260825-010859-utf8-jsonl-standard-library-request.md`へ送付済み。
 - S-22のhost read/write/touched解析を`Ref`、`Freeze`、`MutMethod`まで直し、
   `HostBinding::supports_partial_writeback`でreadだけのbindingへ部分writeしない契約を固定した。
 - host値は配列、map/hash、struct/wrapの中まで検証し、host関数返値の型/schema違反は
@@ -544,12 +556,28 @@ WSL成功の意味は変更しない。
 上限効果で、Linuxの9.14 s benchmarkへ外挿しない。詳細なraw三組とbinary hashは
 [`performance.md`](performance.md)にある。
 
+## 完了済み性能checkpoint: macro引数の共有arena
+
+`13d1ab1`は、引数ごとの`Rc<Vec<Token>>`を一呼出し一個の`MacroArguments`へまとめた。最大九引数の
+終端だけを固定配列で持ち、各parameter sourceは同じtoken bufferを共有しながら独立した読取り位置を
+持つ。未参照引数は走査・delimiter照合・tracing・runaway診断を変えず、保持だけを省く。参照引数が
+一つもなければarena用`Rc`を作らず、空になったscanner scratchの容量を次の呼出しへ再利用する。
+
+8引数macroを100,000回呼ぶINITEX fixtureの31交互標本では、PraTeX/upTeX paired wall幾何平均比が
+変更前2.454から1.257になった。PraTeX/upTeXのwall中央値は0.750/0.600 s、全runのDVIは
+SHA-256 `518000c677d9c7a78cf5e4e6c533345bc48129e1179625bcf84c0f4c3390ae62`へbyte一致した。
+これは狭い展開診断で、文書end-to-endの1.3未満達成ではない。
+全releaseは922 passed、0 failed、11 ignored、公式TRIPは両段exit 0、999 records・意味差0、
+固定commentの公式DVIとbyte一致である。条件・raw hash・Vaak dirty依存の再現限界は
+[`performance.md`](performance.md)と[`trip-testing.md`](trip-testing.md)に記録した。
+
 ## 性能優先と、その後のLaTeX・日本語組版順
 
-1. 現在の分裂枝統合について全releaseとplain DVIは成功した。残る公式CTAN TRIPと必要な
-   PDF意味gateを完了する。
-   その後、同じ入力・TeX tree・cold/warm条件・同等DVIでupTeX系と交互測定し、end-to-end比
-   1.3未満まで性能作業を優先する。これはroadmap再開条件であり、最終upLaTeX比1.2未満は維持する。
+1. 現在の分裂枝統合とmacro引数arenaは、全release、plain DVI、公式CTAN TRIP、DVItype、独立decoderの
+   意味gateを通過した。次は同じ入力・TeX tree・cold/warm条件・同等DVIでupTeX系と交互測定し、
+   **文書end-to-end**比1.3未満まで性能作業を優先する。狭いmacro fixtureだけは1.257へ到達したが、
+   これはroadmap再開条件の達成ではない。最終upLaTeX比1.2未満、実用目標1.1未満、stretch 0.98未満を
+   区別して追う。
 2. 利用者Linux profileで9回・1.372秒を占めた`kpsewhich`について、resolver専用枝では
    Scanner/PDFをrun-local共有し、無関係aliasによるqueryごとのone-shotを解消した。続くLinux-first
    checkpointで、監査済みRust Kpathsea forkのsubprocess禁止constructorを一run一instanceで接続した。
@@ -565,12 +593,16 @@ WSL成功の意味は変更しない。
    DVIは全組`3ae145d...`、treeのprocess生成は0だった。再現runnerは
    `tools/bench-bundled-kpathsea-ctan-linux.sh`。これは利用者の30×`lipsum`や`dvipdfmx`を含まないため、
    次は実TeX Live treeと利用者corpusでengine三回、driver一回、DVI意味を再測定する。
-3. 1.3未満を確認後、接続済みmain-loop JFM/禁則をshifted/vbox・残るcommand境界へ広げ、
+3. 文書corpusは短い`lipsum`、30回、100頁に加え、`docs/research/japanese-publishing/`が整理した
+   学術・小説・和欧混植・禁則・縦組候補を別caseにする。upLaTeXとは同等DVI意味をhard gateにし、
+   LuaLaTeXはclass/font/backend差を明記した利用者workload比較として分ける。Vaakがcleanなpush済み
+   checkpointになった後、`directvaak`/`directlua`を毎回prepare、既定cache、named reuseの三面で測る。
+4. 1.3未満を確認後、接続済みmain-loop JFM/禁則をshifted/vbox・残るcommand境界へ広げ、
    discの全JFM class・禁則・unbox matrixを完成する。
-4. glyph時点のRegionNode/context伝播、compiled tableのindirect edge、adjustment tier、
+5. glyph時点のRegionNode/context伝播、compiled tableのindirect edge、adjustment tier、
    line-edge discardをbox/disc/unboxとline breakerへ接続する。
-5. `\tfont`と縦組metric/node/outputを追加し、spacingと禁則を横組から縦組へ広げる。
-6. `\showgroups` / `\showifs`、tracing、`\lastlinefit`等のe-TeX残件を接続し、TeX--XeTの
+6. `\tfont`と縦組metric/node/outputを追加し、spacingと禁則を横組から縦組へ広げる。
+7. `\showgroups` / `\showifs`、tracing、`\lastlinefit`等のe-TeX残件を接続し、TeX--XeTの
    restricted hbox checkpointをparagraph、display、mathへ広げる。
 
 日本語の最低線は横組smokeではなくpTeX相当とJLReq native対応であり、縦組を含む。縦中横と
@@ -579,29 +611,30 @@ WSL成功の意味は変更しない。
 
 ## 検証
 
-`4acf8a8`のcheckpoint後にfocused testと全release gateを通した。再開時は
-変更対象のfocused testを先に走らせ、全release gateへ戻る。
+`13d1ab1`のcheckpointでfocused test、全release、公式TRIPを通した。再開時も
+変更対象のfocused testを先に走らせ、全releaseと必要なTRIP/DVI・PDF意味gateへ戻る。
 
 ```powershell
 cargo test --release --locked --test kanjiskip
 cargo test --release --locked --no-fail-fast
 ```
 
-その後、公式CTAN資材を新しい隔離rootへ取得してTRIPを走らせる。
+その後、公式CTAN資材を隔離rootへ取得してTRIPを走らせる。現在の検証済み資材は
+`/tmp/pratex-trip-20260825.iNah6roG`にあり、manifest SHA-256を再検査して再利用できる。
 
 ```powershell
 pwsh -NoProfile -File tools/run-trip.ps1
 ```
 
-2026-08-24の既知正常値（TRIPは統合したspacing元枝で実測）:
+2026-08-25の既知正常値:
 
-- `4acf8a8`の統合枝release: 836 passed、0 failed、9 ignored
+- `13d1ab1`の全release: 922 passed、0 failed、11 ignored
 - TRIP Stage1/Stage2 exit 0
-- `tripos.tex`正規化後一致
-- DVI SHA-256: `b20af20a1463c6846f0c4c1ce687cd6354ce1a5f65ee401507627570787ae9fe`
-- 上のDVI hashは、独立decoderで999 records・意味差0を確認した直前checkpointと一致
-- このmachineにはPLtoTF/TFtoPL/DVItypeが無いため、hash検証済み公式`trip.tfm`を使い、
-  今回のDVItype比較だけは未実行
+- `tripos.tex` byte一致、`8terminal.tex` 0 byte、PLtoTF→TFtoPL byte一致
+- 独立decoder: 公式・PraTeXとも999 records、16 pages、最大stack 17、意味差0
+- 固定commentのPraTeX DVIは公式2920-byte DVIとbyte一致。SHA-256は
+  `09802695e330d34acec9192c15debe2de65e34fcbd3f947db9c8924240b1fe0a`
+- TeX Live 2026 DVItype出力もtool版表示の一行だけを揃えると公式`trip.typ`へbyte一致
 
 Unicode table追加後の最小fmt増分は上記のとおり実測済み。full LaTeX fmtは本物のpTeX検出面を
 入れた後に測る。

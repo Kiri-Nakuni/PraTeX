@@ -15,10 +15,12 @@ PraTeX側が必要とするAPIは `src/vaak.rs`、`docs/vaak-embedding-api-desig
 現在の通常作業枝は **`codex3/<目的>`** とする。統合・性能作業枝は
 `codex3/perf-integration`である。`codex2/perf-resolver-index`の`f414757`を基点に、
 vertical discard、run-local script spacing dispatcher、最小横組`prjlreq`を取り込んだ。
-各focused testに加え、code checkpoint `a2765c7`で
-`cargo test --release --locked --no-fail-fast`は**915 passed、0 failed、11 ignored**、
-plain欧文DVI byte回帰も成功した。公式CTAN TRIP等の手動gateとpushは未実施なので、
-まだpush済み意味checkpointとは呼ばない。旧統合checkpoint `6bc9ba4`は
+各focused testに加え、統合checkpoint `a2765c7`で
+`cargo test --release --locked --no-fail-fast`は**915 passed、0 failed、11 ignored**だった。
+macro引数arena checkpoint `13d1ab1`では**922 passed、0 failed、11 ignored**、plain欧文DVI
+byte回帰も成功し、`origin`と`github`へpush済みである。公式CTAN TRIPは両段exit 0、
+`tripos.tex` byte一致、DVIは999 records・16 pages・最大stack 17・意味差0、固定commentでは
+公式2920-byte DVIとbyte一致した。旧統合checkpoint `6bc9ba4`は
 `cargo test --release --locked --no-fail-fast` exit 0だが、aggregate件数を記録していないため、
 過去checkpointの件数を流用しない。
 `\detokenize`から`\scantokens`、横組JFM glyph、K/X/finalizer、JLReqの最小禁則、
@@ -217,12 +219,12 @@ cargo test --release --locked --no-fail-fast
 ```
 
 機能追加ではfocused testを先に通し、その後に全release、必要ならTRIPとDVI/PDF意味比較を行う。
-code checkpoint `a2765c7`で実行した`cargo test --release --locked --no-fail-fast`は
-**915 passed、0 failed、11 ignored**（2026-08-25）。全integration suiteにplain DVI byte回帰、
+macro引数arena checkpoint `13d1ab1`で実行した`cargo test --release --locked --no-fail-fast`は
+**922 passed、0 failed、11 ignored**（2026-08-25）。全integration suiteにplain DVI byte回帰、
 e-TeX `\middle`・`\showtokens`・penalty配列・discard、日本語spacingと和文NFSS relation、PDF、
 Vaak連携を含む。ignoredは実TeX Live、配布JFM、公式dvipdfmx、pinned CTAN、doctest等の明示手動gateである。
 
-文書checkpoint `89e1d25`では公式CTAN TRIPを一coreの隔離buildで再実行した。両段exit 0、
+`13d1ab1`では公式CTAN TRIPを一coreの隔離buildで再実行した。両段exit 0、
 `tripos.tex` byte一致、`8terminal.tex` 0 byte、PLtoTF→TFtoPL往復byte一致である。TeX Live 2026
 DVItypeと独立decoderでは公式・PraTeXとも999 records、16 pages、最大stack 17で、preamble comment、
 それに伴うfile pointer、末尾paddingを除く意味差0だった。既定DVIのraw hashは実時刻commentで変わるため
@@ -368,22 +370,26 @@ control-sequence区間15.79%、fmt全体10.73%、wall 5.36%を短縮した。DVI
 
 ## 直近の実装順
 
-1. `codex3/perf-integration`へ取り込んだ全機能のfocused test、全release、plain DVIは成功した。
-   残る公式CTAN TRIPと必要なPDF意味gateを通し、統合checkpointを固定する。
-2. Linux既定bundled Kpathseaの合成treeと固定CTAN tree gateを基線に、実TeX Liveと同一corpusで
-   PraTeXとupTeX系を交互測定する。engine三回＋driver一回を分け、DVI意味を先に照合する。
-   fmt undump、macro/token走査、control-sequence hash等の支配区間を同じ出力の局所A/Bで測り、
-   safe Rustだけで中間条件の1.3倍未満まで性能調整を優先する。
-3. 中間条件を満たした後、接続済みmain-loop JFM/禁則をshifted/vbox・残るcommand境界へ広げ、
+1. `13d1ab1`のmacro引数arenaはfocused test、全release、plain DVI、公式TRIP、DVI意味gateを通した。
+   狭い8引数INITEX fixtureではupTeX比1.257だが、文書end-to-endの1.3未満達成とは扱わない。
+2. Linux既定bundled Kpathseaを基線に、実TeX Liveの`lipsum`短文・30回・100頁、日本語、和欧混植、
+   禁則多用corpusでPraTeXとupTeX系を交互測定する。engine三回＋driver一回を分け、DVI意味を先に
+   照合する。LuaTeX/LuaLaTeXはformat・font・backend差を明記した別列で測る。corpus設計は
+   `docs/research/japanese-publishing/`の学術・小説・互換fixture要件を使う。
+3. Vaak担当枝のcleanなpush済みcheckpointを固定し、`directvaak`と`directlua`を既定cache、
+   毎回prepare、named reuseの対称な三面で測る。Vaak担当者の性能変更をPraTeX側で重複実装しない。
+4. 文書end-to-endの中間条件1.3未満までsafe Rustの性能調整を続け、1.1未満を実用目標、0.98未満を
+   stretch goalとして別に記録する。到達後、接続済みmain-loop JFM/禁則をshifted/vbox・残るcommand
+   境界へ広げ、
    discの枝内JFM class・禁則・unbox再評価matrixを完成する。
-4. glyph時点のRegionNode/context伝播をbox/disc/unboxへ接続し、compiled tableのindirect edge、
+5. glyph時点のRegionNode/context伝播をbox/disc/unboxへ接続し、compiled tableのindirect edge、
    adjustment tier、line-edge discardをline breakerまで完成する。
-5. `\tfont`と縦組metric/node/outputを追加し、JFM/K/X/禁則を横組から縦組へ広げる。
-6. show/tracing、`\lastlinefit`を接続し、TeX--XeTの実装済み
+6. `\tfont`と縦組metric/node/outputを追加し、JFM/K/X/禁則を横組から縦組へ広げる。
+7. show/tracing、`\lastlinefit`を接続し、TeX--XeTの実装済み
    restricted hbox sliceをparagraph・display・mathへ広げるe-TeX残件を公開仕様どおり実装する。
-7. PraTeX-native package adapterを順に通し、PDF直接出力をOTFより先に完成する。
-8. Vaak table uploadとversion付きWASM ABIは、内部表現を固定した段階から並行して適合試験を作る。
-9. WASM target自体のcompile実験は、横組みcheckpoint後に行う。性能gateはroadmap再開後も継続する。
+8. PraTeX-native package adapterを順に通し、PDF直接出力をOTFより先に完成する。
+9. Vaak table uploadとversion付きWASM ABIは、内部表現を固定した段階から並行して適合試験を作る。
+10. WASM target自体のcompile実験は、横組みcheckpoint後に行う。性能gateはroadmap再開後も継続する。
 
 `\kanjiskip` / `\xkanjiskip`をLaTeX検出だけ通すstubにしない。INITEX既定0、代入、群、
 `\globaldefs`、算術、内部量、表示、fmtを既存glue経路へ通し、その後の実spacingへ連続して接続する。
