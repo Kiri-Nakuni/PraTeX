@@ -33,6 +33,9 @@ TRIP/DVI・PDF意味比較を通して十分に固まった機能checkpointを`c
 
 PraTeXは、日本語組版、欧文組版、和欧混植をengine coreの一級機能として扱う。
 日本語についてはupTeXの再現だけを終点にせず、W3C JLReqをnativeに実装する。
+学術論文だけでなく、日本語の小説・エッセイ・文芸書を第一級用途とする。DTPやword processorで
+実用化されている縦組、ルビ、圏点、縦中横、割注、版面、柱・ノンブル、校正、入稿PDF等を
+「TeXの用途外」として落とさず、engine core、package、toolingの適切な層へ置く。
 
 優先順位は次のとおり。
 
@@ -52,11 +55,18 @@ PraTeXは、日本語組版、欧文組版、和欧混植をengine coreの一級
    - 複雑で低頻度の規則だけをbounded batchとしてWASMへ渡す。
 5. **主要LaTeX packageのPraTeX-native対応**
    - `graphicx` / `xcolor`、`hyperref`、`siunitx`、`tikz`、PraTeX用にpatchした`pxrubrica`の順を基準にする。
+   - 小説・エッセイ用途では`jlreq`、`plext`相当、`pxrubrica`、`jlreq-trimmarks`、日本語bookmark、
+     右綴じ・入稿PDFを独立した互換profileにする。engine未完成とpackage非互換を混同しないため、
+     e-TeX/TeX--XeT完全、upTeX上位互換、LuaTeX級PDFのcore gate後に最終互換判定する。
    - 他engineのversion primitiveを生やして検査を通さない。PraTeX固有検出と個別feature契約を使う。
 6. **PDF直接出力**
    - JFM/TFMだけで和文・欧文・混植を出せる基線の次に完成させる。OTF対応より先である。
 7. **OTF対応**
    - OTF shapingはdefault-offのRustyBuzz接続を第一候補とする。
+   - native loader・metric・shaping境界が固まった後、PraTeX固有feature queryを使う
+     `fontspec`上位互換のOpenType選択packageを作る。和文NFSS/JFM、文字class、exact code point、
+     Unicode範囲・面ごとのfont routingまで含める。一packageか二層かはAPI試作で決め、
+     XeTeX/LuaTeXへの偽装で通さない。詳細は`docs/opentype-package-roadmap.md`。
 8. **safe Rustの範囲での性能調整**
    - 機能完成を優先するが、利用者測定でhot pathが見えた箇所は意味回帰を固定して並行に調整する。
    - 局所A/Bの改善をend-to-end gate達成と読み替えない。
@@ -117,7 +127,9 @@ PraTeX自身の通常実装には`unsafe`を書かない。optional依存は採�
 1. TFM/JFMのmetricをfont選択、glyph node、line breaking、packing、DVIへ接続する。
 2. 同じhost-owned glyph/metric境界をPDF backendも使い、組版判断をbackendへ複製しない。
 3. OTF/TrueType loaderとdefault-off RustyBuzzは同じ境界へ後付けする。
-4. OTFの有無でJFM/TFM経路や標準JLReqの意味を変えない。
+4. 同じnative font境界へ、`fontspec`上位互換と和文NFSS/JFM、文字class・code point・範囲・面別
+   routingを持つPraTeX-native packageを接続する。
+5. OTFの有無でJFM/TFM経路や標準JLReqの意味を変えない。
 
 PDF直接出力をOTF対応より先に行う。どちらもJFM/TFM基線を飛び越えない。
 
@@ -299,28 +311,27 @@ control-sequence区間15.79%、fmt全体10.73%、wall 5.36%を短縮した。DVI
   `hyperref`文書はDVIまで到達済み。PDF直接出力、Type 1全埋込み、`ls-R`/`kpsewhich` resolverは
   なお部分実装である。named CIDのBMP content codeには限定`/ToUnicode`があり、
   copy/searchは改善したが、FontFileはなく字形表示はviewer側fontに依存する。
-- 現resolverは曖昧・stale・未対応pathでone-shot `kpsewhich`へ戻る。これは移行実装であり、
-  通常lookupの最終設計ではない。利用者のLinux profileでは9回の子processが1.372秒、wallの45.95%を
-  占めた。`codex2/resolver-kpse-bootstrap`ではScanner、Output、直接PDF loaderを一つのrun-local
-  resolverへまとめ、positive/negative cache、`ls-R` catalog、用途path、backendを共有した。
-  `aliases`はboundedに読み、一致・壊れた場合だけone-shotへ戻し、無関係aliasで後続の一意hitを
-  捨てない。公式DB発見と最初の`--show-path=tex`による最低2 processはまだ残り、実Linux再測定も未実施。
-  用途pathの祖先に偶然ある`ls-R`へ昇格するcold bootstrap案は`TEXMFDBS`意味を破るため採用しない。
-  Rust `kpathsea` 0.3.4 / `kpathsea_sys` 0.2.3を基点に、明示`pratex` program名、非UTF-8
-  `PathBuf`、LinuxのC返値解放、typed format、subprocess禁止constructorを持つ監査済みforkを接続した。
-  dependencyはLinuxだけで、`default-features=false`、`in-process-only-caller`を固定し、
-  そこから`system-probe`を解決する。一run一handleのlinked hit/missを先に使い、
-  library不在とencoding非対応だけ既存safe resolverへ戻す。外部fmtは`--engine=rtex`を保つsafe経路である。
-  Windowsはallocator/CRT境界未実測のためtyped fallbackで性能改善なし、WASMとその他Unixもdependencyをcompileしない。
-  Linuxのsystem library link、子process 0、DVI意味とend-to-end性能はまだ実機未検証である。
+- 利用者のLinux profileでは9回の`kpsewhich`子processが1.372秒、wallの45.95%を占めた。
+  `codex2/resolver-kpse-bootstrap`ではScanner、Output、直接PDF loaderを一つのrun-local resolverへまとめ、
+  positive/negative cache、`ls-R` catalog、用途path、backendを共有した。`aliases`はboundedに読み、
+  一致・壊れた場合だけone-shotへ戻し、無関係aliasで後続の一意hitを捨てない。
+  Rust `kpathsea` 0.3.4 / `kpathsea_sys` 0.2.3を基点に、明示`pratex` program名、非UTF-8 `PathBuf`、
+  LinuxのC返値解放、typed format、subprocess禁止constructorを持つ監査済みforkを接続した。
+  Linux既定`bundled-kpathsea`は公式TeX Live 2026 revision
+  `fb6158926661cb7a7246b3a94a0cb170a9624d5a`のKpathsea 6.4.2を静的buildし、
+  `in-process-only-caller`だけを使う。source取得/build失敗時にCLIへ黙って退行しない。
+  TeX Liveもsystem KpathseaもないWSLで55 C sourceのrelease linkは成功済みだが、子process 0、
+  TEX/TFM/JFM/VF hit/miss、DVI意味、実treeのend-to-end性能は次のruntime gateまで未検証である。
+  配布側libraryを使う明示`system-kpathsea` buildは残す。外部fmtは`--engine=rtex`を保つsafe経路である。
+  Windowsはallocator/CRT境界未実測のためtyped fallback、WASMとその他Unixはdependencyをcompileしない。
 - 名前空間はPhase 0--7済み。Phase 8のTRIPとalignment再利用検証が残る。
 
 ## 直近の実装順
 
-1. Linuxで監査済みin-process Kpathsea adapterをsystem libraryへ実linkし、同じfixtureの
-   `kpsewhich` argvと子process 0、hit/miss、alias、非UTF-8 path、DVI意味を照合する。TUG TeX Liveが
-   standalone libraryを配らない場合はexact TL2026 sourceから共有libraryを再現し、静的linkは版pin・
-   LGPL source/relink条件・再現性・binary sizeを別gateにする。Windows fast pathはallocator対応後に測る。
+1. Linux既定のbundled Kpathseaを合成treeと実TeX Live treeで動かし、同じfixtureの子process 0、
+   TEX/TFM/JFM/VF hit/miss、alias、非UTF-8 path、DVI意味を照合する。版pin、offline source、
+   LGPL source/relink条件、再現性、binary sizeを配布gateにし、利用者corpusでwallを再測定する。
+   Windows fast pathはallocator対応後に測る。
 2. 接続済みmain-loop JFM/禁則をshifted/vbox・残るcommand境界へ広げ、discの枝内JFM class・禁則・unbox再評価matrixを完成する。
 3. compile済み汎用script class対tableをlist単位dispatcherと中央finalizerへ接続する。
 4. `\tfont`と縦組metric/node/outputを追加し、JFM/K/X/禁則を横組から縦組へ広げる。

@@ -3,6 +3,9 @@
 PraTeXは、tyti氏によるTeX82のRust再実装`rtex`を基礎に、現代的なTeXエンジンを
 段階的に作る実験的なプロジェクトです。単体でDVIまたはPDFを出力し、e-upTeXとの
 互換性を高めながら、Vaakを明示的に組み込めるエンジンを目標にしています。
+学術論文だけでなく、日本語の小説・エッセイ・文芸書を第一級用途にし、縦組、ルビ、
+縦中横、割注、版面、柱・ノンブル、入稿PDFまでをengine・package・toolingの連続した機能として
+扱う方針です。
 
 まだ実用版でも、e-upTeX・pdfTeX・LuaTeXの代替でもありません。既存の文書をそのまま
 処理できるとは限らず、生成物は必ず確認してください。元のrtexのREADMEは
@@ -115,8 +118,12 @@ cargo run --release --locked --bin rtex -- '&plain' file.tex
 
 TeX Live側のformat、TFM/JFM、標準LaTeX class・package、fontは同梱していません。
 PraTeX固有の`prjsarticle.cls`、`pratex-japanese.sty`と実行例はrepositoryにあります。
-PraTeXはTeX Liveの`ls-R`と
-`kpsewhich`を段階的に利用して探索します。primitiveを追加・変更したPraTeXで古いformatを
+Linuxの既定buildは、公式TeX Live 2026の固定revisionからKpathsea 6.4.2を静的に組み込み、
+通常のTEX/TFM/JFM等をin-processで探索します。初回buildには`git`とnetwork、または同じ
+`texk/kpathsea` treeを指す`KPATHSEA_SRC_DIR`が必要です。配布側のKpathsea development libraryを
+使う場合は`--no-default-features --features stats,system-kpathsea`を明示できます。
+Windows等の未接続targetではTeX Liveの`ls-R`と`kpsewhich`を段階的に利用します。
+primitiveを追加・変更したPraTeXで古いformatを
 使わず、同じbinaryで作り直してください。現在format探索はlocal優先なので、生成した
 `latex.fmt`と文書は同じ作業directoryへ置くのが確実です。
 
@@ -362,7 +369,8 @@ packageは実装の資料として写さず、互換性を測る外部入力と�
 - e-TeXおよびpdfTeX原始命令の残りと、広範なclass/packageを処理するLaTeX2e互換性
 - `\tfont`と縦組JFM、main-loop JFM/禁則のbox/disc・未検証command境界、
   現在の句読点と横組括弧12対を越えるJLReq禁則、縦組PDF和文glyph
-- 埋込み和文font、OTF／TrueType、ToUnicode、font subsetを含むportableなPDF font処理
+- 埋込み和文font、OTF／TrueType、ToUnicode、font subsetを含むportableなPDF font処理と、
+  PraTeX-nativeな`fontspec`相当・和文OTF package相当のfont選択層
 - `texmf.cnf`、全path expression、alias、`mktex*`を含むkpathseaの完全な互換性
 - `jsarticle`、`jlreq`、`ltjsarticle`、`hyperref`を実用的に動かすための互換層
 - 実行ごとに明示して有効化するVaak callbackと、低頻度で複雑な拡張向けWASM ABI
@@ -383,6 +391,7 @@ packageは実装の資料として写さず、互換性を測る外部入力と�
 - [外向きWASM provider ABI 0.0](docs/wasm-provider-abi-v0.md)
 - [WASM module import・名前空間仕様 0.1](docs/wasm-module-import-v0.1.md)
 - [監視/incremental実行/package取得/LSP](docs/incremental-tooling-roadmap.md)
+- [PraTeX-native OpenType packageと文字別font routing](docs/opentype-package-roadmap.md)
 - [LaPraTeX](docs/lapratex-roadmap.md)
 
 直接pathは外部探索より常に優先します。索引から探索順を一意に証明できない場合は

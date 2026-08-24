@@ -231,6 +231,7 @@ runtimeは別MIT projectを依存として使う。PraTeX側からMITのVaakへG
 | 未実装 | `^^^^hhhh`、`^^^^^^hhhhhh` | TeX82の`^^`だけ。XeTeX/LuaTeX型の4/6 caret Unicode入力はない |
 | 未実装 | Web2C TCX input translation | `--translate-file`、`%& -translate-file`、`-8bit`、TCXの`xord/xchr/xprn`三表はまだない。既定UTF-8と分けたlegacy input profileは[文字identity roadmap](glyph-identity-roadmap.md)で設計のみ |
 | 未実装 | OTF/TrueTypeとRustyBuzz | dependencyもbackendもない。JFM/TFM出力基線後にdefault-offで接続し、PraTeX側はsafe Rust、依存のlicense・unsafe利用・binary sizeを採用前に監査する |
+| ロードマップ | PraTeX-native OpenType package | native OTF loader・metric・shaping完成後、PraTeX固有feature queryで`fontspec`上位互換面を作る。和文NFSS/JFM、文字class、exact code point、Unicode範囲・面、fallback chain別のfont routingを宣言時にhost tableへcompileする。単一packageか二層かはAPI実験で決め、XeTeX/LuaTeXのversion primitiveを偽装しない。詳細は[OpenType package roadmap](opentype-package-roadmap.md) |
 | 部分 | e-TeX完全性gate | `\showgroups`、`\showifs`、`\pagediscards`、`\splitdiscards`、TeX--XeTのparagraph・display・math mode内方向・disc/alignment/unbox等が残る。四方向primitive自体は明示restricted hboxの限定sliceに実接続済み |
 | 部分 | 横組・縦組の日本語組版 | 横組JFM font、wide node、main-loop JFM pair/禁則、close-timeの仮想K・material X、discの枝内K/Xと右端条件付きmaterial K/X、句読点＋横組括弧12対の禁則、box/line幅、DVI glyphまでのBuiltIn基線を実装。main-loopのshifted/vbox・未検証command境界、discの全JFM class/禁則matrix、完全JLReq、paragraph方向node、縦組が残る |
 | 部分 | class/package互換 | `article`、宣言的和文NFSS/relation fontを持つ`prjsarticle`、`pratex-japanese`を明示したKOMA-Script 3.49.2 `scrartcl`、`graphicx`、`xcolor`、`hyperref`、TikZ/PGF、`siunitx`の限定smokeをDVIまで実測。package全API、`jsarticle`、`jlreq`、`ltjsarticle`の実用互換を保証しない |

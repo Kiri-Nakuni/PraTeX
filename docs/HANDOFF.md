@@ -504,11 +504,12 @@ WSL成功の意味は変更しない。
 1. 利用者Linux profileで9回・1.372秒を占めた`kpsewhich`を最優先にする。resolver専用枝では
    Scanner/PDFをrun-local共有し、無関係aliasによるqueryごとのone-shotを解消した。続くLinux-first
    checkpointで、監査済みRust Kpathsea forkのsubprocess禁止constructorを一run一instanceで接続した。
-   Linuxでsystem libraryへlinkできた時だけ明示`pratex`、非UTF-8 `PathBuf`、C返値解放、typed formatの
-   fast pathを使い、library不在とencoding非対応だけ既存safe resolverへ戻す。外部fmtは`--engine=rtex`
-   意味を保つためsafe経路のままである。Windowsはallocator/CRT境界未実測なのでtyped fallback、WASMは
-   dependencyなしであり、その他Unixも監査完了まではsafe resolverへ戻す。次はLinuxで実linkし、
-   子process 0、hit/miss、DVI意味、end-to-endを再測定する。
+   Linux既定buildは公式TL2026 revision
+   `fb6158926661cb7a7246b3a94a0cb170a9624d5a`のKpathsea 6.4.2を静的に組み込み、source取得や
+   build失敗時はCLIへ黙って退行しない。TeX Live/system KpathseaなしのWSLで55 C sourceのrelease linkは
+   成功した。外部fmtは`--engine=rtex`意味を保つsafe経路のままである。Windowsはallocator/CRT境界
+   未実測なのでtyped fallback、WASMとその他Unixはdependencyなし。次は合成treeと実TeX Live treeで
+   子process 0、TEX/TFM/JFM/VF hit/miss、DVI意味、end-to-endを再測定する。
 2. 接続済みmain-loop JFM/禁則をshifted/vbox・残るcommand境界へ広げ、discの全JFM class・禁則・unbox matrixを完成する。
 3. `\tfont`と縦組metric/node/outputを追加し、spacingと禁則を横組から縦組へ広げる。
 4. discard、`\showgroups` / `\showifs`、tracing等のe-TeX残件を接続し、TeX--XeTの
@@ -560,7 +561,11 @@ Unicode table追加後の最小fmt増分は上記のとおり実測済み。full
 - TCXはWeb2C input translation profileとして未実装。xord/xchrや`^^`記法と混同しない。
 - `^^^^hhhh` / `^^^^^^hhhhhh`は未実装。
 - PDF直接出力をOTF対応より先に進め、JFM/TFMだけのDVI/PDF基線を完成する。
-  後続でRustyBuzzを接続する場合はdefault-offとする。
+  後続でRustyBuzzを接続する場合はdefault-offとする。native OTF境界が固まった後は、PraTeX固有
+  feature queryを使う`fontspec`上位互換packageを試作する。和文NFSS/JFM、文字class、exact code
+  point、Unicode範囲・面、fallback chainごとのfont routingを宣言時にhost tableへcompileする。
+  一packageか二層かはAPI実験で決め、他engineへの偽装で既存packageを通さない。詳細は
+  [`opentype-package-roadmap.md`](opentype-package-roadmap.md)。
 - 現在のcatcodeは`repr(u8)`。入力分類はcatcode側をカノンとし、`\catcode`と
   `\kcatcode`の公開番号は別codecで同じ意味へ写す。layout/JFM/provider IDは別domainに保つ。
 - `for_CLAUDE.md`へClaude/Vaak向けの変更とAPI要求を追記し、commit時に

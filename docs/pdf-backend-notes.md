@@ -169,6 +169,13 @@ pdfTeXの省略時契約を優先して`/Flags 4`を出した。strict pypdfで�
 `/BaseFont /CMTT10`、PFB由来`/StemV 69`、`Length1/2/3 = 4364/26170/545`を確認し、Popplerで
 1 page / 32,834 bytesのPDF 1.4を描画した。
 
+利用者から、2026-08-24より少し前の枝で直接PDFを生成すると、欧文がすべてタイプライタ体に
+見える事象が報告されている。対象commitとmap指定の有無は未固定なので、現時点で原因をCourier
+fallback、NFSS同期、resource identity、viewer代替のいずれかに決めない。再現gateでは同一入力の
+DVIと直接PDFについてroman/sans/mono、medium/bold、upright/italicを明示し、選択TFM、PDF
+`/BaseFont`・`/FontDescriptor`・`/Widths`、contentのresource名、描画結果を比較する。Standard 14
+Courier smokeが通ることを欧文font選択の正しさへ読み替えない。
+
 合成横組JFMの「ああ」を10 pt font・各5 pt advanceで流すnamed CID process試験は、
 1 page / 1,735 bytesのPDF 1.4を生成した。strict `pypdf`で`/F1`と`/F2`、Type 0、
 CIDFontType0、`UniJIS-UCS2-H`、Adobe-Japan1 supplement 4、`/DW 1000`、`/ToUnicode`を再読込みし、
@@ -183,7 +190,8 @@ PDF primitive/font処理が完成したという意味ではない。
 
 ## 6. 次の段階
 
-1. 通常mapのType 1 subset埋込みと、同じ物理fontを異なるsizeで使う時のobject共有へ進む。
+1. 上記の欧文font-family回帰matrixを固定し、通常mapのType 1 subset埋込みと、同じ物理fontを
+   異なるsizeで使う時のobject共有へ進む。
 2. 実装済みpapersize specialと同じ型付き媒体境界へ、PraTeX正規名のpage-size primitiveを
    接続する。pdfTeX互換名は意味が一致してから別途扱う。
 3. Type 1が揃ってから `\pdfoutput` を登録し、LaTeXのpdfTeX backend判定を有効にする。
