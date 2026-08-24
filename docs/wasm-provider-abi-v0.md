@@ -5,7 +5,9 @@
 状態: **実験実装。ABI 0.0のversion・feature・capability・operation交渉と、runtime非依存の
 wire/mailbox検証、`SpacingTableUpload`のhost-owned domain検証を実装済み。
 検証済みspacing候補からnative compiled tableへの一方向compiler bridgeも実装済み。
-unit validator・runtime・module profile検査・lease・provider registration/dispatcher接続は未実装**
+compile完了後だけrun-local dispatcherへinstall/revokeするhost入口とdirect-glyph list finalizerも接続済み。
+unit validator・runtime・module profile検査・lease・実provider registration、RegionNode、
+indirect edge/tier/line-edge処理は未実装**
 
 ## 1. 結論
 
@@ -1111,11 +1113,15 @@ domain判断は再実装せず、既存native proposalも同じcanonical compile
 left/right `em` / `zw`は登録時のspへ近似せず、既約有理数とbasisのnative recipe、tier、break、
 line-edge、penalty、reasonをcompiled actionへ保持する。sp解決は一境界のimmutable metric snapshotを
 明示引数に取り、checked整数算術とhalf-away-from-zero丸めを使い、`MAX_DIMEN`外を拒否する。
-compile失敗時はactive tableを交換しない。
+compile失敗時はactive tableを交換しない。成功したtableだけを`Eqtb`のrun-local ownerへinstallし、
+activation generationの途中変更やlist内region変更ではlist全体をBuiltInへ戻す。owner、generation、
+provider handleはfmtへ保存しない。direct glyphのclass pairは中央finalizerがallocation/ABI callなしで
+引き、現行nodeで意味を保てるglueとbreak penaltyへmaterializeする。
 
 codec、domain validator、compiler bridgeはruntime memory pointerや
-PraTeX nodeを保持しない。これらはmodule parser、policy grant、affine lease、runtime、unit domain
-validator、provider registration、dispatcher activationを実装したことを意味しない。標準日本語
+PraTeX nodeを保持しない。host dispatcherへの公開後もtableはprovider pointerを保持しない。
+これらはmodule parser、policy grant、affine lease、runtime、unit domain validator、実provider
+registration、RegionNode、indirect edge、adjustment tier/line-edge discardを実装したことを意味しない。標準日本語
 経路と既存BuiltIn/FixedGlue hot pathはこの境界を呼ばずcallback 0回である。
 
 | 段 | 内容 | 完了条件 |
@@ -1124,14 +1130,14 @@ validator、provider registration、dispatcher activationを実装したこと�
 | W0-A | host-owned proposal型とspacing/unit validator | **spacingの最初のbounded sliceは完了**。共有proposalを全件検証してcanonical候補だけを返し、部分交換0を試験済み。unit validatorとadapter接続は未完 |
 | W0-B | 0.0 byte codecとgolden/property test | **完了**。Rust layout非依存のcanonical encode/decode、全切断位置、reserved/range/limit/mailbox/transport拒否を固定 |
 | W0-C | optional runtime adapter、module profile、fixed mailbox | default build不変、import/start/memory/fuel境界を検査 |
-| W0-D | `SpacingTableUpload` | **compiler bridgeのbounded sliceは完了**。canonical候補をnative tableへ原子的にcompileし、context長を遅延checked解決する。runtime registration、explicit custom profile選択、dispatcher接続は未完 |
+| W0-D | `SpacingTableUpload` | **host dispatcherのbounded sliceまで完了**。canonical候補をnative tableへ原子的にcompileし、run-local install/revoke、direct glyphのlist単位profile選択、context長の遅延checked解決と限定materializeを行う。runtime registration、RegionNode、indirect edge、tier/line-edgeは未完 |
 | W0-E | `UnitTableUpload` | 中央`scan_units`だけへ接続、組込み単位不変 |
 | W0-F | `SpacingBatch` | owned batch一回、revision再検査、atomic native fallback |
 | W0-G | `UnitContextBatch` | context一回、全dynamic unit一括、cache世代失効 |
 | W0-H | conformance/fuzz/performance gate | disabled退行なし、決定性、safe-Rust CI |
 
-W0-A/B/Cはnative spacing finalizerやVaak named-entry APIと並行できる。W0-D/Fのproduction接続は
-host側の`BoundaryRule`、wide glyph、list finalizer、revisionを先に固定してから行う。W0-E/Gは
+W0-A/B/Cはnative spacing finalizerやVaak named-entry APIと並行できる。W0-Dの残りとW0-Fは
+RegionNode、indirect edge、tier/line-edge、runtime revisionを先に固定してから行う。W0-E/Gは
 寸法unit registryと一つの中央conversion経路を先に固定してから行う。
 
 Vaak table uploadもWASM decoderも、wireを読んだ後は同じ`SpacingProfileProposal` /

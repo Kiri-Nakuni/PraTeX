@@ -1,10 +1,10 @@
 # 拡張可能なscript境界組版とCJKV region
 
-更新: 2026-08-22
+更新: 2026-08-24
 
-R0のtyped `LanguageRegion`状態は実装済みで、R2/R4の横組JFM wide glyphとBuiltIn最小spacingも
-別checkpointでproductionへ接続した。汎用`ScriptClassId` / RegionNode、regionを読むfont routing、
-Vaak table、WASM batch、CJKV font fallbackはまだ未実装である。
+R0のtyped `LanguageRegion`、横組JFM/wide glyph/BuiltIn finalizer、汎用class tableのvalidationと
+direct-glyph用run-local dispatcherまでは実装済みである。RegionNodeを含むR3全伝播、R4のJLReq全体、
+公開Vaak registration、WASM runtime/batch、font fallbackは未実装である。
 
 ## 目的
 
@@ -149,6 +149,12 @@ per-boundaryのtrait object callやABI往復をhot loopへ置かない。listを
    hostが検証・compileしたものをsafe Rustで引く。単純または高頻度の差替えはここへ置く。
 3. `ExplicitWasm`: 実験的で複雑・低頻度な判断だけ、bounded list/batch単位で一度に問い合わせる。
 
+現在の最初のproduction sliceは、compile完了後のtableだけを`Eqtb`のrun-local ownerへinstallし、
+direct glyphを持つ一listでactivation generationとregionが終始同じ時だけ`CompiledTable`を選ぶ。
+途中のreplace/revoke/region変更では表を混ぜずlist全体を`BuiltIn`へ戻す。ASCII-onlyかつ未activationの
+listは従来gateより先へ入らない。RegionNodeがない間はindirect hbox/disc edgeへ終端時regionを推測せず、
+その境界だけBuiltInへ戻す。adjustment tierとline-edge discardもline breaker接続前は適用済みとしない。
+
 Vaak codeの実行だけではcallbackを有効にしない。そのVaak実行がspacing capabilityを明示要求し、
 hostが許可した時だけrun-local handleを発行する。scope終了、取消し、PraTeX実行終了で失効し、
 fmtへ保存しない。通常実行にglobal callback tableを置かない。
@@ -185,8 +191,9 @@ JFM lookupの基本keyは`(jfm_id, code_point)`である。regionはどのdefaul
 | R6 | 実験規則向けversion付きWASM batch ABI | bounded/fuel/fallback、per-boundary ABI call 0 |
 | R7 | font fallback、OTF language system、CJKV policy | region別glyph/shaping fixture、明示font identity不変 |
 
-R0は`ac6ad90`で実装・試験済みである。ただし後段の意味を約束しすぎないengine stateだけであり、
-R3まではregion変更が出力へ影響しない。R2より前にR4を急がない。
+R0は`ac6ad90`で実装・試験済みである。現在は明示compiled tableを有効にしたdirect-glyph listだけ
+uniform regionがclass/rule選択へ影響するが、RegionNodeがないため途中変更は全list fallbackとなる。
+通常BuiltInのregion別組版やbox/disc伝播ができるR3完了とは数えない。
 日本語組版のpTeX相当完了条件と、e-upTeXにないJLReq意味論の優先順は
 [pTeX相当からJLReq一級対応へ進むroadmap](japanese-typesetting-roadmap.md)に分けて固定する。
 

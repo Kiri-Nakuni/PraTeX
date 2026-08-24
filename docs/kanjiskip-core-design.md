@@ -340,6 +340,24 @@ ASCII-only listは`ScriptSpacingListState::needs_script_spacing=false`のまま�
 出力event生成のすべてより前に置く。したがって従来のplain欧文経路にはcallback、table lookup、
 追加allocationを入れず、統合時にはorigin/mainとDVI意味列・座標を比較する。
 
+### 2026-08-24 compiled table dispatcher checkpoint
+
+`ScriptSpacingDispatcher`は一runの検証済みtableを所有し、compile成功後だけ世代を進めて公開する。
+`Eqtb::dump`はtable・activation generation・provider handleを一切保存せず、undumpは空registryから始める。
+各listはdirect glyphで見たgenerationと`LanguageRegion`を小さな値で記録し、close時に一度だけprofileを
+選ぶ。list途中のreplace/revoke/region変更は新旧decisionを混ぜず、全体を`BuiltIn`へ戻す。
+
+安定したdirect glyph境界では、Unicode scalarをtable固有`ScriptClassId`へ分類し、dense class pairを
+allocation/dynamic dispatch/ABI callなしで引く。`BuiltInFallback`、no-space、K、X、fixed glueと、
+現在のTeX nodeで意味を保てるboundary glue/break penaltyを中央finalizerがmaterializeする。
+生成nodeは自動script-spacing provenanceだけをfmtへ往復し、provider IDは持たない。再finalize時はその
+provenanceだけ除いて元glyphから再評価する。fmt後にregistryが空のままunboxした場合も旧compiled nodeを
+検出してBuiltInへ戻し、過去runの表効果を漏らさない。WASM 0.0 candidateも同じcompile済みtableとinstall入口へ入る。
+
+RegionNode未接続のindirect hbox/disc edge、非零adjustment tier、line-edge discardは終端値から推測せず
+BuiltInへ戻す。これらと公開Vaak/runtime registrationは次checkpointであり、今回の接続をR3/R5/R6完了とは
+数えない。標準pTeX/JLReq経路はこのdispatcherへtableを登録せず、Vaak/WASM callback 0を維持する。
+
 ### 2026-08-23基線と2026-08-24 hybridのproduction接続 checkpoint
 
 `src/script_spacing/finalizer.rs`は、横組listに和文が一つでもある時だけ

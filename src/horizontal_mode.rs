@@ -49,6 +49,9 @@ impl HorizontalMode {
         if nodes.iter().any(Node::contains_horizontal_japanese_glyph) {
             self.script_spacing.observe_japanese();
         }
+        if nodes.iter().any(Node::is_automatic_script_spacing) {
+            self.script_spacing.observe_existing_compiled_spacing();
+        }
         if !nodes.is_empty() {
             self.script_spacing.reset_main_loop_boundary();
         }

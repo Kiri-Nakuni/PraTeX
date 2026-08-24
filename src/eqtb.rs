@@ -36,6 +36,10 @@ use crate::script_spacing::planner::{
     AutoSpacingState, AutoSpacingVariable, InhibitXspCodeTable, LayoutCharacterCode,
     SpacingStateError, XspCode, XspCodeTable,
 };
+use crate::script_spacing::{
+    CompiledScriptSpacingTable, ScriptSpacingActivationId, ScriptSpacingDispatcher,
+    ScriptSpacingProfileRef, ScriptSpacingTableError, ScriptSpacingTableProposal,
+};
 use crate::semantic_nest::Mode;
 use crate::token::Token;
 use crate::token_lists::{show_token_list, RcTokenList};
@@ -204,6 +208,9 @@ pub struct Eqtb {
     /// fmtには保存しない、一回のrunだけが所有する時刻。
     run_date_time: Option<RunDateTime>,
 
+    /// fmtには保存しない、一回のrunだけが所有する検証済みscript spacing profile。
+    script_spacing_dispatcher: ScriptSpacingDispatcher,
+
     // See 549.
     pub fonts: Vec<FontInfo>,
     pub(crate) japanese_fonts: Vec<JapaneseFontInfo>,
@@ -277,6 +284,7 @@ impl Eqtb {
             },
             mag_set: 0,
             run_date_time: None,
+            script_spacing_dispatcher: ScriptSpacingDispatcher::default(),
             fonts: vec![FontInfo::null_font()],
             japanese_fonts: Vec::new(),
             last_badness: 0,
@@ -326,6 +334,39 @@ impl Eqtb {
     pub(crate) fn run_date_time(&self) -> RunDateTime {
         self.run_date_time
             .expect("run date and time must be fixed before TeX input starts")
+    }
+
+    /// Installs one already compiled, run-local script spacing profile atomically.
+    pub(crate) fn install_script_spacing_table(
+        &mut self,
+        table: CompiledScriptSpacingTable,
+    ) -> ScriptSpacingActivationId {
+        self.script_spacing_dispatcher.install(table)
+    }
+
+    /// Validates and compiles before changing the active run-local profile.
+    pub(crate) fn try_install_script_spacing_table(
+        &mut self,
+        proposal: ScriptSpacingTableProposal,
+    ) -> Result<ScriptSpacingActivationId, ScriptSpacingTableError> {
+        self.script_spacing_dispatcher.try_install(proposal)
+    }
+
+    pub(crate) fn clear_script_spacing_table(&mut self) {
+        self.script_spacing_dispatcher.clear();
+    }
+
+    #[inline]
+    pub(crate) fn script_spacing_activation_id(&self) -> Option<ScriptSpacingActivationId> {
+        self.script_spacing_dispatcher.active_id()
+    }
+
+    pub(crate) fn select_script_spacing_profile(
+        &self,
+        expected: Option<ScriptSpacingActivationId>,
+        region: LanguageRegion,
+    ) -> ScriptSpacingProfileRef<'_> {
+        self.script_spacing_dispatcher.select(expected, region)
     }
 
     /// See 236.
@@ -2199,6 +2240,7 @@ impl Dumpable for Eqtb {
             par_token,
             mag_set: 0,
             run_date_time: None,
+            script_spacing_dispatcher: ScriptSpacingDispatcher::default(),
             fonts,
             japanese_fonts,
             last_badness: 0,

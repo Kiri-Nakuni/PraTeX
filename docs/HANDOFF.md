@@ -459,7 +459,11 @@ Claude `82fa3a2`のLinux perf分解:
 - PraTeX側の外向きWASM provider ABI 0.0は、version・feature・capability・operationを
   instantiate前に照合する層と、固定envelope/section/mailbox/transportを検査するbyte codecを
   runtime非依存で実装した。Vaakのprepared APIやportable ABIとは別version domainであり、
-  module parser/runtime/affine lease/provider接続はまだない。
+  `SpacingTableUpload`の検証済みcandidateは共通native表へcompileしてからrun-local dispatcherへ
+  原子的にinstall/revokeできる。listはdirect glyphごとにactivation generationとregionの一貫性を
+  記録し、途中交換・region変更では全listをBuiltInへ戻す。profile handle/generation/tableはfmtへ
+  保存しない。module parser/runtime/affine lease/実provider registration、RegionNode、indirect edge、
+  adjustment tierとline-edge discardはまだない。
 
 ## NFSS/relation font checkpoint
 

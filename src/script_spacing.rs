@@ -1061,19 +1061,91 @@ impl CompiledScriptSpacingTable {
     }
 }
 
-/// The dispatcher chooses one variant once per list, then the hot loop keeps the returned table.
-#[derive(Debug, Clone, Copy)]
-pub(crate) enum ScriptSpacingProfileRef<'a> {
-    BuiltIn(&'a CompiledScriptSpacingTable),
-    CompiledTable(&'a CompiledScriptSpacingTable),
+/// One run-local activation generation.
+///
+/// This value may be copied into a list while that list is being built, but it is never written
+/// into a node or a format file.  A table replacement advances the generation, so a list which
+/// straddles two provider scopes falls back atomically instead of combining their decisions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ScriptSpacingActivationId(u64);
+
+/// Owns the one explicitly activated, host-compiled profile for this engine run.
+///
+/// The table contains no provider handle and is installed only after complete validation and
+/// compilation.  `Eqtb::dump` deliberately omits this owner and `Eqtb::undump` starts empty.
+#[derive(Debug, Default)]
+pub(crate) struct ScriptSpacingDispatcher {
+    generation: u64,
+    active: Option<CompiledScriptSpacingTable>,
 }
 
-impl<'a> ScriptSpacingProfileRef<'a> {
-    pub(crate) const fn select_table(self) -> &'a CompiledScriptSpacingTable {
-        match self {
-            Self::BuiltIn(table) | Self::CompiledTable(table) => table,
+impl ScriptSpacingDispatcher {
+    fn advance_generation(&mut self) -> ScriptSpacingActivationId {
+        self.generation = self.generation.wrapping_add(1);
+        if self.generation == 0 {
+            self.generation = 1;
+        }
+        ScriptSpacingActivationId(self.generation)
+    }
+
+    /// Publishes a completely compiled table and invalidates lists begun under an older profile.
+    pub(crate) fn install(
+        &mut self,
+        table: CompiledScriptSpacingTable,
+    ) -> ScriptSpacingActivationId {
+        let generation = self.advance_generation();
+        self.active = Some(table);
+        generation
+    }
+
+    /// Compiles before publishing, so an invalid proposal cannot disturb the active profile.
+    pub(crate) fn try_install(
+        &mut self,
+        proposal: ScriptSpacingTableProposal,
+    ) -> Result<ScriptSpacingActivationId, ScriptSpacingTableError> {
+        let table = CompiledScriptSpacingTable::compile(proposal)?;
+        Ok(self.install(table))
+    }
+
+    pub(crate) fn clear(&mut self) {
+        if self.active.take().is_some() {
+            self.advance_generation();
         }
     }
+
+    #[inline]
+    pub(crate) fn active_id(&self) -> Option<ScriptSpacingActivationId> {
+        self.active
+            .as_ref()
+            .map(|_| ScriptSpacingActivationId(self.generation))
+    }
+
+    /// Chooses one profile once at list close.  A generation mismatch never exposes either table
+    /// partially; it selects the native built-in path for the complete list.
+    pub(crate) fn select(
+        &self,
+        expected: Option<ScriptSpacingActivationId>,
+        region: LanguageRegion,
+    ) -> ScriptSpacingProfileRef<'_> {
+        match (expected, self.active.as_ref()) {
+            (Some(expected), Some(table))
+                if expected == ScriptSpacingActivationId(self.generation) =>
+            {
+                ScriptSpacingProfileRef::CompiledTable { table, region }
+            }
+            _ => ScriptSpacingProfileRef::BuiltIn,
+        }
+    }
+}
+
+/// The dispatcher chooses one variant once per list, then the hot loop keeps this value.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum ScriptSpacingProfileRef<'a> {
+    BuiltIn,
+    CompiledTable {
+        table: &'a CompiledScriptSpacingTable,
+        region: LanguageRegion,
+    },
 }
 
 fn validate_proposal_size(
@@ -1378,18 +1450,23 @@ mod tests {
     }
 
     #[test]
-    fn 組込みと登録済み表は同じ意味型を返す() {
-        let built_in = CompiledScriptSpacingTable::compile(最小の正しい提案()).unwrap();
+    fn dispatcherは登録済み世代だけを一listへ選ぶ() {
         let uploaded = CompiledScriptSpacingTable::compile(最小の正しい提案()).unwrap();
-        let built_in = ScriptSpacingProfileRef::BuiltIn(&built_in).select_table();
-        let uploaded = ScriptSpacingProfileRef::CompiledTable(&uploaded).select_table();
+        let mut dispatcher = ScriptSpacingDispatcher::default();
+        let activation = dispatcher.install(uploaded);
+        assert!(matches!(
+            dispatcher.select(None, LanguageRegion::Ja),
+            ScriptSpacingProfileRef::BuiltIn
+        ));
+        let ScriptSpacingProfileRef::CompiledTable {
+            table: uploaded,
+            region,
+        } = dispatcher.select(Some(activation), LanguageRegion::Ja)
+        else {
+            panic!("登録済み世代が選ばれなければならない");
+        };
+        assert_eq!(region, LanguageRegion::Ja);
 
-        let left = built_in
-            .classify_scalar('漢', LanguageRegion::Ja, WritingMode::Horizontal)
-            .unwrap();
-        let right = built_in
-            .classify_scalar('A', LanguageRegion::Ja, WritingMode::Horizontal)
-            .unwrap();
         let uploaded_left = uploaded
             .classify_scalar('漢', LanguageRegion::Ja, WritingMode::Horizontal)
             .unwrap();
@@ -1397,13 +1474,13 @@ mod tests {
             .classify_scalar('A', LanguageRegion::Ja, WritingMode::Horizontal)
             .unwrap();
         assert_eq!(
-            built_in.action_for(left, right, LanguageRegion::Ja, WritingMode::Horizontal),
             uploaded.action_for(
                 uploaded_left,
                 uploaded_right,
                 LanguageRegion::Ja,
                 WritingMode::Horizontal
-            )
+            ),
+            ScriptSpacingAction::XKanjiSkip,
         );
     }
 
