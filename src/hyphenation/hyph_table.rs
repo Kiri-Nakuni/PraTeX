@@ -1,5 +1,6 @@
 use crate::command::UnexpandableCommand;
 use crate::eqtb::{Eqtb, IntegerVariable, MAX_LATIN_UCS_CODE};
+use crate::format::binary::{BinaryReader, BinaryWriter};
 use crate::format::{Dumpable, FormatError};
 use crate::input::expansion::get_x_token;
 use crate::input::Scanner;
@@ -7,7 +8,7 @@ use crate::logger::Logger;
 use crate::print::Printer;
 use crate::token::Token;
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::Write;
 
 /// The 8-bit hyphenation-code snapshot defined by e-TeX manual section 3.10.
@@ -237,7 +238,6 @@ impl Hyphenator {
 pub struct Trie {
     pub nodes: Vec<TrieNode>,
     hyf_ops: [Vec<HyfOp>; 256],
-    op_code_hash: [HashMap<HyfOp, usize>; 256],
 }
 
 /// See 920. and 921.
@@ -254,7 +254,7 @@ impl Trie {
             || self.nodes[0].chr.is_some()
             || self.nodes[0].link.is_some()
             || self.nodes[0].op.is_some()
-            || !hyf_operations_are_valid(&self.hyf_ops, &self.op_code_hash)
+            || !hyf_operations_are_runtime_valid(&self.hyf_ops)
         {
             return false;
         }
@@ -547,27 +547,34 @@ fn append_new_letter_or_hyphen(
     }
 }
 
-fn hyf_operations_are_valid(
-    hyf_ops: &[Vec<HyfOp>; 256],
-    op_code_hash: &[HashMap<HyfOp, usize>; 256],
-) -> bool {
+fn hyf_operations_are_runtime_valid(hyf_ops: &[Vec<HyfOp>; 256]) -> bool {
     for lang in 0..256 {
         let ops = &hyf_ops[lang];
-        let hash = &op_code_hash[lang];
-        if hash.len() != ops.len() {
-            return false;
-        }
+        let mut unique = HashSet::with_capacity(ops.len());
         for (index, op) in ops.iter().enumerate() {
             if !(1..=9).contains(&op.num)
                 || op.distance > 63
                 || op.next.is_some_and(|next| next >= index)
-                || hash.get(op) != Some(&index)
+                || !unique.insert(*op)
             {
                 return false;
             }
         }
     }
     true
+}
+
+fn op_code_hashes_match(
+    hyf_ops: &[Vec<HyfOp>; 256],
+    op_code_hash: &[HashMap<HyfOp, usize>; 256],
+) -> bool {
+    hyf_ops.iter().zip(op_code_hash).all(|(ops, hash)| {
+        hash.len() == ops.len()
+            && ops
+                .iter()
+                .enumerate()
+                .all(|(index, op)| hash.get(op) == Some(&index))
+    })
 }
 
 fn is_valid_hyphenation_code(code: i32) -> bool {
@@ -618,7 +625,8 @@ impl PreTrie {
         if root.c != 0
             || root.op.is_some()
             || root.next_sibling.is_some()
-            || !hyf_operations_are_valid(&self.hyf_ops, &self.op_code_hash)
+            || !hyf_operations_are_runtime_valid(&self.hyf_ops)
+            || !op_code_hashes_match(&self.hyf_ops, &self.op_code_hash)
         {
             return false;
         }
@@ -1151,7 +1159,6 @@ impl PreTrie {
         Trie {
             nodes,
             hyf_ops: self.hyf_ops.clone(),
-            op_code_hash: self.op_code_hash.clone(),
         }
     }
 
@@ -1343,6 +1350,298 @@ impl Hyphenator {
     }
 }
 
+const BINARY_NONE_U16: u16 = u16::MAX;
+const BINARY_NONE_U32: u32 = u32::MAX;
+const MAX_BINARY_HYPHEN_EXCEPTIONS: usize = 256 * 1024;
+const MAX_BINARY_TRIE_NODES: usize = 4 * 1024 * 1024;
+const MAX_BINARY_HYF_OPS: usize = 1024 * 1024;
+
+fn binary_write_error(message: &'static str) -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::InvalidData, message)
+}
+
+fn binary_u32(value: usize, message: &'static str) -> Result<u32, std::io::Error> {
+    let value = u32::try_from(value).map_err(|_| binary_write_error(message))?;
+    if value == BINARY_NONE_U32 {
+        Err(binary_write_error(message))
+    } else {
+        Ok(value)
+    }
+}
+
+fn binary_optional_u32(value: Option<usize>, message: &'static str) -> Result<u32, std::io::Error> {
+    value.map_or(Ok(BINARY_NONE_U32), |value| binary_u32(value, message))
+}
+
+fn decode_optional_u32(value: u32) -> Result<Option<usize>, FormatError> {
+    if value == BINARY_NONE_U32 {
+        Ok(None)
+    } else {
+        usize::try_from(value)
+            .map(Some)
+            .map_err(|_| FormatError::ParseError)
+    }
+}
+
+impl Hyphenator {
+    /// Store only the state used after INITEX has compressed the pattern trie.
+    /// Pattern-building nodes and hashes are run-construction caches, not runtime state.
+    pub(crate) fn dump_runtime_binary(&self) -> Result<Vec<u8>, std::io::Error> {
+        let trie = self
+            .trie
+            .as_ref()
+            .ok_or_else(|| binary_write_error("runtime hyphen trie is not initialized"))?;
+        if !self.format_exceptions_are_valid()
+            || !self.saved_hyphenation_codes_are_valid()
+            || !trie.format_state_is_valid()
+        {
+            return Err(binary_write_error("hyphen runtime state is invalid"));
+        }
+
+        let total_exceptions = self
+            .exceptions
+            .iter()
+            .try_fold(0usize, |total, map| total.checked_add(map.len()));
+        if total_exceptions.is_none_or(|total| total > MAX_BINARY_HYPHEN_EXCEPTIONS) {
+            return Err(binary_write_error("too many hyphenation exceptions"));
+        }
+
+        let mut writer = BinaryWriter::new();
+        for map in &self.exceptions {
+            writer.write_u32(binary_u32(map.len(), "too many language exceptions")?);
+            let mut entries: Vec<_> = map.iter().collect();
+            entries.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
+            for (word, positions) in entries {
+                let word_len = u8::try_from(word.len())
+                    .map_err(|_| binary_write_error("hyphenation word is too long"))?;
+                let position_count = u8::try_from(positions.len())
+                    .map_err(|_| binary_write_error("too many exception positions"))?;
+                writer.write_u8(word_len);
+                for &character in word {
+                    writer.write_u16(character);
+                }
+                writer.write_u8(position_count);
+                for &position in positions {
+                    writer.write_u8(
+                        u8::try_from(position)
+                            .map_err(|_| binary_write_error("exception position is too large"))?,
+                    );
+                }
+            }
+        }
+
+        for codes in &self.saved_hyphenation_codes {
+            match codes {
+                None => writer.write_u8(0),
+                Some(codes) => {
+                    writer.write_u8(1);
+                    writer.write_bytes(&codes.etex.0);
+                    writer.write_u32(binary_u32(
+                        codes.latin_ucs.0.len(),
+                        "too many saved Latin-UCS codes",
+                    )?);
+                    for &(character, code) in &codes.latin_ucs.0 {
+                        writer.write_u16(character);
+                        writer.write_u16(code);
+                    }
+                }
+            }
+        }
+
+        if trie.nodes.len() > MAX_BINARY_TRIE_NODES {
+            return Err(binary_write_error("compressed hyphen trie is too large"));
+        }
+        writer.write_u32(binary_u32(trie.nodes.len(), "too many trie nodes")?);
+        for node in &trie.nodes {
+            writer.write_u32(binary_optional_u32(node.link, "trie link is too large")?);
+            writer.write_u16(node.chr.unwrap_or(BINARY_NONE_U16));
+            writer.write_u32(binary_optional_u32(node.op, "trie operation is too large")?);
+        }
+
+        let total_ops = trie
+            .hyf_ops
+            .iter()
+            .try_fold(0usize, |total, ops| total.checked_add(ops.len()));
+        if total_ops.is_none_or(|total| total > MAX_BINARY_HYF_OPS) {
+            return Err(binary_write_error("too many hyphen operations"));
+        }
+        for ops in &trie.hyf_ops {
+            writer.write_u32(binary_u32(ops.len(), "too many language operations")?);
+            for op in ops {
+                writer.write_u8(
+                    u8::try_from(op.distance)
+                        .map_err(|_| binary_write_error("hyphen distance is too large"))?,
+                );
+                writer.write_u8(op.num);
+                writer.write_u32(binary_optional_u32(
+                    op.next,
+                    "hyphen operation link is too large",
+                )?);
+            }
+        }
+        Ok(writer.into_inner())
+    }
+
+    pub(crate) fn undump_runtime_binary(bytes: &[u8]) -> Result<Self, FormatError> {
+        let mut reader = BinaryReader::new(bytes);
+        let mut hyphenator = Hyphenator::new();
+        let mut total_exceptions = 0usize;
+        for language in 0..hyphenator.exceptions.len() {
+            let count = reader.read_usize_u32()?;
+            total_exceptions = total_exceptions
+                .checked_add(count)
+                .filter(|&total| total <= MAX_BINARY_HYPHEN_EXCEPTIONS)
+                .ok_or(FormatError::ParseError)?;
+            // The shortest record has a two-character word and no positions.
+            if count > reader.remaining() / 6 {
+                return Err(FormatError::IncompleteFile);
+            }
+            let mut map = HashMap::new();
+            map.try_reserve(count.min(4096))
+                .map_err(|_| FormatError::AllocationFailed)?;
+            for _ in 0..count {
+                let word_len = usize::from(reader.read_u8()?);
+                if !(2..=63).contains(&word_len)
+                    || word_len
+                        .checked_mul(2)
+                        .and_then(|bytes| bytes.checked_add(1))
+                        .is_none_or(|bytes| bytes > reader.remaining())
+                {
+                    return Err(FormatError::ParseError);
+                }
+                let mut word = Vec::new();
+                word.try_reserve_exact(word_len)
+                    .map_err(|_| FormatError::AllocationFailed)?;
+                for _ in 0..word_len {
+                    let character = reader.read_u16()?;
+                    if !(1..=MAX_LATIN_UCS_CODE as u16).contains(&character) {
+                        return Err(FormatError::ParseError);
+                    }
+                    word.push(character);
+                }
+                let position_count = usize::from(reader.read_u8()?);
+                if position_count > reader.remaining() {
+                    return Err(FormatError::IncompleteFile);
+                }
+                let mut positions = Vec::new();
+                positions
+                    .try_reserve_exact(position_count)
+                    .map_err(|_| FormatError::AllocationFailed)?;
+                for _ in 0..position_count {
+                    let position = usize::from(reader.read_u8()?);
+                    if position > word_len {
+                        return Err(FormatError::ParseError);
+                    }
+                    positions.push(position);
+                }
+                if map.insert(word, positions).is_some() {
+                    return Err(FormatError::ParseError);
+                }
+            }
+            hyphenator.exceptions[language] = map;
+        }
+
+        for language in 0..hyphenator.saved_hyphenation_codes.len() {
+            hyphenator.saved_hyphenation_codes[language] = match reader.read_u8()? {
+                0 => None,
+                1 => {
+                    let etex = EtexHyphenationCodes(
+                        reader
+                            .read_bytes(256)?
+                            .try_into()
+                            .map_err(|_| FormatError::IncompleteFile)?,
+                    );
+                    let count = reader.read_usize_u32()?;
+                    if count > MAX_LATIN_UCS_CODE as usize + 1
+                        || count
+                            .checked_mul(4)
+                            .is_none_or(|bytes| bytes > reader.remaining())
+                    {
+                        return Err(FormatError::ParseError);
+                    }
+                    let mut entries = Vec::new();
+                    entries
+                        .try_reserve_exact(count)
+                        .map_err(|_| FormatError::AllocationFailed)?;
+                    for _ in 0..count {
+                        entries.push((reader.read_u16()?, reader.read_u16()?));
+                    }
+                    Some(Box::new(SavedHyphenationCodes {
+                        etex,
+                        latin_ucs: LatinUcsHyphenationCodes(entries),
+                    }))
+                }
+                _ => return Err(FormatError::ParseError),
+            };
+        }
+
+        let node_count = reader.read_usize_u32()?;
+        if !(257..=MAX_BINARY_TRIE_NODES).contains(&node_count)
+            || node_count
+                .checked_mul(10)
+                .is_none_or(|bytes| bytes > reader.remaining())
+        {
+            return Err(FormatError::ParseError);
+        }
+        let mut nodes = Vec::new();
+        nodes
+            .try_reserve_exact(node_count)
+            .map_err(|_| FormatError::AllocationFailed)?;
+        for _ in 0..node_count {
+            let link = decode_optional_u32(reader.read_u32()?)?;
+            let chr = match reader.read_u16()? {
+                BINARY_NONE_U16 => None,
+                chr if u32::from(chr) <= MAX_LATIN_UCS_CODE => Some(chr),
+                _ => return Err(FormatError::ParseError),
+            };
+            let op = decode_optional_u32(reader.read_u32()?)?;
+            nodes.push(TrieNode { link, chr, op });
+        }
+
+        let mut hyf_ops: [_; 256] = std::array::from_fn(|_| Vec::new());
+        let mut total_ops = 0usize;
+        for language in 0..hyf_ops.len() {
+            let count = reader.read_usize_u32()?;
+            total_ops = total_ops
+                .checked_add(count)
+                .filter(|&total| total <= MAX_BINARY_HYF_OPS)
+                .ok_or(FormatError::ParseError)?;
+            if count
+                .checked_mul(6)
+                .is_none_or(|bytes| bytes > reader.remaining())
+            {
+                return Err(FormatError::IncompleteFile);
+            }
+            let mut ops = Vec::new();
+            ops.try_reserve_exact(count)
+                .map_err(|_| FormatError::AllocationFailed)?;
+            for _ in 0..count {
+                ops.push(HyfOp {
+                    distance: usize::from(reader.read_u8()?),
+                    num: reader.read_u8()?,
+                    next: decode_optional_u32(reader.read_u32()?)?,
+                });
+            }
+            hyf_ops[language] = ops;
+        }
+        reader.finish()?;
+
+        let trie = Trie { nodes, hyf_ops };
+        if !trie.format_state_is_valid()
+            || !hyphenator.format_exceptions_are_valid()
+            || !hyphenator.saved_hyphenation_codes_are_valid()
+        {
+            return Err(FormatError::ParseError);
+        }
+        hyphenator.trie = Some(trie);
+        hyphenator.has_saved_hyphenation_codes = hyphenator
+            .saved_hyphenation_codes
+            .iter()
+            .any(Option::is_some);
+        Ok(hyphenator)
+    }
+}
+
 impl Dumpable for EtexHyphenationCodes {
     fn dump(&self, target: &mut impl Write) -> Result<(), std::io::Error> {
         self.0.dump(target)
@@ -1509,8 +1808,15 @@ impl Dumpable for Trie {
         for ops in &self.hyf_ops {
             ops.dump(target)?;
         }
-        for map in &self.op_code_hash {
-            map.dump(target)?;
+        // The hash is a pattern-build cache and is not retained by the runtime
+        // trie. Legacy text fmt still carries the old field, so reconstruct its
+        // canonical key/index relation only while writing that compatibility wire.
+        for ops in &self.hyf_ops {
+            ops.len().dump(target)?;
+            for (index, op) in ops.iter().enumerate() {
+                op.dump(target)?;
+                index.dump(target)?;
+            }
         }
         Ok(())
     }
@@ -1527,11 +1833,10 @@ impl Dumpable for Trie {
             let map = HashMap::undump(lines)?;
             op_code_hash[i] = map;
         }
-        let trie = Self {
-            nodes,
-            hyf_ops,
-            op_code_hash,
-        };
+        if !op_code_hashes_match(&hyf_ops, &op_code_hash) {
+            return Err(FormatError::ParseError);
+        }
+        let trie = Self { nodes, hyf_ops };
         trie.format_state_is_valid()
             .then_some(trie)
             .ok_or(FormatError::ParseError)
@@ -1567,6 +1872,130 @@ mod latin_ucs_tests {
         String::from_utf8(bytes).unwrap()
     }
 
+    fn empty_runtime_hyphenator() -> Hyphenator {
+        let mut hyphenator = Hyphenator::new();
+        hyphenator.trie = Some(PreTrie::new().to_trie_mut());
+        hyphenator
+    }
+
+    #[test]
+    fn 型付きruntimeは構築用trieを捨てて意味状態を往復する() {
+        let mut hyphenator = Hyphenator::new();
+        hyphenator.exceptions[0].insert(vec![u16::from(b'a'), u16::from(b'b')], vec![1]);
+        let mut etex = [0; 256];
+        etex[usize::from(b'A')] = b'a';
+        hyphenator.saved_hyphenation_codes[0] = Some(Box::new(SavedHyphenationCodes {
+            etex: EtexHyphenationCodes(etex),
+            latin_ucs: LatinUcsHyphenationCodes(vec![(256, 257)]),
+        }));
+        hyphenator.has_saved_hyphenation_codes = true;
+
+        let mut pre_trie = PreTrie::new();
+        let op = pre_trie.new_trie_op(
+            HyfOp {
+                distance: 0,
+                num: 3,
+                next: None,
+            },
+            0,
+        );
+        pre_trie
+            .insert(&[0, u16::from(b'a'), u16::from(b'b')], Some(op))
+            .unwrap();
+        hyphenator.trie = Some(pre_trie.to_trie_mut());
+
+        let bytes = hyphenator.dump_runtime_binary().unwrap();
+        let mut loaded = Hyphenator::undump_runtime_binary(&bytes).unwrap();
+        assert_eq!(loaded.pre_trie.nodes.len(), 1);
+        assert!(loaded.pre_trie.subtrie_hash.is_empty());
+        assert!(loaded.pre_trie.hyf_ops.iter().all(Vec::is_empty));
+        assert!(loaded.pre_trie.op_code_hash.iter().all(HashMap::is_empty));
+        assert!(loaded.has_saved_hyphenation_codes);
+        assert_eq!(loaded.dump_runtime_binary().unwrap(), bytes);
+
+        loaded.cur_lang = 0;
+        let mut pattern = Vec::new();
+        assert!(loaded.find_hyphen_locations(&[0, b'a' as u16, b'b' as u16, 0], &mut pattern));
+        assert_eq!(pattern, vec![0, 1, 0]);
+    }
+
+    #[test]
+    fn 未圧縮のhyphenatorをruntime_v1として書かない() {
+        assert!(Hyphenator::new().dump_runtime_binary().is_err());
+    }
+
+    #[test]
+    fn 型付きruntimeの途中で切れたnodeと範囲外linkを拒否する() {
+        let bytes = empty_runtime_hyphenator().dump_runtime_binary().unwrap();
+        let mut truncated = bytes.clone();
+        truncated.truncate(1284 + 9);
+        assert!(matches!(
+            Hyphenator::undump_runtime_binary(&truncated),
+            Err(FormatError::ParseError | FormatError::IncompleteFile)
+        ));
+
+        let mut bad_link = bytes;
+        let node_count = u32::from_le_bytes(bad_link[1280..1284].try_into().unwrap());
+        let node_one = 1284 + 10;
+        bad_link[node_one..node_one + 4].copy_from_slice(&node_count.to_le_bytes());
+        bad_link[node_one + 4..node_one + 6].copy_from_slice(&0u16.to_le_bytes());
+        assert!(matches!(
+            Hyphenator::undump_runtime_binary(&bad_link),
+            Err(FormatError::ParseError)
+        ));
+    }
+
+    #[test]
+    fn 型付きruntimeはhyphen操作の前方参照と重複を拒否する() {
+        let mut hyphenator = Hyphenator::new();
+        let mut pre_trie = PreTrie::new();
+        pre_trie.new_trie_op(
+            HyfOp {
+                distance: 0,
+                num: 1,
+                next: None,
+            },
+            0,
+        );
+        pre_trie.new_trie_op(
+            HyfOp {
+                distance: 1,
+                num: 2,
+                next: Some(0),
+            },
+            0,
+        );
+        hyphenator.trie = Some(pre_trie.to_trie_mut());
+        let bytes = hyphenator.dump_runtime_binary().unwrap();
+        let node_count = u32::from_le_bytes(bytes[1280..1284].try_into().unwrap()) as usize;
+        let language_zero_count = 1284 + node_count * 10;
+        assert_eq!(
+            u32::from_le_bytes(
+                bytes[language_zero_count..language_zero_count + 4]
+                    .try_into()
+                    .unwrap()
+            ),
+            2
+        );
+        let first_op = language_zero_count + 4;
+        let second_op = first_op + 6;
+
+        let mut forward = bytes.clone();
+        forward[second_op + 2..second_op + 6].copy_from_slice(&1u32.to_le_bytes());
+        assert!(matches!(
+            Hyphenator::undump_runtime_binary(&forward),
+            Err(FormatError::ParseError)
+        ));
+
+        let mut duplicate = bytes;
+        let first = duplicate[first_op..first_op + 6].to_vec();
+        duplicate[second_op..second_op + 6].copy_from_slice(&first);
+        assert!(matches!(
+            Hyphenator::undump_runtime_binary(&duplicate),
+            Err(FormatError::ParseError)
+        ));
+    }
+
     #[test]
     fn 未登録の高位unicode欧文は圧縮trieの範囲外を読まない() {
         let empty = TrieNode {
@@ -1583,7 +2012,6 @@ mod latin_ucs_tests {
         let trie = Trie {
             nodes,
             hyf_ops: std::array::from_fn(|_| Vec::new()),
-            op_code_hash: std::array::from_fn(|_| HashMap::new()),
         };
         let mut pattern = vec![0; 2];
 
@@ -1603,7 +2031,6 @@ mod latin_ucs_tests {
                 257
             ],
             hyf_ops: std::array::from_fn(|_| Vec::new()),
-            op_code_hash: std::array::from_fn(|_| HashMap::new()),
         };
         let mut pattern = vec![0; 2];
 
@@ -1712,7 +2139,6 @@ mod latin_ucs_tests {
         let mut trie = Trie {
             nodes: vec![empty; 257],
             hyf_ops: std::array::from_fn(|_| Vec::new()),
-            op_code_hash: std::array::from_fn(|_| HashMap::new()),
         };
         trie.nodes[1] = TrieNode {
             link: Some(258),
@@ -1737,7 +2163,6 @@ mod latin_ucs_tests {
         let mut trie = Trie {
             nodes: vec![empty; 258],
             hyf_ops: std::array::from_fn(|_| Vec::new()),
-            op_code_hash: std::array::from_fn(|_| HashMap::new()),
         };
         trie.nodes[1] = TrieNode {
             link: Some(257),

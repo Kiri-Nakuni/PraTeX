@@ -1,3 +1,4 @@
+pub(crate) mod binary;
 mod dump_command;
 mod dump_noads;
 mod dump_nodes;
@@ -91,15 +92,52 @@ fn open_fmt_file(format_name: Option<OsString>) -> Option<File> {
 /// NOTE Does currently not check that all undumped value are in a valid range.
 /// See 1303.
 fn load_fmt_file(mut fmt_file: File) -> Result<LoadedFormat, FormatError> {
-    let mut format_string = String::new();
-    if fmt_file.read_to_string(&mut format_string).is_err() {
-        println!("Format file is not valid UTF-8");
-        return Err(FormatError::NoUtf8);
+    let mut bytes = Vec::new();
+    Read::by_ref(&mut fmt_file)
+        .take(binary::MAX_FORMAT_FILE_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| FormatError::IncompleteFile)?;
+    if bytes.len() > binary::MAX_FORMAT_FILE_BYTES {
+        return Err(FormatError::AllocationFailed);
     }
+    if binary::has_magic(&bytes) {
+        return load_binary_fmt_file(&bytes);
+    }
+    let format_string = String::from_utf8(bytes).map_err(|_| {
+        println!("Format file is not valid UTF-8");
+        FormatError::NoUtf8
+    })?;
     let mut lines = CountedLines::from(format_string.lines());
     let eqtb = undump_table_of_equivalents(&mut lines)?;
     let hyphenator = undump_hyphenation_tables(&mut lines)?;
     let logger = undump_a_couple_more(&mut lines, &eqtb)?;
+    Ok(Box::new((logger, hyphenator, eqtb)))
+}
+
+fn load_binary_fmt_file(bytes: &[u8]) -> Result<LoadedFormat, FormatError> {
+    let sections = binary::parse_format(bytes)?;
+
+    let eqtb_text = std::str::from_utf8(sections.eqtb_legacy_text).map_err(|_| {
+        println!("Format Eqtb section is not valid UTF-8");
+        FormatError::NoUtf8
+    })?;
+    let mut eqtb_lines = CountedLines::from(eqtb_text.lines());
+    let eqtb = undump_table_of_equivalents(&mut eqtb_lines)?;
+    if eqtb_lines.next().is_some() {
+        return Err(FormatError::ParseError);
+    }
+
+    let hyphenator = Hyphenator::undump_runtime_binary(sections.hyphen_runtime)?;
+
+    let metadata_text = std::str::from_utf8(sections.run_metadata_legacy_text).map_err(|_| {
+        println!("Format metadata section is not valid UTF-8");
+        FormatError::NoUtf8
+    })?;
+    let mut metadata_lines = CountedLines::from(metadata_text.lines());
+    let logger = undump_a_couple_more(&mut metadata_lines, &eqtb)?;
+    if metadata_lines.next().is_some() {
+        return Err(FormatError::ParseError);
+    }
     Ok(Box::new((logger, hyphenator, eqtb)))
 }
 
@@ -181,12 +219,33 @@ pub fn store_fmt_file(
         log_file.flush().expect("Error writing to log file");
     }
 
-    dump_table_of_equivalents(&mut format_file, eqtb, logger).unwrap();
-    dump_font_information(eqtb, logger).unwrap();
-    dump_hyphenation_tables(&mut format_file, hyphenator, logger).unwrap();
-    dump_a_couple_more(&mut format_file, logger).unwrap();
+    if binary_runtime_format_requested() {
+        let mut eqtb_text = Vec::new();
+        dump_table_of_equivalents(&mut eqtb_text, eqtb, logger).unwrap();
+        dump_font_information(eqtb, logger).unwrap();
+        print_hyphenation_summary(hyphenator, logger);
+        let hyphen_runtime = hyphenator.dump_runtime_binary().unwrap();
+        let mut run_metadata_text = Vec::new();
+        dump_a_couple_more(&mut run_metadata_text, logger).unwrap();
+        binary::write_format(
+            &mut format_file,
+            &eqtb_text,
+            &hyphen_runtime,
+            &run_metadata_text,
+        )
+        .unwrap();
+    } else {
+        dump_table_of_equivalents(&mut format_file, eqtb, logger).unwrap();
+        dump_font_information(eqtb, logger).unwrap();
+        dump_hyphenation_tables(&mut format_file, hyphenator, logger).unwrap();
+        dump_a_couple_more(&mut format_file, logger).unwrap();
+    }
 
     eqtb.integers.set(IntegerVariable::TracingStats, 0);
+}
+
+fn binary_runtime_format_requested() -> bool {
+    std::env::var("PRATEX_FMT_CODEC").as_deref() != Ok("legacy-text")
 }
 
 /// See 1328.
@@ -226,7 +285,7 @@ fn create_format_ident_and_open_file(
 
 /// See 1313.
 fn dump_table_of_equivalents(
-    format_file: &mut BufWriter<File>,
+    format_file: &mut impl Write,
     eqtb: &Eqtb,
     logger: &mut Logger,
 ) -> Result<(), std::io::Error> {
@@ -261,10 +320,15 @@ fn dump_font_information(eqtb: &Eqtb, logger: &mut Logger) -> Result<(), std::io
 
 /// See 1324.
 fn dump_hyphenation_tables(
-    format_file: &mut BufWriter<File>,
+    format_file: &mut impl Write,
     hyphenator: &Hyphenator,
     logger: &mut Logger,
 ) -> Result<(), std::io::Error> {
+    print_hyphenation_summary(hyphenator, logger);
+    hyphenator.dump(format_file)
+}
+
+fn print_hyphenation_summary(hyphenator: &Hyphenator, logger: &mut Logger) {
     let mut total_exceptions = 0;
     for exceptions in &hyphenator.exceptions {
         total_exceptions += exceptions.len();
@@ -275,15 +339,10 @@ fn dump_hyphenation_tables(
     if total_exceptions != 1 {
         logger.print_char(b's');
     }
-
-    hyphenator.dump(format_file)
 }
 
 /// See 1326.
-fn dump_a_couple_more(
-    format_file: &mut BufWriter<File>,
-    logger: &Logger,
-) -> Result<(), std::io::Error> {
+fn dump_a_couple_more(format_file: &mut impl Write, logger: &Logger) -> Result<(), std::io::Error> {
     logger.interaction.dump(format_file)?;
     logger.format_ident.dump(format_file)?;
     69069.dump(format_file)?;
@@ -297,6 +356,8 @@ pub enum FormatError {
     IncompleteFile,
     ParseError,
     WrongConstant,
+    WrongChecksum,
+    UnsupportedVersion,
     AllocationFailed,
 }
 

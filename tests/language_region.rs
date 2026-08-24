@@ -43,6 +43,14 @@ fn join_log(path: &std::path::Path) -> String {
 }
 
 fn make_format(name: &str, body: &str) -> (std::path::PathBuf, Output) {
+    make_format_with_codec(name, body, None)
+}
+
+fn make_format_with_codec(
+    name: &str,
+    body: &str,
+    codec: Option<&str>,
+) -> (std::path::PathBuf, Output) {
     let dir = case_dir(name);
     let fmt_path = dir.join("mk.fmt");
     let _ = std::fs::remove_file(&fmt_path);
@@ -52,11 +60,12 @@ fn make_format(name: &str, body: &str) -> (std::path::PathBuf, Output) {
         format!("\\catcode123=1\n\\catcode125=2\n\\batchmode\n{body}\n\\dump\n"),
     )
     .unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_rtex"))
-        .arg("mk.tex")
-        .current_dir(&dir)
-        .output()
-        .unwrap();
+    let mut command = Command::new(env!("CARGO_BIN_EXE_rtex"));
+    command.arg("mk.tex").current_dir(&dir);
+    if let Some(codec) = codec {
+        command.env("PRATEX_FMT_CODEC", codec);
+    }
+    let output = command.output().unwrap();
     (dir, output)
 }
 
@@ -220,7 +229,8 @@ fn 組版地域と別名はfmtを往復する() {
 
 #[test]
 fn 壊れたfmtの範囲外地域を拒む() {
-    let (dir, output) = make_format("fmt範囲外", "\\pratexregion=3");
+    let (dir, output) =
+        make_format_with_codec("fmt範囲外", "\\pratexregion=3", Some("legacy-text"));
     let fmt_path = dir.join("mk.fmt");
     assert!(
         output.status.success() && fmt_path.exists(),

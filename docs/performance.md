@@ -128,6 +128,19 @@ decode中のtrie検証統合とする。counter、観測上の関数対応、cle
 へ固定した。次のA/Bでは全semantic text parseを残す圧縮を避け、loaded runに不要な`PreTrie`をwireから
 除く型付き`HyphenRuntimeV1`を最小sliceにする。
 
+その`HyphenRuntimeV1`は採用した。旧ASCIIとの同一binary交互A/Bでは、空実行20組のpaired wall
+幾何平均比0.4732、299頁15組は0.8236で、両codecのDVIとauxはbyte一致した。fmtは57.2 MBから
+21.5 MBへ縮み、299頁instructionsは21.1%、cache missは51.7%減った。新fmtを既定にした全releaseは
+932 passed、0 failed、11 ignoredで、旧ASCII readerも維持する。binary／legacy両fmtのTRIPは
+固定commentで公式DVIへbyte一致した。schemaと上限は[`format-file-v1.md`](format-file-v1.md)、raw値と
+採用判断は
+[`benchmarks/fmt-hyphen-runtime-v1-20260825.md`](benchmarks/fmt-hyphen-runtime-v1-20260825.md)
+を一次資料にする。
+
+ただしtask-clockから空実行を引いた本文側は旧1,024.71 ms、新1,027.58 msで変わらない。同日公式
+upLaTeXの診断値と比べると新299頁はなお概算1.36倍であり、1.3未満も0.98未満も未達である。
+次の支配対象はloaded-engineのtoken取得、整数走査、macro reader、input frameである。
+
 ## 現在の一頁budget（Linux perf、`82fa3a2`）
 
 TeX Live 2026、同じ一頁入力を15回測った既知の分解は次である。これは機能完成後の

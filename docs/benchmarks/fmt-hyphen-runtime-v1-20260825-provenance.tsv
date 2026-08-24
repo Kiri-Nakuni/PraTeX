@@ -1,0 +1,23 @@
+kind	path_or_identity	sha256	bytes_or_value
+repository_base	PraTeX source before experimental diff	-	c222bcb
+candidate_binary	target/release/pratex	a4f88cabf2eb0a8a6be9803d3aeaaf9493a404239e20c5660ab52ea65960cef5	-
+legacy_format	ASCII latex.fmt	4626e02f3d9f4cd710b299de0bab8a9194d1978dc17ddd6ad2cbfcd5be641465	57221231
+runtime_format	HyphenRuntimeV1 latex.fmt	c5cda9564ed3251f450ceb7c63f87ec334c55b9c9ea63afb06e7111f06e0013c	21532633
+document_fixture	tools/fixtures/lipsum-300page.tex	265a52f085db6afb43a3f8a420be0a80ec554c7a1052b064edaa85a539f7f2cd	453
+document_dvi	both codec modes	e3896449ad99402c21a963819d4abdfe4e6422d270980bf1b146d2b3e1291e55	1396468
+document_aux	both codec modes	db187909886572dd6e4beed4704f83078aecb28738881b6c4a67012f1d536027	34
+noop_input	command-line TeX input	-	\\relax\\csname @@end\\endcsname
+cpu_affinity	Linux taskset	-	CPU_0
+counter_tool	perf stat	-	duration_time,task-clock,instructions,cache-misses
+noop_warmup	per format	-	3
+noop_measurement	alternating first mode by round	-	20_pairs
+document_warmup	per format	-	2
+document_measurement	alternating first mode by round	-	15_pairs
+source_date_epoch	both modes	-	1709210096_document;0_noop
+artifact_root	local temporary comparison	-	/tmp/pratex-hyphen-runtime-compare.vPJQ0oDT
+runtime_format_root	local temporary generation	-	/tmp/pratex-hyphen-runtime-v1.u2m4IJ9G
+trip_binary	isolated release trip rtex	be5cdc9f3563410131940c3e4389bd8f09dfd43c5f065eaf84665a2ccdd93784	-
+trip_runtime_format	trip.fmt	176eb86087a512305fde18cda4a7ce83361fda78ea3676c7015a2cb4d9abb89a	511381
+trip_legacy_format	trip.fmt	e8b403371b14783d8440aedb6f0c806546af72c40fda4c935ac0b1d6998b03ee	516268
+trip_fixed_comment_dvi	binary and legacy	09802695e330d34acec9192c15debe2de65e34fcbd3f947db9c8924240b1fe0a	2920
+trip_artifact_root	local temporary TRIP	-	/tmp/pratex-trip-hyphen-runtime-v1.oiJd5iKP

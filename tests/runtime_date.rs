@@ -82,8 +82,17 @@ fn fmt識別日はdump時のtex_parameter代入を反映する() {
 \dump"#;
     let (directory, output) = run_tex("fmt識別日", LEAP_DAY_EPOCH, body);
     assert_success(&output, &directory);
-    let format = std::fs::read_to_string(directory.join("t.fmt")).unwrap();
-    assert!(format.contains(" (preloaded format=t 1999.1.2)"));
+    let format = std::fs::read(directory.join("t.fmt")).unwrap();
+    assert!(format.starts_with(b"PRATEXF\0"));
+    std::fs::write(directory.join("use.tex"), "\\end\n").unwrap();
+    let loaded = Command::new(env!("CARGO_BIN_EXE_rtex"))
+        .args(["&t", "use.tex"])
+        .current_dir(&directory)
+        .output()
+        .unwrap();
+    assert_success(&loaded, &directory);
+    let log = std::fs::read_to_string(directory.join("use.log")).unwrap();
+    assert!(log.contains(" (preloaded format=t 1999.1.2)"), "{log}");
 }
 
 #[test]

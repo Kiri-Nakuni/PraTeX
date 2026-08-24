@@ -25,8 +25,13 @@ fn prepare_directory(name: &str, files: &[(&str, &str)]) -> PathBuf {
 }
 
 fn run(directory: &Path, arguments: &[&str]) -> Output {
+    run_with_env(directory, arguments, &[])
+}
+
+fn run_with_env(directory: &Path, arguments: &[&str], environment: &[(&str, &str)]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_pratex"))
         .args(arguments)
+        .envs(environment.iter().copied())
         .current_dir(directory)
         .output()
         .unwrap()
@@ -195,6 +200,40 @@ fn iniで作ったfmtをfmt_optionから読み先頭ampersandを優先する() {
     assert_success(&ampersand);
     assert!(contains(&ampersand.stdout, b"<<FMT=BETA>>"));
     assert!(!contains(&ampersand.stdout, b"<<FMT=ALPHA>>"));
+}
+
+#[test]
+fn 型付きhyphen_runtime_fmtを自動判別しchecksum破損を拒否する() {
+    let directory = prepare_directory(
+        "binary runtime fmt",
+        &[
+            (
+                "make.tex",
+                "\\catcode123=1\n\\catcode125=2\n\\def\\fromfmt{BINARY}\\dump\n",
+            ),
+            ("use.tex", "\\message{<<FMT=\\fromfmt>>}\\end\n"),
+        ],
+    );
+    let make = run_with_env(
+        &directory,
+        &["-ini", "make.tex"],
+        &[("PRATEX_FMT_CODEC", "hyphen-runtime-v1")],
+    );
+    assert_success(&make);
+    let format_path = directory.join("make.fmt");
+    let format = std::fs::read(&format_path).unwrap();
+    assert!(format.starts_with(b"PRATEXF\0"));
+
+    let loaded = run(&directory, &["-fmt=make", "use.tex"]);
+    assert_success(&loaded);
+    assert!(contains(&loaded.stdout, b"<<FMT=BINARY>>"));
+
+    let mut corrupted = format;
+    *corrupted.last_mut().unwrap() ^= 1;
+    std::fs::write(directory.join("broken.fmt"), corrupted).unwrap();
+    let rejected = run(&directory, &["-fmt=broken", "use.tex"]);
+    assert!(!rejected.status.success());
+    assert!(!contains(&rejected.stdout, b"<<FMT=BINARY>>"));
 }
 
 #[test]

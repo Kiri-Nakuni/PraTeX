@@ -69,11 +69,16 @@ fn 準備(name: &str) -> PathBuf {
 }
 
 fn 実行(directory: &Path, arguments: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_rtex"))
-        .args(arguments)
-        .current_dir(directory)
-        .output()
-        .unwrap()
+    実行_codec(directory, arguments, None)
+}
+
+fn 実行_codec(directory: &Path, arguments: &[&str], codec: Option<&str>) -> Output {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_rtex"));
+    command.args(arguments).current_dir(directory);
+    if let Some(codec) = codec {
+        command.env("PRATEX_FMT_CODEC", codec);
+    }
+    command.output().unwrap()
 }
 
 fn 成功(output: &Output, context: &str) {
@@ -235,16 +240,20 @@ fn 保存codeとlatin_ucs拡張は圧縮済みfmtを往復する() {
 \\batchmode
 \\kcatcode256=14 \\catcode256=11
 \\savinghyphcodes=1
-\\lccode65=97 \\lccode66=98 \\lccode97=97 \\lccode98=98 \\lccode256=256
+\\lccode65=97 \\lccode66=98 \\lccode67=99 \\lccode68=100
+\\lccode97=97 \\lccode98=98 \\lccode99=99 \\lccode100=100 \\lccode256=256
 \\patterns{a1b Ā1a}
-\\lccode65=0 \\lccode66=0 \\lccode97=0 \\lccode98=0 \\lccode256=0
+\\hyphenation{C-D}
+\\lccode65=0 \\lccode66=0 \\lccode67=0 \\lccode68=0
+\\lccode97=0 \\lccode98=0 \\lccode99=0 \\lccode100=0 \\lccode256=0
 \\dump
 ",
     )
     .unwrap();
-    let output = 実行(&directory, &["-ini", "mk.tex"]);
+    let output = 実行_codec(&directory, &["-ini", "mk.tex"], Some("hyphen-runtime-v1"));
     成功(&output, "snapshot fmt生成");
-    assert!(directory.join("mk.fmt").is_file());
+    let format = std::fs::read(directory.join("mk.fmt")).unwrap();
+    assert!(format.starts_with(b"PRATEXF\0"));
 
     std::fs::write(
         directory.join("use.tex"),
@@ -253,7 +262,9 @@ fn 保存codeとlatin_ucs拡張は圧縮済みfmtを往復する() {
 \\uchyph=1 \\defaulthyphenchar=45 \\font\\f=metric
 \\showboxbreadth=100 \\showboxdepth=10
 \\setbox0=\\vbox{\\f \\hsize=6pt \\pretolerance=-1 \\tolerance=10000 \\noindent\\hskip0pt AB\\par}
-\\showbox0 \\message{[FMT-AFTER]}
+\\showbox0
+\\setbox1=\\vbox{\\f \\hsize=6pt \\pretolerance=-1 \\tolerance=10000 \\noindent\\hskip0pt CD\\par}
+\\showbox1 \\message{[FMT-AFTER]}
 \\end
 ",
     )
@@ -262,6 +273,6 @@ fn 保存codeとlatin_ucs拡張は圧縮済みfmtを往復する() {
     成功(&output, "snapshot fmt読戻し");
     let log = 結合log(&directory.join("use.log"));
     assert!(!log.contains("Not a letter"), "{log}");
-    assert!(log.contains("\\discretionary"), "{log}");
+    assert_eq!(log.matches("\\discretionary").count(), 2, "{log}");
     assert!(log.contains("[FMT-AFTER]"), "{log}");
 }
