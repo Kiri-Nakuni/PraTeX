@@ -370,6 +370,7 @@ pub fn main_control(
                 | UnexpandableCommand::Halign
                 | UnexpandableCommand::Hrule
                 | UnexpandableCommand::UnVbox { .. }
+                | UnexpandableCommand::VDiscards(_)
                 | UnexpandableCommand::End { .. } => {
                     head_for_vmode(unexpandable_command, token, scanner, eqtb, logger)
                 }
@@ -530,6 +531,11 @@ pub fn main_control(
                 ),
                 UnexpandableCommand::UnVbox { copy } => {
                     unpackage(copy, nest, scanner, eqtb, logger)
+                }
+                UnexpandableCommand::VDiscards(kind) => {
+                    for node in page_builder.take_vdiscards(kind) {
+                        vmode.append_node(node, eqtb);
+                    }
                 }
                 UnexpandableCommand::RemoveItem(remove_item) => {
                     delete_last(remove_item, nest, scanner, eqtb, logger)
@@ -969,6 +975,7 @@ pub fn main_control(
                 | UnexpandableCommand::Valign
                 | UnexpandableCommand::Endv
                 | UnexpandableCommand::UnVbox { .. }
+                | UnexpandableCommand::VDiscards(_)
                 | UnexpandableCommand::End { .. }
                 | UnexpandableCommand::ParEnd => insert_dollar_sign(token, scanner, eqtb, logger),
                 UnexpandableCommand::Math(math_command) => match math_command {

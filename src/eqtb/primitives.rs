@@ -8,7 +8,7 @@ use crate::command::{
     FontCharDimension, FractionCommand, FractionType, GlueComponent, GlueConversion, Hskip, IfTest,
     LimitType, MakeBox, MarkClassOperand, MarkCommand, MarkQuery, MathCommand, PageDimension,
     ParShapeDimension, Prefix, PrefixableCommand, RawStringCommand, RemoveItem, ShorthandDef,
-    ShowCommand, TextDirectionCommand, UnexpandableCommand, Vskip,
+    ShowCommand, TextDirectionCommand, UnexpandableCommand, VerticalDiscardKind, Vskip,
 };
 use crate::logger::InteractionMode;
 use crate::math::MathStyle;
@@ -1221,6 +1221,14 @@ impl Eqtb {
         self.primitive_unexpandable(b"unhcopy", UnexpandableCommand::UnHbox { copy: true });
         self.primitive_unexpandable(b"unvbox", UnexpandableCommand::UnVbox { copy: false });
         self.primitive_unexpandable(b"unvcopy", UnexpandableCommand::UnVbox { copy: true });
+        self.primitive_unexpandable(
+            b"pagediscards",
+            UnexpandableCommand::VDiscards(VerticalDiscardKind::Page),
+        );
+        self.primitive_unexpandable(
+            b"splitdiscards",
+            UnexpandableCommand::VDiscards(VerticalDiscardKind::Split),
+        );
 
         // See 1114.
         self.primitive_unexpandable(b"-", UnexpandableCommand::HyphenBreak);
