@@ -1,0 +1,13 @@
+% Medium document: 30 package invocations, currently 40 pages with TL 2026.
+% Page count is observed by the runner and is not assumed from this comment.
+\documentclass{article}
+\usepackage{lipsum}
+\begin{document}
+\newcount\benchmarkiteration
+\benchmarkiteration=0
+\loop
+  \lipsum[1-7]
+  \advance\benchmarkiteration by 1
+\ifnum\benchmarkiteration<30
+\repeat
+\end{document}

@@ -1,0 +1,14 @@
+% Primary continuous-prose throughput fixture.  With TeX Live 2026 this makes
+% 299 pages, i.e. the requested 300-page order, without copying package prose
+% into the repository.  The runner records the observed page count and DVI.
+\documentclass{article}
+\usepackage{lipsum}
+\begin{document}
+\newcount\benchmarkiteration
+\benchmarkiteration=0
+\loop
+  \lipsum[1-7]
+  \advance\benchmarkiteration by 1
+\ifnum\benchmarkiteration<225
+\repeat
+\end{document}

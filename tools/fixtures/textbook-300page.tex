@@ -1,0 +1,317 @@
+% Synthetic textbook-style performance fixture for DVI mode.
+%
+% Page-count design estimate (not verified by building this file):
+%   24 chapters x 12 page-bounded lessons = 288 main-matter pages.
+%   The title and reader's map add about 2 pages.  The table of contents has
+%   about 313 entries and is expected to add 7--9 pages.  The design estimate
+%   is therefore 297--299 pages, with a conservative 296--302 page range for
+%   font, format, and line-breaking differences between engines.
+%
+% Each lesson is deliberately short enough to fit on one page and ends with
+% \clearpage.  If a future run finds an overflow, record the actual page count
+% instead of silently changing the benchmark source.
+%
+% The content below is original synthetic material.  It does not reproduce a
+% third-party textbook, class sample, or exercise collection.
+%
+% Runtime contract:
+%   - standard LaTeX book class in DVI mode
+%   - amsmath
+%   - xcolor with the same explicit dvips driver as the package smoke test
+%   - a recorded TikZ/PGF runtime version (initial TL 2026 run: 3.1.11a)
+% No random input, shell escape, external image, bibliography processor,
+% index processor, or generated source file is required.
+
+\documentclass[10pt,oneside,openany]{book}
+
+\usepackage{amsmath}
+\usepackage[dvips]{xcolor}
+\usepackage{tikz}
+
+\title{A Synthetic Textbook of Measured Transformations}
+\author{PraTeX benchmark fixture}
+\date{Fixed synthetic edition}
+
+\setcounter{tocdepth}{1}
+\setcounter{secnumdepth}{1}
+\raggedbottom
+
+\newcount\TextbookChapter
+\TextbookChapter=0
+
+\newcommand{\TextbookPageEnd}{\par\clearpage}
+
+% LaTeX 2026's protected tie tests \ifincsname, which is still an explicit
+% PraTeX e-TeX gap.  This fixture needs a nonbreaking interword tie but does
+% not otherwise need that conditional, so keep the same definition on all
+% three engines instead of making the benchmark engine-dependent.
+\def~{\leavevmode\nobreak\ }
+
+\newcommand{\SyntheticChapter}{%
+  \edef\TextbookTag{module-\the\TextbookChapter}%
+  \chapter{Module \the\TextbookChapter: Measured Transformations}%
+  \label{chap:\TextbookTag}%
+
+  \section{Model and vocabulary}%
+  \label{sec:\TextbookTag-model}%
+  A measured transformation begins with a state, accepts a controlled input,
+  and produces a new state.  The purpose of the model is not to predict every
+  detail.  It is to expose which quantities are preserved, which quantities
+  are supplied, and which observations would disprove the explanation.
+  This module uses a deliberately small vocabulary so that each later
+  argument can be checked from the same definitions.\footnote{The prose and
+  numerical examples in this fixture are synthetic and have no external
+  source.}
+  \begin{equation}
+    s_{k+1}=s_k+u_k-e_k .
+    \label{eq:\TextbookTag-balance}
+  \end{equation}
+  Here $s_k$ is the stored state, $u_k$ is a supplied increment, and $e_k$ is
+  an observed loss.  Equation~\eqref{eq:\TextbookTag-balance} is a bookkeeping
+  identity; interpretation enters only when the three terms are measured.
+  \TextbookPageEnd
+
+  \section{A two-step derivation}%
+  \label{sec:\TextbookTag-derivation}%
+  Apply the balance rule twice.  Keeping the intermediate state visible makes
+  the cancellation auditable and prevents an assumption about the loss from
+  being hidden in notation.  The aligned form is useful in a textbook because
+  corresponding terms occupy stable columns.
+  \begin{align}
+    s_{k+1} &= s_k+u_k-e_k,
+      \label{eq:\TextbookTag-first-step}\\
+    s_{k+2} &= s_k+u_k+u_{k+1}-e_k-e_{k+1}.
+      \label{eq:\TextbookTag-second-step}
+  \end{align}
+  Subtracting the first line from the second recovers the one-step update at
+  index $k+1$.  This reverse check is intentionally simple: the workload is
+  meant to exercise mathematical layout and cross references without making
+  correctness depend on a specialized mathematical package.
+  \TextbookPageEnd
+
+  \section{Vectors and observation}%
+  \label{sec:\TextbookTag-vector}%
+  Several measurements can be grouped without changing their meaning.  Let
+  $x_k$ contain a stored quantity and a running total, and let $y_k$ expose a
+  weighted observation.  A compact linear presentation is
+  \begin{equation}
+    x_k=\begin{pmatrix}s_k\\ r_k\end{pmatrix},\qquad
+    y_k=\begin{pmatrix}1&-1\\ 1&1\end{pmatrix}x_k .
+    \label{eq:\TextbookTag-matrix}
+  \end{equation}
+  The first component compares the entries while the second combines them.
+  No claim is made that this particular matrix describes a physical device;
+  it is a stable, deterministic example for matrix delimiters, subscripts,
+  spacing, and equation numbering.  A reader can verify the result component
+  by component before proceeding.
+  \TextbookPageEnd
+
+  \section{A compact data table}%
+  \label{sec:\TextbookTag-table}%
+  A table separates observations from the formulas used to discuss them.  The
+  three rows below represent an initial state, a controlled update, and a
+  review point.  Values are dimensionless by design, so no unit package is
+  needed for this fixture.
+  \begin{table}[htbp]
+    \centering
+    \begin{tabular}{c|c|c|c}
+      stage & stored $s$ & input $u$ & loss $e$ \\ \hline
+      initial & 12 & 0 & 0 \\
+      update  & 15 & 4 & 1 \\
+      review  & 16 & 3 & 2
+    \end{tabular}
+    \caption{Synthetic observations for Module \the\TextbookChapter.}
+    \label{tab:\TextbookTag-observations}
+  \end{table}
+  Table~\ref{tab:\TextbookTag-observations} is intentionally small enough to
+  remain on this lesson page.  Its caption and label add a realistic float and
+  auxiliary-file entry without requiring an external dataset.
+  \TextbookPageEnd
+
+  \section{A small process diagram}%
+  \label{sec:\TextbookTag-diagram}%
+  The diagram gives a visual summary of the same three-part model.  It stays
+  within the basic drawing and node operations covered by the existing
+  TikZ/PGF DVI smoke test.
+  \begin{figure}[htbp]
+    \centering
+    \begin{tikzpicture}
+      \draw[blue,thick] (0,0) -- (2,0) -- (1,1.4) -- cycle;
+      \node at (0.45,0.25) {$s_k$};
+      \node at (1.55,0.25) {$u_k$};
+      \node at (1,0.92) {$s_{k+1}$};
+    \end{tikzpicture}
+    \caption{A synthetic state triangle for Module \the\TextbookChapter.}
+    \label{fig:\TextbookTag-triangle}
+  \end{figure}
+  Figure~\ref{fig:\TextbookTag-triangle} is explanatory rather than
+  decorative: each corner names one item used in
+  Equation~\eqref{eq:\TextbookTag-balance}.  The figure has no imported image,
+  random placement, or backend-specific primitive.
+  \TextbookPageEnd
+
+  \section{Checking a claim by references}%
+  \label{sec:\TextbookTag-reference-check}%
+  A long document must preserve relationships between objects even when page
+  numbers move.  The defining balance appears in
+  Equation~\eqref{eq:\TextbookTag-balance}; the observations appear in
+  Table~\ref{tab:\TextbookTag-observations} on
+  page~\pageref{tab:\TextbookTag-observations}; and the visual summary appears
+  in Figure~\ref{fig:\TextbookTag-triangle}.  These references are unresolved
+  on the first run and should stabilize together with the table of contents.
+
+  The cross-check has three steps.  First, verify that every symbol in the
+  equation has a prose definition.  Second, verify that every table column maps
+  to one of those symbols.  Third, verify that the diagram introduces no new
+  quantity.  This procedure is repetitive on purpose: it creates realistic
+  paragraph, reference, and auxiliary-file work with an answer that remains
+  independent of any external corpus.
+  \TextbookPageEnd
+
+  \section{Piecewise policy}%
+  \label{sec:\TextbookTag-policy}%
+  A controller may use one rule below a review threshold and another rule at
+  or above it.  The cases environment records the decision boundary without
+  relying on a diagram.
+  \begin{equation}
+    u_k=
+    \begin{cases}
+      2, & s_k<10,\\
+      1, & 10\leq s_k<20,\\
+      0, & s_k\geq20.
+    \end{cases}
+    \label{eq:\TextbookTag-policy}
+  \end{equation}
+  The rule is deterministic, bounded, and easy to inspect.  Combining it with
+  Equation~\eqref{eq:\TextbookTag-balance} gives a complete update once a loss
+  value is supplied.  Boundary values deserve explicit checks because a single
+  misplaced inequality changes which branch is selected.
+  \TextbookPageEnd
+
+  \section{Guided exercises}%
+  \label{sec:\TextbookTag-guided-exercises}%
+  The following exercises reuse only quantities already introduced in this
+  module.  They are short enough for hand calculation but varied enough to
+  create list layout, mathematical material, and backward references.
+  \begin{enumerate}
+    \item Use Equation~\eqref{eq:\TextbookTag-balance} with
+      $s_k=8$, $u_k=3$, and $e_k=1$.
+    \item Derive Equation~\eqref{eq:\TextbookTag-second-step} from two copies
+      of the one-step balance.
+    \item Evaluate both components of Equation~\eqref{eq:\TextbookTag-matrix}
+      when $s_k=5$ and $r_k=2$.
+    \item Identify the branch of Equation~\eqref{eq:\TextbookTag-policy} used
+      at each boundary value.
+  \end{enumerate}
+  A complete answer should name the applied rule before giving a number.  That
+  convention makes later review possible even when two calculations happen to
+  produce the same result.
+  \TextbookPageEnd
+
+  \section{Error and correction}%
+  \label{sec:\TextbookTag-error}%
+  Suppose an observed update differs from the balance prediction.  Define a
+  residual $d_k$ and a corrected state $\widehat{s}_{k+1}$ by
+  \begin{align}
+    d_k &= z_k-(s_k+u_k-e_k),
+      \label{eq:\TextbookTag-residual}\\
+    \widehat{s}_{k+1} &= s_k+u_k-e_k+d_k.
+      \label{eq:\TextbookTag-correction}
+  \end{align}
+  Substitution shows that the corrected value equals the observation $z_k$.
+  The residual is not automatically a fault: it may represent measurement
+  noise, an omitted input, or a mistaken model.  A careful report therefore
+  records the residual first and interprets it second.\footnote{This distinction
+  between calculation and interpretation is part of the synthetic lesson, not
+  a quotation from a published source.}
+  \TextbookPageEnd
+
+  \section{Comparing two summaries}%
+  \label{sec:\TextbookTag-comparison}%
+  Two summaries can agree on a total while disagreeing on individual terms.
+  For sequences $a_i$ and $b_i$, define
+  \begin{equation}
+    A_n=\sum_{i=1}^{n}a_i,\qquad
+    B_n=\sum_{i=1}^{n}b_i,\qquad
+    \Delta_n=A_n-B_n.
+    \label{eq:\TextbookTag-summary}
+  \end{equation}
+  A zero value of $\Delta_n$ proves equality of the two totals, but it does not
+  prove $a_i=b_i$ term by term.  This small distinction is useful in benchmark
+  prose because it creates inline and display mathematics while preserving a
+  clear answer.  Readers should state which level of equality their evidence
+  supports.
+  \TextbookPageEnd
+
+  \section{Connections across the book}%
+  \label{sec:\TextbookTag-connections}%
+  Every module uses the same structural vocabulary, allowing a reference to
+  remain meaningful across hundreds of pages.  Chapter~\ref{chap:module-1}
+  introduces the first instance of the model.  The current discussion is in
+  Chapter~\ref{chap:\TextbookTag}, and its diagram is on
+  page~\pageref{fig:\TextbookTag-triangle}.  Repeated labels would make these
+  claims ambiguous, so each generated chapter embeds its module number in every
+  auxiliary-file key.
+
+  The content is intentionally stable while page numbers are allowed to
+  change between early runs.  A benchmark harness can therefore distinguish
+  expected convergence work from accidental source variation.  Once the table
+  of contents and references stop changing, a further identical run should not
+  produce new logical cross-reference information.
+  \TextbookPageEnd
+
+  \section{Module review and independent exercises}%
+  \label{sec:\TextbookTag-review}%
+  Module~\the\TextbookChapter connected a balance identity, an aligned
+  derivation, a matrix observation, a data table, and a small diagram.  The
+  central claim remains Equation~\eqref{eq:\TextbookTag-balance}; the other
+  objects either reorganize it or provide evidence with which to check it.
+  \begin{enumerate}
+    \item Construct a three-step version of
+      Equation~\eqref{eq:\TextbookTag-second-step}.
+    \item Replace one entry of Table~\ref{tab:\TextbookTag-observations} and
+      state which equation would reveal the inconsistency.
+    \item Explain why Figure~\ref{fig:\TextbookTag-triangle} must not be used
+      to recover logical text or numerical data.
+    \item Compare the residual in Equation~\eqref{eq:\TextbookTag-residual}
+      with the cumulative difference in
+      Equation~\eqref{eq:\TextbookTag-summary}.
+  \end{enumerate}
+  These exercises close the module without an answer file or external tool.
+  The next chapter restarts the numbering context while preserving global
+  labels, table-of-contents entries, and page references.
+  \TextbookPageEnd
+}
+
+\def\BuildSyntheticTextbook{%
+  \ifnum\TextbookChapter<24
+    \advance\TextbookChapter by 1
+    \SyntheticChapter
+    \BuildSyntheticTextbook
+  \fi
+}
+
+\begin{document}
+
+\typeout{TEXTBOOK-FIXTURE-DESIGN-BODY-PAGES=288}
+\typeout{TEXTBOOK-FIXTURE-DESIGN-CHAPTERS=24}
+
+\frontmatter
+\maketitle
+\tableofcontents
+
+\chapter*{Reader's map}
+\addcontentsline{toc}{chapter}{Reader's map}
+This file is a deterministic performance fixture rather than a publication.
+It contains 24 generated chapters and 12 page-bounded lessons per chapter.
+The first main-matter chapter is Chapter~\ref{chap:module-1}; the last is
+Chapter~\ref{chap:module-24}.  Their first and last diagrams are
+Figures~\ref{fig:module-1-triangle} and~\ref{fig:module-24-triangle}.
+These forward references, the table of contents, equation references, table
+references, and page references are intended to require multiple runs before
+the auxiliary files stabilize.  No engine identity is assumed or imitated.
+
+\mainmatter
+\BuildSyntheticTextbook
+
+\end{document}

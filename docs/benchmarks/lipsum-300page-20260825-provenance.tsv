@@ -1,0 +1,24 @@
+key	value
+pratex_sha256	1733817d508c23ba71cb91e6e375dc6e4c2b8a550c19d97d55e510ff05d890f8
+pratex_format_sha256	4626e02f3d9f4cd710b299de0bab8a9194d1978dc17ddd6ad2cbfcd5be641465
+pratex_format_bytes	57221231
+uplatex_binary	/usr/local/texlive/2026/bin/x86_64-linux/uplatex
+uplatex_resolved_binary	/usr/local/texlive/2026/bin/x86_64-linux/euptex
+uplatex_sha256	a39eba81da57bab2e96237f9e367d0d6ac92b1fd8a8f42797f3e4e267da18659
+lualatex_binary	/usr/local/texlive/2026/bin/x86_64-linux/lualatex
+lualatex_resolved_binary	/usr/local/texlive/2026/bin/x86_64-linux/luahbtex
+lualatex_sha256	9d7a1a55bb2503181d71ada62a6ef78303acdd9d99910ea8da33b059e89c8a8a
+texmf_root	/usr/local/texlive/2026
+source_date_epoch	1709210096
+cpu	0
+warmups	3
+runs	15
+output_comment	PraTeX-document-bench
+wall_clock	perf-duration_time-nanoseconds
+fixture_lipsum-300page_sha256	265a52f085db6afb43a3f8a420be0a80ec554c7a1052b064edaa85a539f7f2cd
+fixture_lipsum-300page_output	Output written on lipsum-300page.dvi (299 pages, 1396456 bytes).
+dvi_comparison	byte-identical
+dvi_sha256	196f46c6ea737d524992e1c93db40d1c10fb59884e412a83a6bf594e76e75ebd
+runs_tsv_sha256	188f0851ceff6ec86cf51be0e3905e88073a6fdb2cff28ca07bb1a64e1a49e68
+dvi_tsv_sha256	f6985af14ec70dbfa9f24a5d4e47cb3c7419c9b66c5c4eebd0ec27660c0ac423
+support_files_tsv_sha256	1ad18d62802446cee310ca279c1a1150aa3d36097ef8799d889234421aa36ca6

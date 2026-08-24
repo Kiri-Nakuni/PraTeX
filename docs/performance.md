@@ -17,7 +17,8 @@ upLaTeX側だけがcache済みだったりする非対称な標本は採用し�
 
 - process起動、TeX Live探索、fmt復元、展開、段落整形、JFM class対処理、page build、
   DVI shipoutを分離したmicro/macro benchmark
-- ASCII、和文、和欧混植、禁則が多い狭い段落、100頁、横組、縦組の固定corpus
+- ASCII、和文、和欧混植、禁則が多い狭い段落、300頁級、横組、縦組の固定corpus。
+  短文・40頁・100頁は起動費と傾きを分ける診断列として残す
 - 同一TeX Live tree・warm/cold条件・CPU affinity・release LTOで交互に走らせたwall/CPU値
 - 公開DVI仕様に基づく正規化event列、font identity、sp座標、page数が同等の実行だけを性能標本に採用
 
@@ -40,6 +41,58 @@ upLaTeX比1.2未満という最終hard gateを緩めない。
 性能変更は、同じrelease設定・同じ合成入力で変更前後を交互に走らせ、出力の一致を
 確認してから採用する。測定用入力、実行ファイルの複製、logはリポジトリ外の
 `%TEMP%` にだけ置き、版方へ入れない。
+
+## 299頁連続本文のLinux基線（2026-08-25、`13d1ab1`）
+
+巨大教材を主要用途とする利用者条件を受け、`lipsum`を225回ではなく225組の
+`\lipsum[1-7]`として反復する[`lipsum-300page.tex`](../tools/fixtures/lipsum-300page.tex)を
+primary throughput fixtureにした。TeX Live 2026の実測は299頁、1,396,456 byteである。
+短い[`lipsum-short.tex`](../tools/fixtures/lipsum-short.tex)と40頁になる
+[`lipsum-30x.tex`](../tools/fixtures/lipsum-30x.tex)は起動・fmt固定費を見る診断列であり、
+巨大文書gateを置き換えない。
+
+[`bench-document-throughput-linux.sh`](../tools/bench-document-throughput-linux.sh)は三engineを
+逐次、CPU 0へ固定し、測定roundごとに六通りの順序を循環する。wallは時刻補正を受ける
+realtime clockでなくLinux `perf stat`の`duration_time`をnanosecondで記録し、GNU timeから
+user/systemとpeak RSSを別に取る。PraTeX/upLaTeXは固定preamble commentのraw DVIが一致するか、
+一致しなければ[`compare-dvi-semantics.py`](../tools/compare-dvi-semantics.py)がfont番号、整数幅、
+file pointer、paddingだけを正規化した公開opcode列で同等かをhard gateにする。LuaLaTeX DVIは
+format、font番号、backend recordが同じoracleではないため別workload列である。
+
+この基線はwarm-up 3回後、各15回を測った。PraTeX binary SHA-256は
+`1733817d508c23ba71cb91e6e375dc6e4c2b8a550c19d97d55e510ff05d890f8`、57,221,231 byteの
+PraTeX `latex.fmt`は`4626e02f3d9f4cd710b299de0bab8a9194d1978dc17ddd6ad2cbfcd5be641465`、
+公式e-upTeXは`a39eba81da57bab2e96237f9e367d0d6ac92b1fd8a8f42797f3e4e267da18659`、
+LuaHBTeXは`9d7a1a55bb2503181d71ada62a6ef78303acdd9d99910ea8da33b059e89c8a8a`である。
+
+| engine | wall平均 ± 母標準偏差 | wall中央値 | MAD | peak RSS中央値 |
+|---|---:|---:|---:|---:|
+| PraTeX | 2.0997 ± 0.0999 s | 2.0864 s | 0.0674 s | 162,772 KiB |
+| upLaTeX | 1.0473 ± 0.0729 s | 1.0671 s | 0.0626 s | 58,380 KiB |
+| LuaLaTeX DVI | 5.7300 ± 0.2559 s | 5.7249 s | 0.2076 s | 142,936 KiB |
+
+PraTeX/upLaTeXのround対応比は幾何平均**2.0075**、中央値1.9763、比の範囲1.8043--2.2308である。
+絶対中央値の比は1.9553で、1.3未満のroadmap再開条件にも0.98未満のstretch goalにも未達である。
+PraTeX/LuaLaTeXの絶対中央値比は0.3644だが、これは異なるformat/backendを含む利用者workload比較で、
+upLaTeX互換DVIの合否へ混ぜない。PraTeX/upLaTeXのwarm-upを含む全18 runはDVI SHA-256
+`196f46c6ea737d524992e1c93db40d1c10fb59884e412a83a6bf594e76e75ebd`へbyte一致した。
+
+raw 54標本は
+[`lipsum-300page-20260825.tsv`](benchmarks/lipsum-300page-20260825.tsv)、binary・fmt・fixture・
+計測条件は[`lipsum-300page-20260825-provenance.tsv`](benchmarks/lipsum-300page-20260825-provenance.tsv)
+へ固定した。raw TSV SHA-256は
+`188f0851ceff6ec86cf51be0e3905e88073a6fdb2cff28ca07bb1a64e1a49e68`である。
+
+同じ299頁をSamply 2,084 samplesで診断すると、`run_loaded_engine` inclusiveは67.42%、
+起動・fmt側は32.58%だった。主なinclusiveは`get_x_command_and_token` 37.91%、`main_control` 32.15%、
+`expand_token_after_next_token` 17.13%、`get_x_token` 16.94%、`scan_int` 15.40%、
+`nested_scan_toks` 11.37%、`prefixed_command` 10.94%、`scan_toks` 10.22%、`end_graf` 9.17%である。
+起動側ではKpathsea初期化・path探索8.06%、hyphen trie undump 7.82%、汎用Vec undump 6.48%、
+再確保5.57%、PreTrie検証4.22%、制御綴undump 3.26%が見えた。exclusiveでは
+`Scanner::get_next` 6.14%、`Command` drop 3.12%、pointer write 2.88%、
+`InputStack::get_next` 2.30%、`Command` clone 1.25%、`Node` clone 1.20%で、
+変更後の`macro_expand`は0.67%だった。従ってfmtだけを完全に消しても1.3未満には届かず、
+undumpとloaded-engineの展開・走査を別々の同一DVI A/Bで短縮する必要がある。
 
 ## 現在の一頁budget（Linux perf、`82fa3a2`）
 
