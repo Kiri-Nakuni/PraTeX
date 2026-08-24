@@ -136,6 +136,12 @@ enum LongState {
     OuterCall,
 }
 
+enum RawNext {
+    Token(Token),
+    DontExpand(ControlSequence),
+    StreamLineEnded,
+}
+
 impl Scanner {
     /// See 331.
     #[cfg(test)]
@@ -224,53 +230,25 @@ impl Scanner {
         logger: &mut Logger,
     ) -> (Command, Token) {
         loop {
-            let (command, token) = match self.input_stack.get_next(allow_new_cs, eqtb, logger) {
-                NextResult::Token(token) => (self.create_command_with_checks(token, eqtb), token),
-                NextResult::DontExpand(cs) => {
+            let (command, token) = match self.next_raw(allow_new_cs, eqtb, logger) {
+                RawNext::Token(token) => (self.create_command_with_checks(token, eqtb), token),
+                RawNext::DontExpand(cs) => {
                     // See 358.
-                    let mut command = eqtb.control_sequences.get(cs).clone();
+                    let command = match eqtb.control_sequences.get(cs) {
+                        Command::Expandable(_) => {
+                            Command::Unexpandable(UnexpandableCommand::Relax { no_expand: true })
+                        }
+                        Command::Unexpandable(command) => Command::Unexpandable(*command),
+                    };
                     let token = Token::CSToken { cs };
-                    if let Command::Expandable(_) = command {
-                        command =
-                            Command::Unexpandable(UnexpandableCommand::Relax { no_expand: true });
-                    }
                     return (command, token);
                 }
-                NextResult::LineEnded => {
-                    logger.check_interrupt(self, eqtb);
-                    continue;
-                }
-                NextResult::FileEnded => {
-                    if self.scanner_status != ScannerStatus::Normal {
-                        self.check_outer_validity(None, eqtb, logger);
-                    }
-                    continue;
-                }
-                NextResult::StreamLineEnded => {
+                RawNext::StreamLineEnded => {
                     return (
                         // NOTE: This is a placeholder command. It should not be used.
                         Command::Unexpandable(UnexpandableCommand::Relax { no_expand: false }),
                         Token::Null,
                     );
-                }
-                NextResult::TokenListEnded => {
-                    self.end_token_list(eqtb, logger);
-                    continue;
-                }
-                NextResult::LexError(e) => {
-                    match e {
-                        LexError::InvalidChar => {
-                            Self::decry_invalid_character(self, eqtb, logger)
-                        }
-                        // **名前空間の名前が閉じなかった。**
-                        // 空の名前は退化させる決定なので、この道が運ぶのは runaway だけ
-                        LexError::RunawayNamespace => {
-                            Self::decry_runaway_namespace(self, eqtb, logger)
-                        }
-                    }
-                    // This goes to restart because the handler might change
-                    // the current input source.
-                    continue;
                 }
             };
 
@@ -278,78 +256,87 @@ impl Scanner {
                 self.insert_v_template(ending_chr, eqtb, logger);
             } else {
                 // Check whether we need to act now.
-                if self.scanner_status != ScannerStatus::Normal {
-                    if let Command::Expandable(
-                        ExpandableCommand::Macro(MacroCall { outer: true, .. })
-                        | ExpandableCommand::EndTemplate,
-                    ) = command
-                    {
-                        if !self.check_outer_validity(Some(token), eqtb, logger) {
-                            let command = Command::Unexpandable(UnexpandableCommand::Spacer);
-                            return (command, Token::Spacer(b' '));
-                        }
-                    }
+                if self.scanner_status != ScannerStatus::Normal
+                    && Self::is_forbidden_outer_command(&command)
+                    && !self.check_outer_validity(Some(token), eqtb, logger)
+                {
+                    let command = Command::Unexpandable(UnexpandableCommand::Spacer);
+                    return (command, Token::Spacer(b' '));
                 }
                 return (command, token);
             }
         }
     }
 
-    fn create_command_with_checks(&mut self, token: Token, eqtb: &Eqtb) -> Command {
-        self.align_state += token.alignment_delta();
-        match token {
-            Token::LeftBrace(c) => Command::Unexpandable(UnexpandableCommand::LeftBrace(c)),
-            Token::RightBrace(c) => Command::Unexpandable(UnexpandableCommand::RightBrace(c)),
-            Token::MathShift(c) => Command::Unexpandable(UnexpandableCommand::MathShift(c)),
-            Token::TabMark(c) => Command::Unexpandable(UnexpandableCommand::TabMark(c)),
-            Token::MacParam(c) => Command::Unexpandable(UnexpandableCommand::MacParam(c)),
-            Token::SuperMark(c) => {
-                Command::Unexpandable(UnexpandableCommand::Math(MathCommand::Superscript(c)))
-            }
-            Token::SubMark(c) => {
-                Command::Unexpandable(UnexpandableCommand::Math(MathCommand::Subscript(c)))
-            }
-            Token::Spacer(_) => Command::Unexpandable(UnexpandableCommand::Spacer),
-            Token::Letter(c) => Command::Unexpandable(UnexpandableCommand::Letter(c)),
-            Token::OtherChar(c) => Command::Unexpandable(UnexpandableCommand::Other(c)),
-            Token::LatinUcsChar(token) => {
-                match token.cat_code() {
-                    CatCode::LeftBrace => {
-                        Command::Unexpandable(UnexpandableCommand::LatinUcsLeftBrace(token))
+    #[inline]
+    fn next_raw(&mut self, allow_new_cs: bool, eqtb: &mut Eqtb, logger: &mut Logger) -> RawNext {
+        loop {
+            match self.input_stack.get_next(allow_new_cs, eqtb, logger) {
+                NextResult::Token(token) => return RawNext::Token(token),
+                NextResult::DontExpand(cs) => return RawNext::DontExpand(cs),
+                NextResult::LineEnded => {
+                    logger.check_interrupt(self, eqtb);
+                }
+                NextResult::FileEnded => {
+                    if self.scanner_status != ScannerStatus::Normal {
+                        self.check_outer_validity(None, eqtb, logger);
                     }
-                    CatCode::RightBrace => {
-                        Command::Unexpandable(UnexpandableCommand::LatinUcsRightBrace(token))
+                }
+                NextResult::StreamLineEnded => return RawNext::StreamLineEnded,
+                NextResult::TokenListEnded => self.end_token_list(eqtb, logger),
+                NextResult::LexError(e) => {
+                    match e {
+                        LexError::InvalidChar => Self::decry_invalid_character(self, eqtb, logger),
+                        // **名前空間の名前が閉じなかった。**
+                        // 空の名前は退化させる決定なので、この道が運ぶのは runaway だけ
+                        LexError::RunawayNamespace => {
+                            Self::decry_runaway_namespace(self, eqtb, logger)
+                        }
                     }
-                    CatCode::MathShift => {
-                        Command::Unexpandable(UnexpandableCommand::LatinUcsMathShift(token))
-                    }
-                    CatCode::TabMark => {
-                        Command::Unexpandable(UnexpandableCommand::LatinUcsTabMark(token))
-                    }
-                    CatCode::MacParam => {
-                        Command::Unexpandable(UnexpandableCommand::LatinUcsMacParam(token))
-                    }
-                    CatCode::SupMark => {
-                        Command::Unexpandable(UnexpandableCommand::LatinUcsSupMark(token))
-                    }
-                    CatCode::SubMark => {
-                        Command::Unexpandable(UnexpandableCommand::LatinUcsSubMark(token))
-                    }
-                    CatCode::Letter | CatCode::OtherChar => {
-                        Command::Unexpandable(UnexpandableCommand::LatinUcsChar(token))
-                    }
-                    CatCode::Spacer => Command::Unexpandable(UnexpandableCommand::Spacer),
-                    _ => unreachable!("lexer-only LatinUcs catcode became a character token"),
+                    // Restart because the handler might have changed the current input source.
                 }
             }
-            Token::CjkChar(token) => {
-                Command::Unexpandable(UnexpandableCommand::CjkChar(token))
-            }
+        }
+    }
 
-            Token::CSToken { cs } => eqtb.control_sequences.get(cs).clone(),
-            Token::Null => {
-                panic!("Should not appear hear")
-            }
+    fn create_command_with_checks(&mut self, token: Token, eqtb: &Eqtb) -> Command {
+        self.align_state += token.alignment_delta();
+        if let Some(command) = Self::unexpandable_command_for_token(token) {
+            return Command::Unexpandable(command);
+        }
+        let Token::CSToken { cs } = token else {
+            panic!("a non-control-sequence token had no command")
+        };
+        eqtb.control_sequences.get(cs).clone()
+    }
+
+    fn unexpandable_command_for_token(token: Token) -> Option<UnexpandableCommand> {
+        match token {
+            Token::LeftBrace(c) => Some(UnexpandableCommand::LeftBrace(c)),
+            Token::RightBrace(c) => Some(UnexpandableCommand::RightBrace(c)),
+            Token::MathShift(c) => Some(UnexpandableCommand::MathShift(c)),
+            Token::TabMark(c) => Some(UnexpandableCommand::TabMark(c)),
+            Token::MacParam(c) => Some(UnexpandableCommand::MacParam(c)),
+            Token::SuperMark(c) => Some(UnexpandableCommand::Math(MathCommand::Superscript(c))),
+            Token::SubMark(c) => Some(UnexpandableCommand::Math(MathCommand::Subscript(c))),
+            Token::Spacer(_) => Some(UnexpandableCommand::Spacer),
+            Token::Letter(c) => Some(UnexpandableCommand::Letter(c)),
+            Token::OtherChar(c) => Some(UnexpandableCommand::Other(c)),
+            Token::LatinUcsChar(token) => Some(match token.cat_code() {
+                CatCode::LeftBrace => UnexpandableCommand::LatinUcsLeftBrace(token),
+                CatCode::RightBrace => UnexpandableCommand::LatinUcsRightBrace(token),
+                CatCode::MathShift => UnexpandableCommand::LatinUcsMathShift(token),
+                CatCode::TabMark => UnexpandableCommand::LatinUcsTabMark(token),
+                CatCode::MacParam => UnexpandableCommand::LatinUcsMacParam(token),
+                CatCode::SupMark => UnexpandableCommand::LatinUcsSupMark(token),
+                CatCode::SubMark => UnexpandableCommand::LatinUcsSubMark(token),
+                CatCode::Letter | CatCode::OtherChar => UnexpandableCommand::LatinUcsChar(token),
+                CatCode::Spacer => UnexpandableCommand::Spacer,
+                _ => unreachable!("lexer-only LatinUcs catcode became a character token"),
+            }),
+            Token::CjkChar(token) => Some(UnexpandableCommand::CjkChar(token)),
+            Token::CSToken { .. } => None,
+            Token::Null => panic!("Should not appear here"),
         }
     }
 
@@ -380,16 +367,13 @@ impl Scanner {
         logger.deletions_allowed = true;
     }
 
-
     /// If the command ended the current alignment entry, gives back the command.
     /// See 342.
-    fn alignment_entry_just_ended(&mut self, command: &Command) -> Option<AlignCommand> {
+    fn alignment_entry_just_ended(&self, command: &Command) -> Option<AlignCommand> {
         match command {
             Command::Unexpandable(
                 UnexpandableCommand::TabMark(_) | UnexpandableCommand::LatinUcsTabMark(_),
-            ) if self.align_state == 0 => {
-                Some(AlignCommand::Tab)
-            }
+            ) if self.align_state == 0 => Some(AlignCommand::Tab),
             Command::Unexpandable(UnexpandableCommand::Span) if self.align_state == 0 => {
                 Some(AlignCommand::Span)
             }
@@ -398,6 +382,16 @@ impl Scanner {
             }
             _ => None,
         }
+    }
+
+    fn is_forbidden_outer_command(command: &Command) -> bool {
+        matches!(
+            command,
+            Command::Expandable(
+                ExpandableCommand::Macro(MacroCall { outer: true, .. })
+                    | ExpandableCommand::EndTemplate
+            )
+        )
     }
 
     /// See 789.
@@ -591,7 +585,40 @@ impl Scanner {
     /// Gets the next token.
     /// See 365.
     pub fn get_token(&mut self, eqtb: &mut Eqtb, logger: &mut Logger) -> Token {
-        self.get_next(true, eqtb, logger).1
+        loop {
+            let token = match self.next_raw(true, eqtb, logger) {
+                RawNext::Token(token) => token,
+                RawNext::DontExpand(cs) => return Token::CSToken { cs },
+                RawNext::StreamLineEnded => return Token::Null,
+            };
+
+            self.align_state += token.alignment_delta();
+            let (alignment_ending, is_forbidden_outer) =
+                if let Some(command) = Self::unexpandable_command_for_token(token) {
+                    let command = Command::Unexpandable(command);
+                    (self.alignment_entry_just_ended(&command), false)
+                } else {
+                    let Token::CSToken { cs } = token else {
+                        panic!("a non-control-sequence token had no command")
+                    };
+                    let command = eqtb.control_sequences.get(cs);
+                    (
+                        self.alignment_entry_just_ended(command),
+                        Self::is_forbidden_outer_command(command),
+                    )
+                };
+
+            if let Some(ending_command) = alignment_ending {
+                self.insert_v_template(ending_command, eqtb, logger);
+            } else if self.scanner_status != ScannerStatus::Normal
+                && is_forbidden_outer
+                && !self.check_outer_validity(Some(token), eqtb, logger)
+            {
+                return Token::Spacer(b' ');
+            } else {
+                return token;
+            }
+        }
     }
 
     /// Puts the given Token list back on the input stack.
