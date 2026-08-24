@@ -36,6 +36,10 @@ PraTeXは、日本語組版、欧文組版、和欧混植をengine coreの一級
 学術論文だけでなく、日本語の小説・エッセイ・文芸書を第一級用途とする。DTPやword processorで
 実用化されている縦組、ルビ、圏点、縦中横、割注、版面、柱・ノンブル、校正、入稿PDF等を
 「TeXの用途外」として落とさず、engine core、package、toolingの適切な層へ置く。
+和中混植も主要な完成目標とする。同じHan Unicode scalarを日本語、簡体字中国語、繁体字中国語の
+言語区間ごとに自然な地域字形で出し分け、Han unificationを利用者へ露出させない。scalarや
+ToUnicodeを別文字へ書き換えて見た目だけを合わせず、`LanguageRegion`、font routing、
+OpenType language system / `locl`、地域別fallbackと約物・禁則を一つの組版contextとして扱う。
 
 優先順位は次のとおり。
 
@@ -65,12 +69,20 @@ PraTeXは、日本語組版、欧文組版、和欧混植をengine coreの一級
    - OTF shapingはdefault-offのRustyBuzz接続を第一候補とする。
    - native loader・metric・shaping境界が固まった後、PraTeX固有feature queryを使う
      `fontspec`上位互換のOpenType選択packageを作る。和文NFSS/JFM、文字class、exact code point、
-     Unicode範囲・面ごとのfont routingまで含める。一packageか二層かはAPI試作で決め、
+     Unicode範囲・面、`LanguageRegion`ごとのfont routingまで含める。同じHan scalarに対する
+     日本語・簡体字・繁体字の地域字形、regionを跨がないfallback、Babel言語区間adapterを
+     completion gateにする。一packageか二層かはAPI試作で決め、
      XeTeX/LuaTeXへの偽装で通さない。詳細は`docs/opentype-package-roadmap.md`。
 8. **safe Rustの範囲での性能調整**
    - 機能完成を優先するが、利用者測定でhot pathが見えた箇所は意味回帰を固定して並行に調整する。
    - 局所A/Bの改善をend-to-end gate達成と読み替えない。
    - 最終gateは、同一入力・同一TeX tree・同等のDVI意味でupLaTeXの実行時間の**1.2倍未満**。
+9. **native絵文字（OTF完成後）**
+   - PDF直接出力と通常OTF loader・shaping・font fallbackを先に完成し、絵文字実装はその後に行う。
+   - plain UTF-8のVS15/VS16、modifier、regional indicator、keycap、tag、ZWJ sequenceをmacroなしで
+     一つの壊せないclusterとして扱う。color font、PDF描画、元scalar列のToUnicode/ActualTextまでを
+     completion gateにし、単にUnicode入力を受理するだけを対応と呼ばない。
+   - 詳細は`docs/emoji-native-roadmap.md`。現在は設計のみで、OTF作業へ割り込ませない。
 
 TeX Live/kpathsea互換探索は全段に必要な横断基盤である。file lookupごとに外部`kpsewhich`を
 起動する実装を最終形にしない。run全体で一つのTeX treeを固定し、`texmf.cnf`、path展開、
@@ -93,6 +105,11 @@ PraTeX自身の通常実装には`unsafe`を書かない。optional依存は採�
   同じ意味へ入る別々の公開数値viewなので、生の整数をcastして比較・保存しない。
 - layout用`ScriptClassId`、`LanguageRegion`、TeXの`language`、JFM metric class、
   provider-local ID、文字identityは入力字句分類と別domainに保つ。
+- HanのscalarやUnicode Script propertyから日本語・簡体字・繁体字を推測しない。Babel等の
+  package adapterは明示された言語区間をtyped `LanguageRegion`へ写し、catcodeやTeXの
+  hyphenation `language`を上書きしない。
+- 同じscalarでもregionによりfont face、OpenType language/`locl`、glyph ID、fallback、約物・
+  禁則規則は変わり得る。一方、文字identityとPDF `ToUnicode`は元のscalar/IVSを保つ。
 - pTeX/JLReq標準規則は`BuiltIn`のnative表で処理し、通常paragraphのVaak/WASM callは0にする。
 - 高頻度の利用者規則は、明示capabilityで提出された全tableをPraTeXが検証し、
   `CompiledTable`へ原子的にcompileする。
@@ -128,10 +145,14 @@ PraTeX自身の通常実装には`unsafe`を書かない。optional依存は採�
 2. 同じhost-owned glyph/metric境界をPDF backendも使い、組版判断をbackendへ複製しない。
 3. OTF/TrueType loaderとdefault-off RustyBuzzは同じ境界へ後付けする。
 4. 同じnative font境界へ、`fontspec`上位互換と和文NFSS/JFM、文字class・code point・範囲・面別
-   routingを持つPraTeX-native packageを接続する。
+   routingを持つPraTeX-native packageを接続する。routeとshape planは`LanguageRegion`もkeyにし、
+   同じHan scalarのja / zh-Hans / zh-Hant字形をfont側の公開能力に従って選ぶ。
 5. OTFの有無でJFM/TFM経路や標準JLReqの意味を変えない。
+6. 通常OTFのloader、shaping、fallback、PDF subsetを完成した後、同じcluster/font境界へ
+   native絵文字を接続する。color glyph paintingはshapingと別層にし、DVIで表現不能な経路を黙って落とさない。
 
 PDF直接出力をOTF対応より先に行う。どちらもJFM/TFM基線を飛び越えない。
+native絵文字はOTF対応のさらに後である。
 
 ---
 

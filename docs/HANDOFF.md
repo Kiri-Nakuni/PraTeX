@@ -507,9 +507,12 @@ WSL成功の意味は変更しない。
    Linux既定buildは公式TL2026 revision
    `fb6158926661cb7a7246b3a94a0cb170a9624d5a`のKpathsea 6.4.2を静的に組み込み、source取得や
    build失敗時はCLIへ黙って退行しない。TeX Live/system KpathseaなしのWSLで55 C sourceのrelease linkは
-   成功した。外部fmtは`--engine=rtex`意味を保つsafe経路のままである。Windowsはallocator/CRT境界
-   未実測なのでtyped fallback、WASMとその他Unixはdependencyなし。次は合成treeと実TeX Live treeで
-   子process 0、TEX/TFM/JFM/VF hit/miss、DVI意味、end-to-endを再測定する。
+   成功した。合成treeではTEX/TFM/JFM/VF hit/miss、共有`libkpathsea`依存なし、`strace`上の
+   子process 0、local入力とのDVI byte一致を実行時に固定し、DVI SHA-256は
+   `658ec798192d67c3a067b8296a3300e580b2aaf7ba8b4fcc04dab78022848993`。外部fmtは
+   `--engine=rtex`意味を保つsafe経路のままである。Windowsはallocator/CRT境界未実測なのでtyped
+   fallback、WASMとその他Unixはdependencyなし。次は実TeX Live treeと利用者corpusで子process数、
+   engine三回、driver一回、DVI意味を再測定する。
 2. 接続済みmain-loop JFM/禁則をshifted/vbox・残るcommand境界へ広げ、discの全JFM class・禁則・unbox matrixを完成する。
 3. `\tfont`と縦組metric/node/outputを追加し、spacingと禁則を横組から縦組へ広げる。
 4. discard、`\showgroups` / `\showifs`、tracing等のe-TeX残件を接続し、TeX--XeTの
@@ -563,9 +566,15 @@ Unicode table追加後の最小fmt増分は上記のとおり実測済み。full
 - PDF直接出力をOTF対応より先に進め、JFM/TFMだけのDVI/PDF基線を完成する。
   後続でRustyBuzzを接続する場合はdefault-offとする。native OTF境界が固まった後は、PraTeX固有
   feature queryを使う`fontspec`上位互換packageを試作する。和文NFSS/JFM、文字class、exact code
-  point、Unicode範囲・面、fallback chainごとのfont routingを宣言時にhost tableへcompileする。
+  point、Unicode範囲・面、`LanguageRegion`、fallback chainごとのfont routingを宣言時にhost tableへ
+  compileする。同じHan scalarをja/zh-Hans/zh-Hant等の言語区間で地域字形へshapeし、scalarと
+  ToUnicodeは保つ。regionを跨がないfallback、約物・禁則、Babel言語区間adapterもgateにする。
   一packageか二層かはAPI実験で決め、他engineへの偽装で既存packageを通さない。詳細は
   [`opentype-package-roadmap.md`](opentype-package-roadmap.md)。
+- native絵文字は通常OTF loader・shaping・fallback・PDF subsetの完成後に着手する。plain UTF-8の
+  VS15/VS16、modifier、flag、keycap、tag、ZWJ sequenceを壊せないclusterとして扱い、color fontと
+  元scalar列のToUnicode/ActualTextまでを完成条件にする。現在は設計だけで、OTFや性能作業へ
+  割り込ませない。詳細は[`emoji-native-roadmap.md`](emoji-native-roadmap.md)。
 - 現在のcatcodeは`repr(u8)`。入力分類はcatcode側をカノンとし、`\catcode`と
   `\kcatcode`の公開番号は別codecで同じ意味へ写す。layout/JFM/provider IDは別domainに保つ。
 - `for_CLAUDE.md`へClaude/Vaak向けの変更とAPI要求を追記し、commit時に

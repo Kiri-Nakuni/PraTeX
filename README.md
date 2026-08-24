@@ -6,6 +6,10 @@ PraTeXは、tyti氏によるTeX82のRust再実装`rtex`を基礎に、現代的�
 学術論文だけでなく、日本語の小説・エッセイ・文芸書を第一級用途にし、縦組、ルビ、
 縦中横、割注、版面、柱・ノンブル、入稿PDFまでをengine・package・toolingの連続した機能として
 扱う方針です。
+和中混植も主要目標です。同じHan Unicode scalarを日本語・簡体字中国語・繁体字中国語の
+言語区間ごとに自然な地域字形へshapeし、Han unificationの影響を見た目へ出さない一方、元の
+文字identityとPDF `ToUnicode`は保ちます。現在の`\pratexregion`はそのためのR0状態だけで、
+font routing、OpenType language/`locl`、region別fallback、約物・禁則への接続は未実装です。
 
 まだ実用版でも、e-upTeX・pdfTeX・LuaTeXの代替でもありません。既存の文書をそのまま
 処理できるとは限らず、生成物は必ず確認してください。元のrtexのREADMEは
@@ -371,6 +375,8 @@ packageは実装の資料として写さず、互換性を測る外部入力と�
   現在の句読点と横組括弧12対を越えるJLReq禁則、縦組PDF和文glyph
 - 埋込み和文font、OTF／TrueType、ToUnicode、font subsetを含むportableなPDF font処理と、
   PraTeX-nativeな`fontspec`相当・和文OTF package相当のfont選択層
+- 通常OTF対応後のnative絵文字。plain UTF-8のemoji sequenceをcluster単位でshape・fallbackし、
+  color font描画と元Unicode列のPDF抽出まで扱う。現在はroadmapのみ
 - `texmf.cnf`、全path expression、alias、`mktex*`を含むkpathseaの完全な互換性
 - `jsarticle`、`jlreq`、`ltjsarticle`、`hyperref`を実用的に動かすための互換層
 - 実行ごとに明示して有効化するVaak callbackと、低頻度で複雑な拡張向けWASM ABI
@@ -392,6 +398,9 @@ packageは実装の資料として写さず、互換性を測る外部入力と�
 - [WASM module import・名前空間仕様 0.1](docs/wasm-module-import-v0.1.md)
 - [監視/incremental実行/package取得/LSP](docs/incremental-tooling-roadmap.md)
 - [PraTeX-native OpenType packageと文字別font routing](docs/opentype-package-roadmap.md)
+- [OTF完成後のnative絵文字](docs/emoji-native-roadmap.md)
+- [日本語の論文・小説・出版実務調査](docs/research/japanese-publishing/README.md)
+- [多言語・混植組版調査](docs/research/multilingual-typesetting/README.md)
 - [LaPraTeX](docs/lapratex-roadmap.md)
 
 直接pathは外部探索より常に優先します。索引から探索順を一意に証明できない場合は

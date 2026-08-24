@@ -2,8 +2,9 @@
 
 更新: 2026-08-22
 
-現在実装済みなのはR0のtyped `LanguageRegion`状態だけである。R1--R7のJFM、wide glyph、
-script境界spacing、Vaak table、WASM batch、font fallbackは設計のみである。
+R0のtyped `LanguageRegion`状態は実装済みで、R2/R4の横組JFM wide glyphとBuiltIn最小spacingも
+別checkpointでproductionへ接続した。汎用`ScriptClassId` / RegionNode、regionを読むfont routing、
+Vaak table、WASM batch、CJKV font fallbackはまだ未実装である。
 
 ## 目的
 
@@ -32,6 +33,12 @@ language systemなどを選ぶ**layout locale**である。本書では利用者
 Han一字だけからja/zh-Hans/zh-Hantを推定できない。ベトナム語の通常scriptはLatinである。
 したがって、どのdomainからも別domainを暗黙推定しない。有効な組合せには
 `(Han, zh-Hant, TeX language 0)`、`(Latin, vi, TeX language 37)`がある。
+
+和中混植では同じHan scalarが日本語・中国語の区間で別の地域字形を要求し得る。glyph ID、
+OpenType language/`locl`、fallback、句読点・禁則はregionにより変えてよいが、scalar/IVSの
+identityとPDF `ToUnicode`は元の列を保つ。`zh-Hant`だけで台湾・香港等を黙って同一視せず、
+調査後にbuilt-in値またはversion付きregistryを追加する。Babel等のadapterは明示言語区間を
+`LanguageRegion`へ写すが、TeX `language`やcatcodeを同じIDへ潰さない。
 
 `\catcode`とupTeX互換`\kcatcode`は別domainではなく、上の`InputCategory`へ入る二つの
 数値viewである。たとえば双方の公開値14/16は別の意味なので、それぞれのcodecで意味へ
