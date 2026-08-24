@@ -644,3 +644,32 @@ TSV SHA-256は`24be2681edb1fe82511c7568966564466b771877a6e26cf179e366888af39ef4`
 公式TeX Live全tree、三回engine＋一回`dvipdfmx`を再現していない。したがって9.14 sの新しい絶対値や
 upLaTeX比1.2未満の合格とは扱わない。Linux lookupの次の支配候補はfmt undump、macro/token走査、
 control-sequence hashであり、同じDVIを保ったA/Bで個別に測る。
+
+## global byte制御綴のdirect cache不採用（2026-08-24）
+
+control-sequence hashの候補として、global・non-activeなbyte名だけを対象に256 slotのdirect-mapped
+run-local cacheを試した。cache tagはFNV-1a後にavalancheし、hit時も`escaped` sidecarの完全なbyte名を
+比較するため、衝突でidentityを誤らない。missとtag衝突は従来のSipHash付き`HashMap`へ戻し、fmt wire、
+namespace、active、wide名は変更しない候補だった。
+
+しかし、この前段は名前全体の軽量hashを毎回追加する。外部file、fmt、fontを使わずmacro引数走査と
+token-list展開だけを100,000回反復する`tools/fixtures/samply-engine-hotpath.tex`で、Linux release binaryを
+WSLのext4一時directoryへcopyし、奇数roundはbaseline→candidate、偶数roundは逆順で15組測った。
+`SOURCE_DATE_EPOCH=1709210096`、一回warm-up、同じCLI引数を使い、終了後のlogはbyte一致した。
+
+| case | n | wall平均 ± 母標準偏差 | wall中央値 | user平均 ± 母標準偏差 | user中央値 | peak RSS中央値 |
+|---|---:|---:|---:|---:|---:|---:|
+| baseline | 15 | 1.2807 ± 0.2541 s | 1.20 s | 1.1040 ± 0.1910 s | 1.09 s | 5,864 KiB |
+| candidate | 15 | 1.2373 ± 0.2164 s | 1.20 s | 1.1027 ± 0.2073 s | 1.05 s | 5,792 KiB |
+
+paired `candidate - baseline`はwall平均−0.0433 s、中央値−0.05 s、user平均−0.0013 s、中央値
+−0.02 sで、candidateが短かった組はどちらも8/15だった。user CPU平均差は約−0.12%に過ぎず、
+分散より十分小さい。macro hotpathを狙った入力で改善を立証できないため、cache sourceとtestは撤回した。
+wallの見かけ上の差やRSS差を採用根拠へ使わない。
+
+baseline binary SHA-256は
+`eca7d735ad7a831d6fbd56d01003623f3663024f836a1dcec5fb65551f4fb85d`、candidateは
+`ba139e606e48a3dc9e7a2b23c3b3e6d384f00217f5709ff200f51b5ffbbf72d1`。raw値は
+[`control-sequence-direct-cache-rejected-20260824.tsv`](benchmarks/control-sequence-direct-cache-rejected-20260824.tsv)
+へ置いた。headerなし元TSVのSHA-256は
+`204d4b85a4e9501c8139273df3a64bdd2baa217772cc1c12ef19f6aa175881ef`である。
