@@ -4,10 +4,10 @@ use crate::eqtb::{undump_insertion_index, undump_mark_class_index, FontIndex, Sk
 use crate::nodes::noads::{ChoiceNode, Noad, StyleNode};
 use crate::nodes::{
     AdjustNode, AutomaticJapaneseGlue, CharNode, CloseNode, DimensionOrder, DiscNode, GlueNode,
-    GlueRatio, GlueSign, GlueSpec, GlueType, HigherOrderDimension, HlistOrVlist, InsNode, KernNode,
-    KernSubtype, LanguageNode, LeaderKind, LigatureNode, ListNode, MarkNode, MathNode,
-    MathNodeKind, Node, OpenNode, PenaltyNode, PenaltySubtype, RuleNode, SpecialNode, UnsetNode,
-    WhatsitNode, WideCharNode, WriteNode,
+    GlueRatio, GlueSign, GlueSpec, GlueType, HigherOrderDimension, HlistOrVlist, InsNode,
+    JfmBoundaryBefore, KernNode, KernSubtype, LanguageNode, LeaderKind, LigatureNode, ListNode,
+    MarkNode, MathNode, MathNodeKind, Node, OpenNode, PenaltyNode, PenaltySubtype, RuleNode,
+    SpecialNode, UnsetNode, WhatsitNode, WideCharNode, WriteNode,
 };
 
 use std::io::Write;
@@ -206,6 +206,7 @@ impl Dumpable for WideCharNode {
         self.font_index.dump(target)?;
         self.character.dump(target)?;
         self.class.dump(target)?;
+        self.jfm_boundary_before.dump(target)?;
         self.width.dump(target)?;
         self.height.dump(target)?;
         self.depth.dump(target)?;
@@ -217,11 +218,35 @@ impl Dumpable for WideCharNode {
             font_index: Dumpable::undump(lines)?,
             character: Dumpable::undump(lines)?,
             class: Dumpable::undump(lines)?,
+            jfm_boundary_before: Dumpable::undump(lines)?,
             width: Dumpable::undump(lines)?,
             height: Dumpable::undump(lines)?,
             depth: Dumpable::undump(lines)?,
             italic: Dumpable::undump(lines)?,
         })
+    }
+}
+
+impl Dumpable for JfmBoundaryBefore {
+    fn dump(&self, target: &mut impl Write) -> Result<(), std::io::Error> {
+        writeln!(
+            target,
+            "{}",
+            match self {
+                Self::Continuous => "Continuous",
+                Self::BrokenNeedsKanjiSkip => "BrokenNeedsKanjiSkip",
+                Self::ReplacedByMainLoopJfm => "ReplacedByMainLoopJfm",
+            }
+        )
+    }
+
+    fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
+        match lines.next().ok_or(FormatError::IncompleteFile)? {
+            "Continuous" => Ok(Self::Continuous),
+            "BrokenNeedsKanjiSkip" => Ok(Self::BrokenNeedsKanjiSkip),
+            "ReplacedByMainLoopJfm" => Ok(Self::ReplacedByMainLoopJfm),
+            _ => Err(FormatError::ParseError),
+        }
     }
 }
 

@@ -1,0 +1,28 @@
+% Self-authored black-box input for official e-upTeX/upTeX; copy hybrid.tfm beside it.
+\catcode123=1
+\catcode125=2
+\batchmode
+\jfont\H=hybrid at 10pt \H
+\kcatcode"FF08=16
+\kcatcode"FF09=16
+\kanjiskip=1pt
+\showboxbreadth=100
+\showboxdepth=10
+\setbox0=\hbox{）（}
+\setbox1=\hbox{）{}（}
+\setbox2=\hbox{）\relax （}
+\setbox3=\hbox{）\unskip （}
+\setbox4=\hbox{）\message{[oracle-message]}（}
+\setbox5=\hbox{）\begingroup\endgroup （}
+\setbox6=\hbox{）\count0=0 （}
+\setbox7=\hbox{）\showthe\count0 （}
+\showbox0
+\showbox1
+\showbox2
+\showbox3
+\showbox4
+\showbox5
+\showbox6
+\showbox7
+\message{[oracle-widths=\the\wd0/\the\wd1/\the\wd2/\the\wd3/\the\wd4/\the\wd5/\the\wd6/\the\wd7]}
+\end

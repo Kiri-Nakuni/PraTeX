@@ -2,9 +2,9 @@
 //!
 //! JFM/TFMは公開file formatだけから合成し、他engineのsourceや上流testを使わない。
 //! 2026-08-24には公開pTeX manual 2025-05-10と、TeX Live 2026の公式e-upTeX
-//! `3.141592653-p4.1.2-u2.02-251130-2.6`を自作入力だけで照合した。使用した
-//! `uptex.windows` archiveのSHA-256は`docs/euptex-port-notes.md`記録済みの
-//! `c878983da002f32a24a507680ccf00261a3761089ed324892668ded589bf9c0d`。
+//! `3.141592653-p4.1.2-u2.02-251130-2.6`を自作入力だけで照合した。隔離した
+//! Linux binaryのSHA-256は`a39eba81da57bab2e96237f9e367d0d6ac92b1fd8a8f42797f3e4e267da18659`、
+//! 取得archiveのSHA-256は`f2cbb1bee21b13d5a844dc93eab6bb6dc5287cf404e5124a2eeb99c572c2f6b3`。
 //! 直結和和Kはshow listへ出ず、箱寸法・再箱詰め・改行・DVI移動には効く一方、
 //! Xはmaterial glueとして表示される、という観測を以下へ固定する。unshifted hboxの
 //! edgeに置くKは`MaterialKanjiSkip`として直結glyph間の`VirtualKanjiSkip`から分ける。
@@ -139,6 +139,58 @@ fn spacing_jfm() -> Vec<u8> {
     bytes
 }
 
+/// class5→4を直接一回、node-less境界では5→0と0→4の二回に分けるJFM。
+fn hybrid_main_loop_jfm() -> Vec<u8> {
+    let mut bytes = spacing_jfm();
+    let halfword =
+        |index: usize| u16::from_be_bytes([bytes[index * 2], bytes[index * 2 + 1]]) as usize;
+    let nt = halfword(1);
+    let lh = halfword(3);
+    let bc = halfword(4);
+    let ec = halfword(5);
+    let nw = halfword(6);
+    let nh = halfword(7);
+    let nd = halfword(8);
+    let ni = halfword(9);
+    let char_info_offset = (7 + nt + lh) * 4;
+    let class_count = ec - bc + 1;
+    for class in [0, 5] {
+        bytes[char_info_offset + class * 4 + 2] = 1;
+        bytes[char_info_offset + class * 4 + 3] = 0;
+    }
+    let glue_kern_offset = (7 + nt + lh + class_count + nw + nh + nd + ni) * 4;
+    bytes[glue_kern_offset..glue_kern_offset + 8].copy_from_slice(&[0, 4, 0, 0, 128, 0, 0, 0]);
+    bytes
+}
+
+/// node-less境界の左半分(class 5→0)だけを持つ。
+fn left_half_main_loop_jfm() -> Vec<u8> {
+    let mut bytes = hybrid_main_loop_jfm();
+    let nt = u16::from_be_bytes([bytes[2], bytes[3]]) as usize;
+    let lh = u16::from_be_bytes([bytes[6], bytes[7]]) as usize;
+    let class_zero = (7 + nt + lh) * 4;
+    bytes[class_zero + 2..class_zero + 4].fill(0);
+    bytes
+}
+
+/// node-less境界の右半分(class 0→4)だけを持ち、直結class 5→4は維持する。
+fn right_half_main_loop_jfm() -> Vec<u8> {
+    let mut bytes = hybrid_main_loop_jfm();
+    let halfword =
+        |index: usize| u16::from_be_bytes([bytes[index * 2], bytes[index * 2 + 1]]) as usize;
+    let nt = halfword(1);
+    let lh = halfword(3);
+    let bc = halfword(4);
+    let ec = halfword(5);
+    let nw = halfword(6);
+    let nh = halfword(7);
+    let nd = halfword(8);
+    let ni = halfword(9);
+    let glue_kern_offset = (7 + nt + lh + (ec - bc + 1) + nw + nh + nd + ni) * 4;
+    bytes[glue_kern_offset..glue_kern_offset + 4].copy_from_slice(&[128, 4, 0, 0]);
+    bytes
+}
+
 fn latin_a_tfm() -> Vec<u8> {
     let mut bytes = Vec::new();
     for value in [21_u16, 2, 65, 65, 2, 1, 1, 1, 0, 0, 0, 7] {
@@ -178,11 +230,21 @@ fn prepare_directory(name: &str) -> PathBuf {
         "use.tex",
         "use.log",
         "spacing.tfm",
+        "hybrid.tfm",
+        "hybrid-left.tfm",
+        "hybrid-right.tfm",
         "latin.tfm",
     ] {
         let _ = std::fs::remove_file(directory.join(name));
     }
     std::fs::write(directory.join("spacing.tfm"), spacing_jfm()).unwrap();
+    std::fs::write(directory.join("hybrid.tfm"), hybrid_main_loop_jfm()).unwrap();
+    std::fs::write(directory.join("hybrid-left.tfm"), left_half_main_loop_jfm()).unwrap();
+    std::fs::write(
+        directory.join("hybrid-right.tfm"),
+        right_half_main_loop_jfm(),
+    )
+    .unwrap();
     std::fs::write(directory.join("latin.tfm"), latin_a_tfm()).unwrap();
     directory
 }
@@ -279,6 +341,74 @@ fn jfmと仮想kと実xはhlistへ一度だけ入り明示nodeを越えない() 
     assert!(log.contains("\\glue(\\xkanjiskip) 2.0"), "{log}");
     assert!(log.contains("\\penalty 50"), "{log}");
     assert!(log.contains("\\penalty 10000"), "{log}");
+}
+
+#[test]
+fn nodeを作らない境界はjfmを二分し除去済みnodeを閉じる時に戻さない() {
+    let directory = prepare_directory("hybrid main-loopのJFM連続性");
+    let source = format!(
+        "{}\\pratexjfont\\H=hybrid at 10pt \\H
+         \\kanjiskip=1pt
+         \\showboxbreadth=100 \\showboxdepth=10
+         \\setbox0=\\hbox{{）（}}
+         \\setbox1=\\hbox{{）{{}}（}}
+         \\setbox2=\\hbox{{）\\relax （}}
+         \\setbox3=\\hbox{{）\\unskip （}}
+         \\setbox4=\\hbox{{\\unhcopy2}}
+         \\J \\setbox5=\\hbox{{）{{}}（}}
+         \\kanjiskip=3pt \\setbox6=\\hbox{{\\unhcopy5}}
+         \\pratexjfont\\HL=hybrid-left at 10pt \\HL \\kanjiskip=1pt
+         \\setbox7=\\hbox{{）{{}}（}} \\setbox8=\\hbox{{）\\unskip （}}
+         \\pratexjfont\\HR=hybrid-right at 10pt \\HR
+         \\setbox9=\\hbox{{）{{}}（}} \\setbox10=\\hbox{{）\\unskip （}}
+         \\H \\setbox11=\\hbox{{）\\message{{[inside-message]}}（}}
+         \\setbox12=\\hbox{{）\\begingroup\\endgroup （}}
+         \\setbox13=\\hbox{{）\\count0=0 （}}
+         \\setbox14=\\hbox{{）\\showthe\\count0 （}}
+         \\showbox0 \\showbox1 \\showbox2 \\showbox3 \\showbox4 \\showbox5 \\showbox6 \\showbox7 \\showbox8 \\showbox9 \\showbox10
+         \\message{{[hybrid-widths=\\the\\wd0/\\the\\wd1/\\the\\wd2/\\the\\wd3/\\the\\wd4]}}
+         \\message{{[broken-k-widths=\\the\\wd5/\\the\\wd6]}}
+         \\message{{[one-sided-widths=\\the\\wd7/\\the\\wd8/\\the\\wd9/\\the\\wd10]}}
+         \\message{{[command-widths=\\the\\wd11/\\the\\wd12/\\the\\wd13/\\the\\wd14]}}
+         \\shipout\\box4 \\end\n",
+        common_prefix()
+    );
+    std::fs::write(directory.join("t.tex"), source).unwrap();
+    let output = run_rtex(&directory, &["t.tex"]);
+    assert_success(&output, "hybrid main-loopのJFM試験を実行できなかった");
+    let log = joined_log(&directory, "t");
+    let box_segment = |number: usize| {
+        let start = format!("> \\box{number}=");
+        let rest = log.split(&start).nth(1).expect("showbox出力がある");
+        let next = format!("> \\box{}=", number + 1);
+        rest.split(&next).next().unwrap_or(rest)
+    };
+    assert_eq!(box_segment(0).matches("\\glue(\\pratexjfm)").count(), 1);
+    assert_eq!(box_segment(1).matches("\\glue(\\pratexjfm)").count(), 2);
+    assert_eq!(box_segment(2).matches("\\glue(\\pratexjfm)").count(), 2);
+    assert_eq!(box_segment(3).matches("\\glue(\\pratexjfm)").count(), 1);
+    assert_eq!(box_segment(4).matches("\\glue(\\pratexjfm)").count(), 2);
+    assert!(
+        log.contains("[hybrid-widths=12.5pt/15.0pt/15.0pt/12.5pt/15.0pt]"),
+        "{log}"
+    );
+    assert!(log.contains("[broken-k-widths=11.0pt/13.0pt]"), "{log}");
+    assert!(
+        log.contains("[one-sided-widths=12.5pt/11.0pt/12.5pt/12.5pt]"),
+        "{log}"
+    );
+    assert!(
+        log.contains("[command-widths=15.0pt/15.0pt/15.0pt/15.0pt]"),
+        "{log}"
+    );
+
+    // class 0側の二つのJFM glueが元pair spacingを置換し、Kは加わらない。
+    let (wide, rules) = first_page_events(&std::fs::read(directory.join("t.dvi")).unwrap());
+    assert_eq!(wide.len(), 2);
+    assert_eq!(wide[0].character, '）' as u32);
+    assert_eq!(wide[1].character, '（' as u32);
+    assert_eq!(wide[1].h, wide[0].h + 10 * 65_536);
+    assert!(rules.is_empty());
 }
 
 #[test]
@@ -676,6 +806,35 @@ fn fmtから戻したkとjfm対表がproduction_finalizerへ届く() {
     assert_success(&output, "spacing入りfmtを読み戻せなかった");
     let log = joined_log(&directory, "use");
     assert!(log.contains("[fmt=13.0pt/14.0pt/17.5pt]"), "{log}");
+}
+
+#[test]
+fn nodeを作らない境界のjfm置換とlate_k候補はfmtとunhcopyを越えて区別される() {
+    let directory = prepare_directory("hybrid main-loopのfmt provenance");
+    let make = format!(
+        "{}\\pratexjfont\\H=hybrid at 10pt \\H
+         \\kanjiskip=1pt \\setbox0=\\hbox{{）{{}}（}}
+         \\J \\setbox2=\\hbox{{）{{}}（}} \\dump\n",
+        common_prefix()
+    );
+    std::fs::write(directory.join("mk.tex"), make).unwrap();
+    let output = run_rtex(&directory, &["mk.tex"]);
+    assert_success(&output, "Broken K入りfmtを生成できなかった");
+
+    std::fs::write(
+        directory.join("use.tex"),
+        "\\batchmode
+         \\kanjiskip=3pt \\setbox1=\\hbox{\\unhcopy0}
+         \\setbox3=\\hbox{\\unhcopy2}
+         \\showboxbreadth=100 \\showboxdepth=10 \\showbox1
+         \\message{[broken-fmt=\\the\\wd1/\\the\\wd3]} \\end\n",
+    )
+    .unwrap();
+    let output = run_rtex(&directory, &["&mk", "use.tex"]);
+    assert_success(&output, "Broken K入りfmtを読み戻せなかった");
+    let log = joined_log(&directory, "use");
+    assert!(log.contains("[broken-fmt=15.0pt/13.0pt]"), "{log}");
+    assert_eq!(log.matches("\\glue(\\pratexjfm)").count(), 2, "{log}");
 }
 
 #[test]

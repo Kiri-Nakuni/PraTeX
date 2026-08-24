@@ -188,7 +188,7 @@ error 0でdumpした。28,640個の複数文字control sequenceを保存し、pr
 
 ## 横組production接続中: `\kanjiskip` / `\xkanjiskip`
 
-状態: **2026-08-23に通常glue parameter面とBuiltIn最小横組finalizerを実装**。
+状態: **2026-08-24に通常glue parameter面とBuiltIn最小横組hybridを実装**。
 
 - 文書: `docs/kanjiskip-core-design.md`
 - INITEX既定0pt、通常glue parameterとしての代入・group、`\globaldefs`、算術、fmt、表示を
@@ -198,15 +198,16 @@ error 0でdumpした。28,640個の複数文字control sequenceを保存し、pr
   隠れる仮想nodeとして公式e-upTeX black-boxと照合済みである。X、JFM、禁則、将来の箱境界Kは
   material nodeとしてこの型へ混ぜない。auto switch、`xspcode`、`inhibitxspcode`もtyped eqtb、
   群・`globaldefs`、fmt、中央finalizerへ接続済みである。
-- JFMは途中で観測・除去できるためmain-loopで早期挿入し、K/Xだけclose-timeで再評価する
-  hybridにする。
+- JFM/禁則はmain loopで早期挿入し、K/Xだけclose-timeで再評価するhybridへ接続した。
+  `{}`、`\relax`、`\unskip`、`\message`、semi-simple group、`\showthe`、整数register代入を
+  e-upTeX自作probeと照合し、途中で削除されたJFMをcloseで作り直さない。
 - 最終形のKはwide glyphのbit＋hlist単位specをline breaker/packer/outputが仮想glueとして扱い、
   純和文のnode数を倍増させない。
 - standard Japaneseは`BuiltInPtex`のmonomorphic core経路で、Vaak/WASM callは0。
   Hangul–Latin等は同じscript-pair機構へ後から載せる。
 
 この段階はLaTeXのpTeX検出を変えるが、「日本語組版完成」や検出stubとは呼ばない。JFM/禁則の
-main-loop意味、完全JLReq、縦組、PDFまで連続して進める。内部tableはprovider-local IDと
+box/disc・未検証command境界、完全JLReq、縦組、PDFまで連続して進める。内部tableはprovider-local IDと
 engine内部IDを分け、標準日本語ではVaak/WASM call 0、組版中のallocation 0を保つ。
 
 ## 横組JFM glyphからDVIまでの最小基線
@@ -222,8 +223,8 @@ engine内部IDを分け、標準日本語ではVaak/WASM call 0、組版中のal
 - DVIは欧文fontと衝突しない256始まりのfont番号を使い、BMPを`set2`、補助面を`set3`で出す。
   合成fixtureでglyph間と後続ruleのsp座標まで解釈している。
 - DVIに加え、明示named CID profileがある時だけBMP wide glyphをPDF Type 0へ出す最小基線を
-  `codex2/pdf-japanese-cid`で追加した。JFM pair adjustment、K/X自動空白、4文字の最小禁則も
-  list-close finalizerとして接続した。`\tfont`、縦組、main-loop早期挿入、完全禁則、
+  `codex2/pdf-japanese-cid`で追加した。JFM pair adjustment、K/X自動空白、bounded禁則を
+  まずlist-closeで接続し、その後JFM/禁則をmain loopへ移した。`\tfont`、縦組、box/disc境界、完全禁則、
   埋込みPDF和文字形、OTF shapingは未実装で、横組smokeを日本語組版完成とは呼ばない。
 - 同じ欧文plain fixtureを`origin/main`と比較し、BOP--EOPの183 bytesは差分0だった。
 
@@ -251,25 +252,28 @@ engine内部IDを分け、標準日本語ではVaak/WASM call 0、組版中のal
 - focused oracleは`src/font_resources/named_cid.rs`、`src/pdf_cid_font.rs`、
   `src/pdf_backend.rs`、`src/pdf_document.rs`と`tests/pdf_japanese_output.rs`にある。
 
-## 横組JFM/K/X/禁則finalizerの最小production slice
+## 横組JFM/K/X/禁則hybridの最小production slice
 
-状態: **`codex2/japanese-spacing-finalizer`の`a29cb22`、`8fe0e412`を`9118097`で統合済み。
-統合枝の全releaseは652 passed、0 failed、7 ignored**。
+状態: **list-close基線を`9118097`で統合後、2026-08-24にJFM/禁則をmain loopへ接続。
+現checkpointの全releaseは846 passed、0 failed、10 ignored**。
 
 - font load時にJFM class対glue/kernを選択sizeへscaleしたdense表へcompileし、wide nodeが持つ
   Unicode、font/metric ID、JFM classだけで中央plannerを引く。同一fontのpair調整をKより優先し、
   異なるfont間は保守的にKへ戻る。
-- JFM/K/X/禁則を由来付きGlue/Kern/Penalty nodeにし、再finalizeでは自動nodeだけを除去する。
+- JFM/K/X/禁則を由来付きGlue/Kern/Penalty nodeにする。JFM/禁則はmain loopで挿入し、
+  close時はK/Xだけを除去・再評価するため、利用者が`\unskip`で消したJFMを復活させない。
   明示penaltyは境界に透明、明示glue/kern/math/whatsit/list/rule/disc等はbarrierである。
 - hbox、段落、alignment cell、display math移行を`unsave` / pop前にfinalizeし、局所K/Xを
   snapshotする。unbox後の再評価、fmt後のJFM表再束縛、line break、DVI glyph/rule座標を
   合成JFM/TFMのproduction process試験で固定した。
-- 禁則はBuiltIn最小subsetだけで、行頭禁止`、` U+3001、`。` U+3002、`）` U+FF09と
-  行末禁止`（` U+FF08へpenalty 10000を置く。全JLReq classではない。
+- 禁則は`、。`とJLReq Appendix A.1/A.2由来の横組括弧12対だけのBuiltIn bounded subsetで、
+  該当する行頭・行末禁止位置へpenalty 10000を置く。全JLReq classではない。
 - ASCII-only listは一bit gateでplanner callback、JFM/provider表引き、追加allocation 0。
   標準日本語でもVaak/WASM registryを引かない。
-- 既知限界は、JFM/禁則もlist-close materializeで`\unskip` / `\lastnodesubtype`のpTeX意味が
-  未完成、Kが仮想eventでなく可視実glue、box edge・disc・縦組未接続。
+- node-less境界の公式e-upTeX oracleは、class 0両側を持つ合成JFMで直結12.5pt、`{}` / `\relax`
+  15pt、`\unskip`後12.5ptとなる。`\message`、semi-simple group、整数代入、`\showthe`も
+  JFM二個・15ptで、main-loop provenanceのfmt/unhcopy往復を含む16試験へ固定した。
+- 既知限界は、box/discと未検証commandのmain-loop境界、Kの完全な仮想event化、完全禁則、縦組である。
 - spacing元枝の`cargo test --release --locked --no-fail-fast`は627 passed、0 failed、7 ignored。
   統合後は652 passed、0 failed、7 ignoredで、spacing process試験6件、glyph 5件、
   K/X parameter 3件もreleaseで全緑。
@@ -447,7 +451,7 @@ WSL成功の意味は変更しない。
 
 ## LaTeXと日本語組版の次順
 
-1. JFM/禁則をmain-loop早期挿入へ移し、box edgeのmaterial Kとdisc境界を完成する。
+1. 接続済みmain-loop JFM/禁則をbox/disc・残るcommand境界へ広げ、discの枝別意味を完成する。
 2. `\tfont`と縦組metric/node/outputを追加し、spacingと禁則を横組から縦組へ広げる。
 3. discard/show/tracing等のe-TeX残件とTeX--XeTのLR組版を進める。
 4. 同一corpusでhot pathを測り、意味を変えないsafe Rustの性能改善をcheckpointごとに入れる。

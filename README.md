@@ -360,13 +360,13 @@ packageは実装の資料として写さず、互換性を測る外部入力と�
 ## 未完成の領域
 
 - e-TeXおよびpdfTeX原始命令の残りと、広範なclass/packageを処理するLaTeX2e互換性
-- `\tfont`と縦組JFM、JFM/禁則のmain-loop早期挿入、box/disc境界、
+- `\tfont`と縦組JFM、main-loop JFM/禁則のbox/disc・未検証command境界、
   現在の句読点と横組括弧12対を越えるJLReq禁則、縦組PDF和文glyph
 - 埋込み和文font、OTF／TrueType、ToUnicode、font subsetを含むportableなPDF font処理
 - `texmf.cnf`、全path expression、alias、`mktex*`を含むkpathseaの完全な互換性
 - `jsarticle`、`jlreq`、`ltjsarticle`、`hyperref`を実用的に動かすための互換層
 - 実行ごとに明示して有効化するVaak callbackと、低頻度で複雑な拡張向けWASM ABI
-- 生文字列register、`\therawstring`、TCX legacy input、`^^^^` / `^^^^^^`
+- 生文字列registerのliteral/file producerと`\the\rawstring`改行契約、TCX legacy input、`^^^^` / `^^^^^^`
 - IVS、外字、嘘字/TRON資産、造字を分けて保つ文字identityとfont mapping
 - 明示登録で追加できる寸法単位と、script境界spacing/regionのVaak・WASM拡張
 - file監視、incremental再実行、不足packageのopt-in取得、実行経路に根拠を持つLSP

@@ -75,15 +75,15 @@ raw code表やJFM programを再解釈しない。異なるfont instance間では
 
 2026-08-23のproduction checkpointでは、JFM glue/kern、`\kanjiskip`、`\xkanjiskip`、
 4文字のBuiltIn禁則をhbox、段落、alignment cell、line breaking、DVI座標へ接続した。
-自動nodeはJFM/K/X/禁則ごとのprovenanceを持ち、unbox後の再finalizeで利用者の明示nodeを
-消さずに再生成する。
+2026-08-24にはJFM/禁則をmain loopへ移し、K/Xだけをlist-close snapshotから再評価するhybridにした。
+自動nodeはJFM/K/X/禁則ごとのprovenanceを持ち、fmtとunbox後にもmain-loop JFMの置換根拠を失わない。
 
 2026-08-24には禁則表をW3C JLReq Table 2とAppendix A.1/A.2から選んだ`、。`と横組括弧
 12対へ広げた。ASCII括弧、欧文引用符、guillemet、縦組限定文字はこのbounded subsetへ
-混ぜない。完全なJLReq文字class、main-loop早期挿入、box/disc境界は引き続き未実装である。
+混ぜない。完全なJLReq文字classとbox/disc・未検証command境界は引き続き未実装である。
 
-ただしJFM/禁則も現段階ではlist-closeでmaterializeするcorrectness sliceであり、
-main loop中の`\unskip` / `\lastnodesubtype`のpTeX意味は未完成である。直結glyph間Kは
+main loop中の`\unskip`は除去済みJFMをcloseで復活させず、確認済みnode-less commandは
+JFM pair continuityだけを切る。`\lastnodesubtype`を含む全観測commandとbox/discの網羅は残る。直結glyph間Kは
 `VirtualKanjiSkip`としてnode introspectionから隠し、unshifted hbox境界Kは可視な
 `MaterialKanjiSkip`へ分けた。`xspcode`、`inhibitxspcode`、auto switchと箱edgeのK/Xは
 接続済みだが、`\inhibitglue`、discの非空三分岐、JLReqの全禁則classはまだ接続していない。
@@ -108,6 +108,13 @@ WSLのTeX Live 2026（upTFtoPL 3.3-p240427、Kpathsea 6.4.2）に配布された
 使わない。したがって配布実物は通常互換のoracle、2018/2023年拡張は独立した合成fixtureで
 試験する。
 
+main-loop境界のoracleには、同じTeX Live 2026の
+`e-upTeX 3.141592653-p4.1.2-u2.02-251130-2.6`を使った。binary SHA-256は
+`a39eba81da57bab2e96237f9e367d0d6ac92b1fd8a8f42797f3e4e267da18659`、取得archiveは
+`f2cbb1bee21b13d5a844dc93eab6bb6dc5287cf404e5124a2eeb99c572c2f6b3`である。
+class 0側JFMを左右とも持つ合成metricの幅は直結12.5pt、`{}` / `\relax` 15pt、`\unskip` 12.5pt。
+左右どちらかのclass 0側JFMが残ればKを足さず、左側を除去して右側もない時だけ11ptのlate Kへ戻る。
+
 環境依存試験は配布binaryをrepositoryへvendorしない。
 
 ```powershell
@@ -120,7 +127,7 @@ cargo test --release 'jfm::tests::配布jfm九十六件をすべて読む' --lib
 ## 残る接続
 
 - `\tfont`、縦組JFMのmetric解釈、方向つきwide nodeとDVI/PDF出力
-- JFM/禁則のmain-loop早期挿入、disc非空三分岐の条件付きspacing境界
+- main-loop JFM/禁則のbox・disc非空三分岐・未検証commandの条件付きspacing境界
 - 現在の句読点＋横組括弧12対を越える禁則、ぶら下げ、行長調整を含むJLReq規則
 - PDFの日本語font resource、OTF/TrueType、default-off RustyBuzz
 

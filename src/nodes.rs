@@ -269,6 +269,16 @@ pub struct CharNode {
 }
 
 /// Unicode identityとJFM class/metricを和文fontに結びつけた横組glyph node。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum JfmBoundaryBefore {
+    #[default]
+    Continuous,
+    /// class 0を挟んだがJFM spacingが無く、close時の暗黙K候補を保つ。
+    BrokenNeedsKanjiSkip,
+    /// class 0側のJFM spacingが元pairを置換した。削除されてもcloseでKへ置換しない。
+    ReplacedByMainLoopJfm,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WideCharNode {
     pub(crate) font_index: JapaneseFontIndex,
@@ -278,6 +288,7 @@ pub struct WideCharNode {
     pub(crate) height: Dimension,
     pub(crate) depth: Dimension,
     pub(crate) italic: Dimension,
+    pub(crate) jfm_boundary_before: JfmBoundaryBefore,
 }
 
 impl WideCharNode {

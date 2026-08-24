@@ -473,6 +473,39 @@ const BUILT_IN_HORIZONTAL_JAPANESE_BRACKET_PAIRS: [(char, char); 12] = [
     ('〖', '〗'),
 ];
 
+/// BuiltIn最小禁則の唯一の文字集合。state初期化とmain-loop照会はともにここを通る。
+fn visit_built_in_kinsoku(mut visitor: impl FnMut(LayoutCharacterCode, KinsokuPosition, i32)) {
+    for character in ['、', '。'] {
+        visitor(
+            LayoutCharacterCode::from_scalar(character),
+            KinsokuPosition::Before,
+            10_000,
+        );
+    }
+    for (opening, closing) in BUILT_IN_HORIZONTAL_JAPANESE_BRACKET_PAIRS {
+        visitor(
+            LayoutCharacterCode::from_scalar(opening),
+            KinsokuPosition::After,
+            10_000,
+        );
+        visitor(
+            LayoutCharacterCode::from_scalar(closing),
+            KinsokuPosition::Before,
+            10_000,
+        );
+    }
+}
+
+fn built_in_kinsoku(character: LayoutCharacterCode, position: KinsokuPosition) -> i32 {
+    let mut value = 0;
+    visit_built_in_kinsoku(|candidate, candidate_position, candidate_value| {
+        if character == candidate && position == candidate_position {
+            value = candidate_value;
+        }
+    });
+    value
+}
+
 impl PtexSpacingState {
     pub(crate) fn initex() -> Self {
         Self {
@@ -494,22 +527,13 @@ impl PtexSpacingState {
         let mut state = Self::initex();
         state.set_kanji_skip(kanji_skip);
         state.set_xkanji_skip(xkanji_skip);
-        for character in ['、', '。'] {
-            state
-                .penalties_mut()
-                .set_pre(LayoutCharacterCode::from_scalar(character), 10_000)
-                .expect("the fixed BuiltIn subset is below the bounded kinsoku table limit");
-        }
-        for (opening, closing) in BUILT_IN_HORIZONTAL_JAPANESE_BRACKET_PAIRS {
-            state
-                .penalties_mut()
-                .set_post(LayoutCharacterCode::from_scalar(opening), 10_000)
-                .expect("the fixed BuiltIn subset is below the bounded kinsoku table limit");
-            state
-                .penalties_mut()
-                .set_pre(LayoutCharacterCode::from_scalar(closing), 10_000)
-                .expect("the fixed BuiltIn subset is below the bounded kinsoku table limit");
-        }
+        visit_built_in_kinsoku(|character, position, value| {
+            let result = match position {
+                KinsokuPosition::Before => state.penalties_mut().set_pre(character, value),
+                KinsokuPosition::After => state.penalties_mut().set_post(character, value),
+            };
+            result.expect("the fixed BuiltIn subset is below the bounded kinsoku table limit");
+        });
         state
     }
 
@@ -1029,12 +1053,46 @@ impl JapaneseBoundary {
             class,
         }
     }
+
+    /// JFM の文字タイプ0を、実文字identityとは別のpair endpointとして作る。
+    ///
+    /// nodeを作らない制御列で和文main loopが途切れた時だけ使う。禁則には
+    /// 元の実文字対を渡すため、このendpointの`character`はJFM表引き以外へ出ない。
+    pub(crate) const fn default_class_endpoint(self) -> Self {
+        Self {
+            class: PlannerJfmClassId::new(0),
+            ..self
+        }
+    }
+
+    pub(crate) fn font_position(self) -> Option<usize> {
+        usize::try_from(self.font.0).ok()
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum BoundaryAtom {
     Latin(LatinBoundary),
     Japanese(JapaneseBoundary),
+}
+
+/// 和文main loopが一つの入力eventから早期materializeする境界。
+///
+/// `BreakAfterJapanese` / `ResumeBeforeJapanese`はJFM class 0を挟むが、禁則は
+/// `ResumeBeforeJapanese`が持つ実文字対へ一度だけ適用する。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum MainLoopBoundaryEvent {
+    Direct {
+        left: BoundaryAtom,
+        right: BoundaryAtom,
+    },
+    BreakAfterJapanese {
+        left: JapaneseBoundary,
+    },
+    ResumeBeforeJapanese {
+        logical_left: JapaneseBoundary,
+        right: JapaneseBoundary,
+    },
 }
 
 impl BoundaryAtom {
@@ -1052,7 +1110,7 @@ impl BoundaryAtom {
         }
     }
 
-    const fn is_japanese(self) -> bool {
+    pub(crate) const fn is_japanese(self) -> bool {
         matches!(self, Self::Japanese(_))
     }
 }
@@ -1061,6 +1119,14 @@ impl BoundaryAtom {
 pub(crate) enum JfmPairContinuity {
     Continuous,
     Broken,
+    /// class 0側のmain-loop JFMが元pair spacingを置換した境界。
+    ReplacedByMainLoopJfm,
+}
+
+impl Default for JfmPairContinuity {
+    fn default() -> Self {
+        Self::Continuous
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1160,12 +1226,27 @@ impl BoundaryActionPlan {
     ) -> impl Iterator<Item = PlannedSpacingAction> + '_ {
         self.actions().filter(move |action| action.phase() == phase)
     }
+
+    /// class 0境界を作った側が、実際にJFM spacingをmaterializeしたかを返す。
+    pub(crate) fn has_jfm_spacing(&self) -> bool {
+        self.actions().any(|action| {
+            matches!(
+                action,
+                PlannedSpacingAction::JfmGlue { .. } | PlannedSpacingAction::JfmKern { .. }
+            )
+        })
+    }
 }
 
-/// list ごとの一 bit fast gate。ASCII-only list は dispatcher さえ呼ばない。
+/// listごとのASCII fast gateと、nodeを作らない入力eventのJFM連続性。
+///
+/// node-less eventの意味は、右側WideCharへ型付きprovenanceとして移すまでだけ保持する。
+/// list全体のglyph通し番号や可変長side tableを持たない。
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct ScriptSpacingListState {
     needs_script_spacing: bool,
+    previous_main_loop_boundary: Option<BoundaryAtom>,
+    pending_jfm_continuity: JfmPairContinuity,
 }
 
 impl ScriptSpacingListState {
@@ -1180,13 +1261,44 @@ impl ScriptSpacingListState {
         self.needs_script_spacing = true;
     }
 
-    pub(crate) const fn needs_script_spacing(self) -> bool {
+    pub(crate) const fn needs_script_spacing(&self) -> bool {
         self.needs_script_spacing
+    }
+
+    /// 実glyphを一つ追加する直前に、前の実glyphとJFM連続性を返して状態を進める。
+    pub(crate) fn observe_main_loop_boundary(
+        &mut self,
+        atom: BoundaryAtom,
+    ) -> Option<(BoundaryAtom, JfmPairContinuity)> {
+        let previous = self
+            .previous_main_loop_boundary
+            .map(|previous| (previous, self.pending_jfm_continuity));
+        self.previous_main_loop_boundary = Some(atom);
+        self.pending_jfm_continuity = JfmPairContinuity::Continuous;
+        previous
+    }
+
+    /// node-less eventで左側JFMをclass 0へ閉じる必要がある時だけ一度返す。
+    pub(crate) fn break_after_japanese(&mut self) -> Option<JapaneseBoundary> {
+        if self.pending_jfm_continuity == JfmPairContinuity::Broken {
+            return None;
+        }
+        let BoundaryAtom::Japanese(left) = self.previous_main_loop_boundary? else {
+            return None;
+        };
+        self.pending_jfm_continuity = JfmPairContinuity::Broken;
+        Some(left)
+    }
+
+    /// 明示nodeや追跡外のbulk appendを越えてmain-loop JFMを作らない。
+    pub(crate) fn reset_main_loop_boundary(&mut self) {
+        self.previous_main_loop_boundary = None;
+        self.pending_jfm_continuity = JfmPairContinuity::Continuous;
     }
 
     /// Generic callback is monomorphized; false のとき callback/table lookup/allocation は 0。
     #[inline]
-    pub(crate) fn finalize_if_needed<T>(self, finalize: impl FnOnce() -> T) -> Option<T> {
+    pub(crate) fn finalize_if_needed<T>(&self, finalize: impl FnOnce() -> T) -> Option<T> {
         self.needs_script_spacing.then(finalize)
     }
 }
@@ -1221,6 +1333,104 @@ impl JapaneseSpacingPlanner {
         }
     }
 
+    /// JFM/禁則だけを文字処理中に決める。K/Xはこの入口から生成しない。
+    ///
+    /// class 0を挟むJFM二境界と、実文字同士の禁則境界を型で分離し、consumerが
+    /// action variantを見て規則を組み直さないようにする。
+    pub(crate) fn plan_main_loop_event(
+        self,
+        event: MainLoopBoundaryEvent,
+        jfm_pairs: Option<&CompiledJfmPairSpacingTable>,
+    ) -> BoundaryActionPlan {
+        let mut plan = BoundaryActionPlan::EMPTY;
+        match event {
+            MainLoopBoundaryEvent::Direct { left, right } => {
+                self.append_profile_kinsoku_action(&mut plan, left, right);
+                if let (BoundaryAtom::Japanese(left), BoundaryAtom::Japanese(right)) = (left, right)
+                {
+                    self.append_jfm_action(&mut plan, left, right, jfm_pairs);
+                }
+            }
+            MainLoopBoundaryEvent::BreakAfterJapanese { left } => {
+                self.append_jfm_action(&mut plan, left, left.default_class_endpoint(), jfm_pairs);
+            }
+            MainLoopBoundaryEvent::ResumeBeforeJapanese {
+                logical_left,
+                right,
+            } => {
+                self.append_profile_kinsoku_action(
+                    &mut plan,
+                    BoundaryAtom::Japanese(logical_left),
+                    BoundaryAtom::Japanese(right),
+                );
+                self.append_jfm_action(
+                    &mut plan,
+                    logical_left.default_class_endpoint(),
+                    right,
+                    jfm_pairs,
+                );
+            }
+        }
+        plan
+    }
+
+    fn append_profile_kinsoku_action(
+        self,
+        plan: &mut BoundaryActionPlan,
+        left: BoundaryAtom,
+        right: BoundaryAtom,
+    ) {
+        let penalty = match self.profile {
+            JapaneseSpacingProfile::BuiltInPtex => {
+                built_in_kinsoku(left.trailing_character(), KinsokuPosition::After).saturating_add(
+                    built_in_kinsoku(right.leading_character(), KinsokuPosition::Before),
+                )
+            }
+        };
+        if penalty != 0 {
+            plan.push(PlannedSpacingAction::KinsokuPenalty { value: penalty });
+        }
+    }
+
+    fn append_kinsoku_action(
+        self,
+        plan: &mut BoundaryActionPlan,
+        left: BoundaryAtom,
+        right: BoundaryAtom,
+        state: &PtexSpacingState,
+    ) {
+        let penalty = state
+            .penalties
+            .post(left.trailing_character())
+            .saturating_add(state.penalties.pre(right.leading_character()));
+        if penalty != 0 {
+            plan.push(PlannedSpacingAction::KinsokuPenalty { value: penalty });
+        }
+    }
+
+    fn append_jfm_action(
+        self,
+        plan: &mut BoundaryActionPlan,
+        left: JapaneseBoundary,
+        right: JapaneseBoundary,
+        jfm_pairs: Option<&CompiledJfmPairSpacingTable>,
+    ) -> bool {
+        let pair_spacing = (left.font == right.font && left.metric == right.metric)
+            .then(|| jfm_pairs.and_then(|table| table.get(left.metric, left.class, right.class)))
+            .flatten();
+        match pair_spacing {
+            Some(JfmPairSpacing::Glue(glue)) => {
+                plan.push(PlannedSpacingAction::JfmGlue { glue });
+                true
+            }
+            Some(JfmPairSpacing::Kern(width)) => {
+                plan.push(PlannedSpacingAction::JfmKern { width });
+                true
+            }
+            None => false,
+        }
+    }
+
     fn plan_built_in_ptex(
         self,
         left: BoundaryAtom,
@@ -1234,42 +1444,25 @@ impl JapaneseSpacingPlanner {
         }
 
         let mut plan = BoundaryActionPlan::EMPTY;
-        let penalty = state
-            .penalties
-            .post(left.trailing_character())
-            .saturating_add(state.penalties.pre(right.leading_character()));
-        if penalty != 0 {
-            plan.push(PlannedSpacingAction::KinsokuPenalty { value: penalty });
-        }
+        self.append_kinsoku_action(&mut plan, left, right, state);
 
         match (left, right) {
             (BoundaryAtom::Japanese(left), BoundaryAtom::Japanese(right)) => {
-                let pair_spacing = (context.jfm_continuity == JfmPairContinuity::Continuous
+                let has_jfm_pair = context.jfm_continuity == JfmPairContinuity::Continuous
                     && context.jfm_glue == JfmGlueControl::Allow
-                    && left.font == right.font
-                    && left.metric == right.metric)
-                    .then(|| {
-                        jfm_pairs.and_then(|table| table.get(left.metric, left.class, right.class))
-                    })
-                    .flatten();
-                match pair_spacing {
-                    Some(JfmPairSpacing::Glue(glue)) => {
-                        plan.push(PlannedSpacingAction::JfmGlue { glue });
-                    }
-                    Some(JfmPairSpacing::Kern(width)) => {
-                        plan.push(PlannedSpacingAction::JfmKern { width });
-                    }
-                    None => {
-                        let active = state.auto.kanji();
-                        plan.push(PlannedSpacingAction::ImplicitKanjiSkip {
-                            glue: if active {
-                                state.kanji_skip
-                            } else {
-                                FixedGlue::ZERO
-                            },
-                            active,
-                        });
-                    }
+                    && self.append_jfm_action(&mut plan, left, right, jfm_pairs);
+                if !has_jfm_pair
+                    && context.jfm_continuity != JfmPairContinuity::ReplacedByMainLoopJfm
+                {
+                    let active = state.auto.kanji();
+                    plan.push(PlannedSpacingAction::ImplicitKanjiSkip {
+                        glue: if active {
+                            state.kanji_skip
+                        } else {
+                            FixedGlue::ZERO
+                        },
+                        active,
+                    });
                 }
             }
             (BoundaryAtom::Japanese(japanese), BoundaryAtom::Latin(latin)) => {
@@ -1624,6 +1817,22 @@ mod tests {
                 }]
             );
         }
+
+        assert!(
+            planner
+                .plan_boundary(
+                    left,
+                    right,
+                    BoundaryContext {
+                        jfm_continuity: JfmPairContinuity::ReplacedByMainLoopJfm,
+                        jfm_glue: JfmGlueControl::Allow,
+                    },
+                    &state,
+                    Some(&table),
+                )
+                .is_empty(),
+            "class 0側JFMで置換済みの元pairへKを足さない"
+        );
     }
 
     #[test]

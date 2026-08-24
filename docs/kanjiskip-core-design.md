@@ -175,7 +175,8 @@ K/Xだけならlist-closeでの再評価が中心だが、JFM glue/kernと禁則
 - `）{}（`または`）\relax（`: JFM glue 2個
 
 空groupや展開不能commandはJFM pairの連続性だけを切る。
-後段のK判定では両文字は依然として境界候補である。
+後段のK判定では両文字は依然として境界候補だが、class 0側JFMが左右どちらかに残る時は
+そのJFMが元pair spacingを置換したものとしてKを足さない。両側とも無い時だけlate Kへ戻る。
 
 JFM nodeはlistを閉じる前に`\lastnodesubtype`、`\unskip`、
 pLaTeX側の除去macroから観測・除去され得る。
@@ -184,6 +185,10 @@ close時に全JFM nodeを消して作り直すと利用者操作を破壊する�
 2026-08-23の最小production接続は、まずJFM/K/X/禁則がline break・box寸法・DVI座標へ
 一度だけ届くことを固定するため、JFM/禁則もlist-closeでmaterializeする。これはhybrid最終形では
 なく、実行中の`\unskip`や`\lastnodesubtype`に対するpTeX意味は未完成である。
+
+2026-08-24には推奨構成のうち、通常glyph境界と確認済みnode-less commandについて
+JFM/禁則をmain loopへ移した。closeはそれらを保持してK/Xだけを再評価し、`\unskip`で消えた
+JFMを復活させない。box/disc、`\lastnodesubtype`を含む未検証commandの全matrixは残る。
 
 推奨構成:
 
@@ -327,39 +332,44 @@ ASCII-only listは`ScriptSpacingListState::needs_script_spacing=false`のまま�
 出力event生成のすべてより前に置く。したがって従来のplain欧文経路にはcallback、table lookup、
 追加allocationを入れず、統合時にはorigin/mainとDVI意味列・座標を比較する。
 
-### 2026-08-23のproduction接続 checkpoint
+### 2026-08-23基線と2026-08-24 hybridのproduction接続 checkpoint
 
 `src/script_spacing/finalizer.rs`は、横組listに和文が一つでもある時だけ
 `JapaneseSpacingPlanner`を一度選び、元の`WideCharNode` / `CharNode` / `LigatureNode`境界を
 走査する。font load時にJFM class対をscale済みdense表へcompileし、hot loopはwide nodeが持つ
 Unicode、font、metric、classだけを読む。標準経路はVaak/WASM registryへ入らない。
 
-現在の`BuiltIn`禁則は、W3C JLReq 3.1.7 / 3.1.8を代表する最小subsetだけである。
-行頭禁止は`、` U+3001、`。` U+3002、`）` U+FF09、行末禁止は`（` U+FF08に
-penalty 10000を置く。code point表はplanner一箇所にあり、consumerへswitchを複製しない。
+現在の`BuiltIn`禁則は、W3C JLReq 3.1.7 / 3.1.8とAppendix A.1/A.2を代表する
+`、。`と横組括弧12対のbounded subsetだけである。code point表はplanner一箇所のvisitorにあり、
+consumerへswitchを複製しない。
 これは[JLReq 3.1.7](https://www.w3.org/TR/jlreq/#characters-not-starting-a-line)と
 [JLReq 3.1.8](https://www.w3.org/TR/jlreq/#characters-not-ending-a-line)の全class実装ではない。
 
 明示penaltyだけは文字境界に透明で、明示glue、kern、math、whatsit、rule、disc等は
-barrierである。listのうち確認済みunshifted hboxだけはedge summaryを使い、shifted hboxと
-vboxはbarrierのままにする。自動JFM/K/X/禁則nodeはtyped provenanceを持ち、unbox後を含む再finalizeでは
-それだけを除いて元境界から再生成する。hbox、段落、alignment cell、display math移行の
-`unsave` / pop前にsnapshotし、局所K/Xを失わない。
+barrierである。`{}`、`\relax`、`\unskip`、`\message`、semi-simple group、`\showthe`、
+整数register代入はnodeを足さずJFM continuityを切る確認済み境界である。listのうち確認済み
+unshifted hboxだけはedge summaryを使い、shifted hboxとvboxはbarrierのままにする。
+main-loop JFM/禁則のtyped provenanceはfmt/unhcopyを越えて保持し、再finalizeはclose-time K/Xだけを
+除いて元境界から再生成する。hbox、段落、alignment cell、display math移行の`unsave` / pop前に
+snapshotし、局所K/Xを失わない。
 
 このcheckpointのrelease試験は627 passed、0 failed、7 ignored。合成JFM/TFMのproduction試験
 6件でnode幅、局所group、alignment、fmt、再finalize、barrier、line break、DVI座標を固定した。
 origin/mainのplain欧文DVI page body 183 bytesはbyte差分0で、公式CTAN TRIPも既知正常hashを維持した。
 
-### 残るintegration hook
+hybrid接続後はmain-loop oracle、削除保持、fmt/unhcopyを16試験へ広げ、全releaseは
+846 passed、0 failed、10 ignoredである。公式e-upTeX binaryとarchiveのSHA-256は
+`docs/jfm-port-notes.md`へ固定した。
 
-1. eqtbにauto switch、`[XspCode; 256]`、sparse inhibit/完全禁則表を所有させ、各代入を
-   save stackの一単位として局所復元する。group外の値だけをfmtへdumpする。
-2. main loopはmain-loop phaseだけをmaterializeし、JFM由来nodeの観測・`unskip`を保つ。
-   list closeは自動K/X provenanceだけを除去し、`unsave`前の最終snapshotでfinalizer phaseを
-   再適用する。利用者の明示glue/penaltyは除去しない。
-3. line breaker、packer、DVI/PDF backendは`ImplicitKanjiSkip`を同じ仮想glue eventとして読む。
+### 接続済みhookと残件
+
+- auto switch、`[XspCode; 256]`、sparse inhibit表はtyped eqtb、save stack、fmtへ接続済み。
+- 通常glyphと確認済みnode-less境界ではmain-loop phaseだけをmaterializeし、list closeは
+  自動K/X provenanceだけを除去して`unsave`前の最終snapshotで再適用する。
+
+1. line breaker、packer、DVI/PDF backendは`ImplicitKanjiSkip`を同じ仮想glue eventとして読む。
    plain欧文DVI differentialを先に固定し、その後に和文event oracleを追加する。
-4. disc三分岐の条件付きevent、`\inhibitglue`、全JLReq文字class、縦組へ広げる。
+2. box/disc三分岐と未検証commandの条件付きevent、`\inhibitglue`、全JLReq文字class、縦組へ広げる。
 
 ## 9. commit順
 
@@ -398,7 +408,7 @@ origin/mainのplain欧文DVI page body 183 bytesはbyte差分0で、公式CTAN T
 - discretionaryの枝別event表現、JFM class・禁則との順序
 - inline math、accent、ligature、language whatsit
 - 異なるJFM font間、方向変更、縦組
-- `\unskip`後のJFMとunbox再評価
+- `\unskip`後に片側JFMだけが残る組合せ、box/discを含むunbox再評価
 - pre/post penaltyとglueの厳密な順序
 - `inhibitxspcode`の範囲外回復と上限
 - 仮想Kのinfinite shrink回復とpre-display-size

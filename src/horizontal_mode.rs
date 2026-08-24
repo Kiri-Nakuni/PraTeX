@@ -2,7 +2,10 @@ use crate::eqtb::Eqtb;
 use crate::logger::Logger;
 use crate::nodes::Node;
 use crate::print::Printer;
-use crate::script_spacing::finalizer::finalize_horizontal_list_if_needed;
+use crate::script_spacing::finalizer::{
+    append_node_with_main_loop_spacing, break_main_loop_jfm_continuity,
+    finalize_horizontal_list_if_needed,
+};
 use crate::script_spacing::planner::ScriptSpacingListState;
 
 #[derive(Debug)]
@@ -25,10 +28,7 @@ impl HorizontalMode {
 
     /// See 214.
     pub fn append_node(&mut self, node: Node, eqtb: &mut Eqtb) {
-        if node.contains_horizontal_japanese_glyph() {
-            self.script_spacing.observe_japanese();
-        }
-        self.list.push(node);
+        append_node_with_main_loop_spacing(&mut self.list, &mut self.script_spacing, node, eqtb);
         self.update_last_node_info(eqtb);
     }
 
@@ -36,10 +36,20 @@ impl HorizontalMode {
         if nodes.iter().any(Node::contains_horizontal_japanese_glyph) {
             self.script_spacing.observe_japanese();
         }
+        if !nodes.is_empty() {
+            self.script_spacing.reset_main_loop_boundary();
+        }
+    }
+
+    /// nodeを作らないcommandの直前に、左JFMをclass 0へ一度だけ閉じる。
+    pub(crate) fn break_jfm_pair_continuity(&mut self, eqtb: &mut Eqtb) {
+        break_main_loop_jfm_continuity(&mut self.list, &mut self.script_spacing, eqtb);
+        self.update_last_node_info(eqtb);
     }
 
     pub(crate) fn finalize_script_spacing(&mut self, eqtb: &mut Eqtb) {
-        finalize_horizontal_list_if_needed(&mut self.list, self.script_spacing, eqtb);
+        let list_state = std::mem::take(&mut self.script_spacing);
+        finalize_horizontal_list_if_needed(&mut self.list, list_state, eqtb);
         self.update_last_node_info(eqtb);
     }
 

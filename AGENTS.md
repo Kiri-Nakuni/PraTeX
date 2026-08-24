@@ -225,12 +225,14 @@ run-local状態へ固定した。これはLinuxの通常探索や利用者の9.1
   LaTeX2e 2026-06-01と`expl3-code.tex`を完走し、`latex.fmt`をerror 0でdumpした。
   これは一般のclass/package互換性やLaTeX DVIの完全回帰を保証しない。
 - `\kanjiskip` / `\xkanjiskip`の通常glue parameter面と、検証済みscript class対tableは実装済み。
-  横組BuiltIn最小finalizerはJFM pair、K/X、`、。`とJLReq由来の横組括弧12対の禁則を由来付き実nodeとして
-  hbox、段落、alignment、line break、DVIへ接続する。auto switch、`xspcode`、
+  横組BuiltIn最小hybridはJFM pairと`、。`・JLReq由来の横組括弧12対の禁則をmain loopで、
+  K/Xをlist close時に由来付きnodeとしてhbox、段落、alignment、line break、DVIへ接続する。
+  `{}`、`\relax`、`\unskip`、`\message`、semi-simple group、`\showthe`、整数register代入の
+  node-less境界を公式e-upTeXで照合済みで、削除されたJFMをclose時に復活させない。auto switch、`xspcode`、
   `inhibitxspcode`はtyped eqtb、群・`globaldefs`、fmt、中央finalizerへ接続済み。直結和文glyph間の
   Kは公式e-upTeXのblack-box結果に合わせた仮想nodeとなり、寸法・改行・DVIには効く一方、
-  `\showbox`、`\lastskip`、`\lastnodetype`、`\unskip`からは隠れる。箱境界のmaterial Kとdisc境界は
-  まだ未実装であり、この仮想K型へ混ぜない。
+  `\showbox`、`\lastskip`、`\lastnodetype`、`\unskip`からは隠れる。確認済みunshifted hbox境界は
+  material Kへ分けて接続済みで、shifted/vboxとdisc境界はまだ未実装であり、この仮想K型へ混ぜない。
 - `\readline`、`\interactionmode`、mark class、糊成分・型変換、
   `\currentiftype`の`\unless`符号、font照会、`\middle`は実装済み。`\middle`は
   segmentごとのsave group復元、元のmath styleでのnew list、全delimiter共通寸法、
@@ -263,7 +265,7 @@ run-local状態へ固定した。これはLinuxの通常探索や利用者の9.1
   ではなくpLaTeXがNFSS上へ加えた拡張の意味を、PraTeX固有名で実装したもの。publicなUseは
   document body用で、preambleの次回`\selectfont`へ保留する契約はない。JFM宣言は横組exactだけ。
   `prjsarticle`の通常font roleはこの宣言面を使い、手続き的な和欧hook列を使わない。
-  `\tfont`、縦組、main-loop JFM/完全禁則は未接続。PDF和文glyphは明示named CID profileを
+  `\tfont`、縦組、box/discを含むmain-loop境界の網羅、完全禁則は未接続。PDF和文glyphは明示named CID profileを
   使う非埋込みBMP最小経路だけ接続済みで、portableな字形表示ではない。
 - TeX Live探索の既定CLI名は`--progname=pratex`であり、別engine名へ偽装しない。通常DVIでは
   PraTeXがTFM/JFMを解決し、VFはDVI driver自身が解決する。本文用`upjisr-h`だけでなく
@@ -280,7 +282,7 @@ run-local状態へ固定した。これはLinuxの通常探索や利用者の9.1
 
 ## 直近の実装順
 
-1. JFM/禁則をmain-loop早期挿入へ移し、box edgeのmaterial Kとdiscの意味を完成する。
+1. 接続済みmain-loop JFM/禁則をbox/disc・残るcommand境界へ広げ、discの枝別意味を完成する。
 2. compile済み汎用script class対tableをlist単位dispatcherと中央finalizerへ接続する。
 3. `\tfont`と縦組metric/node/outputを追加し、JFM/K/X/禁則を横組から縦組へ広げる。
 4. kpathsea互換resolverをrun-global化し、native path解決を広げて通常の子process呼出しをなくす。

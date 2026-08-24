@@ -6,7 +6,9 @@ use crate::box_building::{
     make_penalty, new_graf, no_align_error, normal_paragraph, off_save, omit_error, scan_kern,
     scan_mu_kern, unpackage, BoxContext,
 };
-use crate::command::{prefixed_command, Command, MathCommand, UnexpandableCommand};
+use crate::command::{
+    prefixed_command, Command, MathCommand, PrefixableCommand, UnexpandableCommand,
+};
 use crate::dimension::scan_normal_dimen;
 use crate::eqtb::save_stack::{GroupType, SubformulaType};
 use crate::eqtb::{DimensionVariable, Eqtb, IntegerVariable, SkipVariable, TokenListVariable};
@@ -39,6 +41,7 @@ use crate::page_breaking::PageBuilder;
 use crate::print::Printer;
 use crate::scaled::{xn_over_d, UNITY};
 use crate::scan_boxes::{begin_box, scan_box, scan_leader_box};
+use crate::scan_internal::ValueType;
 use crate::semantic_nest::{Mode, RichMode, SemanticState};
 use crate::token::{CjkToken, LatinUcsToken, Token};
 use crate::vertical_mode::{VerticalMode, IGNORE_DEPTH};
@@ -80,12 +83,14 @@ pub fn main_control(
         match nest.mode_mut() {
             RichMode::Horizontal(hmode) => match unexpandable_command {
                 UnexpandableCommand::Relax { .. } => {
-                    // Do nothing.
+                    hmode.break_jfm_pair_continuity(eqtb);
                 }
                 UnexpandableCommand::LeftBrace(_) | UnexpandableCommand::LatinUcsLeftBrace(_) => {
+                    hmode.break_jfm_pair_continuity(eqtb);
                     eqtb.new_save_level(GroupType::Simple, &scanner.input_stack, logger)
                 }
                 UnexpandableCommand::RightBrace(_) | UnexpandableCommand::LatinUcsRightBrace(_) => {
+                    hmode.break_jfm_pair_continuity(eqtb);
                     handle_right_brace(
                         token,
                         align_state,
@@ -209,6 +214,7 @@ pub fn main_control(
                     );
                 }
                 UnexpandableCommand::Show(show_command) => {
+                    hmode.break_jfm_pair_continuity(eqtb);
                     show_whatever(show_command, nest, page_builder, scanner, eqtb, logger)
                 }
                 UnexpandableCommand::MakeBox(make_box) => begin_box(
@@ -225,6 +231,7 @@ pub fn main_control(
                     unpackage(copy, nest, scanner, eqtb, logger)
                 }
                 UnexpandableCommand::RemoveItem(remove_item) => {
+                    hmode.break_jfm_pair_continuity(eqtb);
                     delete_last(remove_item, nest, scanner, eqtb, logger)
                 }
                 UnexpandableCommand::Hskip(hskip) => {
@@ -286,6 +293,7 @@ pub fn main_control(
                     append_discretionary(nest, scanner, eqtb, logger)
                 }
                 UnexpandableCommand::Message { is_err } => {
+                    hmode.break_jfm_pair_continuity(eqtb);
                     issue_message(is_err, token, scanner, eqtb, logger)
                 }
                 UnexpandableCommand::OpenOut => do_open_out(nest, scanner, eqtb, logger),
@@ -299,9 +307,11 @@ pub fn main_control(
                 UnexpandableCommand::OpenIn => open_read_file(scanner, eqtb, logger),
                 UnexpandableCommand::CloseIn => close_read_file(scanner, eqtb, logger),
                 UnexpandableCommand::BeginGroup => {
+                    hmode.break_jfm_pair_continuity(eqtb);
                     eqtb.new_save_level(GroupType::SemiSimple, &scanner.input_stack, logger)
                 }
                 UnexpandableCommand::EndGroup => {
+                    hmode.break_jfm_pair_continuity(eqtb);
                     if let GroupType::SemiSimple = eqtb.cur_group.typ {
                         eqtb.unsave(scanner, logger);
                     } else {
@@ -386,17 +396,27 @@ pub fn main_control(
                     report_illegal_case(unexpandable_command, scanner, eqtb, logger)
                 }
                 // Cases that don't depend on mode
-                UnexpandableCommand::Prefixable(prefixable_command) => prefixed_command(
-                    prefixable_command,
-                    token,
-                    hyphenator,
-                    page_builder,
-                    output,
-                    nest,
-                    scanner,
-                    eqtb,
-                    logger,
-                ),
+                UnexpandableCommand::Prefixable(prefixable_command) => {
+                    // 公式e-upTeXで`）\count0=0（`がclass 0の二境界になることを
+                    // black-box確認した範囲だけを早期挿入へ接続する。
+                    if matches!(
+                        prefixable_command,
+                        PrefixableCommand::Register(ValueType::Int)
+                    ) {
+                        hmode.break_jfm_pair_continuity(eqtb);
+                    }
+                    prefixed_command(
+                        prefixable_command,
+                        token,
+                        hyphenator,
+                        page_builder,
+                        output,
+                        nest,
+                        scanner,
+                        eqtb,
+                        logger,
+                    )
+                }
             },
             RichMode::Vertical(vmode) => match unexpandable_command {
                 UnexpandableCommand::Relax { .. } => {
@@ -1286,6 +1306,7 @@ fn append_cjk_character(
             height: metrics.height,
             depth: metrics.depth,
             italic: metrics.italic,
+            jfm_boundary_before: crate::nodes::JfmBoundaryBefore::Continuous,
         }),
         eqtb,
     );
