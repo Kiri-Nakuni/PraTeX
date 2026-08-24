@@ -878,3 +878,37 @@ PraTeX `763e4a7`をclean detached worktreeへ固定し、同一PraTeX path・同
 全releaseは935 passed、0 failed、11 ignored。公式TRIPは両段exit 0、`tripos.tex`・
 PLtoTF→TFtoPLはbyte一致、`8terminal.tex`は0 byte、固定comment DVIも公式2,920 byteと
 完全一致した。
+
+### `9776e1a`後の299頁hot path再診断
+
+糊handoffを採用したsourceと一致するbinaryを、同じ299頁入力・型付きfmtでCPU 0へ固定し、
+Linux `perf record -F 999 -g --call-graph dwarf`で一回だけsamplingした。1,885 samplesの
+**self cycle share**上位は次だった。
+
+| symbolまたは層 | self |
+|---|---:|
+| `Scanner::get_next` | 19.79% |
+| `macro_expand` | 7.82% |
+| 組込みKpathseaの`hash_insert_normalized` | 6.96% |
+| binary fmtのCRC計算 | 3.05% |
+| hyphen Trieのlanguage pattern検証 | 2.28% |
+| `Node` drop | 2.23% |
+| `get_x_command_and_token` | 1.98% |
+| line break本体 / `try_break` | 1.71% / 1.56% |
+| hlistへのnode追加 | 1.57% |
+| 単語hyphenation | 1.54% |
+
+allocator、free、realloc、moveはlibc内の複数symbolへ分散しており、個別最大は`_int_malloc`の
+3.41%だった。macro parameter range取得は0.93%、`nested_scan_toks`は0.88%、input frame pushは
+0.68%、整数scanner本体の`scan_int_radix_from_first`は0.21% selfだった。inclusive call treeは
+LTO binaryのunwindが十分でないため、このrunから推測しない。以前のinclusive 15.40%という
+`scan_int`値と、今回のself 0.21%を直接比較して「整数走査が解消した」とも判断しない。
+
+これは正式な複数交互標本でなく、次のA/B候補を選ぶ診断runである。現時点の第一候補は
+`get_next`のtoken-only経路、不要な`Command` clone/drop、parameter/input frame dispatchであり、
+寸法・糊scannerのさらに狭い調整より先に測る。profileは15,879,144 byte、SHA-256
+`cf58942db891675eb8839f5ec09945368fd01ea545ff093e9179a8dee57b2120`で、repository外の
+`/tmp/pratex-current-hotpath-9776e1a.data`に置いた。binary SHA-256は
+`bdd63fd7e9feaeade8ffba8b61c82a6c5c88b058ac65c7b540fe474b72a1e92f`、入力とfmtはそれぞれ
+`265a52f085db6afb43a3f8a420be0a80ec554c7a1052b064edaa85a539f7f2cd`、
+`c5cda9564ed3251f450ceb7c63f87ec334c55b9c9ea63afb06e7111f06e0013c`である。
