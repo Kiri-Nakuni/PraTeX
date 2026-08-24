@@ -340,6 +340,7 @@ impl InputStack {
     }
 
     /// See 341., 343., 360. and 362.
+    #[inline(always)]
     pub fn get_next(
         &mut self,
         allow_new_cs: bool,
