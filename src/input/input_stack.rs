@@ -340,6 +340,7 @@ impl InputStack {
     }
 
     /// See 341., 343., 360. and 362.
+    #[inline(always)]
     pub fn get_next(
         &mut self,
         allow_new_cs: bool,
@@ -1109,12 +1110,13 @@ pub enum NextResult {
 #[cfg(test)]
 mod tests {
     use super::{print_input_bytes, InputSource, InputStack, MacroArguments, TokenSourceType};
-    use crate::eqtb::{ControlSequence, Eqtb};
-    use crate::input::Scanner;
+    use crate::command::{Command, ExpandableCommand, MacroCall, UnexpandableCommand};
+    use crate::eqtb::{CatCode, ControlSequence, Eqtb};
+    use crate::input::{Scanner, ScannerStatus};
     use crate::logger::{InteractionMode, Logger};
     use crate::macros::{Macro, MacroToken};
     use crate::print::pseudo::PseudoPrinter;
-    use crate::token::Token;
+    use crate::token::{LatinUcsToken, Token};
 
     use std::rc::Rc;
 
@@ -1246,5 +1248,172 @@ mod tests {
             Token::RIGHT_BRACE_TOKEN
         );
         assert_eq!(scanner.align_state, initial);
+    }
+
+    #[test]
+    #[should_panic(expected = "Should not appear hear")]
+    fn 未展開token経路もnullを通常tokenとして通さない() {
+        let (mut scanner, mut eqtb, mut logger) = 入力器を作る();
+        scanner.input_stack.begin_macro_call(
+            ControlSequence::Undefined,
+            Rc::new(Macro {
+                parameter_text: Vec::new(),
+                replacement_text: vec![MacroToken::Normal(Token::Null)],
+            }),
+            MacroArguments::new(false),
+            &eqtb,
+            &mut logger,
+        );
+
+        scanner.get_token(&mut eqtb, &mut logger);
+    }
+
+    #[test]
+    #[should_panic(expected = "lexer-only LatinUcs catcode became a character token")]
+    fn 未展開token経路も字句専用unicode分類を通さない() {
+        let (mut scanner, mut eqtb, mut logger) = 入力器を作る();
+        let invalid = Token::LatinUcsChar(
+            LatinUcsToken::new(0x80, CatCode::Escape).expect("test code point is Latin-UCS"),
+        );
+        scanner.input_stack.begin_macro_call(
+            ControlSequence::Undefined,
+            Rc::new(Macro {
+                parameter_text: Vec::new(),
+                replacement_text: vec![MacroToken::Normal(invalid)],
+            }),
+            MacroArguments::new(false),
+            &eqtb,
+            &mut logger,
+        );
+
+        scanner.get_token(&mut eqtb, &mut logger);
+    }
+
+    #[test]
+    fn noexpand入力源は整列とouter検査より先に制御綴を返す() {
+        let cases = [
+            Command::Expandable(ExpandableCommand::Macro(MacroCall {
+                long: false,
+                outer: true,
+                protected: false,
+                macro_def: Rc::new(Macro::default()),
+            })),
+            Command::Unexpandable(UnexpandableCommand::Span),
+            Command::Unexpandable(UnexpandableCommand::CarRet { weak: false }),
+        ];
+
+        for command in cases {
+            let (mut scanner, mut eqtb, mut logger) = 入力器を作る();
+            let cs = ControlSequence::Undefined;
+            eqtb.control_sequences.set(cs, command);
+            scanner.scanner_status = ScannerStatus::Matching;
+            scanner.align_state = 0;
+            scanner.input_stack.push_input(
+                InputSource::DontExpand {
+                    cs,
+                    has_been_read: false,
+                },
+                &eqtb,
+                &mut logger,
+            );
+
+            assert_eq!(
+                scanner.get_token(&mut eqtb, &mut logger),
+                Token::CSToken { cs }
+            );
+            assert_eq!(scanner.align_state, 0);
+            assert!(scanner.v_templates.is_empty());
+        }
+    }
+
+    #[test]
+    fn 未展開token経路も整列終端をvtemplateへ置き換える() {
+        let cs = ControlSequence::Undefined;
+        let latin_tab = Token::LatinUcsChar(
+            LatinUcsToken::new(0x80, CatCode::TabMark).expect("test code point is Latin-UCS"),
+        );
+        let cases = [
+            (Token::TabMark(b'&'), None, super::AlignCommand::Tab),
+            (latin_tab, None, super::AlignCommand::Tab),
+            (
+                Token::CSToken { cs },
+                Some(Command::Unexpandable(UnexpandableCommand::Span)),
+                super::AlignCommand::Span,
+            ),
+            (
+                Token::CSToken { cs },
+                Some(Command::Unexpandable(UnexpandableCommand::CarRet {
+                    weak: false,
+                })),
+                super::AlignCommand::CarRet,
+            ),
+        ];
+
+        for (ending_token, command, expected_ending) in cases {
+            let (mut scanner, mut eqtb, mut logger) = 入力器を作る();
+            if let Some(command) = command {
+                eqtb.control_sequences.set(cs, command);
+            }
+            let sentinel = Token::Letter(b'v');
+            scanner.v_templates.push(Rc::new(vec![sentinel]));
+            scanner.input_token(
+                TokenSourceType::Inserted,
+                ending_token,
+                &mut eqtb,
+                &mut logger,
+            );
+            scanner.align_state = 0;
+
+            assert_eq!(scanner.get_token(&mut eqtb, &mut logger), sentinel);
+            assert_eq!(scanner.align_state, 1_000_000);
+            assert!(matches!(
+                scanner.input_stack.current_source(),
+                InputSource::TokenSource {
+                    source_type: TokenSourceType::VTemplate { ending_command },
+                    ..
+                } if *ending_command == expected_ending
+            ));
+        }
+    }
+
+    #[test]
+    fn 未展開引数中のouter_macroは空白へ回復して元tokenを戻す() {
+        let (mut scanner, mut eqtb, mut logger) = 入力器を作る();
+        let cs = ControlSequence::Undefined;
+        eqtb.control_sequences.set(
+            cs,
+            Command::Expandable(ExpandableCommand::Macro(MacroCall {
+                long: false,
+                outer: true,
+                protected: false,
+                macro_def: Rc::new(Macro::default()),
+            })),
+        );
+        let sentinel = Token::Letter(b's');
+        scanner.input_token(
+            TokenSourceType::Inserted,
+            sentinel,
+            &mut eqtb,
+            &mut logger,
+        );
+        scanner.input_token(
+            TokenSourceType::Inserted,
+            Token::CSToken { cs },
+            &mut eqtb,
+            &mut logger,
+        );
+        scanner.scanner_status = ScannerStatus::Matching;
+
+        assert!(matches!(
+            scanner.get_token(&mut eqtb, &mut logger),
+            Token::Spacer(_)
+        ));
+        scanner.scanner_status = ScannerStatus::Normal;
+        assert_eq!(scanner.get_token(&mut eqtb, &mut logger), eqtb.par_token);
+        assert_eq!(
+            scanner.get_token(&mut eqtb, &mut logger),
+            Token::CSToken { cs }
+        );
+        assert_eq!(scanner.get_token(&mut eqtb, &mut logger), sentinel);
     }
 }

@@ -232,3 +232,51 @@ CPU 0・`CARGO_BUILD_JOBS=1`で逐次実行した。
 隔離artifactは`/tmp/pratex-trip-20260825.iNah6roG/current-glue-first-token`、
 `current-glue-first-token-fixed`、`actual-glue-first-token`に残した。fmt codecを変えないため、
 旧ASCIIの重複runは`3db344e`の双codec成功値を維持した。
+
+### `974996e` 未展開token取得checkpoint
+
+未展開tokenだけを読む経路で`Command`を所有せず、input source dispatchを両callerへinlineする
+checkpointを、Vaak `7dc011b23da7bd78bad1e0031d5e601b014cc7fe`のclean detached worktreeと
+同じ公式資材で再実行した。TRIP featureのbuildは4 job、engineとTeXwareはCPU 0で逐次実行した。
+
+- 公式archive SHA-256
+  `1d419b1bd7efa575ead0174e47d542a0099a73e0e4deb5031980d109e8c3c645`とmanifestの10資材を
+  再検証した。
+- TRIP feature実行fileは18,147,480 byte、SHA-256
+  `a513649ce518bcd1659fa55a8112f81a6bf5ac070ded13e9c04b11c9e9d637ff`。
+- PLtoTF→TFtoPLの生成TFMとround-trip PLはそれぞれ公式fileへbyte一致した。
+- Stage 1 / Stage 2 / 固定comment runはすべてexit 0、`tripos.tex`は公式へbyte一致、
+  `8terminal.tex`は0 byteだった。
+- binary `trip.fmt`は511,386 byte、SHA-256
+  `c00982094fa660dfd6bb03276a82ec019c67e274936f15761d4bdd8a286faa66`。
+- `-output-comment= TeX output 1776.07.04:1200`のDVIは公式DVIと2,920 byteすべて一致し、
+  SHA-256は双方`09802695e330d34acec9192c15debe2de65e34fcbd3f947db9c8924240b1fe0a`だった。
+- 固定comment DVIのTeX Live 2026 DVItype出力は、先頭のtool版表示だけを正規化すると
+  公式`trip.typ`へ一致した。Stage 1/2のlog/fotはbannerだけを正規化すると直前checkpointへ一致した。
+
+隔離artifactは`/tmp/pratex-trip-20260825.iNah6roG/current-token-only`、
+`current-token-only-fixed`、`actual-token-only`に残した。fmt codec自体は変更していない。
+
+### `8e0e543` 未展開token監査追補checkpoint
+
+token専用経路で通常取得と同じ不正token拒否、`DontExpand`、alignment、outer回復を固定した
+最終checkpointを、Vaak `7dc011b23da7bd78bad1e0031d5e601b014cc7fe`のclean detached
+worktreeと同じ公式資材で再実行した。TRIP feature buildは4 job、engineとTeXwareはCPU 0で逐次実行した。
+
+- 公式archive SHA-256
+  `1d419b1bd7efa575ead0174e47d542a0099a73e0e4deb5031980d109e8c3c645`とmanifestの10資材を
+  再検証した。
+- TRIP feature実行fileは18,149,176 byte、SHA-256
+  `d99ead3f42e7d102663c6a1cd7b5899396eb33a3a347d1943f7b2b8758a76c8f`。
+- PLtoTF→TFtoPLの生成TFMとround-trip PLはそれぞれ公式fileへbyte一致した。
+- Stage 1 / Stage 2 / 固定comment runはすべてexit 0、`tripos.tex`は公式へbyte一致、
+  `8terminal.tex`は0 byteだった。
+- binary `trip.fmt`は511,386 byte、SHA-256
+  `58514acaaa9d6d63c80ead720bedde357f8c27141b564abfde00163a9eae3084`。
+- `-output-comment= TeX output 1776.07.04:1200`のDVIは公式DVIと2,920 byteすべて一致し、
+  SHA-256は双方`09802695e330d34acec9192c15debe2de65e34fcbd3f947db9c8924240b1fe0a`だった。
+- 固定comment DVIのTeX Live 2026 DVItype出力は、先頭のtool版表示だけを除いて公式
+  `trip.typ`へbyte一致した。
+
+隔離artifactは`/tmp/pratex-trip-20260825.iNah6roG/current-token-only-final`、
+`current-token-only-final-fixed`、`actual-token-only-final`に残した。fmt codec自体は変更していない。
