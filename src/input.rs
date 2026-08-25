@@ -631,11 +631,17 @@ impl Scanner {
 
             self.align_state += token.alignment_delta();
             let (alignment_ending, is_forbidden_outer) = match token {
+                Token::Null => panic!("Should not appear hear"),
                 Token::TabMark(_) if self.align_state == 0 => (Some(AlignCommand::Tab), false),
-                Token::LatinUcsChar(wide)
-                    if wide.cat_code() == CatCode::TabMark && self.align_state == 0 =>
-                {
-                    (Some(AlignCommand::Tab), false)
+                Token::LatinUcsChar(wide) => {
+                    if !wide.has_raw_token_cat_code() {
+                        unreachable!("lexer-only LatinUcs catcode became a character token")
+                    }
+                    (
+                        (wide.cat_code() == CatCode::TabMark && self.align_state == 0)
+                            .then_some(AlignCommand::Tab),
+                        false,
+                    )
                 }
                 Token::CSToken { cs } => {
                     let command = eqtb.control_sequences.get(cs);
