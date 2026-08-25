@@ -12,6 +12,8 @@
 //! 空枝のbarrier、枝内の仮想K、枝別のmaterial K/X、改行後のDVI座標を独立に固定する。
 //! `\inhibitglue`は接続済みmain-loopの実在JFM pairだけをone-shotで抑止し、node-less commandと
 //! fmt/unhcopyを越えてJFMまたはKへ復活させない一方、pairが無い境界の暗黙Kを残す。
+//! direct hbox/段落のlist両端class 0は公開cleanupとfmt往復まで固定し、
+//! alignment cellとdiscretionary三枝はこのsliceで端点を追加しない。
 
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
@@ -293,6 +295,30 @@ fn joined_log(directory: &Path, stem: &str) -> String {
     std::fs::read_to_string(directory.join(format!("{stem}.log")))
         .unwrap()
         .replace(['\r', '\n'], "")
+}
+
+fn raw_log(directory: &Path, stem: &str) -> String {
+    std::fs::read_to_string(directory.join(format!("{stem}.log"))).unwrap()
+}
+
+fn shown_box_segment(log: &str, number: usize, next: Option<usize>) -> &str {
+    let segment = log
+        .split(&format!("> \\box{number}="))
+        .nth(1)
+        .expect("showbox出力がある");
+    next.map_or(segment, |next| {
+        segment.split(&format!("> \\box{next}=")).next().unwrap()
+    })
+}
+
+fn normalized_jfm_glue_lines(segment: &str) -> Vec<&str> {
+    segment
+        .lines()
+        .filter_map(|line| {
+            let line = line.trim_start_matches(|character| character == '.' || character == ' ');
+            line.starts_with("\\glue(\\pratexjfm)").then_some(line)
+        })
+        .collect()
 }
 
 fn common_prefix() -> String {
@@ -644,6 +670,110 @@ fn list端のclass_zero_jfmは横組hboxと段落の公開cleanupを保つ() {
     assert!(!inhibited.contains("\\glue(\\pratexjfm)"));
     assert!(!noindent.contains("\\glue(\\pratexjfm)"));
     assert!(!leading_penalty.contains("\\glue(\\pratexjfm)"));
+}
+
+#[test]
+fn list末尾のjfm_glueはhboxだけ三成分を零化する() {
+    let directory = prepare_directory("list末尾JFM glueの三成分");
+    let source = format!(
+        "{}\\pratexjfont\\H=hybrid at 10pt \\H
+         \\showboxbreadth=100 \\showboxdepth=20
+         \\setbox0=\\hbox{{）}}
+         \\parindent=3pt \\hsize=30pt
+         \\setbox1=\\vbox{{\\indent ）\\par}}
+         \\setbox2=\\vbox{{\\noindent ）\\par}}
+         \\showbox0 \\showbox1 \\showbox2 \\end\n",
+        common_prefix()
+    );
+    std::fs::write(directory.join("t.tex"), source).unwrap();
+    let output = run_rtex(&directory, &["t.tex"]);
+    assert_success(&output, "list末尾JFM glueの三成分試験を実行できなかった");
+    let log = raw_log(&directory, "t");
+
+    assert_eq!(
+        normalized_jfm_glue_lines(shown_box_segment(&log, 0, Some(1))),
+        vec!["\\glue(\\pratexjfm) 0.0"]
+    );
+    let original = "\\glue(\\pratexjfm) 2.5 plus 1.25 minus 0.625";
+    assert_eq!(
+        normalized_jfm_glue_lines(shown_box_segment(&log, 1, Some(2))),
+        vec![original],
+        "字下げ段落のlist末尾はJFM glueの三成分を保つ"
+    );
+    assert_eq!(
+        normalized_jfm_glue_lines(shown_box_segment(&log, 2, None)),
+        vec![original],
+        "noindent段落でもlist末尾はJFM glueの三成分を保つ"
+    );
+}
+
+#[test]
+fn class_zero端nodeはfmt往復後のunhcopyで一個だけ残る() {
+    let directory = prepare_directory("class 0端nodeのfmt往復");
+    let make = format!(
+        "{}\\pratexjfont\\H=hybrid at 10pt
+         \\pratexjfont\\E=edge at 10pt
+         \\H \\setbox0=\\hbox{{）}}
+         \\E \\setbox1=\\hbox{{）}} \\dump\n",
+        common_prefix()
+    );
+    std::fs::write(directory.join("mk.tex"), make).unwrap();
+    let output = run_rtex(&directory, &["mk.tex"]);
+    assert_success(&output, "class 0端node入りfmtを生成できなかった");
+
+    std::fs::write(
+        directory.join("use.tex"),
+        "\\batchmode
+         \\setbox2=\\hbox{\\unhcopy0}
+         \\setbox3=\\hbox{\\unhcopy1}
+         \\showboxbreadth=100 \\showboxdepth=20 \\showbox2 \\showbox3
+         \\message{[list-edge-fmt=\\the\\wd2/\\the\\wd3]} \\end\n",
+    )
+    .unwrap();
+    let output = run_rtex(&directory, &["&mk", "use.tex"]);
+    assert_success(&output, "class 0端node入りfmtを読み戻せなかった");
+    let raw = raw_log(&directory, "use");
+    let joined = joined_log(&directory, "use");
+    let zero_glue = shown_box_segment(&raw, 2, Some(3));
+    let edge_kern = shown_box_segment(&raw, 3, None);
+
+    assert_eq!(
+        normalized_jfm_glue_lines(zero_glue),
+        vec!["\\glue(\\pratexjfm) 0.0"]
+    );
+    assert_eq!(edge_kern.matches("\\kern-2.5 (PraTeX JFM)").count(), 1);
+    assert!(!edge_kern.contains("\\glue(\\pratexjfm)"));
+    assert!(joined.contains("[list-edge-fmt=5.0pt/2.5pt]"), "{joined}");
+}
+
+#[test]
+fn alignment_cellとdiscretionary三枝はclass_zero端nodeを追加しない() {
+    let directory = prepare_directory("class 0端点を持たないrestricted list");
+    let source = format!(
+        "{}\\pratexjfont\\H=hybrid at 10pt \\H
+         \\showboxbreadth=100 \\showboxdepth=30
+         \\setbox0=\\vbox{{\\halign{{#\\cr ）\\cr}}}}
+         \\setbox1=\\hbox{{\\discretionary{{）}}{{）}}{{）}}}}
+         \\showbox0 \\showbox1 \\end\n",
+        common_prefix()
+    );
+    std::fs::write(directory.join("t.tex"), source).unwrap();
+    let output = run_rtex(&directory, &["t.tex"]);
+    assert_success(
+        &output,
+        "alignment/discretionaryのclass 0端点遮断試験を実行できなかった",
+    );
+    let log = raw_log(&directory, "t");
+    for (number, next, glyph_count) in [(0, Some(1), 1), (1, None, 3)] {
+        let segment = shown_box_segment(&log, number, next);
+        assert_eq!(
+            segment.matches("\\pratexwideglyph ） class 5").count(),
+            glyph_count,
+            "alignment cellは一文字、discはpre/post/no-break各一文字を保つ"
+        );
+        assert!(!segment.contains("\\glue(\\pratexjfm)"), "{segment}");
+        assert!(!segment.contains("(PraTeX JFM)"), "{segment}");
+    }
 }
 
 #[test]

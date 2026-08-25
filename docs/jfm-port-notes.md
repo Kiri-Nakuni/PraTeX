@@ -92,7 +92,8 @@ JFM pair continuityだけを切る。`\lastnodesubtype`を含む全観測command
 JLReqの全禁則classはまだ接続していない。横組のdirect hbox/段落に限りlist先頭・末尾の
 class 0 JFMを型付きeventで追加し、公開manualの先頭glue除去・末尾glue零化・kern保持と
 字下げ段落先頭の`\inhibitglue`を同じ中央planner境界に固定した。末尾pending `\inhibitglue`の
-適用は公開仕様から拡張せず未検証とする。
+適用は公開仕様から拡張せず未検証とする。alignment cellとdiscretionary三枝の
+class 0 edgeは本sliceではDisabledであり、disc枝を閉じるbraceも端nodeを作らない。
 
 ## TeX Live 2026黒箱オラクル
 

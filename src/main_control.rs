@@ -92,7 +92,11 @@ pub fn main_control(
                     eqtb.new_save_level(GroupType::Simple, &scanner.input_stack, logger)
                 }
                 UnexpandableCommand::RightBrace(_) | UnexpandableCommand::LatinUcsRightBrace(_) => {
-                    hmode.break_jfm_pair_continuity(eqtb);
+                    // discretionary三枝のrestricted list自体はclass 0端点の対象外。
+                    // 枝内のordinary simple groupは従来どおりnode-less境界を作る。
+                    if !matches!(eqtb.cur_group.typ, GroupType::Disc { .. }) {
+                        hmode.break_jfm_pair_continuity(eqtb);
+                    }
                     handle_right_brace(
                         token,
                         align_state,

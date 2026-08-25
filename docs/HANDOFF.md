@@ -282,6 +282,8 @@ error 0でdumpした。28,640個の複数文字control sequenceを保存し、pr
   閉じず、`\leavevmode\inhibitglue 【`のone-shot抑止へ到達する。alignment/disc枝、indirect box、
   `\unhcopy`時のedge再評価、shifted/vbox、縦組は対象外である。末尾pending `\inhibitglue`は
   公開仕様の解釈を拡張せず未検証事項に残す。このcheckpointのfocused build/testはroot指示により未実行。
+  discretionary三枝を閉じる`GroupType::Disc`のbraceはlist-end class 0と解釈せず、枝内simple groupの
+  node-less JFM境界は従来どおり保つ。alignment cellとdisc三枝に端nodeが無いことは合成JFM testで固定する。
   全releaseとTRIPは統合前にrootが実施する。
 - 最終形のKはwide glyphのbit＋hlist単位specをline breaker/packer/outputが仮想glueとして扱い、
   純和文のnode数を倍増させない。
