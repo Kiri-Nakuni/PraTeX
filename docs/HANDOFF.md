@@ -1,6 +1,6 @@
 # PraTeX 作業引継ぎ
 
-更新: 2026-08-25（`09e1eca`、JLReq・e-TeX・PDF継続機能の統合、全release・TRIP成功）
+更新: 2026-08-25（統合code `09e1eca`は全release・TRIP成功、未統合JLReq WIPは`4572918`）
 
 この文書は、現在の Codex セッションから別のエージェントへ作業が移っても、
 検証済みの境界と未commitの作業を失わないための生きた引継ぎである。
@@ -26,6 +26,19 @@
   異なるat-sizeで同じType 1資材を共有するPDF境界を統合した。全releaseは
   **950 passed、0 failed、11 ignored**。公式TRIPのStage 1/2/固定comment runはexit 0、
   固定comment DVIは公式2,920 byteへ完全一致した。
+- 利用者指示により2026-08-25はここで機能作業も停止した。未統合WIPは
+  `codex3/jlreq-list-edge-class0`の`4572918`で、origin・githubの両方へpush済みである。
+  横組direct hbox/段落のclass 0端点、公開cleanup、disc閉じbraceの非波及を実装したが、
+  planner focusedは**20 passed、0 failed**、日本語spacing integrationは**23 passed、1 failed**である。
+  失敗した`list末尾のjfm_glueはhboxだけ三成分を零化する`は、字下げ段落の期待JFM glueを
+  最終box表示から取得できない。既存line breaking / post-line-break cleanup契約かproduction欠陥か
+  未判定なので、`codex3/roadmap-integration`へmergeしていない。全release・TRIPも未実施である。
+  再開時は同枝の`docs/HANDOFF.md`と`docs/jfm-port-notes.md`を読み、raw logと中央finalizerを
+  照合する。既存cleanupならpre-line-break状態を観測する試験へ直し、production欠陥なら原因を
+  最小修正した後、focused全成功→全release→公式TRIPの順で初めて統合する。
+- AUTOCHECKDATABASE受信監視とPraTeX→Vaak連絡監視のheartbeat自体は登録済みだが、停止時点では
+  30分周期でなく毎日9時の設定が残っている。正式なアプリ更新経路が応答を返さず、設定fileは
+  直接編集していない。再開時に既存automationを重複作成せず、アプリ経由で30分周期へ更新する。
 - 性能停止枝`codex3/perf-integration`は`codex2/perf-resolver-index`の
   `f414757`から分岐した。最新code checkpointは`8e0e543`である。`974996e`は未展開token取得で
   eqtbのcommandを所有せず借用判定し、macro制御綴の不要な`Rc<Macro>` clone/dropを除く。

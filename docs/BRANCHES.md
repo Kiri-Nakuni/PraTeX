@@ -46,6 +46,7 @@ end-to-end比はupLaTeX比1.615624（paired中央値）で、性能gate未達の
 | `codex2/perf-resolver-index` | `codex3`基点 `f414757` | Linux既定の組込みKpathsea、run-local resolver、固定CTAN tree測定、性能probeと不採用cacheの根拠を統合 |
 | `codex3/perf-integration` | 性能停止点 `bee8724`、code `8e0e543` | vertical discard、run-local compiled spacing dispatcher、最小横組`prjlreq`を統合。型付きfmt、寸法・糊handoff、未展開tokenのcommand非所有化と不正token境界まで採用。全release 941 passed / 0 failed / 11 ignored、公式TRIP維持。三engine再測定はupLaTeX比1.615624で未達、性能調整は一時停止 |
 | `codex3/roadmap-integration` | 現在の機能統合枝、code `09e1eca` | 性能停止点からJLReq `\inhibitglue` / `\disinhibitglue`、e-TeX `\showifs`、Type 1 at-size共有を統合。全release 950 passed / 0 failed / 11 ignored。公式TRIP固定comment DVIは公式2,920 byteへ完全一致 |
+| `codex3/jlreq-list-edge-class0` | 未統合WIP `4572918`、両remoteへpush済み | 横組direct hbox/段落のclass 0端点。planner 20/20、日本語spacing 23/24。字下げ段落末尾glueの観測1件が未解決で、全release・TRIP未実施。解決まで統合禁止 |
 
 R0は組版localeの状態、group/global/fmt、表示だけであり、まだJFM、文字間隔、禁則、
 font選択、DVI/PDF出力を変えない。R1以降は

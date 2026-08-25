@@ -35,6 +35,10 @@ paired wall比は幾何平均2.0075、中央値1.9763で、1.3未満には未達
 機能統合code checkpoint `09e1eca`は`\inhibitglue` / `\disinhibitglue`、e-TeX `\showifs`、
 異なるat-size間のType 1 PDF資材共有を取り込んだ。全releaseは**950 passed、0 failed、11 ignored**。
 公式TRIPは両段exit 0、固定comment DVIが公式2,920 byteへ完全一致した。
+停止時点の未統合WIPは`codex3/jlreq-list-edge-class0`の`4572918`で、両remoteへpush済みである。
+planner focusedは20件成功、日本語spacing integrationは23件成功・1件失敗。字下げ段落末尾glueの
+最終box観測が未解決なので、全release・TRIP未実施のまま`codex3/roadmap-integration`へ統合しない。
+再開手順と失敗内容は`docs/HANDOFF.md`を一次資料にする。
 旧統合checkpoint `6bc9ba4`は
 `cargo test --release --locked --no-fail-fast` exit 0だが、aggregate件数を記録していないため、
 過去checkpointの件数を流用しない。
