@@ -281,10 +281,15 @@ error 0でdumpした。28,640個の複数文字control sequenceを保存し、pr
   width/stretch/shrinkを零化し、両端のkernは残す。字下げ段落の初期empty hboxだけは論理先頭を
   閉じず、`\leavevmode\inhibitglue 【`のone-shot抑止へ到達する。alignment/disc枝、indirect box、
   `\unhcopy`時のedge再評価、shifted/vbox、縦組は対象外である。末尾pending `\inhibitglue`は
-  公開仕様の解釈を拡張せず未検証事項に残す。このcheckpointのfocused build/testはroot指示により未実行。
+  公開仕様の解釈を拡張せず未検証事項に残す。code checkpointは`26dd3bf`である。
   discretionary三枝を閉じる`GroupType::Disc`のbraceはlist-end class 0と解釈せず、枝内simple groupの
   node-less JFM境界は従来どおり保つ。alignment cellとdisc三枝に端nodeが無いことは合成JFM testで固定する。
-  全releaseとTRIPは統合前にrootが実施する。
+  planner focusedは**20 passed、0 failed**。日本語spacing integrationは**23 passed、1 failed**で、
+  `list末尾のjfm_glueはhboxだけ三成分を零化する`が、字下げ段落の期待JFM glue行を最終box表示から
+  取得できず失敗した。hbox零化、fmt→`\unhcopy`、alignment/disc非波及を含む他の新規試験は成功した。
+  失敗が既存のline breaking / post-line-break cleanup契約かproduction欠陥かは未判定である。
+  再開時はraw logと中央finalizerを照合し、前者ならpre-line-break状態を観測する試験へ直す。
+  この枝を`codex3/roadmap-integration`へmergeしてはならない。全releaseとTRIPは未実施である。
 - 最終形のKはwide glyphのbit＋hlist単位specをline breaker/packer/outputが仮想glueとして扱い、
   純和文のnode数を倍増させない。
 - standard Japaneseは`BuiltInPtex`のmonomorphic core経路で、Vaak/WASM callは0。

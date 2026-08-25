@@ -94,6 +94,9 @@ class 0 JFMを型付きeventで追加し、公開manualの先頭glue除去・末
 字下げ段落先頭の`\inhibitglue`を同じ中央planner境界に固定した。末尾pending `\inhibitglue`の
 適用は公開仕様から拡張せず未検証とする。alignment cellとdiscretionary三枝の
 class 0 edgeは本sliceではDisabledであり、disc枝を閉じるbraceも端nodeを作らない。
+`26dd3bf`のfocused検証はplanner 20件成功、日本語spacing 23件成功・1件失敗である。
+未解決の1件は字下げ段落末尾glueの最終box観測であり、line breaking後のcleanup契約か
+production欠陥かを判定するまで本枝を統合しない。
 
 ## TeX Live 2026黒箱オラクル
 
