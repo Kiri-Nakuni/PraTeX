@@ -1,0 +1,27 @@
+% Self-contained raw-token diagnostic.  Macro arguments contain control
+% sequences but are never expanded, so this isolates token-only acquisition.
+\catcode`\{=1 \catcode`\}=2 \catcode`\#=6
+\batchmode
+\count0=0
+\def\consume#1{}
+\def\a{a}\def\b{b}\def\c{c}\def\d{d}
+\def\e{e}\def\f{f}\def\g{g}\def\h{h}
+\def\i{i}\def\j{j}\def\k{k}\def\l{l}
+\def\m{m}\def\n{n}\def\o{o}\def\p{p}
+\def\batch{%
+  \consume{\a\b\c\d\e\f\g\h\i\j\k\l\m\n\o\p}%
+  \consume{\a\b\c\d\e\f\g\h\i\j\k\l\m\n\o\p}%
+  \consume{\a\b\c\d\e\f\g\h\i\j\k\l\m\n\o\p}%
+  \consume{\a\b\c\d\e\f\g\h\i\j\k\l\m\n\o\p}%
+  \consume{\a\b\c\d\e\f\g\h\i\j\k\l\m\n\o\p}%
+  \consume{\a\b\c\d\e\f\g\h\i\j\k\l\m\n\o\p}%
+  \consume{\a\b\c\d\e\f\g\h\i\j\k\l\m\n\o\p}%
+  \consume{\a\b\c\d\e\f\g\h\i\j\k\l\m\n\o\p}}
+\def\again{%
+  \batch
+  \advance\count0 by1
+  \ifnum\count0<50000 \let\next\again\else\let\next\relax\fi
+  \next}
+\again
+\message{[\the\count0]}
+\end
