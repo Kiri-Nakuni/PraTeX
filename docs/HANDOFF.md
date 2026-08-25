@@ -474,6 +474,17 @@ hlistの方向変換全体を破棄して診断する。
 display、math、`\predisplaydirection`自動計算は未実装なので、TeX--XeT対応完了としない。
 自作rule fixtureのDVI opcode順、fmt、診断は`tests/etex_texxet_restricted.rs`に固定した。
 
+## 完了済み非perf slice: `\showifs`
+
+`codex3/etex-texxet-continuation`は、公開e-TeX manual 3.3の条件表示をscannerの既存状態へ
+読み取り専用で接続した。現在条件と外側条件stackを別の列へ複製せず、内側から外側へlevel、
+`\unless`、`\else`、開始行を表示する。空条件では`### no active conditionals`を表示し、
+選択済み`\ifcase`の`\or`枝を`\else`とは表示しない。表示前後の`\currentif*`は不変である。
+
+公開manualと公式TeX Live 2026 e-TeXへの自作black-boxだけを照合に使い、原実装sourceと上流testは
+参照していない。`tests/etex_showifs.rs`の5件と`tests/japanese_spacing_finalizer.rs`の対象1件を
+一coreのrelease focused testで通した。全release、TRIP、pushはこのsliceでは未実施である。
+
 ## 完了済み実験: `ls-R`のsafe Rust表現
 
 状態: **2026-08-22に読取専用実験を完了、repoへの実装・統合なし**。
@@ -714,7 +725,7 @@ page builder、出力box直前の寸法を自作probeで比較し、原因を直
 5. glyph時点のRegionNode/context伝播、compiled tableのindirect edge、adjustment tier、
    line-edge discardをbox/disc/unboxとline breakerへ接続する。
 6. `\tfont`と縦組metric/node/outputを追加し、spacingと禁則を横組から縦組へ広げる。
-7. `\showgroups` / `\showifs`、tracing、`\lastlinefit`等のe-TeX残件を接続し、TeX--XeTの
+7. `\showgroups`、tracing、`\lastlinefit`等のe-TeX残件を接続し、TeX--XeTの
    restricted hbox checkpointをparagraph、display、mathへ広げる。
 
 日本語の最低線は横組smokeではなくpTeX相当とJLReq native対応であり、縦組を含む。縦中横と

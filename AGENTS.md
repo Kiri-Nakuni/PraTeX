@@ -317,6 +317,9 @@ control-sequence区間15.79%、fmt全体10.73%、wall 5.36%を短縮した。DVI
   外側brace、入れ子、空白、catcode 6/12、制御語・記号、和文token、全mode、101回、alias、fmt、
   JFMのnode-less境界を公式TeX Live 2026へ照合済み。公式Web2Cはshow診断後exit 1だが、PraTeXは
   全非fatal診断後の通常終了を0にする既存CLI差分があり、primitive意味と混ぜず別残件にする。
+- `\showifs`は開いている条件を内側から外側へlevel、`\unless`、`\else`、開始行つきで表示する。
+  空条件、`\ifcase`枝、状態不変、全mode、101回、alias、fmt、JFMのnode-less境界を公開manualと
+  公式TeX Live 2026への自作black-boxで固定済み。`\showgroups`と残るtracingは未実装である。
 - `\interlinepenalties`、`\clubpenalties`、`\widowpenalties`、
   `\displaywidowpenalties`は局所／大域代入、内部照会、fmt、通常段落とdisplay直前の
   post-line-break nodeまで接続済み。正の`\savingvdiscards`によるpage builder／公開`\vsplit`の
@@ -408,7 +411,7 @@ control-sequence区間15.79%、fmt全体10.73%、wall 5.36%を短縮した。DVI
 5. glyph時点のRegionNode/context伝播をbox/disc/unboxへ接続し、compiled tableのindirect edge、
    adjustment tier、line-edge discardをline breakerまで完成する。
 6. `\tfont`と縦組metric/node/outputを追加し、JFM/K/X/禁則を横組から縦組へ広げる。
-7. show/tracing、`\lastlinefit`を接続し、TeX--XeTの実装済み
+7. `\showgroups`と残るtracing、`\lastlinefit`を接続し、TeX--XeTの実装済み
    restricted hbox sliceをparagraph・display・mathへ広げるe-TeX残件を公開仕様どおり実装する。
 8. PraTeX-native package adapterを順に通し、PDF直接出力をOTFより先に完成する。
 9. Vaak table uploadとversion付きWASM ABIは、内部表現を固定した段階から並行して適合試験を作る。

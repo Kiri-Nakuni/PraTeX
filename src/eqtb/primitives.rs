@@ -1625,6 +1625,10 @@ impl Eqtb {
             UnexpandableCommand::Show(ShowCommand::ShowTokens),
         );
         self.primitive_unexpandable(
+            b"showifs",
+            UnexpandableCommand::Show(ShowCommand::ShowIfs),
+        );
+        self.primitive_unexpandable(
             b"showlists",
             UnexpandableCommand::Show(ShowCommand::ShowLists),
         );

@@ -368,11 +368,12 @@ fn nodeを作らない境界はjfmを二分し除去済みnodeを閉じる時に
          \\setbox13=\\hbox{{）\\count0=0 （}}
          \\setbox14=\\hbox{{）\\showthe\\count0 （}}
          \\setbox15=\\hbox{{）\\showtokens{{}}（}}
-         \\showbox0 \\showbox1 \\showbox2 \\showbox3 \\showbox4 \\showbox5 \\showbox6 \\showbox7 \\showbox8 \\showbox9 \\showbox10 \\showbox15
+         \\setbox16=\\hbox{{）\\showifs （}}
+         \\showbox0 \\showbox1 \\showbox2 \\showbox3 \\showbox4 \\showbox5 \\showbox6 \\showbox7 \\showbox8 \\showbox9 \\showbox10 \\showbox15 \\showbox16
          \\message{{[hybrid-widths=\\the\\wd0/\\the\\wd1/\\the\\wd2/\\the\\wd3/\\the\\wd4]}}
          \\message{{[broken-k-widths=\\the\\wd5/\\the\\wd6]}}
          \\message{{[one-sided-widths=\\the\\wd7/\\the\\wd8/\\the\\wd9/\\the\\wd10]}}
-         \\message{{[command-widths=\\the\\wd11/\\the\\wd12/\\the\\wd13/\\the\\wd14/\\the\\wd15]}}
+         \\message{{[command-widths=\\the\\wd11/\\the\\wd12/\\the\\wd13/\\the\\wd14/\\the\\wd15/\\the\\wd16]}}
          \\shipout\\box4 \\end\n",
         common_prefix()
     );
@@ -394,9 +395,19 @@ fn nodeを作らない境界はjfmを二分し除去済みnodeを閉じる時に
     let showtokens_segment = log
         .split("> \\box15=")
         .nth(1)
-        .expect("showtokensを含むboxの表示がある");
+        .expect("showtokensを含むboxの表示がある")
+        .split("> \\box16=")
+        .next()
+        .unwrap();
     assert_eq!(showtokens_segment.matches("\\glue(\\pratexjfm)").count(), 2);
     assert!(!showtokens_segment.contains("\\glue(\\kanjiskip)"));
+    let showifs_segment = log
+        .split("> \\box16=")
+        .nth(1)
+        .expect("showifsを含むboxの表示がある");
+    assert_eq!(showifs_segment.matches("\\glue(\\pratexjfm)").count(), 2);
+    assert!(!showifs_segment.contains("\\glue(\\kanjiskip)"));
+    assert!(log.contains("### no active conditionals"), "{log}");
     assert!(
         log.contains("[hybrid-widths=12.5pt/15.0pt/15.0pt/12.5pt/15.0pt]"),
         "{log}"
@@ -407,7 +418,7 @@ fn nodeを作らない境界はjfmを二分し除去済みnodeを閉じる時に
         "{log}"
     );
     assert!(
-        log.contains("[command-widths=15.0pt/15.0pt/15.0pt/15.0pt/15.0pt]"),
+        log.contains("[command-widths=15.0pt/15.0pt/15.0pt/15.0pt/15.0pt/15.0pt]"),
         "{log}"
     );
 

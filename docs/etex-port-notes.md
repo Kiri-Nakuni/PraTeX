@@ -46,6 +46,27 @@ process historyへ残してexit 1になる。PraTeXは全ての非fatal診断後
 しており、これは`\showtokens`固有ではない既存CLI差分である。本sliceではerror countとinteractionを
 既存show shellに合わせ、終了statusの全体修正を混ぜない。
 
+## `\showifs`
+
+公開manual §3.3に従い、開いている条件を現在の内側から外側へ表示する。条件がなければ
+`### no active conditionals`を一行だけ表示する。各条件は`### level n:`に続けて条件primitiveを
+表示し、反転条件には`\unless`を前置し、`\else`側にいる時だけ`\else`を後置する。
+`\ifcase`の選択済み`\or`枝は`\else`側とは表示しない。入力file上で開始した条件には
+`entered on line n`も付ける。
+
+PraTeXでは現在条件をscanner本体、外側条件をstackに持つ既存表現から診断時だけ読み、表示用の
+条件列を新たに割り当てない。表示前後で`\currentiflevel`、`\currentiftype`、
+`\currentifbranch`を変えず、既存show shellを通すため通常error数へ加算しない。全modeでnodeを
+作らず、horizontal modeでは他のshow命令と同じJFMのnode-less境界になる。primitive identity、
+`\let` alias、fmt往復は[専用process試験](../tests/etex_showifs.rs)、和文境界は
+[日本語spacing finalizer試験](../tests/japanese_spacing_finalizer.rs)で固定する。
+
+2026-08-25に公式TeX Live 2026のe-TeX
+`pdfTeX 3.141592653-2.6-1.40.29`へ自作最小入力を与え、空条件、二重の条件、`\unless`、
+`\else`、選択済み`\ifcase`枝をblack-boxで照合した。照合binaryは`etex`が解決する`pdftex`で、
+SHA-256は`1c5ff71156ee990c3a18402cf06d3671ecf748bd84fb3983dbd5d62b600bc40b`である。
+原実装sourceと上流testは参照していない。
+
 ## `\pagediscards`と`\splitdiscards`
 
 公開manual §3.11と§5.2に従い、正の`\savingvdiscards`でpage builderまたは公開`\vsplit`が

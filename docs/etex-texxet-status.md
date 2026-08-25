@@ -1,11 +1,11 @@
 # e-TeXとTeX--XeTの対応状況
 
-更新: 2026-08-24
+更新: 2026-08-25
 
 ## 結論
 
 PraTeXはe-TeXのmacro処理・拡張register・class別mark・式・typed疑似入力をかなり実装しているが、
-**e-TeX完全対応ではない**。組版、group/if表示、tracingに未実装が残る。
+**e-TeX完全対応ではない**。組版、group表示、tracingに未実装が残る。
 TeX--XeTはrestricted hboxの方向区間・反転・共通DVI/PDF shipoutまでの最初sliceだけ実装した。
 paragraph、display、math mode内の方向primitive、改行をまたぐLR stackは未実装なので、**TeX--XeT対応完了ではない**。
 
@@ -19,7 +19,7 @@ paragraph、display、math mode内の方向primitive、改行をまたぐLR stac
 | `\numexpr`、`\dimexpr`、`\glueexpr`、`\muexpr` | 実装 | 優先順位、括弧、丸め、糊次数、fmtを試験済み |
 | `\protected`、`\detokenize`、`\unexpanded` | 実装 | 通常の`\edef`、`\message`、`\write`、mark走査とfmtへ接続済み。alignmentの`\noalign` / `\omit`先読みは通常macroだけを展開し、protected macroを通常入力として残す。専用4件と既存e-TeX 41件、plain DVI回帰を通した |
 | `\ifdefined`、`\ifcsname`、`\unless` | 実装 | 未定義制御綴を作らず、`\unless`は真偽と`\currentiftype`の符号をともに反転する。通常・反転条件の入れ子と復元をprocess試験済み |
-| group/if内省 | 部分 | `\currentgroup*`、`\currentif*`は基本動作し、`\unless`の負符号も入れ子から正しく復元する。複雑なgroup/conditional組合せの網羅、`\showgroups`、`\showifs`が残る |
+| group/if内省 | 部分 | `\currentgroup*`、`\currentif*`は基本動作し、`\unless`の負符号も入れ子から正しく復元する。`\showifs`は現在条件を内側から外側へ表示する。複雑なgroup/conditional組合せの網羅と`\showgroups`が残る |
 | 拡張register 0--32767 | 実装 | count/dimen/skip/muskip/toks/boxの局所・大域・別名・fmtを試験済み |
 | class別mark 0--32767 | 実装 | page遷移、`\vsplit`、class 0互換、fmtを試験済み |
 | `\readline`、`\everyeof` | 実装 | `\readline`は実streamへ接続済み。実fileと`\scantokens`疑似fileの`\everyeof`は自然EOFだけで一度挿入し、`\endinput`では挿入しない。自然EOF内の行番号も試験済み |
@@ -34,7 +34,8 @@ paragraph、display、math mode内の方向primitive、改行をまたぐLR stac
 | discard list | 実装 | 正の`\savingvdiscards`でpage builderと公開`\vsplit`が先頭で捨てたglue・kern・penaltyを順序どおり保存する。`\pagediscards` / `\splitdiscards`は`\unvbox`同様に所有権ごと一度だけ現在のvertical listへ移す。page listはoutput routine終端、split listは各`\vsplit`開始時にも消去し、run-local listをfmtへ保存しない。公式TeX Live 2026 pdfTeXとの自作black-box照合とprocess試験を持つ |
 | math | 実装 | `\middle`は`\left`--`\right`内部をsegmentごとのsave groupへ分け、各境界で局所代入を復元して元のmath styleから次のlistを始める。全delimiterを全segmentの最大height/depthから同じ大きさにし、左右のspacingをそれぞれClose/Openとして扱う。文字・`\delimiter`走査、delimiter欠落と対応しない境界の回復、表示、fmtを独立process試験済み |
 | `\showtokens` | 実装 | 入口で左braceを探す間だけ通常展開を許し、balanced text本体を展開せず既存token表示へ渡す。外側brace除外、入れ子、parameter tokenの二重表示、和文token、全mode、通常error上限への非加算、`\let` alias、fmt、JFM continuity切断をprocess試験済み。公式Web2Cのshow診断がexit 1になるのに対しPraTeXの通常終了statusは0である既存CLI差分は別残件 |
-| tracing/show | 部分／未実装 | `\tracingscantokens`は実出力へ接続済み。他のtracing parameterは値だけで、`\showgroups`、`\showifs`と対応trace出力がない |
+| `\showifs` | 実装 | 開いている条件を内側から外側へlevel、`\unless`、`\else`、開始行つきで表示する。空条件、`\ifcase`の選択枝、状態不変、全mode、101回の非加算、`\let` alias、fmt、JFMのnode-less境界をprocess試験済み |
+| tracing/show | 部分／未実装 | `\tracingscantokens`は実出力へ接続済み。他のtracing parameterは値だけで、`\showgroups`と対応trace出力がない |
 | `\savinghyphcodes` | 実装 | 正値の`\patterns`時にlanguage別の小文字写像を保存し、pattern圧縮後の通常hyphenationと例外登録へ使う。同一languageの再snapshot、0以下での保持、fmt、8-bitとPraTeX Latin-UCS拡張の型分離を試験済み |
 | TeX--XeT | 部分 | `\TeXXeTstate>0`の明示restricted hboxで`\beginL` / `\endL` / `\beginR` / `\endR`をtyped方向nodeへし、入れ子LR stackを明示反転して通常DVI/PDFへ書く。区間内inline mathはatomic LTR。方向nodeがない純LTRは単一passの従来経路でallocationなし。disc枝、alignment span、unbox、paragraph、display、math mode内方向primitiveは未実装 |
 | その他の組版制御 | 表面のみ | `\lastlinefit`は処理本体へ未接続 |
@@ -78,7 +79,7 @@ left-to-right/right-to-left区間は公開意味論が異なるため、一つ�
 
 1. 実装済みの`FontCharDimension` query種別を、将来JFM・Unicode font metricへ広げる。
    e-TeX primitiveの公開文字番号は0--255のまま保ち、別の文字identityを暗黙に混ぜない。
-2. `\lastlinefit`、show/tracingを実処理へ接続する。
+2. `\lastlinefit`、`\showgroups`と残るtracingを実処理へ接続する。
 3. TeX--XeTの実装済みrestricted hbox sliceを崩さず、paragraph、display、math mode内の方向primitiveへ広げる。
    parameterと限定sliceだけで「対応済み」へ格上げしない。
 
@@ -116,6 +117,15 @@ primitive identityとrun-local空状態を[process試験](../tests/etex_vdiscard
 分離し、表示は`Token::display`へ集約した。公式TeX Live 2026のe-TeXとe-upTeXに対する自作
 black-boxで、入れ子brace、制御綴後の空白、catcode 6のparameter tokenが`##`になること、
 和文token、和文glyph間でJFM continuityを切ることを照合した。実装sourceや上流testは参照していない。
+
+`\showifs`は同manual 3.3の公開契約から、scannerの現在条件と外側条件stackを表示時だけ読む形で
+独立実装した。開始行は同manualの公開例から固定し、公式TeX Live 2026のe-TeXへ与えた自作
+black-boxで、空条件、内側から外側への順序、`\unless`、`\else`、選択済み`\ifcase`枝を照合した。
+状態不変、全mode、101回、fmt、
+JFM境界は[process試験](../tests/etex_showifs.rs)と
+[日本語spacing finalizer試験](../tests/japanese_spacing_finalizer.rs)で固定し、原実装sourceや上流testは
+参照していない。照合binaryのSHA-256は
+`1c5ff71156ee990c3a18402cf06d3671ecf748bd84fb3983dbd5d62b600bc40b`である。
 
 4つのpenalty配列は同manual 3.8の公開契約から、添字方向と末尾反復を一つのtyped storageへ
 集約して独立実装した。従来の単一parameterへ戻るreset状態、部分段落ごとのclub添字、段落末から
