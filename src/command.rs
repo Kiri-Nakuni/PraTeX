@@ -155,6 +155,8 @@ pub enum UnexpandableCommand {
     Omit,
     ExSpace,
     NoBoundary,
+    /// pTeXの次のJFM metric空白だけを抑止／再許可する。
+    SetInhibitGlue { inhibit: bool },
     EndCsName,
     CharGiven(u8),
     LastPenalty,
@@ -273,6 +275,7 @@ impl UnexpandableCommand {
             | Self::Omit
             | Self::ExSpace
             | Self::NoBoundary
+            | Self::SetInhibitGlue { .. }
             | Self::EndCsName
             | Self::End { .. } => None,
             Self::Math(math_command) => math_command.try_to_internal(),
@@ -448,6 +451,11 @@ impl UnexpandableCommand {
             Self::Omit => printer.print_esc_str(b"omit"),
             Self::ExSpace => printer.print_esc_str(b" "),
             Self::NoBoundary => printer.print_esc_str(b"noboundary"),
+            Self::SetInhibitGlue { inhibit } => printer.print_esc_str(if *inhibit {
+                b"inhibitglue"
+            } else {
+                b"disinhibitglue"
+            }),
             Self::EndCsName => printer.print_esc_str(b"endcsname"),
             Self::CharGiven(c) => {
                 printer.print_esc_str(b"char");

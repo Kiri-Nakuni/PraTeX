@@ -1136,6 +1136,12 @@ pub(crate) enum JfmGlueControl {
     Inhibit,
 }
 
+impl Default for JfmGlueControl {
+    fn default() -> Self {
+        Self::Allow
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct BoundaryContext {
     pub(crate) jfm_continuity: JfmPairContinuity,
@@ -1193,12 +1199,14 @@ const MAX_BOUNDARY_ACTIONS: usize = 2;
 pub(crate) struct BoundaryActionPlan {
     actions: [Option<PlannedSpacingAction>; MAX_BOUNDARY_ACTIONS],
     len: u8,
+    jfm_spacing_inhibited: bool,
 }
 
 impl BoundaryActionPlan {
     const EMPTY: Self = Self {
         actions: [None; MAX_BOUNDARY_ACTIONS],
         len: 0,
+        jfm_spacing_inhibited: false,
     };
 
     fn push(&mut self, action: PlannedSpacingAction) {
@@ -1237,6 +1245,13 @@ impl BoundaryActionPlan {
             )
         })
     }
+
+    /// `\inhibitglue`が実在するJFM pairを抑止した時だけ真にする。
+    ///
+    /// pair自体が無い境界は暗黙K候補なので、単にcommandがpendingだっただけでは真にしない。
+    pub(crate) const fn jfm_spacing_inhibited(&self) -> bool {
+        self.jfm_spacing_inhibited
+    }
 }
 
 /// listごとのASCII fast gateと、nodeを作らない入力eventのJFM連続性。
@@ -1248,6 +1263,8 @@ pub(crate) struct ScriptSpacingListState {
     needs_script_spacing: bool,
     previous_main_loop_boundary: Option<BoundaryAtom>,
     pending_jfm_continuity: JfmPairContinuity,
+    pending_jfm_glue: JfmGlueControl,
+    broken_left_jfm_was_inhibited: bool,
     compiled_profile: CompiledProfileObservation,
 }
 
@@ -1339,12 +1356,17 @@ impl ScriptSpacingListState {
     pub(crate) fn observe_main_loop_boundary(
         &mut self,
         atom: BoundaryAtom,
-    ) -> Option<(BoundaryAtom, JfmPairContinuity)> {
-        let previous = self
-            .previous_main_loop_boundary
-            .map(|previous| (previous, self.pending_jfm_continuity));
+    ) -> Option<(BoundaryAtom, JfmPairContinuity, bool)> {
+        let previous = self.previous_main_loop_boundary.map(|previous| {
+            (
+                previous,
+                self.pending_jfm_continuity,
+                self.broken_left_jfm_was_inhibited,
+            )
+        });
         self.previous_main_loop_boundary = Some(atom);
         self.pending_jfm_continuity = JfmPairContinuity::Continuous;
+        self.broken_left_jfm_was_inhibited = false;
         previous
     }
 
@@ -1360,10 +1382,40 @@ impl ScriptSpacingListState {
         Some(left)
     }
 
+    /// class 0へ閉じる左半分に存在したJFM spacingを抑止した事実を、右glyphまで保持する。
+    pub(crate) fn record_broken_left_jfm_inhibition(&mut self, inhibited: bool) {
+        self.broken_left_jfm_was_inhibited |= inhibited;
+    }
+
+    /// `\inhibitglue` / `\disinhibitglue`は現在のhlistだけのone-shot状態である。
+    pub(crate) fn set_jfm_glue_inhibited(&mut self, inhibited: bool) {
+        self.pending_jfm_glue = if inhibited {
+            JfmGlueControl::Inhibit
+        } else {
+            JfmGlueControl::Allow
+        };
+    }
+
+    pub(crate) const fn pending_jfm_glue(&self) -> JfmGlueControl {
+        self.pending_jfm_glue
+    }
+
+    /// 実node一個の追加でpendingを消費する。node-less eventはこの入口を呼ばない。
+    #[inline]
+    pub(crate) fn take_pending_jfm_glue(&mut self) -> JfmGlueControl {
+        if self.pending_jfm_glue == JfmGlueControl::Inhibit {
+            self.pending_jfm_glue = JfmGlueControl::Allow;
+            JfmGlueControl::Inhibit
+        } else {
+            JfmGlueControl::Allow
+        }
+    }
+
     /// 明示nodeや追跡外のbulk appendを越えてmain-loop JFMを作らない。
     pub(crate) fn reset_main_loop_boundary(&mut self) {
         self.previous_main_loop_boundary = None;
         self.pending_jfm_continuity = JfmPairContinuity::Continuous;
+        self.broken_left_jfm_was_inhibited = false;
     }
 
     /// Generic callback is monomorphized; false のとき callback/table lookup/allocation は 0。
@@ -1410,6 +1462,7 @@ impl JapaneseSpacingPlanner {
     pub(crate) fn plan_main_loop_event(
         self,
         event: MainLoopBoundaryEvent,
+        jfm_glue: JfmGlueControl,
         jfm_pairs: Option<&CompiledJfmPairSpacingTable>,
     ) -> BoundaryActionPlan {
         let mut plan = BoundaryActionPlan::EMPTY;
@@ -1418,11 +1471,17 @@ impl JapaneseSpacingPlanner {
                 self.append_profile_kinsoku_action(&mut plan, left, right);
                 if let (BoundaryAtom::Japanese(left), BoundaryAtom::Japanese(right)) = (left, right)
                 {
-                    self.append_jfm_action(&mut plan, left, right, jfm_pairs);
+                    self.append_jfm_action(&mut plan, left, right, jfm_glue, jfm_pairs);
                 }
             }
             MainLoopBoundaryEvent::BreakAfterJapanese { left } => {
-                self.append_jfm_action(&mut plan, left, left.default_class_endpoint(), jfm_pairs);
+                self.append_jfm_action(
+                    &mut plan,
+                    left,
+                    left.default_class_endpoint(),
+                    jfm_glue,
+                    jfm_pairs,
+                );
             }
             MainLoopBoundaryEvent::ResumeBeforeJapanese {
                 logical_left,
@@ -1437,6 +1496,7 @@ impl JapaneseSpacingPlanner {
                     &mut plan,
                     logical_left.default_class_endpoint(),
                     right,
+                    jfm_glue,
                     jfm_pairs,
                 );
             }
@@ -1483,22 +1543,37 @@ impl JapaneseSpacingPlanner {
         plan: &mut BoundaryActionPlan,
         left: JapaneseBoundary,
         right: JapaneseBoundary,
+        control: JfmGlueControl,
         jfm_pairs: Option<&CompiledJfmPairSpacingTable>,
     ) -> bool {
-        let pair_spacing = (left.font == right.font && left.metric == right.metric)
-            .then(|| jfm_pairs.and_then(|table| table.get(left.metric, left.class, right.class)))
-            .flatten();
+        let Some(pair_spacing) = self.jfm_pair_spacing(left, right, jfm_pairs) else {
+            return false;
+        };
+        if control == JfmGlueControl::Inhibit {
+            plan.jfm_spacing_inhibited = true;
+            return true;
+        }
         match pair_spacing {
-            Some(JfmPairSpacing::Glue(glue)) => {
+            JfmPairSpacing::Glue(glue) => {
                 plan.push(PlannedSpacingAction::JfmGlue { glue });
                 true
             }
-            Some(JfmPairSpacing::Kern(width)) => {
+            JfmPairSpacing::Kern(width) => {
                 plan.push(PlannedSpacingAction::JfmKern { width });
                 true
             }
-            None => false,
         }
+    }
+
+    fn jfm_pair_spacing(
+        self,
+        left: JapaneseBoundary,
+        right: JapaneseBoundary,
+        jfm_pairs: Option<&CompiledJfmPairSpacingTable>,
+    ) -> Option<JfmPairSpacing> {
+        (left.font == right.font && left.metric == right.metric)
+            .then(|| jfm_pairs.and_then(|table| table.get(left.metric, left.class, right.class)))
+            .flatten()
     }
 
     fn plan_built_in_ptex(
@@ -1519,8 +1594,13 @@ impl JapaneseSpacingPlanner {
         match (left, right) {
             (BoundaryAtom::Japanese(left), BoundaryAtom::Japanese(right)) => {
                 let has_jfm_pair = context.jfm_continuity == JfmPairContinuity::Continuous
-                    && context.jfm_glue == JfmGlueControl::Allow
-                    && self.append_jfm_action(&mut plan, left, right, jfm_pairs);
+                    && self.append_jfm_action(
+                        &mut plan,
+                        left,
+                        right,
+                        context.jfm_glue,
+                        jfm_pairs,
+                    );
                 if !has_jfm_pair
                     && context.jfm_continuity != JfmPairContinuity::ReplacedByMainLoopJfm
                 {
@@ -1869,24 +1949,53 @@ mod tests {
             vec![PlannedSpacingAction::JfmGlue { glue: glue(33) }]
         );
 
-        for context in [
-            BoundaryContext {
-                jfm_continuity: JfmPairContinuity::Broken,
-                jfm_glue: JfmGlueControl::Allow,
-            },
+        assert_eq!(
+            actions(planner.plan_boundary(
+                left,
+                right,
+                BoundaryContext {
+                    jfm_continuity: JfmPairContinuity::Broken,
+                    jfm_glue: JfmGlueControl::Allow,
+                },
+                &state,
+                Some(&table),
+            )),
+            vec![PlannedSpacingAction::ImplicitKanjiSkip {
+                glue: glue(10),
+                active: true,
+            }]
+        );
+
+        let inhibited = planner.plan_boundary(
+            left,
+            right,
             BoundaryContext {
                 jfm_continuity: JfmPairContinuity::Continuous,
                 jfm_glue: JfmGlueControl::Inhibit,
             },
-        ] {
-            assert_eq!(
-                actions(planner.plan_boundary(left, right, context, &state, Some(&table))),
-                vec![PlannedSpacingAction::ImplicitKanjiSkip {
-                    glue: glue(10),
-                    active: true,
-                }]
-            );
-        }
+            &state,
+            Some(&table),
+        );
+        assert!(inhibited.is_empty());
+        assert!(inhibited.jfm_spacing_inhibited());
+
+        assert_eq!(
+            actions(planner.plan_boundary(
+                left,
+                right,
+                BoundaryContext {
+                    jfm_continuity: JfmPairContinuity::Continuous,
+                    jfm_glue: JfmGlueControl::Inhibit,
+                },
+                &state,
+                None,
+            )),
+            vec![PlannedSpacingAction::ImplicitKanjiSkip {
+                glue: glue(10),
+                active: true,
+            }],
+            "抑止対象のJFM pairが無い境界ではKへ戻る"
+        );
 
         assert!(
             planner

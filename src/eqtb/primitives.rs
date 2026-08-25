@@ -1516,6 +1516,14 @@ impl Eqtb {
             UnexpandableCommand::Prefixable(PrefixableCommand::InhibitXspCode),
         );
         self.primitive_unexpandable(
+            b"inhibitglue",
+            UnexpandableCommand::SetInhibitGlue { inhibit: true },
+        );
+        self.primitive_unexpandable(
+            b"disinhibitglue",
+            UnexpandableCommand::SetInhibitGlue { inhibit: false },
+        );
+        self.primitive_unexpandable(
             b"mathcode",
             UnexpandableCommand::Prefixable(PrefixableCommand::Code(CodeType::MathCode)),
         );

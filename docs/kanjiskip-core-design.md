@@ -216,15 +216,25 @@ JFMを復活させない。shifted/vbox、disc内のnode-less境界、`\lastnode
 
 ## 4. `\inhibitglue`
 
-`\inhibitglue`はJFM metric由来の空白だけを抑止し、K/Xは禁止しない。
+`\inhibitglue`はJFM metric由来の空白だけをone-shotで抑止し、K/Xの規則自体は禁止しない。
 
-- `）\inhibitglue（`はvisible JFM glueなし、暗黙Kあり。
-- `\relax`やregister代入ではpending状態を維持する。
-- kern、rule、box等のnode追加で消費する。
-- 内側listから外へ漏らさない。
+- JFM pairが実在する`）\inhibitglue（`はvisible JFM glueを置かず、抑止したJFMを暗黙Kへ
+  置換もしない。pairが存在しない和和境界では通常の暗黙Kを残す。
+- `\relax`、空group、register代入等のnode-less commandではpending状態を維持する。
+- penalty、kern、rule、box、glyph等の実node一個の追加でpendingを消費する。
+- 内側listから外へ漏らさず、外側pendingを内側listへ継承しない。
 - `\disinhibitglue`はnodeを作らずpendingを解除する。
 
-これは`HorizontalMode`ごとの小さなtyped pending stateにする。
+2026-08-25に`HorizontalMode`ごとのtyped pending stateとしてproduction接続した。JFMが
+実在したが抑止された境界は`InhibitedByMainLoop` provenanceを右glyphへ持たせ、node-less境界、
+fmt、`\unhcopy`を越えてJFMやKへ復活させない。公式e-upTeX 2026の自作probeでは、直接、
+`\relax`、空group、整数代入の各境界が15ptから10ptになり、penalty追加または
+`\disinhibitglue`では15ptへ戻った。probe入力SHA-256は
+`61cac67dc5fbf477893730d36fca5317ea97358525c3634b3148711b6ff2da08`、binary/archive hashは
+`docs/jfm-port-notes.md`に固定する。
+
+このcheckpointで接続したのは実glyph間のmain-loop境界である。PraTeX側のlist先頭・末尾class 0
+JFM自体が未接続なので、公開manualが示す`\leavevmode\inhibitglue 【`の段落先頭edgeは未完了として残す。
 
 ## 5. 内部表現
 
@@ -318,8 +328,9 @@ plannerの入力は元の文字境界、JFM font/metric/class identity、JFM連�
 - list finalizer phase: `ImplicitKanjiSkip`、`MaterialXKanjiSkip`
 
 禁則は境界で「左文字のpost + 右文字のpre」を一つに合成し、JFM由来空白より先に出す。
-同一JFM font/metricのclass対にglue/kernがあればそれをKより優先し、表に規則がない、
-連続性が切れた、font/metricが変わった、または`inhibitglue`状態なら暗黙Kへ戻る。
+同一JFM font/metricのclass対にglue/kernがあればそれをKより優先する。表に規則がない、
+連続性が切れた、font/metricが変わった時は暗黙Kへ戻る。ただし`\inhibitglue`が実在する
+JFM pairを抑止した境界だけは、そのJFMを暗黙Kへ置換しない。
 異なるJFM font間の厳密なpTeX挙動は黒箱課題なので、現sliceでは誤ってclass対を横断しない
 保守的fallbackとする。
 
@@ -393,11 +404,13 @@ hybrid接続後はmain-loop oracle、削除保持、fmt/unhcopyを16試験へ広
 - auto switch、`[XspCode; 256]`、sparse inhibit表はtyped eqtb、save stack、fmtへ接続済み。
 - 通常glyphと確認済みnode-less境界ではmain-loop phaseだけをmaterializeし、list closeは
   自動K/X provenanceだけを除去して`unsave`前の最終snapshotで再適用する。
+- `\inhibitglue` / `\disinhibitglue`はhlist-localなone-shot状態として接続済み。JFMの有無を
+  planner一箇所で判定し、抑止済みprovenanceをfmt/unboxへ保持する。
 
 1. line breaker、packer、DVI/PDF backendは`ImplicitKanjiSkip`を同じ仮想glue eventとして読む。
    plain欧文DVI differentialを先に固定し、その後に和文event oracleを追加する。
 2. shifted/vbox、discの全JFM class・禁則・unbox matrix、未検証commandの条件付きevent、
-   `\inhibitglue`、全JLReq文字class、縦組へ広げる。
+   全JLReq文字class、縦組へ広げる。
 
 ## 9. commit順
 

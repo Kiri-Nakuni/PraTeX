@@ -232,6 +232,10 @@ impl Dumpable for UnexpandableCommand {
             Self::Omit => writeln!(target, "Omit")?,
             Self::ExSpace => writeln!(target, "ExSpace")?,
             Self::NoBoundary => writeln!(target, "NoBoundary")?,
+            Self::SetInhibitGlue { inhibit } => {
+                writeln!(target, "SetInhibitGlue")?;
+                inhibit.dump(target)?;
+            }
             Self::EndCsName => writeln!(target, "EndCsName")?,
             Self::CharGiven(c) => {
                 writeln!(target, "CharGiven")?;
@@ -447,6 +451,9 @@ impl Dumpable for UnexpandableCommand {
             "Omit" => Ok(Self::Omit),
             "ExSpace" => Ok(Self::ExSpace),
             "NoBoundary" => Ok(Self::NoBoundary),
+            "SetInhibitGlue" => Ok(Self::SetInhibitGlue {
+                inhibit: bool::undump(lines)?,
+            }),
             "EndCsName" => Ok(Self::EndCsName),
             "CharGiven" => {
                 let c = u8::undump(lines)?;

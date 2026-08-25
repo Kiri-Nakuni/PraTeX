@@ -297,6 +297,8 @@ pub(crate) enum JfmBoundaryBefore {
     BrokenNeedsKanjiSkip,
     /// class 0側のJFM spacingが元pairを置換した。削除されてもcloseでKへ置換しない。
     ReplacedByMainLoopJfm,
+    /// `\inhibitglue`が存在するJFM spacingを抑止した。closeでJFMやKへ置換しない。
+    InhibitedByMainLoop,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

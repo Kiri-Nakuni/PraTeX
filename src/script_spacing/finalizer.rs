@@ -67,6 +67,12 @@ enum KanjiSkipProvenance {
     Material,
 }
 
+#[derive(Clone, Copy, Default)]
+struct MainLoopJfmOutcome {
+    materialized: bool,
+    inhibited: bool,
+}
+
 /// 通常のhorizontal appendを、JFM/禁則のmain-loop phaseへ一箇所で接続する。
 pub(crate) fn append_node_with_main_loop_spacing(
     list: &mut Vec<Node>,
@@ -74,6 +80,8 @@ pub(crate) fn append_node_with_main_loop_spacing(
     mut node: Node,
     eqtb: &Eqtb,
 ) {
+    // `\inhibitglue`はnode一個で消費する。実glyph間のJFM計画だけは、消費前の値を使う。
+    let jfm_glue = list_state.take_pending_jfm_glue();
     if let Some(current) = observe_glyph_boundary(&node, eqtb) {
         list_state.observe_with_profile(
             current.atom,
@@ -81,7 +89,7 @@ pub(crate) fn append_node_with_main_loop_spacing(
             eqtb.language_region(),
         );
         let previous = list_state.observe_main_loop_boundary(current.atom);
-        if let Some((left, continuity)) = previous {
+        if let Some((left, continuity, broken_left_was_inhibited)) = previous {
             if !left.is_japanese() && !current.atom.is_japanese() {
                 list.push(node);
                 return;
@@ -99,16 +107,23 @@ pub(crate) fn append_node_with_main_loop_spacing(
                 },
                 (left, right, _) => MainLoopBoundaryEvent::Direct { left, right },
             };
-            let right_half_has_jfm = append_main_loop_event(list, event, eqtb);
+            let right_half = append_main_loop_event(list, event, jfm_glue, eqtb);
             if continuity == JfmPairContinuity::Broken {
                 let Node::WideChar(ref mut wide) = node else {
                     unreachable!("Japanese boundary is represented by a WideChar node")
                 };
-                wide.jfm_boundary_before = if left_half_has_jfm || right_half_has_jfm {
+                wide.jfm_boundary_before = if broken_left_was_inhibited || right_half.inhibited {
+                    JfmBoundaryBefore::InhibitedByMainLoop
+                } else if left_half_has_jfm || right_half.materialized {
                     JfmBoundaryBefore::ReplacedByMainLoopJfm
                 } else {
                     JfmBoundaryBefore::BrokenNeedsKanjiSkip
                 };
+            } else if right_half.inhibited {
+                let Node::WideChar(ref mut wide) = node else {
+                    unreachable!("JFM inhibition can only belong to a WideChar boundary")
+                };
+                wide.jfm_boundary_before = JfmBoundaryBefore::InhibitedByMainLoop;
             }
         }
         list.push(node);
@@ -136,22 +151,33 @@ pub(crate) fn break_main_loop_jfm_continuity(
     let Some(left) = list_state.break_after_japanese() else {
         return;
     };
-    append_main_loop_event(
+    let outcome = append_main_loop_event(
         list,
         MainLoopBoundaryEvent::BreakAfterJapanese { left },
+        list_state.pending_jfm_glue(),
         eqtb,
     );
+    list_state.record_broken_left_jfm_inhibition(outcome.inhibited);
 }
 
-fn append_main_loop_event(list: &mut Vec<Node>, event: MainLoopBoundaryEvent, eqtb: &Eqtb) -> bool {
+fn append_main_loop_event(
+    list: &mut Vec<Node>,
+    event: MainLoopBoundaryEvent,
+    jfm_glue: JfmGlueControl,
+    eqtb: &Eqtb,
+) -> MainLoopJfmOutcome {
     let jfm_pairs = pair_table_for_main_loop_event(event, eqtb);
-    let plan = JapaneseSpacingPlanner::built_in_ptex().plan_main_loop_event(event, jfm_pairs);
-    let has_jfm_spacing = plan.has_jfm_spacing();
+    let plan = JapaneseSpacingPlanner::built_in_ptex()
+        .plan_main_loop_event(event, jfm_glue, jfm_pairs);
+    let outcome = MainLoopJfmOutcome {
+        materialized: plan.has_jfm_spacing(),
+        inhibited: plan.jfm_spacing_inhibited(),
+    };
     list.extend(
         plan.actions_for_phase(SpacingActionPhase::MainLoop)
             .map(|action| materialize_action(action, KanjiSkipProvenance::Virtual)),
     );
-    has_jfm_spacing
+    outcome
 }
 
 fn pair_table_for_main_loop_event<'a>(
@@ -378,6 +404,9 @@ fn append_built_in_boundary_spacing(
                 JfmBoundaryBefore::Continuous => JfmPairContinuity::Continuous,
                 JfmBoundaryBefore::BrokenNeedsKanjiSkip => JfmPairContinuity::Broken,
                 JfmBoundaryBefore::ReplacedByMainLoopJfm => {
+                    JfmPairContinuity::ReplacedByMainLoopJfm
+                }
+                JfmBoundaryBefore::InhibitedByMainLoop => {
                     JfmPairContinuity::ReplacedByMainLoopJfm
                 }
             },
