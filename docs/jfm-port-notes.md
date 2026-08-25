@@ -89,7 +89,10 @@ JFM pair continuityだけを切る。`\lastnodesubtype`を含む全観測command
 接続済みである。2026-08-25には`\inhibitglue` / `\disinhibitglue`をhlist-localなone-shot状態へ
 接続した。接続済みmain-loopの実在するJFM pairだけを抑止し、pairが無い境界のKは残す。node-less commandでは維持し、
 実nodeで消費し、fmt/`\unhcopy`後も抑止済みJFMを復活させない。discの全JFM class・禁則matrixと
-JLReqの全禁則class、list先頭・末尾class 0 JFMはまだ接続していない。
+JLReqの全禁則classはまだ接続していない。横組のdirect hbox/段落に限りlist先頭・末尾の
+class 0 JFMを型付きeventで追加し、公開manualの先頭glue除去・末尾glue零化・kern保持と
+字下げ段落先頭の`\inhibitglue`を同じ中央planner境界に固定した。末尾pending `\inhibitglue`の
+適用は公開仕様から拡張せず未検証とする。
 
 ## TeX Live 2026黒箱オラクル
 
@@ -142,7 +145,7 @@ cargo test --release 'jfm::tests::配布jfm九十六件をすべて読む' --lib
 
 - `\tfont`、縦組JFMのmetric解釈、方向つきwide nodeとDVI/PDF出力
 - main-loop JFM/禁則のbox・disc非空三分岐・未検証commandの条件付きspacing境界
-- list先頭・末尾のclass 0 JFMと、段落先頭の`\leavevmode\inhibitglue`による抑止
+- indirect box/disc・`\unhcopy`再評価・shifted/vbox・縦組のlist先頭・末尾class 0 JFM
 - 現在の句読点＋横組括弧12対を越える禁則、ぶら下げ、行長調整を含むJLReq規則
 - PDFの日本語font resource、OTF/TrueType、default-off RustyBuzz
 

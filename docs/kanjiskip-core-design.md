@@ -233,8 +233,10 @@ fmt、`\unhcopy`を越えてJFMやKへ復活させない。公式e-upTeX 2026の
 `61cac67dc5fbf477893730d36fca5317ea97358525c3634b3148711b6ff2da08`、binary/archive hashは
 `docs/jfm-port-notes.md`に固定する。
 
-このcheckpointで接続したのは実glyph間のmain-loop境界である。PraTeX側のlist先頭・末尾class 0
-JFM自体が未接続なので、公開manualが示す`\leavevmode\inhibitglue 【`の段落先頭edgeは未完了として残す。
+後続checkpointで横組のdirect hbox/段落のlist先頭・末尾class 0もmain-loop eventへ接続した。
+公開manualどおりhbox / `\noindent`の先頭glueを除去、hbox末尾glueの三成分を零化し、
+字下げ段落の`\leavevmode\inhibitglue 【`は初期indent boxを論理端に数えず抑止する。
+indirect box/disc、`\unhcopy`のedge再評価、shifted/vbox、縦組は未接続である。
 
 ## 5. 内部表現
 

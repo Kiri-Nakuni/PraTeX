@@ -48,7 +48,9 @@ main-loopでのJFM pair・最小禁則の早期挿入と、unshifted hbox／disc
 禁則class全体、`\tfont`と縦組は未完了であり、P0全体や「日本語組版対応」の完了ではない。
 `\inhibitglue` / `\disinhibitglue`はhlist-localなone-shotとして接続済みで、接続済みmain-loopの
 実在JFM pairだけを次の実nodeまで抑止し、node-less commandとfmt/unhcopyを越えて復活させない。
-list先頭・末尾class 0 JFMと段落先頭での抑止は、残るJFM edge sliceに含める。
+横組のdirect hbox/段落ではlist先頭・末尾class 0 JFMも接続済みで、字下げ段落の
+`\leavevmode\inhibitglue 【`は初期indent boxを論理端に含めず抑止できる。indirect box/disc、
+`\unhcopy`時のclass 0 edge再評価、shifted/vbox、縦組は残るJFM edge sliceである。
 
 明示installされた検証済みscript class対tableは、run-local dispatcherがlistごとに一度選び、
 世代とregionが安定したdirect glyph境界でfixed/K/X/no-spaceと限定boundary glue/penaltyへ

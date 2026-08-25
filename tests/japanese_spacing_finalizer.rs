@@ -165,6 +165,25 @@ fn hybrid_main_loop_jfm() -> Vec<u8> {
     bytes
 }
 
+/// class 0→4とclass 5→0を-2.5pt kernにするlist端点用JFM。
+fn list_edge_main_loop_jfm() -> Vec<u8> {
+    let mut bytes = hybrid_main_loop_jfm();
+    let halfword =
+        |index: usize| u16::from_be_bytes([bytes[index * 2], bytes[index * 2 + 1]]) as usize;
+    let nt = halfword(1);
+    let lh = halfword(3);
+    let bc = halfword(4);
+    let ec = halfword(5);
+    let nw = halfword(6);
+    let nh = halfword(7);
+    let nd = halfword(8);
+    let ni = halfword(9);
+    let glue_kern_offset = (7 + nt + lh + (ec - bc + 1) + nw + nh + nd + ni) * 4;
+    bytes[glue_kern_offset + 2] = 128;
+    bytes[glue_kern_offset + 6] = 128;
+    bytes
+}
+
 /// node-less境界の左半分(class 5→0)だけを持つ。
 fn left_half_main_loop_jfm() -> Vec<u8> {
     let mut bytes = hybrid_main_loop_jfm();
@@ -235,6 +254,7 @@ fn prepare_directory(name: &str) -> PathBuf {
         "hybrid.tfm",
         "hybrid-left.tfm",
         "hybrid-right.tfm",
+        "edge.tfm",
         "latin.tfm",
     ] {
         let _ = std::fs::remove_file(directory.join(name));
@@ -247,6 +267,7 @@ fn prepare_directory(name: &str) -> PathBuf {
         right_half_main_loop_jfm(),
     )
     .unwrap();
+    std::fs::write(directory.join("edge.tfm"), list_edge_main_loop_jfm()).unwrap();
     std::fs::write(directory.join("latin.tfm"), latin_a_tfm()).unwrap();
     directory
 }
@@ -541,6 +562,88 @@ fn inhibitglueのnode_less抑止はfmtとunhcopyを越えてjfmへ戻らない()
     );
     assert!(!log.contains("\\glue(\\pratexjfm)"), "{log}");
     assert!(!log.contains("\\glue(\\kanjiskip)"), "{log}");
+}
+
+#[test]
+fn list端のclass_zero_jfmは横組hboxと段落の公開cleanupを保つ() {
+    let directory = prepare_directory("list端のclass 0 JFM");
+    let source = format!(
+        "{}\\pratexjfont\\H=hybrid at 10pt
+         \\pratexjfont\\E=edge at 10pt \\H
+         \\showboxbreadth=100 \\showboxdepth=20
+         \\setbox0=\\hbox{{（}}
+         \\setbox1=\\hbox{{）}}
+         \\E \\setbox2=\\hbox{{）}}
+         \\H \\setbox3=\\hbox{{\\relax （}}
+         \\setbox4=\\hbox{{\\kern0pt （}}
+         \\setbox5=\\hbox{{）\\kern0pt}}
+         \\setbox6=\\hbox{{\\unhcopy0}}
+         \\E \\setbox7=\\hbox{{（}}
+         \\showbox0 \\showbox1 \\showbox2 \\showbox3 \\showbox4 \\showbox5 \\showbox6 \\showbox7
+         \\message{{[list-edge-hbox=\\the\\wd0/\\the\\wd1/\\the\\wd2/\\the\\wd3/\\the\\wd4/\\the\\wd5/\\the\\wd6/\\the\\wd7]}}
+         \\H \\let\\leavevmode=\\indent \\parindent=3pt \\hsize=30pt
+         \\setbox10=\\vbox{{\\leavevmode 【\\par}}
+         \\setbox11=\\vbox{{\\leavevmode\\inhibitglue\\relax 【\\par}}
+         \\setbox12=\\vbox{{\\noindent 【\\par}}
+         \\setbox13=\\vbox{{\\leavevmode\\penalty0 【\\par}}
+         \\showbox10 \\showbox11 \\showbox12 \\showbox13
+         \\end\n",
+        common_prefix()
+    );
+    std::fs::write(directory.join("t.tex"), source).unwrap();
+    let output = run_rtex(&directory, &["t.tex"]);
+    assert_success(&output, "list端のclass 0 JFM試験を実行できなかった");
+    let log = joined_log(&directory, "t");
+    assert!(
+        log.contains("[list-edge-hbox=5.0pt/5.0pt/2.5pt/5.0pt/5.0pt/5.0pt/5.0pt/2.5pt]"),
+        "{log}"
+    );
+
+    let box_segment = |number: usize, next: usize| {
+        let start = format!("> \\box{number}=");
+        log.split(&start)
+            .nth(1)
+            .expect("showbox出力がある")
+            .split(&format!("> \\box{next}="))
+            .next()
+            .unwrap()
+    };
+    assert!(
+        !box_segment(0, 1).contains("\\glue(\\pratexjfm)"),
+        "hbox先頭のJFM glueは除去する"
+    );
+    assert!(
+        box_segment(1, 2).contains("\\glue(\\pratexjfm) 0.0"),
+        "hbox末尾のJFM glueは三成分を零化する"
+    );
+    assert!(
+        box_segment(2, 3).contains("\\kern-2.5 (PraTeX JFM)"),
+        "hbox末尾のJFM kernは残す"
+    );
+    assert!(
+        box_segment(7, 10).contains("\\kern-2.5 (PraTeX JFM)"),
+        "hbox先頭のJFM kernは残す"
+    );
+    assert!(
+        !box_segment(4, 5).contains("\\glue(\\pratexjfm)"),
+        "先行する明示kernはlist先頭を閉じる"
+    );
+    assert!(
+        !box_segment(5, 6).contains("\\glue(\\pratexjfm)"),
+        "後続する明示kernはlist末尾を閉じる"
+    );
+
+    let indented = box_segment(10, 11);
+    let inhibited = box_segment(11, 12);
+    let noindent = box_segment(12, 13);
+    let leading_penalty = log
+        .split("> \\box13=")
+        .nth(1)
+        .expect("段落先頭penaltyのbox表示がある");
+    assert_eq!(indented.matches("\\glue(\\pratexjfm) 2.5").count(), 1);
+    assert!(!inhibited.contains("\\glue(\\pratexjfm)"));
+    assert!(!noindent.contains("\\glue(\\pratexjfm)"));
+    assert!(!leading_penalty.contains("\\glue(\\pratexjfm)"));
 }
 
 #[test]

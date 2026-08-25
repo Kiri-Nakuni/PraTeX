@@ -35,6 +35,7 @@ impl HorizontalMode {
     pub fn new_directional_hbox() -> Self {
         Self {
             accepts_text_direction_boundaries: true,
+            script_spacing: ScriptSpacingListState::for_restricted_hbox(),
             ..Self::new_restricted()
         }
     }
@@ -54,8 +55,19 @@ impl HorizontalMode {
         }
         if !nodes.is_empty() {
             self.script_spacing.take_pending_jfm_glue();
+            self.script_spacing.close_list_start_edge();
             self.script_spacing.reset_main_loop_boundary();
         }
+    }
+
+    /// 字下げ段落の初期empty hboxだけは、論理的なclass 0先頭を閉じない。
+    pub(crate) fn append_initial_paragraph_indent(&mut self, node: Node) {
+        debug_assert!(self.list.is_empty());
+        debug_assert!(matches!(
+            self.subtype,
+            HorizontalModeType::Unrestricted { .. }
+        ));
+        self.list.push(node);
     }
 
     /// 次の実nodeまでJFM metric空白だけを抑止するone-shot状態を切り替える。

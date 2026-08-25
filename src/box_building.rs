@@ -719,7 +719,9 @@ pub fn new_graf(
                 lang_data,
             },
             space_factor: 1000,
-            script_spacing: Default::default(),
+            script_spacing: crate::script_spacing::planner::ScriptSpacingListState::for_paragraph(
+                is_indented,
+            ),
             accepts_text_direction_boundaries: false,
         }),
         &scanner.input_stack,
@@ -729,7 +731,11 @@ pub fn new_graf(
     if is_indented {
         let mut hbox = ListNode::new_empty_hbox();
         hbox.width = eqtb.dimen(DimensionVariable::ParIndent);
-        nest.tail_push(Node::List(hbox), eqtb);
+        let RichMode::Horizontal(hmode) = nest.mode_mut() else {
+            unreachable!("new_graf has just pushed unrestricted horizontal mode")
+        };
+        hmode.append_initial_paragraph_indent(Node::List(hbox));
+        nest.update_last_node_info(eqtb);
     }
     if let Some(every_par) = eqtb.token_lists.get(TokenListVariable::EveryPar) {
         scanner.input_stack.begin_token_list(

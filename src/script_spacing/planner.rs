@@ -1057,8 +1057,10 @@ impl JapaneseBoundary {
 
     /// JFM の文字タイプ0を、実文字identityとは別のpair endpointとして作る。
     ///
-    /// nodeを作らない制御列で和文main loopが途切れた時だけ使う。禁則には
-    /// 元の実文字対を渡すため、このendpointの`character`はJFM表引き以外へ出ない。
+    /// nodeを作らない制御列とlist端点で文字タイプ0を引く。
+    ///
+    /// 禁則には元の実文字対を渡すため、このendpointの`character`は
+    /// JFM表引き以外へ出ない。
     pub(crate) const fn default_class_endpoint(self) -> Self {
         Self {
             class: PlannerJfmClassId::new(0),
@@ -1079,10 +1081,12 @@ pub(crate) enum BoundaryAtom {
 
 /// 和文main loopが一つの入力eventから早期materializeする境界。
 ///
-/// `BreakAfterJapanese` / `ResumeBeforeJapanese`はJFM class 0を挟むが、禁則は
-/// `ResumeBeforeJapanese`が持つ実文字対へ一度だけ適用する。
+/// class 0の仮想端点はJFM表引きだけに使い、禁則は実文字対に限る。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum MainLoopBoundaryEvent {
+    ListStartBeforeJapanese {
+        right: JapaneseBoundary,
+    },
     Direct {
         left: BoundaryAtom,
         right: BoundaryAtom,
@@ -1093,6 +1097,9 @@ pub(crate) enum MainLoopBoundaryEvent {
     ResumeBeforeJapanese {
         logical_left: JapaneseBoundary,
         right: JapaneseBoundary,
+    },
+    ListEndAfterJapanese {
+        left: JapaneseBoundary,
     },
 }
 
@@ -1140,6 +1147,16 @@ impl Default for JfmGlueControl {
     fn default() -> Self {
         Self::Allow
     }
+}
+
+/// 公開pTeX manualが定めるhlist端JFM glueのcleanup。
+///
+/// JFM kernはこの処理の対象ではない。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ListEdgeGlueTreatment {
+    Keep,
+    Discard,
+    Zero,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1265,7 +1282,18 @@ pub(crate) struct ScriptSpacingListState {
     pending_jfm_continuity: JfmPairContinuity,
     pending_jfm_glue: JfmGlueControl,
     broken_left_jfm_was_inhibited: bool,
+    list_edge_kind: JfmListEdgeKind,
+    list_start_open: bool,
     compiled_profile: CompiledProfileObservation,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+enum JfmListEdgeKind {
+    #[default]
+    Disabled,
+    RestrictedHbox,
+    NoIndentParagraph,
+    IndentedParagraph,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -1280,6 +1308,26 @@ enum CompiledProfileObservation {
 }
 
 impl ScriptSpacingListState {
+    pub(crate) fn for_restricted_hbox() -> Self {
+        Self {
+            list_edge_kind: JfmListEdgeKind::RestrictedHbox,
+            list_start_open: true,
+            ..Self::default()
+        }
+    }
+
+    pub(crate) fn for_paragraph(is_indented: bool) -> Self {
+        Self {
+            list_edge_kind: if is_indented {
+                JfmListEdgeKind::IndentedParagraph
+            } else {
+                JfmListEdgeKind::NoIndentParagraph
+            },
+            list_start_open: true,
+            ..Self::default()
+        }
+    }
+
     #[inline]
     pub(crate) fn observe(&mut self, atom: BoundaryAtom) {
         self.needs_script_spacing |= atom.is_japanese();
@@ -1368,6 +1416,60 @@ impl ScriptSpacingListState {
         self.pending_jfm_continuity = JfmPairContinuity::Continuous;
         self.broken_left_jfm_was_inhibited = false;
         previous
+    }
+
+    /// 先行実nodeのない最初のdirect和文glyphだけをclass 0端点へ結ぶ。
+    pub(crate) fn take_list_start_japanese(
+        &mut self,
+        atom: BoundaryAtom,
+    ) -> Option<(JapaneseBoundary, ListEdgeGlueTreatment)> {
+        if !std::mem::replace(&mut self.list_start_open, false) {
+            return None;
+        }
+        let BoundaryAtom::Japanese(right) = atom else {
+            return None;
+        };
+        let treatment = match self.list_edge_kind {
+            JfmListEdgeKind::RestrictedHbox | JfmListEdgeKind::NoIndentParagraph => {
+                ListEdgeGlueTreatment::Discard
+            }
+            JfmListEdgeKind::IndentedParagraph => ListEdgeGlueTreatment::Keep,
+            JfmListEdgeKind::Disabled => return None,
+        };
+        Some((right, treatment))
+    }
+
+    /// penaltyを含む先行実nodeは、後で除去されてもlist先頭を開き直さない。
+    pub(crate) fn close_list_start_edge(&mut self) {
+        self.list_start_open = false;
+    }
+
+    /// 後続barrierのない最後のdirect和文glyphをclass 0端点へ結ぶ。
+    pub(crate) fn list_end_japanese(&self) -> Option<(JapaneseBoundary, ListEdgeGlueTreatment)> {
+        if self.pending_jfm_continuity != JfmPairContinuity::Continuous {
+            return None;
+        }
+        let Some(BoundaryAtom::Japanese(left)) = self.previous_main_loop_boundary else {
+            return None;
+        };
+        let treatment = match self.list_edge_kind {
+            JfmListEdgeKind::RestrictedHbox => ListEdgeGlueTreatment::Zero,
+            JfmListEdgeKind::NoIndentParagraph | JfmListEdgeKind::IndentedParagraph => {
+                ListEdgeGlueTreatment::Keep
+            }
+            JfmListEdgeKind::Disabled => return None,
+        };
+        Some((left, treatment))
+    }
+
+    pub(crate) fn list_end_glue_treatment(&self) -> Option<ListEdgeGlueTreatment> {
+        match self.list_edge_kind {
+            JfmListEdgeKind::RestrictedHbox => Some(ListEdgeGlueTreatment::Zero),
+            JfmListEdgeKind::NoIndentParagraph | JfmListEdgeKind::IndentedParagraph => {
+                Some(ListEdgeGlueTreatment::Keep)
+            }
+            JfmListEdgeKind::Disabled => None,
+        }
     }
 
     /// node-less eventで左側JFMをclass 0へ閉じる必要がある時だけ一度返す。
@@ -1467,6 +1569,15 @@ impl JapaneseSpacingPlanner {
     ) -> BoundaryActionPlan {
         let mut plan = BoundaryActionPlan::EMPTY;
         match event {
+            MainLoopBoundaryEvent::ListStartBeforeJapanese { right } => {
+                self.append_jfm_action(
+                    &mut plan,
+                    right.default_class_endpoint(),
+                    right,
+                    jfm_glue,
+                    jfm_pairs,
+                );
+            }
             MainLoopBoundaryEvent::Direct { left, right } => {
                 self.append_profile_kinsoku_action(&mut plan, left, right);
                 if let (BoundaryAtom::Japanese(left), BoundaryAtom::Japanese(right)) = (left, right)
@@ -1496,6 +1607,15 @@ impl JapaneseSpacingPlanner {
                     &mut plan,
                     logical_left.default_class_endpoint(),
                     right,
+                    jfm_glue,
+                    jfm_pairs,
+                );
+            }
+            MainLoopBoundaryEvent::ListEndAfterJapanese { left } => {
+                self.append_jfm_action(
+                    &mut plan,
+                    left,
+                    left.default_class_endpoint(),
                     jfm_glue,
                     jfm_pairs,
                 );
@@ -2012,6 +2132,67 @@ mod tests {
                 .is_empty(),
             "class 0側JFMで置換済みの元pairへKを足さない"
         );
+    }
+
+    #[test]
+    fn list両端のclass_zeroはjfm対だけを引き禁則とkを計画しない() {
+        let planner = JapaneseSpacingPlanner::built_in_ptex();
+        let metric = JfmMetricId::new(9);
+        let table = CompiledJfmPairSpacingTable::compile(
+            metric,
+            6,
+            &[
+                JfmPairSpacingRule::new(
+                    PlannerJfmClassId::new(0),
+                    PlannerJfmClassId::new(4),
+                    JfmPairSpacing::Glue(glue(33)),
+                ),
+                JfmPairSpacingRule::new(
+                    PlannerJfmClassId::new(5),
+                    PlannerJfmClassId::new(0),
+                    JfmPairSpacing::Kern(-41),
+                ),
+            ],
+        )
+        .unwrap();
+        let BoundaryAtom::Japanese(opening) = japanese('（', 4, 9, 4) else {
+            unreachable!()
+        };
+        let BoundaryAtom::Japanese(closing) = japanese('）', 4, 9, 5) else {
+            unreachable!()
+        };
+
+        assert_eq!(
+            actions(planner.plan_main_loop_event(
+                MainLoopBoundaryEvent::ListStartBeforeJapanese { right: opening },
+                JfmGlueControl::Allow,
+                Some(&table),
+            )),
+            vec![PlannedSpacingAction::JfmGlue { glue: glue(33) }]
+        );
+        assert_eq!(
+            actions(planner.plan_main_loop_event(
+                MainLoopBoundaryEvent::ListEndAfterJapanese { left: closing },
+                JfmGlueControl::Allow,
+                Some(&table),
+            )),
+            vec![PlannedSpacingAction::JfmKern { width: -41 }]
+        );
+
+        let inhibited = planner.plan_main_loop_event(
+            MainLoopBoundaryEvent::ListStartBeforeJapanese { right: opening },
+            JfmGlueControl::Inhibit,
+            Some(&table),
+        );
+        assert!(inhibited.is_empty());
+        assert!(inhibited.jfm_spacing_inhibited());
+        assert!(planner
+            .plan_main_loop_event(
+                MainLoopBoundaryEvent::ListStartBeforeJapanese { right: opening },
+                JfmGlueControl::Allow,
+                None,
+            )
+            .is_empty());
     }
 
     #[test]

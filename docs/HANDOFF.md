@@ -274,9 +274,15 @@ error 0でdumpした。28,640個の複数文字control sequenceを保存し、pr
 - `codex3/jlreq-continuation`では`\inhibitglue` / `\disinhibitglue`をhlist-localなone-shot状態へ
   接続した。接続済みmain-loopの実在JFM pairだけを抑止し、pairが無い境界のKは残す。node-less commandでは維持、
   実nodeで消費し、抑止済みprovenanceはfmt/`\unhcopy`を越える。planner unitは
-  **19 passed、0 failed**、日本語spacing integrationは**20 passed、0 failed**。list先頭・末尾の
-  class 0 JFM自体は未接続であり、段落先頭での抑止は
-  そのedge実装と同時に固定する。全releaseとTRIPは統合前にrootが実施する。
+  **19 passed、0 failed**、日本語spacing integrationは**20 passed、0 failed**。
+- `codex3/jlreq-list-edge-class0`では、横組の明示hboxと段落のdirect和文glyphに限り、
+  list先頭のclass 0→実classと末尾の実class→class 0を型付きmain-loop eventへ接続した。
+  公開pTeX manualどおりhbox / `\noindent`段落の先頭JFM glueは除去、hbox末尾glueは
+  width/stretch/shrinkを零化し、両端のkernは残す。字下げ段落の初期empty hboxだけは論理先頭を
+  閉じず、`\leavevmode\inhibitglue 【`のone-shot抑止へ到達する。alignment/disc枝、indirect box、
+  `\unhcopy`時のedge再評価、shifted/vbox、縦組は対象外である。末尾pending `\inhibitglue`は
+  公開仕様の解釈を拡張せず未検証事項に残す。このcheckpointのfocused build/testはroot指示により未実行。
+  全releaseとTRIPは統合前にrootが実施する。
 - 最終形のKはwide glyphのbit＋hlist単位specをline breaker/packer/outputが仮想glueとして扱い、
   純和文のnode数を倍増させない。
 - standard Japaneseは`BuiltInPtex`のmonomorphic core経路で、Vaak/WASM callは0。

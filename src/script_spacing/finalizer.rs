@@ -7,8 +7,8 @@
 use super::planner::{
     BoundaryAtom, BoundaryContext, CompiledJfmPairSpacingTable, JapaneseBoundary,
     JapaneseSpacingPlanner, JfmFontId, JfmGlueControl, JfmPairContinuity, LatinBoundary,
-    LayoutCharacterCode, MainLoopBoundaryEvent, PlannedSpacingAction, PlannerJfmClassId,
-    PtexSpacingState, ScriptSpacingListState, SpacingActionPhase,
+    LayoutCharacterCode, ListEdgeGlueTreatment, MainLoopBoundaryEvent, PlannedSpacingAction,
+    PlannerJfmClassId, PtexSpacingState, ScriptSpacingListState, SpacingActionPhase,
 };
 use super::{
     BoundaryMetricSnapshot, FixedGlue, ScriptSpacingAction, ScriptSpacingBreakRule,
@@ -88,6 +88,15 @@ pub(crate) fn append_node_with_main_loop_spacing(
             eqtb.script_spacing_activation_id(),
             eqtb.language_region(),
         );
+        if let Some((right, treatment)) = list_state.take_list_start_japanese(current.atom) {
+            append_main_loop_event(
+                list,
+                MainLoopBoundaryEvent::ListStartBeforeJapanese { right },
+                jfm_glue,
+                treatment,
+                eqtb,
+            );
+        }
         let previous = list_state.observe_main_loop_boundary(current.atom);
         if let Some((left, continuity, broken_left_was_inhibited)) = previous {
             if !left.is_japanese() && !current.atom.is_japanese() {
@@ -107,7 +116,8 @@ pub(crate) fn append_node_with_main_loop_spacing(
                 },
                 (left, right, _) => MainLoopBoundaryEvent::Direct { left, right },
             };
-            let right_half = append_main_loop_event(list, event, jfm_glue, eqtb);
+            let right_half =
+                append_main_loop_event(list, event, jfm_glue, ListEdgeGlueTreatment::Keep, eqtb);
             if continuity == JfmPairContinuity::Broken {
                 let Node::WideChar(ref mut wide) = node else {
                     unreachable!("Japanese boundary is represented by a WideChar node")
@@ -136,6 +146,7 @@ pub(crate) fn append_node_with_main_loop_spacing(
     if node.is_automatic_script_spacing() {
         list_state.observe_existing_compiled_spacing();
     }
+    list_state.close_list_start_edge();
     if !is_main_loop_spacing(&node) && !matches!(node, Node::Penalty(_)) {
         list_state.reset_main_loop_boundary();
     }
@@ -155,6 +166,7 @@ pub(crate) fn break_main_loop_jfm_continuity(
         list,
         MainLoopBoundaryEvent::BreakAfterJapanese { left },
         list_state.pending_jfm_glue(),
+        ListEdgeGlueTreatment::Keep,
         eqtb,
     );
     list_state.record_broken_left_jfm_inhibition(outcome.inhibited);
@@ -164,18 +176,19 @@ fn append_main_loop_event(
     list: &mut Vec<Node>,
     event: MainLoopBoundaryEvent,
     jfm_glue: JfmGlueControl,
+    edge_glue: ListEdgeGlueTreatment,
     eqtb: &Eqtb,
 ) -> MainLoopJfmOutcome {
     let jfm_pairs = pair_table_for_main_loop_event(event, eqtb);
-    let plan = JapaneseSpacingPlanner::built_in_ptex()
-        .plan_main_loop_event(event, jfm_glue, jfm_pairs);
+    let plan =
+        JapaneseSpacingPlanner::built_in_ptex().plan_main_loop_event(event, jfm_glue, jfm_pairs);
     let outcome = MainLoopJfmOutcome {
         materialized: plan.has_jfm_spacing(),
         inhibited: plan.jfm_spacing_inhibited(),
     };
     list.extend(
         plan.actions_for_phase(SpacingActionPhase::MainLoop)
-            .map(|action| materialize_action(action, KanjiSkipProvenance::Virtual)),
+            .filter_map(|action| materialize_main_loop_action(action, edge_glue)),
     );
     outcome
 }
@@ -194,6 +207,12 @@ fn pair_table_for_main_loop_event<'a>(
             logical_left,
             right,
         } => (logical_left.default_class_endpoint(), right),
+        MainLoopBoundaryEvent::ListStartBeforeJapanese { right } => {
+            (right.default_class_endpoint(), right)
+        }
+        MainLoopBoundaryEvent::ListEndAfterJapanese { left } => {
+            (left, left.default_class_endpoint())
+        }
         MainLoopBoundaryEvent::Direct { .. } => return None,
     };
     pair_table_for_japanese_pair(left, right, eqtb)
@@ -205,6 +224,20 @@ pub(crate) fn finalize_horizontal_list_if_needed(
     list_state: ScriptSpacingListState,
     eqtb: &Eqtb,
 ) {
+    if let Some((left, treatment)) = list_state.list_end_japanese() {
+        // この明示list-end eventは`\inhibitglue`の「次の実node」ではない。
+        // 先行するnode-less breakの既存意味は保ち、pending自体を新しいedgeに拡張しない。
+        append_main_loop_event(
+            list,
+            MainLoopBoundaryEvent::ListEndAfterJapanese { left },
+            JfmGlueControl::Allow,
+            treatment,
+            eqtb,
+        );
+    }
+    if let Some(treatment) = list_state.list_end_glue_treatment() {
+        cleanup_trailing_list_edge_jfm_glue(list, treatment);
+    }
     let _ = list_state.finalize_if_needed(|| {
         let (activation, region) = list_state
             .compiled_profile_context()
@@ -812,6 +845,43 @@ fn trailing_main_loop_jfm_survives(nodes: &[Node]) -> bool {
                 })
             )
         })
+}
+
+fn materialize_main_loop_action(
+    action: PlannedSpacingAction,
+    edge_glue: ListEdgeGlueTreatment,
+) -> Option<Node> {
+    let action = match (action, edge_glue) {
+        (PlannedSpacingAction::JfmGlue { .. }, ListEdgeGlueTreatment::Discard) => return None,
+        (PlannedSpacingAction::JfmGlue { .. }, ListEdgeGlueTreatment::Zero) => {
+            PlannedSpacingAction::JfmGlue {
+                glue: FixedGlue::ZERO,
+            }
+        }
+        (action, _) => action,
+    };
+    Some(materialize_action(action, KanjiSkipProvenance::Virtual))
+}
+
+fn cleanup_trailing_list_edge_jfm_glue(list: &mut Vec<Node>, treatment: ListEdgeGlueTreatment) {
+    if treatment != ListEdgeGlueTreatment::Zero
+        || !matches!(
+            list.last(),
+            Some(Node::Glue(GlueNode {
+                subtype: GlueType::AutomaticJapanese(AutomaticJapaneseGlue::Jfm),
+                ..
+            }))
+        )
+    {
+        return;
+    }
+    list.pop();
+    list.push(materialize_action(
+        PlannedSpacingAction::JfmGlue {
+            glue: FixedGlue::ZERO,
+        },
+        KanjiSkipProvenance::Virtual,
+    ));
 }
 
 fn materialize_action(action: PlannedSpacingAction, kanji_skip: KanjiSkipProvenance) -> Node {
