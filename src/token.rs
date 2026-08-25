@@ -237,7 +237,7 @@ impl LatinUcsToken {
         push_uptex_utf8(self.code_point(), target);
     }
 
-    fn has_raw_token_cat_code(self) -> bool {
+    pub(crate) fn has_raw_token_cat_code(self) -> bool {
         matches!(
             self.cat_code(),
             CatCode::LeftBrace

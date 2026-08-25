@@ -42,7 +42,7 @@ upLaTeX比1.2未満という最終hard gateを緩めない。
 確認してから採用する。測定用入力、実行ファイルの複製、logはリポジトリ外の
 `%TEMP%` にだけ置き、版方へ入れない。
 
-## 299頁連続本文のLinux基線（2026-08-25、`13d1ab1`）
+## 299頁連続本文のLinux基線（2026-08-25、`8e0e543`）
 
 巨大教材を主要用途とする利用者条件を受け、`lipsum`を225回ではなく225組の
 `\lipsum[1-7]`として反復する[`lipsum-300page.tex`](../tools/fixtures/lipsum-300page.tex)を
@@ -61,20 +61,21 @@ file pointer、paddingと、描画eventを一つも含まない空stack frameだ
 format、font番号、backend recordが同じoracleではないため別workload列である。
 
 この基線はwarm-up 3回後、各15回を測った。PraTeX binary SHA-256は
-`1733817d508c23ba71cb91e6e375dc6e4c2b8a550c19d97d55e510ff05d890f8`、57,221,231 byteの
-PraTeX `latex.fmt`は`4626e02f3d9f4cd710b299de0bab8a9194d1978dc17ddd6ad2cbfcd5be641465`、
+`8d8b889479db16bd7e1d14092b53ea156d881ba893df5a3562d211dbedcd27ba`、21,532,633 byteの
+PraTeX `latex.fmt`は`c5cda9564ed3251f450ceb7c63f87ec334c55b9c9ea63afb06e7111f06e0013c`、
 公式e-upTeXは`a39eba81da57bab2e96237f9e367d0d6ac92b1fd8a8f42797f3e4e267da18659`、
 LuaHBTeXは`9d7a1a55bb2503181d71ada62a6ef78303acdd9d99910ea8da33b059e89c8a8a`である。
 
 | engine | wall平均 ± 母標準偏差 | wall中央値 | MAD | peak RSS中央値 |
 |---|---:|---:|---:|---:|
-| PraTeX | 2.0997 ± 0.0999 s | 2.0864 s | 0.0674 s | 162,772 KiB |
-| upLaTeX | 1.0473 ± 0.0729 s | 1.0671 s | 0.0626 s | 58,380 KiB |
-| LuaLaTeX DVI | 5.7300 ± 0.2559 s | 5.7249 s | 0.2076 s | 142,936 KiB |
+| PraTeX | 1.6513 ± 0.1043 s | 1.6072 s | 0.0214 s | 76,828 KiB |
+| upLaTeX | 1.0429 ± 0.1340 s | 0.9989 s | 0.0283 s | 48,520 KiB |
+| LuaLaTeX DVI | 5.8988 ± 0.4174 s | 5.7246 s | 0.1324 s | 142,880 KiB |
 
-PraTeX/upLaTeXのround対応比は幾何平均**2.0075**、中央値1.9763、比の範囲1.8043--2.2308である。
-絶対中央値の比は1.9553で、1.3未満のroadmap再開条件にも0.98未満のstretch goalにも未達である。
-PraTeX/LuaLaTeXの絶対中央値比は0.3644だが、これは異なるformat/backendを含む利用者workload比較で、
+PraTeX/upLaTeXのround対応比は幾何平均**1.590993**、中央値**1.615624**、比の範囲
+1.244723--1.814422である。絶対中央値の比は1.608991で、1.3未満にも0.98未満のstretch goalにも
+未達である。利用者判断により性能調整はここでいったん停止し、機能roadmapを再開する。
+PraTeX/LuaLaTeXの絶対中央値比は0.280760だが、これは異なるformat/backendを含む利用者workload比較で、
 upLaTeX互換DVIの合否へ混ぜない。PraTeX/upLaTeXのwarm-upを含む全18 runはDVI SHA-256
 `196f46c6ea737d524992e1c93db40d1c10fb59884e412a83a6bf594e76e75ebd`へbyte一致した。
 
@@ -82,7 +83,7 @@ raw 54標本は
 [`lipsum-300page-20260825.tsv`](benchmarks/lipsum-300page-20260825.tsv)、binary・fmt・fixture・
 計測条件は[`lipsum-300page-20260825-provenance.tsv`](benchmarks/lipsum-300page-20260825-provenance.tsv)
 へ固定した。raw TSV SHA-256は
-`188f0851ceff6ec86cf51be0e3905e88073a6fdb2cff28ca07bb1a64e1a49e68`である。
+`2f7d76bfa108cd6ba4f073816050d6317ea920e8ce7b6949e38bc3b526c72cac`である。
 
 同じ299頁をSamply 2,084 samplesで診断すると、`run_loaded_engine` inclusiveは67.42%、
 起動・fmt側は32.58%だった。主なinclusiveは`get_x_command_and_token` 37.91%、`main_control` 32.15%、
@@ -878,3 +879,66 @@ PraTeX `763e4a7`をclean detached worktreeへ固定し、同一PraTeX path・同
 全releaseは935 passed、0 failed、11 ignored。公式TRIPは両段exit 0、`tripos.tex`・
 PLtoTF→TFtoPLはbyte一致、`8terminal.tex`は0 byte、固定comment DVIも公式2,920 byteと
 完全一致した。
+
+### `9776e1a`後の299頁hot path再診断
+
+糊handoffを採用したsourceと一致するbinaryを、同じ299頁入力・型付きfmtでCPU 0へ固定し、
+Linux `perf record -F 999 -g --call-graph dwarf`で一回だけsamplingした。1,885 samplesの
+**self cycle share**上位は次だった。
+
+| symbolまたは層 | self |
+|---|---:|
+| `Scanner::get_next` | 19.79% |
+| `macro_expand` | 7.82% |
+| 組込みKpathseaの`hash_insert_normalized` | 6.96% |
+| binary fmtのCRC計算 | 3.05% |
+| hyphen Trieのlanguage pattern検証 | 2.28% |
+| `Node` drop | 2.23% |
+| `get_x_command_and_token` | 1.98% |
+| line break本体 / `try_break` | 1.71% / 1.56% |
+| hlistへのnode追加 | 1.57% |
+| 単語hyphenation | 1.54% |
+
+allocator、free、realloc、moveはlibc内の複数symbolへ分散しており、個別最大は`_int_malloc`の
+3.41%だった。macro parameter range取得は0.93%、`nested_scan_toks`は0.88%、input frame pushは
+0.68%、整数scanner本体の`scan_int_radix_from_first`は0.21% selfだった。inclusive call treeは
+LTO binaryのunwindが十分でないため、このrunから推測しない。以前のinclusive 15.40%という
+`scan_int`値と、今回のself 0.21%を直接比較して「整数走査が解消した」とも判断しない。
+
+これは正式な複数交互標本でなく、次のA/B候補を選ぶ診断runである。現時点の第一候補は
+`get_next`のtoken-only経路、不要な`Command` clone/drop、parameter/input frame dispatchであり、
+寸法・糊scannerのさらに狭い調整より先に測る。profileは15,879,144 byte、SHA-256
+`cf58942db891675eb8839f5ec09945368fd01ea545ff093e9179a8dee57b2120`で、repository外の
+`/tmp/pratex-current-hotpath-9776e1a.data`に置いた。binary SHA-256は
+`bdd63fd7e9feaeade8ffba8b61c82a6c5c88b058ac65c7b540fe474b72a1e92f`、入力とfmtはそれぞれ
+`265a52f085db6afb43a3f8a420be0a80ec554c7a1052b064edaa85a539f7f2cd`、
+`c5cda9564ed3251f450ceb7c63f87ec334c55b9c9ea63afb06e7111f06e0013c`である。
+
+## 未展開token取得でcommandを所有しない（2026-08-25）
+
+`Scanner::get_token`はmacro引数などの未展開tokenだけを必要とするのに、従来は通常`get_next`が
+返した`Command`を捨てていた。macro制御綴ではこのためだけに`Rc<Macro>`をclone/dropする。
+token専用loopでeqtb commandを借用し、alignment、outer回復、入力終了、割込みを従来順のまま
+判定する形へ分けた。
+
+通常command取得まで一つの抽象へまとめた第一案はmicroのinstructions比1.145289で棄却した。
+通常経路を戻した第二案も、compilerが`InputStack::get_next`を独立callへ変えたため299頁wall比
+1.021160、instructions比1.044585で棄却した。入力source dispatchを両callerへalways-inlineした
+最終形だけを採用した。
+
+監査追補`8e0e543`を含む最終形の未展開CS micro 31組はwall比0.808751、task-clock比0.804746、
+instructions比0.875575で、三counterすべて31/31組短かった。299頁20組はwall比0.963979、
+task-clock比0.963964、instructions比0.968622で、DVIとauxはbyte一致した。全releaseは
+941 passed、0 failed、11 ignored、
+公式TRIPの固定comment DVIは公式2,920 byteへ完全一致した。raw、棄却二案、意味境界は
+[`token-only-command-20260825.md`](benchmarks/token-only-command-20260825.md)を一次資料にする。
+
+同じ最終binaryの三engine再測定はPraTeX/upLaTeX paired wall比が中央値1.615624、幾何平均
+1.590993で、1.3未満には未達だった。LuaLaTeXとの絶対中央値比は0.280760だが、DVIとformatが
+異なる参考列である。性能調整は利用者判断でいったん停止し、再開時の基線としてrawを残す。
+
+最終形の1,709-sample診断profileでは`Scanner::get_token` 9.00%、通常`Scanner::get_next` 8.37%、
+Kpathsea DB構築7.54%、`macro_expand` 6.35%、fmt行走査3.23%、allocator 3.19%、CRC32 2.98%、
+hyphen runtime検証2.46%だった。token専用化で取得全体が消えたわけではない。次はsource dispatch、
+parameter reader、通常command clone、起動時Kpathsea/typed fmtが再開時の候補である。利用者判断により、
+ここでは追加candidateを作らず機能roadmapへ戻る。

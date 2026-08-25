@@ -591,7 +591,85 @@ impl Scanner {
     /// Gets the next token.
     /// See 365.
     pub fn get_token(&mut self, eqtb: &mut Eqtb, logger: &mut Logger) -> Token {
-        self.get_next(true, eqtb, logger).1
+        // A raw token consumer must still perform alignment and outer-command
+        // recovery, but it does not need to own a Command.  In particular,
+        // cloning a macro Command here would increment and immediately decrement
+        // its Rc solely to discard it.
+        loop {
+            let token = match self.input_stack.get_next(true, eqtb, logger) {
+                NextResult::Token(token) => token,
+                // See 358.  DontExpand is deliberately returned before the
+                // general alignment and outer-command checks, just as get_next.
+                NextResult::DontExpand(cs) => return Token::CSToken { cs },
+                NextResult::LineEnded => {
+                    logger.check_interrupt(self, eqtb);
+                    continue;
+                }
+                NextResult::FileEnded => {
+                    if self.scanner_status != ScannerStatus::Normal {
+                        self.check_outer_validity(None, eqtb, logger);
+                    }
+                    continue;
+                }
+                NextResult::StreamLineEnded => return Token::Null,
+                NextResult::TokenListEnded => {
+                    self.end_token_list(eqtb, logger);
+                    continue;
+                }
+                NextResult::LexError(e) => {
+                    match e {
+                        LexError::InvalidChar => {
+                            Self::decry_invalid_character(self, eqtb, logger)
+                        }
+                        LexError::RunawayNamespace => {
+                            Self::decry_runaway_namespace(self, eqtb, logger)
+                        }
+                    }
+                    continue;
+                }
+            };
+
+            self.align_state += token.alignment_delta();
+            let (alignment_ending, is_forbidden_outer) = match token {
+                Token::Null => panic!("Should not appear hear"),
+                Token::TabMark(_) if self.align_state == 0 => (Some(AlignCommand::Tab), false),
+                Token::LatinUcsChar(wide) => {
+                    if !wide.has_raw_token_cat_code() {
+                        unreachable!("lexer-only LatinUcs catcode became a character token")
+                    }
+                    (
+                        (wide.cat_code() == CatCode::TabMark && self.align_state == 0)
+                            .then_some(AlignCommand::Tab),
+                        false,
+                    )
+                }
+                Token::CSToken { cs } => {
+                    let command = eqtb.control_sequences.get(cs);
+                    (
+                        self.alignment_entry_just_ended(command),
+                        matches!(
+                            command,
+                            Command::Expandable(
+                                ExpandableCommand::Macro(MacroCall { outer: true, .. })
+                                    | ExpandableCommand::EndTemplate
+                            )
+                        ),
+                    )
+                }
+                _ => (None, false),
+            };
+
+            if let Some(ending_command) = alignment_ending {
+                self.insert_v_template(ending_command, eqtb, logger);
+            } else if self.scanner_status != ScannerStatus::Normal
+                && is_forbidden_outer
+                && !self.check_outer_validity(Some(token), eqtb, logger)
+            {
+                return Token::Spacer(b' ');
+            } else {
+                return token;
+            }
+        }
     }
 
     /// Puts the given Token list back on the input stack.
