@@ -1,6 +1,6 @@
 # PraTeX 作業引継ぎ
 
-更新: 2026-08-25（`9776e1a`、糊first-token handoff、全release・TRIP成功）
+更新: 2026-08-25（`8e0e543`、未展開token境界の監査完了、全release・TRIP成功）
 
 この文書は、現在の Codex セッションから別のエージェントへ作業が移っても、
 検証済みの境界と未commitの作業を失わないための生きた引継ぎである。
@@ -21,12 +21,23 @@
 ## 枝と共有状態
 
 - 現在の統合・性能枝: `codex3/perf-integration`。`codex2/perf-resolver-index`の
-  `f414757`から分岐した。最新code checkpointは`9776e1a`である。`9776e1a`は糊scannerが
+  `f414757`から分岐した。最新code checkpointは`8e0e543`である。`974996e`は未展開token取得で
+  eqtbのcommandを所有せず借用判定し、macro制御綴の不要な`Rc<Macro>` clone/dropを除く。
+  `InputStack::get_next`を両callerへinlineし、通常command経路のcodegen退行も防ぐ。`9776e1a`は糊scannerが
   既に得た展開済みcommand/token対を寸法scannerへ直接渡し、明示糊幅の差戻しと即時再取得を
   除く。`d5eb585`は同じ境界を通常寸法から整数scannerへ接続した。`3db344e`は既定fmtを
   version付きsectioned binaryへ変え、実行時に不要な
   `PreTrie`とbuild hashを保存しない`HyphenRuntimeV1`を導入した。旧ASCII fmtは自動読込と
-  `PRATEX_FMT_CODEC=legacy-text`による生成を維持する。
+  `PRATEX_FMT_CODEC=legacy-text`による生成を維持する。`8e0e543`は通常取得が拒む`Token::Null`と
+  lexer専用Latin-UCS分類をtoken専用経路でも拒み、`DontExpand`、alignment、outer回復をfocused
+  unitで固定した。
+- `8e0e543`の全releaseは**941 passed、0 failed、11 ignored**。公式TRIPはStage 1/2/固定comment
+  runがexit 0、`tripos.tex`・PLtoTF→TFtoPL・固定comment DVIは公式へbyte一致した。
+  未展開CS microの31交互組はwall比0.808751、299頁20組はwall比0.963979、instructions比
+  0.968622で、DVIとauxはbyte一致した。rawは
+  [`benchmarks/token-only-command-20260825.md`](benchmarks/token-only-command-20260825.md)に固定した。
+  最終binaryの三engine再測定はPraTeX/upLaTeX paired中央値1.615624、幾何平均1.590993で
+  1.3未満には未達。利用者判断により性能調整はここでいったん停止し、機能roadmapへ戻る。
 - `9776e1a`の全releaseは**935 passed、0 failed、11 ignored**。公式TRIPはStage 1/2とも
   exit 0、`tripos.tex`・PLtoTF→TFtoPLはbyte一致、`8terminal.tex`は0 byte、固定comment DVIは
   公式2,920 byteと完全一致した。糊microの31交互組はwall幾何平均比0.965541、299頁20組は
@@ -634,6 +645,19 @@ DVI・aux・局所logは意味一致、全releaseは935 passed、公式TRIPも�
 first-token往復またはtoken-only取得を別candidateで測り、同時に非perf継続枝をこのcheckpointから
 分ける。
 
+## 完了済み性能checkpoint: 未展開tokenのcommand非所有化
+
+`974996e`は`Scanner::get_token`を通常command取得から分け、eqtbのcommandを借用したまま
+alignment終了とouter commandだけを判定する。通常`get_next`は変更前の形を維持し、旧macro定義を
+展開中に保持するためのcloneは消さない。第一・第二案の性能退行もrawへ残し、compilerがinput source
+dispatchを独立callへ戻さないよう`InputStack::get_next`を局所inlineした。
+
+監査追補`8e0e543`まで含む未展開CS micro 31組はwall 0.808751、task-clock 0.804746、
+instructions 0.875575。299頁20組はwall 0.963979、task-clock 0.963964、instructions 0.968622で、
+DVI/auxはbyte一致した。全releaseは941 passed、公式TRIPも成功した。最終三engine再測定は
+PraTeX 1.607243秒、upLaTeX 0.998914秒、LuaLaTeX 5.724616秒（各中央値）、PraTeX/upLaTeX
+paired中央値1.615624である。性能調整は利用者判断でいったん停止する。
+
 ## 固定済み巨大文書基線と教材DVI残件
 
 `efa9ddd`の`tools/bench-document-throughput-linux.sh`は、PraTeX、upLaTeX、LuaLaTeX DVIをCPU 0で
@@ -644,8 +668,9 @@ opcode列の一致を必要とする。移動量へtoleranceは設けない。
 
 `efa9ddd`時点の299頁連続本文wall中央値はPraTeX 2.0864 s、upLaTeX 1.0671 s、LuaLaTeX DVI
 5.7249 sで、PraTeX/upLaTeX paired幾何平均比は2.0075だった。これは型付きfmt前の歴史的基線である。
-`3db344e`のcodec内A/Bで起動・fmtの大半は除いたが、正式な三engine runnerはまだ再実行していない。
-loaded-engine側はなおupLaTeXの概算1.60倍であり、`scan_int`、展開・token走査を縮める必要がある。
+最終`8e0e543`ではPraTeX 1.607243 s、upLaTeX 0.998914 s、LuaLaTeX 5.724616 s、
+PraTeX/upLaTeX paired中央値1.615624、幾何平均1.590993まで短縮した。1.3未満には未達だが、
+利用者判断で性能調整をいったん停止する。
 
 教材型fixtureは24章×12 lesson、298頁、PGF/TikZ 3.1.11a、数式・float・脚注・相互参照を含む。
 PraTeX/upLaTeX/LuaLaTeXのauxとtocは同じhashへ収束した。一方PraTeX通常版の倍精度`glue_set`と
@@ -653,14 +678,11 @@ TeX系の単精度境界を最初に疑ったが、全`make_glue_ratio`を単精
 目次に新しい1 sp差を作った。candidateは撤回してsourceを戻したので再実装しない。次はfootnote insertion、
 page builder、出力box直前の寸法を自作probeで比較し、原因を直してから全release、公式TRIP、plain DVIへ戻る。
 
-## 性能優先と、その後のLaTeX・日本語組版順
+## 性能停止後のLaTeX・日本語組版順
 
-1. 299頁の旧正式基線は同一DVIで約2.0倍、`3db344e`の新fmt診断値は概算1.36倍だった。
-   **文書end-to-end**比1.3未満まで性能作業を優先し、
-   最終upLaTeX比1.2未満、実用目標1.1未満、stretch 0.98未満を区別して追う。unsafe反実仮想監査では
-   直接省ける現実的上限は重複込み3--7%で、方針変更を勧めない。safeなMacroId/Copy command、
-   single-token pushbackをloaded-engineの次候補にする。不要なPreTrie/build cacheを外す版付きwireは
-   `3db344e`で採用済みである。
+1. 最新299頁は同一DVIでupLaTeX比1.615624（paired中央値）。1.3未満、1.1未満、0.98未満は
+   未達の基線として残すが、利用者判断により追加の性能実装・main起点の性能上限実験は停止する。
+   再開時は`8e0e543`とraw TSVを基点にし、同一DVI gateを維持する。
 2. 利用者Linux profileで9回・1.372秒を占めた`kpsewhich`について、resolver専用枝では
    Scanner/PDFをrun-local共有し、無関係aliasによるqueryごとのone-shotを解消した。続くLinux-first
    checkpointで、監査済みRust Kpathsea forkのsubprocess禁止constructorを一run一instanceで接続した。
@@ -681,7 +703,7 @@ page builder、出力box直前の寸法を自作probeで比較し、原因を直
    教材型298頁の1,161 sp差を直した後、同じrunnerで正式標本を取る。upLaTeXとは同等DVI意味をhard gateにし、
    LuaLaTeXはclass/font/backend差を明記した利用者workload比較として分ける。Vaakがcleanなpush済み
    checkpointになった後、`directvaak`/`directlua`を毎回prepare、既定cache、named reuseの三面で測る。
-4. 1.3未満を確認後、接続済みmain-loop JFM/禁則をshifted/vbox・残るcommand境界へ広げ、
+4. 性能条件を待たず、接続済みmain-loop JFM/禁則をshifted/vbox・残るcommand境界へ広げ、
    discの全JFM class・禁則・unbox matrixを完成する。
 5. glyph時点のRegionNode/context伝播、compiled tableのindirect edge、adjustment tier、
    line-edge discardをbox/disc/unboxとline breakerへ接続する。
@@ -695,7 +717,7 @@ page builder、出力box直前の寸法を自作probeで比較し、原因を直
 
 ## 検証
 
-`9776e1a`のcheckpointでfocused test、全release、公式TRIPを通した。再開時も
+`8e0e543`のcheckpointでfocused test、全release、公式TRIPを通した。再開時も
 変更対象のfocused testを先に走らせ、全releaseと必要なTRIP/DVI・PDF意味gateへ戻る。
 
 ```powershell
@@ -712,15 +734,17 @@ pwsh -NoProfile -File tools/run-trip.ps1
 
 2026-08-25の直近既知正常値:
 
-- `9776e1a`の全release: 935 passed、0 failed、11 ignored
+- `8e0e543`の全release: 941 passed、0 failed、11 ignored
 - TRIP Stage1/Stage2がともにexit 0
 - `tripos.tex` byte一致、`8terminal.tex` 0 byte、PLtoTF→TFtoPL byte一致
 - 固定comment PraTeX DVIは公式2920-byte DVIとbyte一致。SHA-256は
   `09802695e330d34acec9192c15debe2de65e34fcbd3f947db9c8924240b1fe0a`
-- TRIP feature binary SHA-256は
-  `f34ab2265e45ad6d4a9d1189ec872b6069045798293fdf4db4bf1c9ab7cd458b`
-- 隔離artifactは`/tmp/pratex-trip-20260825.iNah6roG/current-glue-first-token*`と
-  `actual-glue-first-token`
+- TRIP feature binaryは18,149,176 byte、SHA-256
+  `d99ead3f42e7d102663c6a1cd7b5899396eb33a3a347d1943f7b2b8758a76c8f`
+- binary `trip.fmt`は511,386 byte、SHA-256
+  `58514acaaa9d6d63c80ead720bedde357f8c27141b564abfde00163a9eae3084`
+- 隔離artifactは`/tmp/pratex-trip-20260825.iNah6roG/current-token-only-final*`と
+  `actual-token-only-final`
 
 型付きfull LaTeX fmtは21,532,633 byteまで実測済みである。標準LaTeX互換profileと
 upLaTeX互換profileはengine偽装でなくformat／package契約として分け、各profile完成時に再測定する。
