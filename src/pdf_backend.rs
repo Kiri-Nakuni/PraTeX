@@ -90,6 +90,35 @@ enum PdfFontState {
     },
 }
 
+/// PDF font objectを共有してよい、sizeに依存しないTFM identity。
+///
+/// `at_size`はcontent streamの`Tf`だけを変え、FontFile、FontDescriptor、Widthsは
+/// 変えない。同じ論理TFMでもchecksum、design size、存在code集合が異なる定義は
+/// 壊れた入力を共有しないよう別identityにする。
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+struct Type1FontIdentity {
+    logical_name: String,
+    checksum: u32,
+    design_size: Scaled,
+    existing_codes: [u64; 4],
+}
+
+impl Type1FontIdentity {
+    fn new(logical_name: &str, font: OutputFontDefinition<'_>) -> Self {
+        let mut existing_codes = [0; 4];
+        for &code in font.existing_codes {
+            let code = usize::from(code);
+            existing_codes[code / 64] |= 1_u64 << (code % 64);
+        }
+        Self {
+            logical_name: logical_name.to_owned(),
+            checksum: font.checksum,
+            design_size: font.design_size,
+            existing_codes,
+        }
+    }
+}
+
 /// Shipoutの表示命令を、既定ではStandard 14 Courierだけで最小PDFへ写すbackend。
 /// Type 1 loaderを明示注入した場合だけ、font定義時に埋込みobjectを作る。
 pub(crate) struct PdfBackend<W: Write> {
@@ -98,6 +127,8 @@ pub(crate) struct PdfBackend<W: Write> {
     magnification: Scaled,
     type1_loader: Option<Box<dyn Type1ResourceLoader>>,
     named_cid_loader: Option<Box<dyn NamedCidFontProfileLoader>>,
+    /// 同じTFMを異なるsizeで選んでも、埋込みobject群は文書内で一組だけ作る。
+    type1_fonts: HashMap<Type1FontIdentity, PdfType1Font>,
     fonts: HashMap<u32, PdfFontState>,
     current_font: Option<u32>,
     page: Option<PageState>,
@@ -154,6 +185,7 @@ impl<W: Write> PdfBackend<W> {
             magnification,
             type1_loader,
             named_cid_loader,
+            type1_fonts: HashMap::new(),
             fonts: HashMap::new(),
             current_font: None,
             page: None,
@@ -175,6 +207,39 @@ impl<W: Write> PdfBackend<W> {
 
     fn current_page_mut(&mut self) -> Result<&mut PageState, PdfBackendError> {
         self.page.as_mut().ok_or(PdfBackendError::NoOpenPage)
+    }
+
+    fn load_type1_font(
+        &mut self,
+        logical_name: &str,
+        font: OutputFontDefinition<'_>,
+    ) -> Result<PdfType1Font, PdfBackendError> {
+        let identity = Type1FontIdentity::new(logical_name, font);
+        if let Some(&cached) = self.type1_fonts.get(&identity) {
+            return Ok(cached);
+        }
+
+        let loader = self
+            .type1_loader
+            .as_mut()
+            .expect("Type 1 loader presence was checked before loading");
+        let loaded = loader.load(logical_name)?;
+        let missing_stem_v = loaded
+            .private_std_vw
+            .map_or(MissingStemVPolicy::Reject, MissingStemVPolicy::Use);
+        let prepared = prepare_type1_font(PdfType1FontRequest {
+            program: loaded.font_program.value(),
+            afm: loaded.metrics.value(),
+            encoding: loaded.encoding.as_ref().map(|encoding| encoding.value()),
+            embedding: loaded.embedding,
+            descriptor_flags: loaded.descriptor_flags,
+            missing_stem_v,
+            used_codes: font.existing_codes,
+        })
+        .map_err(PdfDocumentError::from)?;
+        let embedded = self.document.add_type1_font(prepared)?;
+        self.type1_fonts.insert(identity, embedded);
+        Ok(embedded)
     }
 
     /// 既に検査した Type 1 objectをTeX font定義へ直接結ぶ低水準API。
@@ -471,23 +536,9 @@ impl<W: Write> ShipoutBackend for PdfBackend<W> {
 
         let state = match font.kind {
             OutputFontKind::Byte => {
-                let type1 = if let Some(loader) = self.type1_loader.as_mut() {
+                let type1 = if self.type1_loader.is_some() {
                     let tfm_name = logical_font_name(font.font_number, font.name)?;
-                    let loaded = loader.load(tfm_name)?;
-                    let missing_stem_v = loaded
-                        .private_std_vw
-                        .map_or(MissingStemVPolicy::Reject, MissingStemVPolicy::Use);
-                    let prepared = prepare_type1_font(PdfType1FontRequest {
-                        program: loaded.font_program.value(),
-                        afm: loaded.metrics.value(),
-                        encoding: loaded.encoding.as_ref().map(|encoding| encoding.value()),
-                        embedding: loaded.embedding,
-                        descriptor_flags: loaded.descriptor_flags,
-                        missing_stem_v,
-                        used_codes: font.existing_codes,
-                    })
-                    .map_err(PdfDocumentError::from)?;
-                    Some(self.document.add_type1_font(prepared)?)
+                    Some(self.load_type1_font(tfm_name, font)?)
                 } else {
                     None
                 };
@@ -983,12 +1034,14 @@ impl From<PdfSpecialError> for PdfBackendError {
 
 #[cfg(test)]
 mod tests {
-    use super::{PdfBackend, PdfBackendError};
+    use super::{PdfBackend, PdfBackendError, Type1FontIdentity};
     use crate::file_search::{
         CommandExecutor, CommandOutput, KpsewhichResolver, LogicalFileName, ResolverOptions,
     };
     use crate::font_resources::afm::{AfmDescriptor, AfmFont, AfmGlyphMetric, AfmNumber};
-    use crate::font_resources::loader::FontResourceLoader;
+    use crate::font_resources::loader::{
+        FontResourceError, FontResourceLoader, LoadedType1Font, Type1ResourceLoader,
+    };
     use crate::font_resources::map::EmbedPolicy;
     use crate::font_resources::named_cid::{
         NamedCidFontProfile, NamedCidFontProfileLoader, NamedCidProfileError,
@@ -1001,11 +1054,13 @@ mod tests {
     };
     use crate::scaled::Scaled;
 
+    use std::cell::Cell;
     use std::collections::{BTreeMap, VecDeque};
     use std::ffi::{OsStr, OsString};
     use std::fs;
     use std::io;
     use std::path::PathBuf;
+    use std::rc::Rc;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     struct SyntheticExecutor {
@@ -1077,6 +1132,18 @@ mod tests {
     }
 
     type SyntheticLoader = FontResourceLoader<KpsewhichResolver<SyntheticExecutor>>;
+
+    struct CountingType1Loader<L> {
+        inner: L,
+        load_count: Rc<Cell<usize>>,
+    }
+
+    impl<L: Type1ResourceLoader> Type1ResourceLoader for CountingType1Loader<L> {
+        fn load(&mut self, tfm_name: &str) -> Result<LoadedType1Font, FontResourceError> {
+            self.load_count.set(self.load_count.get() + 1);
+            self.inner.load(tfm_name)
+        }
+    }
 
     struct SyntheticNamedCidLoader {
         profile: NamedCidFontProfile,
@@ -1226,6 +1293,13 @@ EndFontMetrics\n"
         bytes
             .windows(expected.len())
             .any(|window| window == expected)
+    }
+
+    fn 出現数(bytes: &[u8], expected: &[u8]) -> usize {
+        bytes
+            .windows(expected.len())
+            .filter(|window| *window == expected)
+            .count()
     }
 
     fn afm_number(integer: i64) -> AfmNumber {
@@ -1593,6 +1667,107 @@ EndFontMetrics\n"
         assert!(含む(&pdf, b"%!PS synthetic\n"));
         assert!(含む(&pdf, b"/F2 "));
         assert!(含む(&pdf, b"<41> Tj"));
+    }
+
+    #[test]
+    fn 同じtype1論理fontの異なるsizeは埋込みobjectを共有する() {
+        let (_directory, loader, tfm_name) = synthetic_loader("<<", Some(6));
+        let load_count = Rc::new(Cell::new(0));
+        let loader = CountingType1Loader {
+            inner: loader,
+            load_count: Rc::clone(&load_count),
+        };
+        let mut backend = PdfBackend::with_type1_loader(Vec::new(), 1000, loader).unwrap();
+        backend
+            .start_page(&[0; 10], 20 * 65536, 20 * 65536)
+            .unwrap();
+
+        backend
+            .define_font(OutputFontDefinition {
+                name: tfm_name.as_bytes(),
+                first_char: b'A',
+                last_char: b'A',
+                existing_codes: &[b'A'],
+                ..font_definition(3, 10 * 65536)
+            })
+            .unwrap();
+        backend
+            .define_font(OutputFontDefinition {
+                name: tfm_name.as_bytes(),
+                design_size: 10 * 65536,
+                first_char: b'A',
+                last_char: b'A',
+                existing_codes: &[b'A'],
+                ..font_definition(7, 20 * 65536)
+            })
+            .unwrap();
+
+        backend.set_font(3).unwrap();
+        backend.set_char(b'A', 5 * 65536).unwrap();
+        backend.set_font(7).unwrap();
+        backend.set_char(b'A', 10 * 65536).unwrap();
+        backend.end_page().unwrap();
+        let (pdf, _) = backend.finish_with_target().unwrap();
+
+        assert_eq!(load_count.get(), 1);
+        assert_eq!(出現数(&pdf, b"/BaseFont /BackendSynthetic"), 1);
+        assert_eq!(出現数(&pdf, b"/FontFile "), 1);
+        assert_eq!(出現数(&pdf, b"%!PS synthetic\n"), 1);
+        assert!(含む(&pdf, b"/F2 9.96264 Tf"));
+        assert!(含む(&pdf, b"/F2 19.92528 Tf"));
+        assert!(!含む(&pdf, b"/F3 "));
+    }
+
+    #[test]
+    fn type1共有identityはat_sizeだけを除外する() {
+        let ten_point = OutputFontDefinition {
+            name: b"roman",
+            design_size: 10 * 65536,
+            ..font_definition(3, 10 * 65536)
+        };
+        let twenty_point = OutputFontDefinition {
+            name: b"roman",
+            design_size: 10 * 65536,
+            ..font_definition(7, 20 * 65536)
+        };
+        let other_logical_font = OutputFontDefinition {
+            name: b"sans",
+            design_size: 10 * 65536,
+            ..font_definition(9, 20 * 65536)
+        };
+        let different_checksum = OutputFontDefinition {
+            checksum: 1,
+            ..twenty_point
+        };
+        let different_design_size = OutputFontDefinition {
+            design_size: 11 * 65536,
+            ..twenty_point
+        };
+        let different_codes = OutputFontDefinition {
+            existing_codes: &[b'A', b'B'],
+            ..twenty_point
+        };
+
+        assert_eq!(
+            Type1FontIdentity::new("roman", ten_point),
+            Type1FontIdentity::new("roman", twenty_point)
+        );
+        assert_ne!(
+            Type1FontIdentity::new("roman", ten_point),
+            Type1FontIdentity::new("sans", other_logical_font)
+        );
+        assert_ne!(
+            Type1FontIdentity::new("roman", ten_point),
+            Type1FontIdentity::new("roman", different_checksum)
+        );
+        assert_ne!(
+            Type1FontIdentity::new("roman", ten_point),
+            Type1FontIdentity::new("roman", different_design_size)
+        );
+        assert_ne!(
+            Type1FontIdentity::new("roman", ten_point),
+            Type1FontIdentity::new("roman", different_codes)
+        );
     }
 
     #[test]

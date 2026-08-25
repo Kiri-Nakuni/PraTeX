@@ -96,7 +96,7 @@
 | 実装 | `\pdfshellescape` | 読み取り専用内部整数。PraTeXはshell escapeを提供しないため常に`0`で、processを起動しない |
 | 部分 | PDF 1.4直接出力 | `-output-format=pdf` / `--output-format=pdf`。page tree、rule、printable ASCIIの暫定Courier表示、明示mapによるType 1全埋込み、明示profileによる横組JFM/BMPの非埋込みType 0/CIDFontType0、Dvips互換`papersize` specialまで。外部DVI driverなしでfileを閉じられる |
 | 実装 | PDF `papersize` special | 第一page内で最後の`papersize=width,height`を採用し全pageへ継承する。九つの公開TeX単位をsp基底の既約整数比で保持し、`\mag`非依存でMediaBoxへ一度だけ丸める。壊れた認識済み形式と第二page以降の変更は拒む |
-| 部分 | `--pdf-font-map` | 明示したmapだけでType 1埋込みを有効化する。実配布mapの複数resourceと分離markerを未使用entryごと拒まず、選択TFMだけを検査する。`<<font.pfb`の全埋込みだけを受け、`<font.pfb`のsubset要求を勝手に全埋込みへ変えない |
+| 部分 | `--pdf-font-map` | 明示したmapだけでType 1埋込みを有効化する。実配布mapの複数resourceと分離markerを未使用entryごと拒まず、選択TFMだけを検査する。`<<font.pfb`の全埋込みだけを受け、`<font.pfb`のsubset要求を勝手に全埋込みへ変えない。同じ論理TFM・同じ文字集合の異なるsizeはFontFile、FontDescriptor、Font objectを共有するが、物理font aliasとsubsetの共有は未実装 |
 | 部分 | `--pdf-japanese-cid-profile` | 明示物理pathから一JFM用profileを64 KiB上限で一回だけ読み、JFM名一致時だけ`UniJIS-UCS2-H` / Adobe-Japan1-4へ結ぶ。BMP source codeを元Unicodeへ戻す限定`/ToUnicode`を持つがFontFileはなく表示はviewer依存。profileなし・名不一致・非BMPをtofuへfallbackしない |
 | 実装 | Type 1 FontDescriptor fallback | mapのflags省略は公開pdfTeX契約の既定値4。AFMの`StdVW`省略時はPFB eexecを実行せずstream復号し、Private辞書の値だけを`StemV`へ使う。固定値推測はしない |
 

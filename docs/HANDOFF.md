@@ -320,6 +320,19 @@ engine内部IDを分け、標準日本語ではVaak/WASM call 0、組版中のal
 - focused oracleは`src/font_resources/named_cid.rs`、`src/pdf_cid_font.rs`、
   `src/pdf_backend.rs`、`src/pdf_document.rs`と`tests/pdf_japanese_output.rs`にある。
 
+## PDF Type 1 object共有の小checkpoint
+
+状態: **`79f34ae`を基点とする`codex3/pdf-vaak-continuation`でfocused実装済み。未push**。
+
+- 同じ論理TFMを同じchecksum、design size、実在code集合のまま異なる`at_size`で定義すると、
+  run-local cacheはType 1 loaderを一回だけ呼び、FontFile、FontDescriptor、Font objectと
+  page resourceを共有する。sizeはcontent streamの`Tf`だけに残る。
+- 論理名をcache identityに含めるため、異なる論理fontを誤って一つへまとめない。異なる論理名が
+  同じ物理PFBを指すalias、subset埋込み、欧文font-family回帰matrixは後続である。
+- `env CARGO_BUILD_JOBS=1 taskset -c 3 cargo test --release --locked --lib 'output::pdf_backend::tests'`
+  は**21 passed、0 failed、0 ignored**。全release、TRIP、実fontの
+  renderはこの非性能小片では再実行していない。Vaak側とWASM ABIは変更していない。
+
 ## 横組JFM/K/X/禁則hybridの最小production slice
 
 状態: **list-close基線を`9118097`で統合後、2026-08-24にJFM/禁則をmain loopへ接続。
