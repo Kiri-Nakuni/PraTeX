@@ -280,3 +280,27 @@ worktreeと同じ公式資材で再実行した。TRIP feature buildは4 job、e
 
 隔離artifactは`/tmp/pratex-trip-20260825.iNah6roG/current-token-only-final`、
 `current-token-only-final-fixed`、`actual-token-only-final`に残した。fmt codec自体は変更していない。
+
+### `09e1eca` roadmap機能統合checkpoint
+
+JLReq `\inhibitglue` / `\disinhibitglue`、e-TeX `\showifs`、Type 1 at-size共有をまとめた
+checkpointを、Vaak `7dc011b23da7bd78bad1e0031d5e601b014cc7fe`のclean detached worktreeと
+同じ公式資材で再実行した。TRIP feature buildは4 job、engineとTeXwareはCPU 0で逐次実行した。
+
+- 公式archive SHA-256
+  `1d419b1bd7efa575ead0174e47d542a0099a73e0e4deb5031980d109e8c3c645`とmanifestの10資材は
+  直前checkpointで再検証済みの同一byte列を使った。
+- TRIP feature実行fileは18,023,536 byte、SHA-256
+  `ec95a6113336d53a8b7dddc8e312bb95da8f41c3e3d4fb4b0d200ea2d01e71b2`。
+- PLtoTF→TFtoPLの生成TFMとround-trip PLはそれぞれ公式fileへbyte一致した。
+- Stage 1 / Stage 2 / 固定comment runはすべてexit 0、`tripos.tex`は公式へbyte一致、
+  `8terminal.tex`は0 byteだった。
+- binary `trip.fmt`は511,843 byte、SHA-256
+  `74da25682eb315f5b0824285fe6df63c894c324a8ac3ce5b807cd89c3457c982`。
+- `-output-comment= TeX output 1776.07.04:1200`のDVIは公式DVIと2,920 byteすべて一致し、
+  SHA-256は双方`09802695e330d34acec9192c15debe2de65e34fcbd3f947db9c8924240b1fe0a`だった。
+- 固定comment DVIのTeX Live 2026 DVItype出力は、先頭のtool版表示だけを除いて公式
+  `trip.typ`へbyte一致した。
+
+隔離artifactは`/tmp/pratex-trip-20260825.iNah6roG/current-roadmap-integration`、
+`current-roadmap-integration-fixed`、`actual-roadmap-integration`に残した。

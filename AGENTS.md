@@ -12,8 +12,9 @@ PraTeX は `Cargo.toml` から **`../vaak`** をpath dependencyとして使う�
 PraTeX側が必要とするAPIは `src/vaak.rs`、`docs/vaak-embedding-api-design.md`、
 `for_CLAUDE.md` に契約として残し、Vaak側の変更はClaudeに伝える。
 
-現在の通常作業枝は **`codex3/<目的>`** とする。統合・性能作業枝は
-`codex3/perf-integration`である。`codex2/perf-resolver-index`の`f414757`を基点に、
+現在の通常作業枝は **`codex3/<目的>`** とする。性能停止checkpointは
+`codex3/perf-integration`の`bee8724`、現在の機能統合枝は`codex3/roadmap-integration`である。
+`codex2/perf-resolver-index`の`f414757`を基点に、
 vertical discard、run-local script spacing dispatcher、最小横組`prjlreq`を取り込んだ。
 各focused testに加え、統合checkpoint `a2765c7`で
 `cargo test --release --locked --no-fail-fast`は**915 passed、0 failed、11 ignored**だった。
@@ -31,6 +32,9 @@ paired wall比は幾何平均2.0075、中央値1.9763で、1.3未満には未達
 同じ最終binaryの三engine再測定はPraTeX/upLaTeX paired wall比が中央値1.615624、幾何平均
 1.590993で、1.3未満には未達である。LuaLaTeXとの中央値比は0.280760だが、format/backendが
 異なる別workload列として扱う。
+機能統合code checkpoint `09e1eca`は`\inhibitglue` / `\disinhibitglue`、e-TeX `\showifs`、
+異なるat-size間のType 1 PDF資材共有を取り込んだ。全releaseは**950 passed、0 failed、11 ignored**。
+公式TRIPは両段exit 0、固定comment DVIが公式2,920 byteへ完全一致した。
 旧統合checkpoint `6bc9ba4`は
 `cargo test --release --locked --no-fail-fast` exit 0だが、aggregate件数を記録していないため、
 過去checkpointの件数を流用しない。
@@ -230,12 +234,12 @@ cargo test --release --locked --no-fail-fast
 ```
 
 機能追加ではfocused testを先に通し、その後に全release、必要ならTRIPとDVI/PDF意味比較を行う。
-未展開token取得checkpoint `8e0e543`で実行した`cargo test --release --locked --no-fail-fast`は
-**941 passed、0 failed、11 ignored**（2026-08-25）。全integration suiteにplain DVI byte回帰、
+機能統合checkpoint `09e1eca`で実行した`cargo test --release --locked --no-fail-fast`は
+**950 passed、0 failed、11 ignored**（2026-08-25）。全integration suiteにplain DVI byte回帰、
 e-TeX `\middle`・`\showtokens`・penalty配列・discard、日本語spacingと和文NFSS relation、PDF、
 Vaak連携を含む。ignoredは実TeX Live、配布JFM、公式dvipdfmx、pinned CTAN、doctest等の明示手動gateである。
 
-`8e0e543`では公式CTAN TRIPをcleanなVaak dependencyと隔離buildで再実行した。両段exit 0、
+`09e1eca`では公式CTAN TRIPをcleanなVaak dependencyと隔離buildで再実行した。両段exit 0、
 `tripos.tex` byte一致、`8terminal.tex` 0 byte、PLtoTF→TFtoPL往復byte一致である。TeX Live 2026
 DVItypeは固定comment時に公式出力へ一致した。以前の独立decoderで999 records、16 pages、最大stack 17を
 確認した公式DVIと固定comment出力がbyte一致するため、公開record列も同一である。既定DVIのraw hashは実時刻commentで変わるため
@@ -392,9 +396,9 @@ control-sequence区間15.79%、fmt全体10.73%、wall 5.36%を短縮した。DVI
 
 ## 直近の実装順
 
-1. `8e0e543`の未展開token取得はfocused test、全release、plain DVI、公式TRIPを通した。
-   299頁の変更前後A/Bはwall比0.963979、instructions比0.968622、全DVI/aux byte一致だった。
-2. 同じ最終binaryの299頁三engine再測定はPraTeX 1.607243秒、upLaTeX 0.998914秒、
+1. `09e1eca`でJLReq `\inhibitglue` / `\disinhibitglue`、e-TeX `\showifs`、Type 1 at-size共有を
+   統合した。各focused、全release、公式TRIPを通した。
+2. 性能停止点の299頁三engine再測定はPraTeX 1.607243秒、upLaTeX 0.998914秒、
    LuaLaTeX 5.724616秒（各中央値）だった。PraTeX/upLaTeXのpaired比は中央値1.615624、
    幾何平均1.590993で1.3未満には未達だが、利用者判断により性能調整をいったん停止し、
    機能roadmapを再開する。短文・40頁・100頁は再開時に起動固定費と傾きを分ける診断列とし、
@@ -402,12 +406,11 @@ control-sequence区間15.79%、fmt全体10.73%、wall 5.36%を短縮した。DVI
    教材型298頁はTikZ/数式/表/参照を三engineで完走しaux/tocも一致したが、脚注内1,161 sp差があるため
    性能gateから除外し、`glue_set`境界を先に直す。LuaTeX/LuaLaTeXはformat・font・backend差を
    明記した別列で測る。corpus設計は`docs/research/japanese-publishing/`を使う。
-3. Vaak担当枝のcleanなpush済みcheckpointを固定し、`directvaak`と`directlua`を既定cache、
-   毎回prepare、named reuseの対称な三面で測る。Vaak担当者の性能変更をPraTeX側で重複実装しない。
-4. 性能調整は利用者判断でいったん停止する。1.3未満、1.1未満、0.98未満は未達の再開基線として
-   区別して残す。性能条件を待たず、接続済みmain-loop JFM/禁則をshifted/vbox・残るcommand
-   境界へ広げ、
-   discの枝内JFM class・禁則・unbox再評価matrixを完成する。
+3. 性能調整は利用者判断でいったん停止する。1.3未満、1.1未満、0.98未満は未達の再開基線として
+   区別して残す。`directvaak` / `directlua`比較も再開時へ延期し、Vaak担当者の性能変更を
+   PraTeX側で重複実装しない。
+4. 接続済みmain-loop JFM/禁則をshifted/vbox・残るcommand境界へ広げ、discの枝内JFM class・
+   禁則・unbox再評価matrixを完成する。
 5. glyph時点のRegionNode/context伝播をbox/disc/unboxへ接続し、compiled tableのindirect edge、
    adjustment tier、line-edge discardをline breakerまで完成する。
 6. `\tfont`と縦組metric/node/outputを追加し、JFM/K/X/禁則を横組から縦組へ広げる。

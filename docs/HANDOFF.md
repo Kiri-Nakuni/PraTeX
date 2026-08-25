@@ -1,6 +1,6 @@
 # PraTeX 作業引継ぎ
 
-更新: 2026-08-25（`8e0e543`、未展開token境界の監査完了、全release・TRIP成功）
+更新: 2026-08-25（`09e1eca`、JLReq・e-TeX・PDF継続機能の統合、全release・TRIP成功）
 
 この文書は、現在の Codex セッションから別のエージェントへ作業が移っても、
 検証済みの境界と未commitの作業を失わないための生きた引継ぎである。
@@ -9,7 +9,8 @@
 ## 最初に守ること
 
 1. リポジトリ直下の `AGENTS.md` を最初から最後まで読む。
-2. 現在の統合・性能枝は `codex3/perf-integration`。`main`と歴史的`full`を汚さない。
+2. 性能停止枝は`codex3/perf-integration`、現在の機能統合枝は`codex3/roadmap-integration`。
+   `main`と歴史的`full`を汚さない。
 3. 横組JFM、K/X、WASM仕様、plain DVI回帰、実時刻、日本語CID PDFの統合済み差分を
    無関係な変更として差し戻さない。日本語CID PDFの検証済み元commitは`8035d1c`である。
 4. 通常実装と性能調整はsafe Rustだけで行う。
@@ -20,7 +21,12 @@
 
 ## 枝と共有状態
 
-- 現在の統合・性能枝: `codex3/perf-integration`。`codex2/perf-resolver-index`の
+- 現在の機能統合枝は`codex3/roadmap-integration`、code checkpointは`09e1eca`である。
+  性能停止点`bee8724`から、JLReqの`\inhibitglue` / `\disinhibitglue`、e-TeXの`\showifs`、
+  異なるat-sizeで同じType 1資材を共有するPDF境界を統合した。全releaseは
+  **950 passed、0 failed、11 ignored**。公式TRIPのStage 1/2/固定comment runはexit 0、
+  固定comment DVIは公式2,920 byteへ完全一致した。
+- 性能停止枝`codex3/perf-integration`は`codex2/perf-resolver-index`の
   `f414757`から分岐した。最新code checkpointは`8e0e543`である。`974996e`は未展開token取得で
   eqtbのcommandを所有せず借用判定し、macro制御綴の不要な`Rc<Macro>` clone/dropを除く。
   `InputStack::get_next`を両callerへinlineし、通常command経路のcodegen退行も防ぐ。`9776e1a`は糊scannerが
@@ -76,6 +82,9 @@
     lib `script_spacing` 43件、`japanese_spacing_finalizer` 18件成功
   - 最小横組`prjlreq`: `971073b` / `c493a94`。静的契約試験3件成功。
     現在枝のbinaryによるprocess再測定は未実施
+  - JFM抑止: `1ea6279`。planner 19件、`japanese_spacing_finalizer` 20件成功
+  - e-TeX条件内省: `2fa262e` / `52890f3`。`etex_showifs` 5件、条件照会2件、JFM境界1件成功
+  - Type 1 at-size共有: `4b27ec1`。PDF backend focused 21件成功
 - 直前のpush済み意味checkpointは`6bc9ba4`。in-process Kpathsea境界`4152a1e`、JLReq/JFMの
   discretionary枝`1a46cb1`、TeX--XeT restricted hbox `53fe28a`を統合済み。
 - `6bc9ba4`での`cargo test --release --locked --no-fail-fast`はexit 0。aggregate件数は
@@ -747,7 +756,7 @@ page builder、出力box直前の寸法を自作probeで比較し、原因を直
 
 ## 検証
 
-`8e0e543`のcheckpointでfocused test、全release、公式TRIPを通した。再開時も
+`09e1eca`のcheckpointで各focused test、全release、公式TRIPを通した。再開時も
 変更対象のfocused testを先に走らせ、全releaseと必要なTRIP/DVI・PDF意味gateへ戻る。
 
 ```powershell
@@ -764,17 +773,17 @@ pwsh -NoProfile -File tools/run-trip.ps1
 
 2026-08-25の直近既知正常値:
 
-- `8e0e543`の全release: 941 passed、0 failed、11 ignored
+- `09e1eca`の全release: 950 passed、0 failed、11 ignored
 - TRIP Stage1/Stage2がともにexit 0
 - `tripos.tex` byte一致、`8terminal.tex` 0 byte、PLtoTF→TFtoPL byte一致
 - 固定comment PraTeX DVIは公式2920-byte DVIとbyte一致。SHA-256は
   `09802695e330d34acec9192c15debe2de65e34fcbd3f947db9c8924240b1fe0a`
-- TRIP feature binaryは18,149,176 byte、SHA-256
-  `d99ead3f42e7d102663c6a1cd7b5899396eb33a3a347d1943f7b2b8758a76c8f`
-- binary `trip.fmt`は511,386 byte、SHA-256
-  `58514acaaa9d6d63c80ead720bedde357f8c27141b564abfde00163a9eae3084`
-- 隔離artifactは`/tmp/pratex-trip-20260825.iNah6roG/current-token-only-final*`と
-  `actual-token-only-final`
+- TRIP feature binaryは18,023,536 byte、SHA-256
+  `ec95a6113336d53a8b7dddc8e312bb95da8f41c3e3d4fb4b0d200ea2d01e71b2`
+- binary `trip.fmt`は511,843 byte、SHA-256
+  `74da25682eb315f5b0824285fe6df63c894c324a8ac3ce5b807cd89c3457c982`
+- 隔離artifactは`/tmp/pratex-trip-20260825.iNah6roG/current-roadmap-integration*`と
+  `actual-roadmap-integration`
 
 型付きfull LaTeX fmtは21,532,633 byteまで実測済みである。標準LaTeX互換profileと
 upLaTeX互換profileはengine偽装でなくformat／package契約として分け、各profile完成時に再測定する。
