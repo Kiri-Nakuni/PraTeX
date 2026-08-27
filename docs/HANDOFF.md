@@ -21,6 +21,12 @@
 
 ## 枝と共有状態
 
+- `codex3/overloaddef-design`はPraTeX固有の多節macroを設計だけ固定する文書枝である。
+  `\overloaddef\a{;}.#1(#2);{...}`のようにfamily共通terminatorを明示し、通常TeXの未展開・
+  brace-balanced delimiter規則で全節を照合する。成功節が重なる時は、call上でliteralとして固定した
+  token位置の真包含により一意な最具体節だけを選び、比較不能ならambiguity errorにする。
+  通常の `\def`、定義順priority、丸括弧をbalanceする別parserは変更／採用しない。一次資料は
+  [`overloaddef-design.md`](overloaddef-design.md)。primitive、code、fmt、testは未実装である。
 - 現在の機能統合枝は`codex3/roadmap-integration`、code checkpointは`09e1eca`である。
   性能停止点`bee8724`から、JLReqの`\inhibitglue` / `\disinhibitglue`、e-TeXの`\showifs`、
   異なるat-sizeで同じType 1資材を共有するPDF境界を統合した。全releaseは

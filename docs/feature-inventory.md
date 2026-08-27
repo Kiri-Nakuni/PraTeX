@@ -1,7 +1,7 @@
 # PraTeXのTeX82外機能と独立実装
 
-更新: 2026-08-25
-監査対象: `codex3/perf-integration`（code checkpoint `a2765c7`、全release 915 / 0 / 11）
+更新: 2026-08-28
+監査対象: `codex3/roadmap-integration`（code checkpoint `09e1eca`、全release 950 / 0 / 11）
 
 この文書は、PraTeXが現在持つ機能のうちTeX82の中核にはないものと、PraTeXで新たに
 書いた実装を区別して記録する。将来構想を現在の対応機能として数えないこと、既存engineの
@@ -229,6 +229,7 @@ runtimeは別MIT projectを依存として使う。PraTeX側からMITのVaakへG
 | 設計のみ | 拡張可能な寸法単位 | registry、Vaak table、WASM providerの[設計](extensible-dimension-units-roadmap.md)だけ。組込み`Q/H/zw/zh`の現行経路とは分ける |
 | 設計のみ | 監視・incremental・package取得・LSP | epoch、checkpoint、managed overlay、実行経路上のsemantic eventの[roadmap](incremental-tooling-roadmap.md)だけ。daemon/LSP serverはない |
 | 設計のみ | LaPraTeX | 公式LaTeX sourceから分離したclean-room formatの[roadmap](lapratex-roadmap.md)だけ。`lapratex.ltx` / `lapratex.fmt`はない |
+| 設計のみ | `\overloaddef` 多節macro | 通常の `\def`を変えず、family共通terminatorまでの未展開token frameへ複数parameter textを照合し、literal位置の真包含による一意な最具体節だけを選ぶ[設計](overloaddef-design.md)。比較不能はambiguity error。primitive、command型、fmt、試験は未実装 |
 | 部分的な内部基盤 | 外部文字分類provider | 組込み`CharacterClassifier`と別domain IDまではあるが、通常buildの外部provider、registry、cache、generation管理はない。callback adapterはtest専用 |
 | 未実装 | `^^^^hhhh`、`^^^^^^hhhhhh` | TeX82の`^^`だけ。XeTeX/LuaTeX型の4/6 caret Unicode入力はない |
 | 未実装 | Web2C TCX input translation | `--translate-file`、`%& -translate-file`、`-8bit`、TCXの`xord/xchr/xprn`三表はまだない。既定UTF-8と分けたlegacy input profileは[文字identity roadmap](glyph-identity-roadmap.md)で設計のみ |
