@@ -43,13 +43,30 @@ DVI は分岐点と byte 一致。ハーネスの PraTeX/upLaTeX DVI 意味比�
 | | 起動固定費 | 組版（299 頁 − tiny） |
 |---|---|---|
 | 分岐点 PraTeX | 2,363M 命令 / 407 ms | 6,376M / 857 ms |
-| 本枝 PraTeX | **1,592M 命令 / 348 ms** | **5,906M / 796 ms** |
+| 本枝 PraTeX | **1,439M 命令 / 337 ms** | **5,903M / 767 ms** |
 | upLaTeX | 975M 命令 / 235 ms | 3,438M / 529 ms |
-| 本枝 / upLaTeX | 1.63 / 1.48 | **1.72 / 1.51** |
+| 本枝 / upLaTeX | 1.48 / 1.43 | **1.72 / 1.45** |
 
-起動固定費は命令数で **32.6%**、組版は **7.4%** 減った。効き方が違うので分けて見る。
-残る差は、起動が 113 ms、組版が 267 ms である。**組版側の方が大きい**が、
+起動固定費は命令数で **39.1%**、組版は **7.4%** 減った。効き方が違うので分けて見る。
+残る差は、起動が 102 ms、組版が 238 ms である。**組版側の方が大きい**が、
 起動側の方が原因がはっきりしている。
+
+起動の内訳（命令数、tiny 文書）は次のとおり。
+
+| | 割合 |
+|---|---|
+| `load_fmt_file`（eqtb の組み立てを含む） | 10.3% |
+| **組み込み kpathsea（C）の `read_line` と `hash_insert_normalized`** | **13.1%** |
+| allocator | 10.6% |
+| fmt の値読み出し（`undump_signed` `undump_unsigned` `undump_byte_string`） | 10.8% |
+| `Trie::language_patterns_are_valid` | 5.7% |
+| `Token` と `MacroCall` の読み出し | 5.5% |
+
+**組み込み kpathsea が起動の 13% を占める。** `bundled-kpathsea` は既定 feature で、
+TeX Live の C ライブラリを実際に組み込んでいる。`KpathseaFastPath::new` は
+`Kpaths::new_in_process_with_program_name` を無条件に呼ぶので、直接 path で
+解決できる run でも初期化費を払う。遅延化できれば効くはずだが、file 解決の境界は
+`docs/kpathsea-port-notes.md` に細かい不変条件があるので、担当者の判断に委ねる。
 
 ## 何が効いたか
 

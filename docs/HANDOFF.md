@@ -27,8 +27,8 @@
   一次資料は [`benchmarks/claude1-startup-and-hash-20260828.md`](benchmarks/claude1-startup-and-hash-20260828.md)
   と、`claude1/tex82-perf` 側の `docs/knuth-tex-gap.md` である。
   - `claude1/perf-integration` は `codex3/roadmap-integration` の `36af0ee` から分岐した。
-    299 頁 `lipsum` の paired wall 比は **1.615624 から 1.4750** へ下がった。命令数は
-    8,739,185,718 から 7,497,830,453 へ 14.20% 減り、DVI は分岐点と byte 一致、
+    299 頁 `lipsum` の paired wall 比は **1.615624 から 1.4689**（幾何平均 1.4429）へ下がった。命令数は
+    8,739,185,718 から 7,341,737,735 へ 15.99% 減り、DVI は分岐点と byte 一致、
     ハーネスの PraTeX/upLaTeX DVI 意味比較も通過した。全 release は
     **953 passed / 0 failed / 11 ignored**。**公式 TRIP は未実施である。** 資材が
     同梱されておらず CTAN からの取得が要るため、利用者の許可を得てから行う。
@@ -36,7 +36,8 @@
   - 効いたのは fmt 読み込みだった。`latex.fmt` は 21.5 MB に 3,949,254 行あり、
     一つの値につき一行という形である。`str::lines` の一般機構を専用の反復子へ
     置き換え、`Trie::language_patterns_are_valid` の一時表を SipHash から外した。
-    起動固定費は 2,363M から 1,592M 命令へ 32.6% 減った。
+    制御綴の名前を一行の十六進にして fmt の行数を 36.4% 減らした。
+    起動固定費は 2,363M から 1,439M 命令へ 39.1% 減った。
   - **次に効くはずなのは fmt の binary 化である。** 起動の残りは一つの値につき一行と
     いうテキスト形式そのものに由来する。ただし `undump` の実装は 50 file に
     188 個あるので、一続きの作業として計画すること。起動を upLaTeX 並みへ
