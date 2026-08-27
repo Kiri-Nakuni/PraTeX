@@ -58,7 +58,7 @@ pub struct FontInfo {
     heights: Vec<Dimension>,
     depths: Vec<Dimension>,
     italics: Vec<Dimension>,
-    pub lig_kerns: Vec<HashMap<u8, LigKernCommand>>,
+    pub lig_kerns: Vec<LigKernProgram>,
     pub extens: Vec<ExtensibleRecipe>,
     /// NOTE: These are 0-indexed, not 1-indexed like the actual parameter numbers.
     pub params: Vec<Scaled>,
@@ -401,7 +401,7 @@ impl FontInfo {
         tfm_header: &TfmHeader,
         char_data: &[CharInfo],
         size: Scaled,
-    ) -> Result<(Option<usize>, Option<u8>, Vec<HashMap<u8, LigKernCommand>>), TfmError> {
+    ) -> Result<(Option<usize>, Option<u8>, Vec<LigKernProgram>), TfmError> {
         let mut bch_label = None;
         let mut bchar = None;
 
@@ -505,8 +505,8 @@ impl FontInfo {
         mut pos: usize,
         lig_kern_table: &[(u8, u8, u8, u8)],
         kern_table: &[Scaled],
-    ) -> HashMap<u8, LigKernCommand> {
-        let mut commands = HashMap::new();
+    ) -> LigKernProgram {
+        let mut commands = LigKernProgram::default();
         loop {
             let (a, b, c, d) = lig_kern_table[pos];
             // If the first byte is larger than 128, we are done and do not look at the
@@ -515,7 +515,7 @@ impl FontInfo {
                 break;
             }
             // We don't want to overwrite an already existing command for a letter.
-            if !commands.contains_key(&b) {
+            {
                 let key = b;
                 // A value of at least 128 in the third byte indicates a kerning instruction.
                 // The size of the kerning can be found in the kerning table at a position
@@ -546,7 +546,7 @@ impl FontInfo {
                         moves: c / 4,
                     }
                 };
-                commands.insert(key, lig_kern_command);
+                commands.insert_if_absent(key, lig_kern_command);
             }
             // A value of 128 in the first byte means that this is the final step in the list
             // of commands.
@@ -774,6 +774,48 @@ pub enum LigKernCommand {
         delete_right: bool,
         moves: u8,
     },
+}
+
+/// The ligature/kerning program for a single left-hand character.
+///
+/// NOTE: The key is the right-hand character, so there are at most 256 entries
+/// and real programs hold only a handful. TeX82 walks the lig/kern instructions
+/// linearly (see 573.), and so do we: hashing a single byte costs more
+/// instructions than scanning the whole program, and the entries stay in one
+/// cache line. This is looked up once per character pair, so it is on the
+/// hottest path of the main loop.
+#[derive(Debug, Clone, Default)]
+pub struct LigKernProgram {
+    entries: Vec<(u8, LigKernCommand)>,
+}
+
+impl LigKernProgram {
+    /// Adds a command unless the right-hand character already has one.
+    /// The first instruction for a character wins, as in 573.
+    fn insert_if_absent(&mut self, right_char: u8, command: LigKernCommand) {
+        if self.get(right_char).is_none() {
+            self.entries.push((right_char, command));
+        }
+    }
+
+    /// Returns the command for the given right-hand character, if any.
+    pub fn get(&self, right_char: u8) -> Option<LigKernCommand> {
+        self.entries
+            .iter()
+            .find(|(key, _)| *key == right_char)
+            .map(|(_, command)| *command)
+    }
+}
+
+impl Dumpable for LigKernProgram {
+    fn dump(&self, target: &mut impl Write) -> Result<(), std::io::Error> {
+        self.entries.dump(target)
+    }
+
+    fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
+        let entries = Vec::undump(lines)?;
+        Ok(Self { entries })
+    }
 }
 
 /// See 546.

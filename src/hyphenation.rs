@@ -970,7 +970,7 @@ impl<'a> Cursor<'a> {
         // Potentially update hyphen_passed information.
         if let Some(c) = self.cur_rh {
             // If there exists a lig_kern command for a hyphen here.
-            if lig_kern_program.get(&c).is_some() {
+            if lig_kern_program.get(c).is_some() {
                 *hyphen_passed = pos;
                 *hchar = None;
             }
@@ -980,14 +980,14 @@ impl<'a> Cursor<'a> {
         let Some(test_char) = self.cur_r else {
             return None;
         };
-        match lig_kern_program.get(&test_char) {
+        match lig_kern_program.get(test_char) {
             Some(lig_kern_command) => {
                 // Potentially update hyphen_passed information.
                 if hchar.is_some() && self.hyphens[pos] {
                     *hyphen_passed = pos;
                     *hchar = None;
                 }
-                Some(*lig_kern_command)
+                Some(lig_kern_command)
             }
             None => None,
         }

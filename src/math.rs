@@ -1297,8 +1297,8 @@ fn compute_amount_of_skew(font: &FontInfo, character: u8) -> Scaled {
         let lig_kern = &font.lig_kerns[lig_index];
         let skew_char = font.skew_char;
         if skew_char >= 0 && skew_char < 256 {
-            if let Some(LigKernCommand::Kern(w)) = lig_kern.get(&(skew_char as u8)) {
-                return *w;
+            if let Some(LigKernCommand::Kern(w)) = lig_kern.get(skew_char as u8) {
+                return w;
             }
         }
     }
@@ -1829,13 +1829,13 @@ fn if_instruction_is_kern(
         panic!("This should be the only case here");
     };
     let lig_kern = &eqtb.fonts[cur_font_index as usize].lig_kerns[lig_index];
-    match lig_kern.get(&next_char) {
-        Some(&LigKernCommand::Kern(w)) => {
+    match lig_kern.get(next_char) {
+        Some(LigKernCommand::Kern(w)) => {
             mlist_stack.push(Node::Noad(Noad::Normal(next_noad)));
             mlist_stack.push(Node::Kern(KernNode::new(w)));
             true
         }
-        Some(&LigKernCommand::Lig {
+        Some(LigKernCommand::Lig {
             ligature,
             delete_left,
             delete_right,

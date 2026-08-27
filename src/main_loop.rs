@@ -436,14 +436,14 @@ impl WordScanner {
             (_, None) => None,
             (Some(left_char), Some(right_char)) => {
                 if let CharTag::Lig(lig_index) = font.tag(left_char) {
-                    font.lig_kerns[lig_index].get(&right_char).copied()
+                    font.lig_kerns[lig_index].get(right_char)
                 } else {
                     None
                 }
             }
             (None, Some(right_char)) => {
                 if let Some(lig_index) = font.bchar_label {
-                    font.lig_kerns[lig_index].get(&right_char).copied()
+                    font.lig_kerns[lig_index].get(right_char)
                 } else {
                     None
                 }

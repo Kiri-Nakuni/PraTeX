@@ -1,1 +1,17 @@
 /target
+
+# ベンチ実行の生成物。入力の生成は tools/ の script で再現する。
+/run-rtex/
+/run-knuth/
+/bench/*.json
+/bench/doc*.tex
+/body.tex
+/doc*.tex
+/empty.tex
+/*.dvi
+/*.log
+/*.fmt
+/plain.tex
+/hyphen.tex
+/fonts/
+/perf*.data
