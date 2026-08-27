@@ -12,6 +12,7 @@ mod file_search;
 mod font_resources;
 mod fonts;
 mod format;
+mod fx_hash;
 mod glue;
 mod horizontal_mode;
 mod hyphenation;
@@ -552,7 +553,21 @@ fn round(x: f64) -> i32 {
     } else if x < (i32::MIN + 1) as f64 {
         i32::MIN + 1
     } else {
-        x.round() as i32
+        // NOTE: `f64::round` has no single-instruction form on baseline x86-64 because
+        // SSE4.1 (`roundsd`) is not part of the target, so LLVM expands it into a dozen
+        // instructions. Truncating and then inspecting the fraction gives exactly the
+        // same result with a handful. Within the range guarded above, `x as i32`
+        // truncates toward zero exactly and the subtraction of the truncated value is
+        // exact, so ties still round away from zero.
+        let truncated = x as i32;
+        let fraction = x - truncated as f64;
+        if fraction >= 0.5 {
+            truncated + 1
+        } else if fraction <= -0.5 {
+            truncated - 1
+        } else {
+            truncated
+        }
     }
 }
 

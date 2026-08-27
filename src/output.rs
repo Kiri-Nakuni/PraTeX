@@ -654,6 +654,27 @@ impl<B: ShipoutBackend> Document<B> {
                     );
                 }
                 break;
+            } else if let &Node::Char(CharNode {
+                font_index,
+                character,
+                width,
+                ..
+            })
+            | &Node::Ligature(LigatureNode {
+                font_index,
+                character,
+                width,
+                ..
+            }) = node
+            {
+                // NOTE: 620. keeps a run of character nodes inside a tight inner loop
+                // and only leaves it for other node types. Characters make up most of
+                // an hlist, so handling them here avoids an eleven-argument call per
+                // character.
+                self.synch_h();
+                self.synch_v();
+                self.output_char(font_index, character, width, eqtb);
+                self.dvi_h = self.cur_h;
             } else {
                 self.output_node_p_for_hlist_out(
                     node,
@@ -667,8 +688,8 @@ impl<B: ShipoutBackend> Document<B> {
                     whatsit_list,
                     eqtb,
                 );
-                position += 1;
             }
+            position += 1;
         }
         if self.cur_s > 0 {
             self.call_backend(ShipoutBackend::pop);

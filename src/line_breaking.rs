@@ -1251,6 +1251,21 @@ impl LineBreaker {
 
     /// Returns a pointer to just_box.
     /// See 876., 877., and 880. to 887.
+    /// Estimates how many nodes the next line will hold.
+    ///
+    /// NOTE: Growing every line from an empty `Vec` reallocates and copies once per
+    /// doubling, for every line of every paragraph, and a `Node` is wide. The break
+    /// points are already known at this stage, so the distance to the next one gives
+    /// the count directly. The slack covers the left and right skips and the nodes
+    /// transplanted out of a discretionary.
+    fn next_line_capacity(break_points: &[usize], pos: usize) -> usize {
+        const SLACK: usize = 4;
+        match break_points.last() {
+            Some(&next_break) => next_break.saturating_sub(pos) + SLACK,
+            None => SLACK,
+        }
+    }
+
     fn post_line_break(
         &self,
         hlist: Vec<Node>,
@@ -1269,7 +1284,7 @@ impl LineBreaker {
         let mut cur_line_number = vmode.prev_graf as usize + 1;
 
         let mut nodes = hlist.into_iter().enumerate();
-        let mut line = Vec::new();
+        let mut line = Vec::with_capacity(Self::next_line_capacity(&break_points, 0));
 
         let right_skip_node = Node::Glue(GlueNode::new_param(SkipVariable::RightSkip, eqtb));
         let left_skip_node = Node::Glue(GlueNode::new_param(SkipVariable::LeftSkip, eqtb));
@@ -1313,7 +1328,7 @@ impl LineBreaker {
                     );
                     cur_line_number += 1;
 
-                    line = Vec::new();
+                    line = Vec::with_capacity(Self::next_line_capacity(&break_points, pos));
                     if left_skip_not_zero {
                         line.push(left_skip_node.clone());
                     }
@@ -1374,7 +1389,7 @@ impl LineBreaker {
                 );
                 cur_line_number += 1;
 
-                line = Vec::new();
+                line = Vec::with_capacity(Self::next_line_capacity(&break_points, pos));
 
                 if left_skip_not_zero {
                     line.push(left_skip_node.clone());

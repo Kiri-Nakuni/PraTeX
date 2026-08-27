@@ -10,6 +10,8 @@ default-run = "pratex"
 [profile.release]
 lto = true
 debug = 1
+panic = "abort"
+codegen-units = 1
 
 [features]
 default = ["stats", "bundled-kpathsea"]

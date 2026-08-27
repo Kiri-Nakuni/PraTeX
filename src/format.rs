@@ -596,7 +596,9 @@ impl<T: Dumpable> Dumpable for Vec<T> {
     }
 }
 
-impl<T: Dumpable + Eq + Hash, U: Dumpable> Dumpable for HashMap<T, U> {
+impl<T: Dumpable + Eq + Hash, U: Dumpable, S: std::hash::BuildHasher + Default> Dumpable
+    for HashMap<T, U, S>
+{
     fn dump(&self, target: &mut impl Write) -> Result<(), std::io::Error> {
         writeln!(target, "{}", self.len())?;
         for (key, val) in self {
@@ -608,7 +610,7 @@ impl<T: Dumpable + Eq + Hash, U: Dumpable> Dumpable for HashMap<T, U> {
 
     fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
         let n = parse_next(lines)?;
-        let mut map = HashMap::new();
+        let mut map = HashMap::default();
         map.try_reserve(bounded_initial_capacity::<(T, U)>(n))
             .map_err(|_| FormatError::AllocationFailed)?;
         for _ in 0..n {

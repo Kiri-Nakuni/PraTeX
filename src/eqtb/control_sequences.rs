@@ -5,6 +5,7 @@ use crate::macros::Macro;
 use crate::print::Printer;
 use crate::token::{print_uptex_code_point, push_uptex_utf8};
 
+use crate::fx_hash::FxHashMap;
 use std::collections::HashMap;
 use std::io::Write;
 
@@ -99,13 +100,13 @@ pub type NamespaceId = u16;
 /// `Vec<u8>` の一時確保を検索経路から外す。
 #[derive(Default)]
 struct ControlSequenceHash {
-    normal: HashMap<Vec<u8>, ControlSequenceId>,
+    normal: FxHashMap<Vec<u8>, ControlSequenceId>,
     /// `Unicode`単位を一つ以上含む名前。byte名とはidentityを共有しない。
     /// byte engineと通常の名前空間はmap本体を持たない。
-    wide: Option<Box<HashMap<Vec<ControlSequenceNameUnit>, ControlSequenceId>>>,
+    wide: Option<Box<FxHashMap<Vec<ControlSequenceNameUnit>, ControlSequenceId>>>,
     /// Unicode活性文字。通常の一文字制御記号とは同じ符号位置でも別identity。
-    wide_active: Option<Box<HashMap<Vec<ControlSequenceNameUnit>, ControlSequenceId>>>,
-    active: HashMap<Vec<u8>, ControlSequenceId>,
+    wide_active: Option<Box<FxHashMap<Vec<ControlSequenceNameUnit>, ControlSequenceId>>>,
+    active: FxHashMap<Vec<u8>, ControlSequenceId>,
 }
 
 impl ControlSequenceHash {
@@ -152,7 +153,7 @@ impl ControlSequenceHash {
         } else {
             &mut self.wide
         };
-        hash.get_or_insert_with(|| Box::new(HashMap::new()))
+        hash.get_or_insert_with(|| Box::new(FxHashMap::default()))
             .insert(key, id)
     }
 
@@ -161,8 +162,8 @@ impl ControlSequenceHash {
     }
 
     fn wide_len(&self) -> usize {
-        self.wide.as_deref().map_or(0, HashMap::len)
-            + self.wide_active.as_deref().map_or(0, HashMap::len)
+        self.wide.as_deref().map_or(0, FxHashMap::len)
+            + self.wide_active.as_deref().map_or(0, FxHashMap::len)
     }
 }
 
@@ -172,8 +173,9 @@ impl ControlSequenceHash {
 #[derive(Default)]
 struct UndumpedControlSequenceHashes {
     global: ControlSequenceHash,
-    namespaced: HashMap<(NamespaceId, bool, Vec<u8>), ControlSequenceId>,
-    namespaced_wide: HashMap<(NamespaceId, bool, Vec<ControlSequenceNameUnit>), ControlSequenceId>,
+    namespaced: FxHashMap<(NamespaceId, bool, Vec<u8>), ControlSequenceId>,
+    namespaced_wide:
+        FxHashMap<(NamespaceId, bool, Vec<ControlSequenceNameUnit>), ControlSequenceId>,
     declared_entry_count: usize,
 }
 
@@ -435,7 +437,7 @@ pub struct ControlSequenceStore {
     escaped: Vec<(Command, Vec<u8>)>,
     /// typed名だけを番号から引く疎な逆表。表示と一文字定数で使う。
     /// byte engineではmap本体を確保しない。
-    wide_names: Option<Box<HashMap<ControlSequenceId, Vec<ControlSequenceNameUnit>>>>,
+    wide_names: Option<Box<FxHashMap<ControlSequenceId, Vec<ControlSequenceNameUnit>>>>,
     /// `escaped` と並ぶ。**どの名前空間の出自か。** `None` が global
     escaped_ns: Vec<Option<NamespaceId>>,
     /// `escaped` と並ぶ。**名前空間つきの active char なら、その文字。**
@@ -447,7 +449,7 @@ pub struct ControlSequenceStore {
     escaped_wide_active: Vec<Option<u32>>,
     /// 名前空間の名前。番号が添字
     namespaces: Vec<Vec<u8>>,
-    ns_index: HashMap<Vec<u8>, NamespaceId>,
+    ns_index: FxHashMap<Vec<u8>, NamespaceId>,
     pub cs_count: usize,
 
     frozen_protection: (Command, Vec<u8>),
@@ -495,7 +497,7 @@ impl ControlSequenceStore {
             escaped_active: Vec::new(),
             escaped_wide_active: Vec::new(),
             namespaces: Vec::new(),
-            ns_index: HashMap::new(),
+            ns_index: FxHashMap::default(),
             null_cs: (
                 Command::Expandable(ExpandableCommand::Undefined),
                 Vec::new(),
@@ -767,7 +769,7 @@ impl ControlSequenceStore {
         debug_assert!(previous.is_none());
         let previous = self
             .wide_names
-            .get_or_insert_with(|| Box::new(HashMap::new()))
+            .get_or_insert_with(|| Box::new(FxHashMap::default()))
             .insert(n, key.to_vec());
         debug_assert!(previous.is_none());
         let cmd = Command::Expandable(ExpandableCommand::Undefined);
@@ -858,7 +860,7 @@ impl ControlSequenceStore {
     fn dump_hash_entries(
         ns: Option<NamespaceId>,
         active: bool,
-        hash: &HashMap<Vec<u8>, ControlSequenceId>,
+        hash: &FxHashMap<Vec<u8>, ControlSequenceId>,
         target: &mut impl Write,
     ) -> Result<(), std::io::Error> {
         for (key, id) in hash {
@@ -915,7 +917,7 @@ impl ControlSequenceStore {
     fn dump_wide_hash_entries(
         ns: Option<NamespaceId>,
         active: bool,
-        hash: &HashMap<Vec<ControlSequenceNameUnit>, ControlSequenceId>,
+        hash: &FxHashMap<Vec<ControlSequenceNameUnit>, ControlSequenceId>,
         target: &mut impl Write,
     ) -> Result<(), std::io::Error> {
         for (key, id) in hash {
@@ -951,7 +953,7 @@ impl ControlSequenceStore {
     fn validate_undumped_byte_entries(
         namespace: Option<NamespaceId>,
         active: bool,
-        entries: &HashMap<Vec<u8>, ControlSequenceId>,
+        entries: &FxHashMap<Vec<u8>, ControlSequenceId>,
         escaped: &[CommandStoreEntry],
         escaped_ns: &[Option<NamespaceId>],
         escaped_active: &[Option<u8>],
@@ -977,13 +979,13 @@ impl ControlSequenceStore {
     fn validate_undumped_wide_entries(
         namespace: Option<NamespaceId>,
         active: bool,
-        entries: &HashMap<Vec<ControlSequenceNameUnit>, ControlSequenceId>,
+        entries: &FxHashMap<Vec<ControlSequenceNameUnit>, ControlSequenceId>,
         escaped: &[CommandStoreEntry],
         escaped_ns: &[Option<NamespaceId>],
         escaped_active: &[Option<u8>],
         escaped_wide_active: &[Option<u32>],
         seen_hash_ids: &mut [bool],
-        wide_names: &mut Option<Box<HashMap<ControlSequenceId, Vec<ControlSequenceNameUnit>>>>,
+        wide_names: &mut Option<Box<FxHashMap<ControlSequenceId, Vec<ControlSequenceNameUnit>>>>,
     ) -> Result<(), FormatError> {
         for (key, &id) in entries {
             let position = id as usize;
@@ -1001,7 +1003,7 @@ impl ControlSequenceStore {
                 return Err(FormatError::ParseError);
             }
             if wide_names
-                .get_or_insert_with(|| Box::new(HashMap::new()))
+                .get_or_insert_with(|| Box::new(FxHashMap::default()))
                 .insert(id, key.clone())
                 .is_some()
             {
@@ -1020,7 +1022,7 @@ impl ControlSequenceStore {
         escaped_active: &[Option<u8>],
         escaped_wide_active: &[Option<u32>],
         seen_hash_ids: &mut [bool],
-        wide_names: &mut Option<Box<HashMap<ControlSequenceId, Vec<ControlSequenceNameUnit>>>>,
+        wide_names: &mut Option<Box<FxHashMap<ControlSequenceId, Vec<ControlSequenceNameUnit>>>>,
     ) -> Result<(), FormatError> {
         Self::validate_undumped_byte_entries(
             namespace,
@@ -1073,11 +1075,11 @@ impl ControlSequenceStore {
 
     fn rebuild_namespace_index(
         namespaces: &[Vec<u8>],
-    ) -> Result<HashMap<Vec<u8>, NamespaceId>, FormatError> {
+    ) -> Result<FxHashMap<Vec<u8>, NamespaceId>, FormatError> {
         if namespaces.len() > usize::from(NamespaceId::MAX) + 1 {
             return Err(FormatError::ParseError);
         }
-        let mut index = HashMap::new();
+        let mut index = FxHashMap::default();
         for (id, name) in namespaces.iter().enumerate() {
             if index.insert(name.clone(), id as NamespaceId).is_some() {
                 return Err(FormatError::ParseError);
@@ -1140,7 +1142,7 @@ impl Dumpable for ControlSequenceStore {
             return Err(FormatError::ParseError);
         }
         let mut seen_hash_ids = vec![false; escaped.len()];
-        let mut wide_names: Option<Box<HashMap<ControlSequenceId, Vec<ControlSequenceNameUnit>>>> =
+        let mut wide_names: Option<Box<FxHashMap<ControlSequenceId, Vec<ControlSequenceNameUnit>>>> =
             None;
         Self::validate_undumped_hash(
             None,
