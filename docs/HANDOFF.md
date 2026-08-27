@@ -21,6 +21,37 @@
 
 ## 枝と共有状態
 
+- **`claude1/perf-integration` と `claude1/tex82-perf` は Claude が作った性能枝である。**
+  利用者の明示指示により、通常は Codex が持つ `src/` `docs/` `tools/` を触っている。
+  どちらも未 push で、`full` へも `codex3/*` へも merge していない。
+  一次資料は [`benchmarks/claude1-startup-and-hash-20260828.md`](benchmarks/claude1-startup-and-hash-20260828.md)
+  と、`claude1/tex82-perf` 側の `docs/knuth-tex-gap.md` である。
+  - `claude1/perf-integration` は `codex3/roadmap-integration` の `36af0ee` から分岐した。
+    299 頁 `lipsum` の paired wall 比は **1.615624 から 1.4750** へ下がった。命令数は
+    8,739,185,718 から 7,497,830,453 へ 14.20% 減り、DVI は分岐点と byte 一致、
+    ハーネスの PraTeX/upLaTeX DVI 意味比較も通過した。全 release は
+    **953 passed / 0 failed / 11 ignored**。**公式 TRIP は未実施である。** 資材が
+    同梱されておらず CTAN からの取得が要るため、利用者の許可を得てから行う。
+    統合前に TRIP を通すこと。
+  - 効いたのは fmt 読み込みだった。`latex.fmt` は 21.5 MB に 3,949,254 行あり、
+    一つの値につき一行という形である。`str::lines` の一般機構を専用の反復子へ
+    置き換え、`Trie::language_patterns_are_valid` の一時表を SipHash から外した。
+    起動固定費は 2,363M から 1,592M 命令へ 32.6% 減った。
+  - **次に効くはずなのは fmt の binary 化である。** 起動の残りは一つの値につき一行と
+    いうテキスト形式そのものに由来する。ただし `undump` の実装は 50 file に
+    188 個あるので、一続きの作業として計画すること。起動を upLaTeX 並みへ
+    近づけられれば比は約 1.32 になり、組版側で更に一割削れば 1.3 を切る。
+  - **効かなかった道も記録した。** `get_token` の eqtb 引きを条件で守る形は 1.1% 悪化、
+    `InputStack::get_next` の `inline(always)` を外すと 5.8% 悪化した。同じ道を
+    辿り直さないこと。
+  - `claude1/tex82-perf` は `main` から分岐した素の TeX82 で、Knuth TeX との差の
+    出どころを調べるための枝である。製品枝への merge 候補ではない。回帰で起動費と
+    組版を分けると、Knuth TeX の起動は kpathsea のため 403M 命令・約 200 ms あり、
+    end-to-end の見かけの速さはそこから来ていた。組版そのものの比は 1.782 から
+    1.535（命令）、1.681 から 1.334（時間）まで下がった。1.1 へは節点保持方式の
+    作り替えが要ると判断した。
+
+
 - 現在の機能統合枝は`codex3/roadmap-integration`、code checkpointは`09e1eca`である。
   性能停止点`bee8724`から、JLReqの`\inhibitglue` / `\disinhibitglue`、e-TeXの`\showifs`、
   異なるat-sizeで同じType 1資材を共有するPDF境界を統合した。全releaseは
