@@ -107,7 +107,7 @@ fn load_fmt_file(mut fmt_file: File) -> Result<LoadedFormat, FormatError> {
         println!("Format file is not valid UTF-8");
         FormatError::NoUtf8
     })?;
-    let mut lines = CountedLines::from(format_string.lines());
+    let mut lines = CountedLines::from_str(&format_string);
     let eqtb = undump_table_of_equivalents(&mut lines)?;
     let hyphenator = undump_hyphenation_tables(&mut lines)?;
     let logger = undump_a_couple_more(&mut lines, &eqtb)?;
@@ -121,7 +121,7 @@ fn load_binary_fmt_file(bytes: &[u8]) -> Result<LoadedFormat, FormatError> {
         println!("Format Eqtb section is not valid UTF-8");
         FormatError::NoUtf8
     })?;
-    let mut eqtb_lines = CountedLines::from(eqtb_text.lines());
+    let mut eqtb_lines = CountedLines::from_str(eqtb_text);
     let eqtb = undump_table_of_equivalents(&mut eqtb_lines)?;
     if eqtb_lines.next().is_some() {
         return Err(FormatError::ParseError);
@@ -133,7 +133,7 @@ fn load_binary_fmt_file(bytes: &[u8]) -> Result<LoadedFormat, FormatError> {
         println!("Format metadata section is not valid UTF-8");
         FormatError::NoUtf8
     })?;
-    let mut metadata_lines = CountedLines::from(metadata_text.lines());
+    let mut metadata_lines = CountedLines::from_str(metadata_text);
     let logger = undump_a_couple_more(&mut metadata_lines, &eqtb)?;
     if metadata_lines.next().is_some() {
         return Err(FormatError::ParseError);
@@ -363,13 +363,18 @@ pub enum FormatError {
 
 /// A wrapper around `Lines` that counts how many lines have been consumed.
 pub struct CountedLines<'a> {
-    lines: std::str::Lines<'a>,
+    rest: &'a str,
+    finished: bool,
     count: usize,
 }
 
 impl<'a> CountedLines<'a> {
-    pub fn from(lines: std::str::Lines<'a>) -> Self {
-        Self { lines, count: 0 }
+    pub fn from_str(text: &'a str) -> Self {
+        Self {
+            rest: text,
+            finished: text.is_empty(),
+            count: 0,
+        }
     }
 
     pub fn line_number(&self) -> usize {
@@ -380,10 +385,89 @@ impl<'a> CountedLines<'a> {
 impl<'a> Iterator for CountedLines<'a> {
     type Item = &'a str;
 
+    /// NOTE: `str::lines` と同じ区切り方をするが、探索器の一般機構を通さない。
+    /// fmt は一つの値につき一行という形なので、`latex.fmt` では約 395 万回
+    /// 呼ばれる。一行が数 byte しかないため、汎用の部分文字列探索は設定費だけで
+    /// 走査そのものより高くつく。
     fn next(&mut self) -> Option<Self::Item> {
+        if self.finished {
+            return None;
+        }
         self.count += 1;
-        self.lines.next()
+        let bytes = self.rest.as_bytes();
+        let mut end = 0;
+        while end < bytes.len() && bytes[end] != b'\n' {
+            end += 1;
+        }
+        let line = &self.rest[..end];
+        if end == bytes.len() {
+            self.rest = "";
+            self.finished = true;
+        } else {
+            self.rest = &self.rest[end + 1..];
+            // 末尾が改行で終わる場合、その後ろに空行を作らない。
+            self.finished = self.rest.is_empty();
+        }
+        Some(line.strip_suffix('\r').unwrap_or(line))
     }
+}
+
+/// 一行を十進の符号なし整数として読む。
+///
+/// NOTE: `str::parse` は基数、符号、桁溢れを汎用の経路で扱う。fmt は一つの値に
+/// つき一行という形なので、`latex.fmt` ではこの解析が約 395 万回走る。十進に
+/// 限れば必要な検査だけで足りる。`u64` で読んでから目的の型へ写すので、範囲外は
+/// `str::parse` と同じく誤りになる。先頭の `+` も `str::parse` と同じく許す。
+fn undump_unsigned<'a, T>(lines: &mut impl Iterator<Item = &'a str>) -> Result<T, FormatError>
+where
+    T: TryFrom<u64>,
+{
+    let text = lines.next().ok_or(FormatError::IncompleteFile)?;
+    let digits = text.as_bytes().strip_prefix(b"+").unwrap_or(text.as_bytes());
+    T::try_from(decimal_digits(digits)?).map_err(|_| FormatError::ParseError)
+}
+
+/// 一行を十進の符号つき整数として読む。
+fn undump_signed<'a, T>(lines: &mut impl Iterator<Item = &'a str>) -> Result<T, FormatError>
+where
+    T: TryFrom<i64>,
+{
+    let text = lines.next().ok_or(FormatError::IncompleteFile)?;
+    let bytes = text.as_bytes();
+    let (negative, digits) = match bytes.split_first() {
+        Some((b'-', rest)) => (true, rest),
+        Some((b'+', rest)) => (false, rest),
+        _ => (false, bytes),
+    };
+    // i32::MIN の絶対値も u64 には収まるので、符号は最後に付ける。
+    let magnitude = decimal_digits(digits)?;
+    let value = if negative {
+        i64::try_from(magnitude)
+            .map(|v| -v)
+            .map_err(|_| FormatError::ParseError)?
+    } else {
+        i64::try_from(magnitude).map_err(|_| FormatError::ParseError)?
+    };
+    T::try_from(value).map_err(|_| FormatError::ParseError)
+}
+
+/// 十進の桁だけからなる byte 列を `u64` にする。空、桁以外、桁溢れは誤り。
+fn decimal_digits(digits: &[u8]) -> Result<u64, FormatError> {
+    if digits.is_empty() {
+        return Err(FormatError::ParseError);
+    }
+    let mut value: u64 = 0;
+    for &byte in digits {
+        let digit = byte.wrapping_sub(b'0');
+        if digit > 9 {
+            return Err(FormatError::ParseError);
+        }
+        value = value
+            .checked_mul(10)
+            .and_then(|v| v.checked_add(digit as u64))
+            .ok_or(FormatError::ParseError)?;
+    }
+    Ok(value)
 }
 
 fn parse_next<'a, T: FromStr>(lines: &mut impl Iterator<Item = &'a str>) -> Result<T, FormatError> {
@@ -422,7 +506,7 @@ impl Dumpable for u8 {
     }
 
     fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
-        parse_next(lines)
+        undump_unsigned(lines)
     }
 }
 
@@ -433,7 +517,7 @@ impl Dumpable for u16 {
     }
 
     fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
-        parse_next(lines)
+        undump_unsigned(lines)
     }
 }
 
@@ -444,7 +528,7 @@ impl Dumpable for u32 {
     }
 
     fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
-        parse_next(lines)
+        undump_unsigned(lines)
     }
 }
 
@@ -455,7 +539,7 @@ impl Dumpable for usize {
     }
 
     fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
-        parse_next(lines)
+        undump_unsigned(lines)
     }
 }
 
@@ -640,7 +724,7 @@ impl Dumpable for Dimension {
     }
 
     fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
-        parse_next(lines)
+        undump_signed(lines)
     }
 }
 

@@ -305,7 +305,11 @@ impl Trie {
         lang: usize,
         families: &[Vec<usize>],
     ) -> bool {
-        let mut maximum_depth_seen = HashMap::new();
+        // NOTE: 鍵は節点の番号であり、fmt を読むたびに言語ごとへ trie 全体を辿る。
+        // 既定の SipHash は意図的な衝突に強いが、ここは整数を鍵にした一時表なので
+        // 乗算と回転の hash で足りる。profile では fmt 読み込みの hash 計算が
+        // 起動全体の二割を占めていた。
+        let mut maximum_depth_seen = crate::fx_hash::FxHashMap::default();
         let mut stack = vec![(language_node, 0usize)];
         while let Some((index, depth)) = stack.pop() {
             if depth > 63
