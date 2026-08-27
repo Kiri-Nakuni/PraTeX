@@ -485,11 +485,56 @@ fn parse_next<'a, T: FromStr>(lines: &mut impl Iterator<Item = &'a str>) -> Resu
 const MAX_INITIAL_UNDUMP_ELEMENTS: usize = 4 * 1024;
 const MAX_INITIAL_UNDUMP_PAYLOAD_BYTES: usize = 64 * 1024;
 
-fn bounded_initial_capacity<T>(declared_len: usize) -> usize {
+pub(crate) fn bounded_initial_capacity<T>(declared_len: usize) -> usize {
     let element_size = std::mem::size_of::<T>().max(1);
     declared_len
         .min(MAX_INITIAL_UNDUMP_ELEMENTS)
         .min(MAX_INITIAL_UNDUMP_PAYLOAD_BYTES / element_size)
+}
+
+/// byte 列を一行の十六進で書く。
+///
+/// NOTE: `Vec<u8>` の既定の書き出しは、長さの後に一 byte 一行を並べる。制御綴の
+/// 名前はこの形で二度（hash の鍵と `escaped` の名前）書かれるため、`latex.fmt` の
+/// 3,949,254 行のうち凡そ半分を占めていた。一行にまとめると、行の走査も十進の
+/// 解析も名前ごとに一度で済む。十六進にするのは、名前が任意の byte を取り得て、
+/// 改行や非 ASCII をそのまま書けないためである。
+pub fn dump_byte_string(bytes: &[u8], target: &mut impl Write) -> Result<(), std::io::Error> {
+    let mut text = String::with_capacity(bytes.len() * 2);
+    for &byte in bytes {
+        text.push(char::from_digit((byte >> 4) as u32, 16).expect("上位四 bit は十六進の桁"));
+        text.push(char::from_digit((byte & 0xf) as u32, 16).expect("下位四 bit は十六進の桁"));
+    }
+    writeln!(target, "{text}")
+}
+
+/// `dump_byte_string` が書いた一行を読み戻す。
+pub fn undump_byte_string<'a>(
+    lines: &mut impl Iterator<Item = &'a str>,
+) -> Result<Vec<u8>, FormatError> {
+    let text = lines.next().ok_or(FormatError::IncompleteFile)?;
+    let digits = text.as_bytes();
+    if digits.len() % 2 != 0 {
+        return Err(FormatError::ParseError);
+    }
+    let mut bytes = Vec::new();
+    bytes
+        .try_reserve(bounded_initial_capacity::<u8>(digits.len() / 2))
+        .map_err(|_| FormatError::AllocationFailed)?;
+    for pair in digits.chunks_exact(2) {
+        let high = hex_digit(pair[0])?;
+        let low = hex_digit(pair[1])?;
+        bytes.push(high << 4 | low);
+    }
+    Ok(bytes)
+}
+
+fn hex_digit(byte: u8) -> Result<u8, FormatError> {
+    match byte {
+        b'0'..=b'9' => Ok(byte - b'0'),
+        b'a'..=b'f' => Ok(byte - b'a' + 10),
+        _ => Err(FormatError::ParseError),
+    }
 }
 
 pub trait Dumpable {

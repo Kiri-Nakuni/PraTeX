@@ -5,6 +5,7 @@ use crate::macros::Macro;
 use crate::print::Printer;
 use crate::token::{print_uptex_code_point, push_uptex_utf8};
 
+use crate::format::{dump_byte_string, undump_byte_string};
 use crate::fx_hash::FxHashMap;
 use std::collections::HashMap;
 use std::io::Write;
@@ -866,7 +867,7 @@ impl ControlSequenceStore {
         for (key, id) in hash {
             ns.dump(target)?;
             active.dump(target)?;
-            key.dump(target)?;
+            dump_byte_string(key, target)?;
             id.dump(target)?;
         }
         Ok(())
@@ -881,7 +882,7 @@ impl ControlSequenceStore {
         for _ in 0..count {
             let ns = Option::<NamespaceId>::undump(lines)?;
             let active = bool::undump(lines)?;
-            let key = Vec::<u8>::undump(lines)?;
+            let key = undump_byte_string(lines)?;
             let id = ControlSequenceId::undump(lines)?;
             hashes.insert(ns, active, key, id)?;
         }
@@ -1096,7 +1097,13 @@ impl Dumpable for ControlSequenceStore {
         self.null_cs.dump(target)?;
         self.dump_hash(target)?;
         self.dump_wide_hash(target)?;
-        self.escaped.dump(target)?;
+        // NOTE: 制御綴の名前は一行の十六進で書く。既定の `Vec<u8>` の形だと
+        // 一 byte 一行になり、fmt の行数の大半を占める。
+        writeln!(target, "{}", self.escaped.len())?;
+        for (command, name) in &self.escaped {
+            command.dump(target)?;
+            dump_byte_string(name, target)?;
+        }
         self.escaped_ns.dump(target)?;
         self.escaped_active.dump(target)?;
         self.escaped_wide_active.dump(target)?;
@@ -1126,7 +1133,18 @@ impl Dumpable for ControlSequenceStore {
         let mut undumped_hashes = UndumpedControlSequenceHashes::default();
         Self::undump_hash(lines, &mut undumped_hashes)?;
         Self::undump_wide_hash(lines, &mut undumped_hashes)?;
-        let escaped: Vec<CommandStoreEntry> = Vec::undump(lines)?;
+        let escaped_len = usize::undump(lines)?;
+        let mut escaped: Vec<CommandStoreEntry> = Vec::new();
+        escaped
+            .try_reserve(crate::format::bounded_initial_capacity::<CommandStoreEntry>(
+                escaped_len,
+            ))
+            .map_err(|_| FormatError::AllocationFailed)?;
+        for _ in 0..escaped_len {
+            let command = Command::undump(lines)?;
+            let name = undump_byte_string(lines)?;
+            escaped.push((command, name));
+        }
         let escaped_ns: Vec<Option<NamespaceId>> = Vec::undump(lines)?;
         let escaped_active: Vec<Option<u8>> = Vec::undump(lines)?;
         let escaped_wide_active: Vec<Option<u32>> = Vec::undump(lines)?;
@@ -1720,7 +1738,8 @@ mod namespace_tests {
 
     #[test]
     fn 壊れたfmtの重複制御綴索引を拒む() {
-        let duplicate = "2\nNone\nfalse\n1\n120\n0\nNone\nfalse\n1\n120\n1\n";
+        // 名前は一行の十六進。`78` は byte 120、つまり `x` である。
+        let duplicate = "2\nNone\nfalse\n78\n0\nNone\nfalse\n78\n1\n";
         let mut hashes = UndumpedControlSequenceHashes::default();
         assert!(matches!(
             ControlSequenceStore::undump_hash(&mut duplicate.lines(), &mut hashes),
@@ -1730,7 +1749,7 @@ mod namespace_tests {
 
     #[test]
     fn 壊れたfmtの名前空間つき重複制御綴索引を拒む() {
-        let duplicate = "2\nSome\n0\nfalse\n1\n120\n0\nSome\n0\nfalse\n1\n120\n1\n";
+        let duplicate = "2\nSome\n0\nfalse\n78\n0\nSome\n0\nfalse\n78\n1\n";
         let mut hashes = UndumpedControlSequenceHashes::default();
         assert!(matches!(
             ControlSequenceStore::undump_hash(&mut duplicate.lines(), &mut hashes),
@@ -1769,7 +1788,8 @@ mod namespace_tests {
             Err(FormatError::ParseError)
         ));
 
-        let one_byte_entry = "1\nNone\nfalse\n1\n120\n0\n";
+        // 名前は一行の十六進で書く。`78` は byte 120、つまり `x` である。
+        let one_byte_entry = "1\nNone\nfalse\n78\n0\n";
         let mut hashes = UndumpedControlSequenceHashes::default();
         ControlSequenceStore::undump_hash(&mut one_byte_entry.lines(), &mut hashes).unwrap();
         let overflowing_total = format!("{capacity}\n");

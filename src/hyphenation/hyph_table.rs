@@ -1747,7 +1747,11 @@ impl Dumpable for HyfOp {
 impl Dumpable for PreTrie {
     fn dump(&self, target: &mut impl Write) -> Result<(), std::io::Error> {
         self.nodes.dump(target)?;
-        self.subtrie_hash.dump(target)?;
+        // NOTE: `subtrie_hash` is a build-time cache. `undump` already discards what it
+        // reads and starts from an empty map, because the reachable node graph is the
+        // authoritative copy and a format file must not be trusted for it. Writing it
+        // therefore only makes the format file larger and costs a full parse of a
+        // structure that is thrown away at every start.
         for ops in &self.hyf_ops {
             ops.dump(target)?;
         }
@@ -1761,9 +1765,7 @@ impl Dumpable for PreTrie {
         let mut pre_trie = PreTrie::new();
         pre_trie.nodes = Vec::undump(lines)?;
         // Representatives are a build-time cache. The reachable node graph is
-        // authoritative, so do not trust stale or forged cache entries from a
-        // format file.
-        let _: HashMap<PreTrieNode, usize> = HashMap::undump(lines)?;
+        // authoritative, so it is rebuilt rather than read back.
         pre_trie.subtrie_hash = HashMap::new();
         for i in 0..pre_trie.hyf_ops.len() {
             let ops = Vec::undump(lines)?;
