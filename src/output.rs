@@ -343,6 +343,28 @@ impl Document {
         let base_line = self.cur_v;
         let left_edge = self.cur_h;
         for node in hlist {
+            // NOTE: 620. keeps a run of character nodes inside a tight inner loop and
+            // only leaves it for other node types. Characters make up most of an hlist,
+            // so handling them here avoids an eleven-argument call per character.
+            if let &Node::Char(CharNode {
+                font_index,
+                character,
+                width,
+                ..
+            })
+            | &Node::Ligature(LigatureNode {
+                font_index,
+                character,
+                width,
+                ..
+            }) = node
+            {
+                self.synch_h();
+                self.synch_v();
+                self.output_char(font_index, character, width, eqtb);
+                self.dvi_h = self.cur_h;
+                continue;
+            }
             self.output_node_p_for_hlist_out(
                 node,
                 this_box,
