@@ -1,1 +1,4 @@
 /target
+
+# 計測の生成物。再現手順は docs/benchmarks/ にある。
+/bench-results/
