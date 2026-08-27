@@ -1120,26 +1120,28 @@ impl<'a> Cursor<'a> {
                 } else {
                     false
                 };
+                let dimensions = font.dimensions(lig_item.character);
                 self.cut_prefix.push(Node::Ligature(LigatureNode {
                     font_index: self.font_index,
                     character: lig_item.character,
-                    width: font.width(lig_item.character),
-                    height: font.height(lig_item.character),
-                    depth: font.depth(lig_item.character),
-                    italic: font.italic(lig_item.character),
+                    width: dimensions.width,
+                    height: dimensions.height,
+                    depth: dimensions.depth,
+                    italic: dimensions.italic,
                     lig: lig_item.consumed_chars,
                     left_boundary: lig_item.left_boundary,
                     right_boundary,
                 }));
             }
             LeftNode::Char(character) => {
+                let dimensions = font.dimensions(character);
                 self.cut_prefix.push(Node::Char(CharNode {
                     font_index: self.font_index,
                     character,
-                    width: font.width(character),
-                    height: font.height(character),
-                    depth: font.depth(character),
-                    italic: font.italic(character),
+                    width: dimensions.width,
+                    height: dimensions.height,
+                    depth: dimensions.depth,
+                    italic: dimensions.italic,
                 }));
             }
             LeftNode::None => {}

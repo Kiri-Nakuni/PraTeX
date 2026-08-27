@@ -248,10 +248,10 @@ impl FontInfo {
         for cur_char in tfm_header.bc..=tfm_header.ec {
             let [a, b, c, d] = file.get_four_quarters()?;
             let char_info = CharInfo {
-                width_index: a as usize,
-                height_index: b as usize / 16,
-                depth_index: b as usize % 16,
-                italic_index: c as usize / 4,
+                width_index: a,
+                height_index: b / 16,
+                depth_index: b % 16,
+                italic_index: c / 4,
                 tag: match c % 4 {
                     0 => CharTag::None,
                     1 => CharTag::Lig(d as usize),
@@ -260,10 +260,10 @@ impl FontInfo {
                     _ => panic!("Impossible"),
                 },
             };
-            if char_info.width_index >= tfm_header.nw
-                || char_info.height_index >= tfm_header.nh
-                || char_info.depth_index >= tfm_header.nd
-                || char_info.italic_index >= tfm_header.ni
+            if char_info.width_index as usize >= tfm_header.nw
+                || char_info.height_index as usize >= tfm_header.nh
+                || char_info.depth_index as usize >= tfm_header.nd
+                || char_info.italic_index as usize >= tfm_header.ni
             {
                 return Err(TfmError::BadFormat);
             }
@@ -650,19 +650,35 @@ impl FontInfo {
     }
 
     pub fn width(&self, c: u8) -> Dimension {
-        self.widths[self.char_info(c).width_index]
+        self.widths[self.char_info(c).width_index as usize]
     }
 
     pub fn height(&self, c: u8) -> Dimension {
-        self.heights[self.char_info(c).height_index]
+        self.heights[self.char_info(c).height_index as usize]
     }
 
     pub fn depth(&self, c: u8) -> Dimension {
-        self.depths[self.char_info(c).depth_index]
+        self.depths[self.char_info(c).depth_index as usize]
     }
 
     pub fn italic(&self, c: u8) -> Dimension {
-        self.italics[self.char_info(c).italic_index]
+        self.italics[self.char_info(c).italic_index as usize]
+    }
+
+    /// Returns all four dimensions of a character from a single `CharInfo` lookup.
+    ///
+    /// NOTE: Calling `width`, `height`, `depth` and `italic` separately fetches the
+    /// same `CharInfo` four times and bounds-checks it four times. Character and
+    /// ligature nodes are built for every character of the text, so this sits in the
+    /// innermost part of the main loop (see 1035.).
+    pub fn dimensions(&self, c: u8) -> CharDimensions {
+        let char_info = self.char_info(c);
+        CharDimensions {
+            width: self.widths[char_info.width_index as usize],
+            height: self.heights[char_info.height_index as usize],
+            depth: self.depths[char_info.depth_index as usize],
+            italic: self.italics[char_info.italic_index as usize],
+        }
     }
 
     pub fn tag(&self, c: u8) -> CharTag {
@@ -748,11 +764,25 @@ struct TfmHeader {
 
 #[derive(Debug)]
 pub struct CharInfo {
-    width_index: usize,
-    height_index: usize,
-    depth_index: usize,
-    italic_index: usize,
+    // NOTE: The TFM format stores these as one byte, two nibbles and six bits
+    // respectively (see 543.), so they always fit into a `u8`. Keeping them as
+    // `usize` made a `CharInfo` five times larger than it needs to be, and the
+    // `char_infos` array is scanned once per character of the text.
+    width_index: u8,
+    height_index: u8,
+    depth_index: u8,
+    italic_index: u8,
     pub tag: CharTag,
+}
+
+/// The four dimensions of a single character.
+/// See 554.
+#[derive(Debug, Clone, Copy)]
+pub struct CharDimensions {
+    pub width: Dimension,
+    pub height: Dimension,
+    pub depth: Dimension,
+    pub italic: Dimension,
 }
 
 /// See 544.
@@ -1059,13 +1089,14 @@ pub fn new_character(
 ) -> Option<CharNode> {
     let font = &eqtb.fonts[font_index as usize];
     if font.bc <= c && font.ec >= c && font.char_exists(c) {
+        let dimensions = font.dimensions(c);
         Some(CharNode {
             font_index,
             character: c,
-            width: font.width(c),
-            height: font.height(c),
-            depth: font.depth(c),
-            italic: font.italic(c),
+            width: dimensions.width,
+            height: dimensions.height,
+            depth: dimensions.depth,
+            italic: dimensions.italic,
         })
     } else {
         char_warning(font, c, eqtb, logger);
@@ -1084,10 +1115,10 @@ impl Dumpable for CharInfo {
     }
 
     fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
-        let width_index = usize::undump(lines)?;
-        let height_index = usize::undump(lines)?;
-        let depth_index = usize::undump(lines)?;
-        let italic_index = usize::undump(lines)?;
+        let width_index = u8::undump(lines)?;
+        let height_index = u8::undump(lines)?;
+        let depth_index = u8::undump(lines)?;
+        let italic_index = u8::undump(lines)?;
         let tag = CharTag::undump(lines)?;
         Ok(Self {
             width_index,

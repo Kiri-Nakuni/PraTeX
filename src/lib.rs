@@ -354,7 +354,21 @@ fn round(x: f64) -> i32 {
     } else if x < (i32::MIN + 1) as f64 {
         i32::MIN + 1
     } else {
-        x.round() as i32
+        // NOTE: `f64::round` has no single-instruction form on baseline x86-64
+        // because SSE4.1 (`roundsd`) is not part of the target, so LLVM expands it
+        // into a dozen instructions. Truncating and then inspecting the fraction
+        // gives exactly the same result with a handful. Within the range guarded
+        // above, `x as i32` truncates toward zero exactly and the subtraction of
+        // the truncated value is exact, so ties still round away from zero.
+        let truncated = x as i32;
+        let fraction = x - truncated as f64;
+        if fraction >= 0.5 {
+            truncated + 1
+        } else if fraction <= -0.5 {
+            truncated - 1
+        } else {
+            truncated
+        }
     }
 }
 
@@ -410,4 +424,46 @@ fn read_line(f: &mut impl BufRead, line: &mut Vec<u8>) -> bool {
         line.pop();
     }
     true
+}
+
+#[cfg(test)]
+mod 丸め {
+    use super::round;
+
+    /// `round` は DVI の座標を決めるので、丸めが一つずれれば出力が変わる。
+    /// `f64::round` を使わない実装へ変えたため、境界と半端の扱いが元と
+    /// 同じであることを固定する。
+    #[test]
+    fn 標準の丸めと一致する() {
+        let mut values = Vec::new();
+        // 半端の前後、負の側、整数ちょうど
+        for n in -2000..=2000 {
+            let x = n as f64 / 4.0;
+            values.push(x);
+            values.push(x + f64::EPSILON * x.abs().max(1.0));
+            values.push(x - f64::EPSILON * x.abs().max(1.0));
+        }
+        // 0.5 の直前という古典的な難所
+        values.push(0.499_999_999_999_999_94);
+        values.push(-0.499_999_999_999_999_94);
+        // sp 目盛りの大きい値
+        for n in [1 << 20, 1 << 24, 1 << 29] {
+            for d in [-1.5, -0.5, 0.0, 0.5, 1.5] {
+                values.push(n as f64 + d);
+                values.push(-(n as f64) + d);
+            }
+        }
+        for x in values {
+            assert_eq!(round(x), x.round() as i32, "x = {x}");
+        }
+    }
+
+    /// 範囲外は飽和させる。負の側は符号反転を安全にするため i32::MIN + 1 で止める。
+    #[test]
+    fn 範囲外は飽和する() {
+        assert_eq!(round(1e18), i32::MAX);
+        assert_eq!(round(-1e18), i32::MIN + 1);
+        assert_eq!(round(i32::MAX as f64), i32::MAX);
+        assert_eq!(round((i32::MIN + 1) as f64), i32::MIN + 1);
+    }
 }
