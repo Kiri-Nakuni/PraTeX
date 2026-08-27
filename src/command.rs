@@ -386,3 +386,4 @@ fn chr_cmd(command_description: &str, character: u8, printer: &mut impl Printer)
     printer.print_str(command_description);
     printer.print(character);
 }
+

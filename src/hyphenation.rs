@@ -26,7 +26,11 @@ impl Hyphenator {
     ) -> Vec<Node> {
         self.initialize_for_hyphenating_paragraph();
 
-        let mut hyphenated_hlist = Vec::new();
+        // NOTE: The whole paragraph is rebuilt into this list, so growing it from
+        // empty reallocates and copies 80-byte nodes once per doubling. Hyphenation
+        // only inserts discretionaries, so the result is never much longer than the
+        // input.
+        let mut hyphenated_hlist = Vec::with_capacity(hlist.len());
         let mut nodes = hlist.into_iter();
         let mut auto_breaking = true;
 

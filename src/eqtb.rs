@@ -987,29 +987,37 @@ impl Eqtb {
     /// NOTE: We need to ensure that this is called whenever the last node of the current list has
     /// been changed.
     pub fn update_last_node_info(&mut self, last_node: Option<&Node>) {
-        self.last_node_info = if let Some(last_node) = last_node {
-            match last_node {
-                Node::Penalty(penalty_node) => LastNodeInfo::Penalty(penalty_node.penalty),
-                Node::Kern(kern_node) => LastNodeInfo::Kern(kern_node.width),
-                Node::Disc(disc_node) => {
-                    if let Some(Node::Kern(kern_node)) = disc_node.no_break.last() {
-                        LastNodeInfo::Kern(kern_node.width)
-                    } else {
-                        LastNodeInfo::Other
-                    }
+        // NOTE: This runs for every node that is appended to any list, so it sits in
+        // the innermost part of the main loop. Character nodes dominate by far and all
+        // of them map to `Other`. Assigning `Other` over an existing `Other` would
+        // still drop the old value, which for the glue variants means touching a
+        // reference count. Leaving the field untouched in that case keeps the common
+        // path down to a discriminant test.
+        let new_info = match last_node {
+            Some(Node::Penalty(penalty_node)) => LastNodeInfo::Penalty(penalty_node.penalty),
+            Some(Node::Kern(kern_node)) => LastNodeInfo::Kern(kern_node.width),
+            Some(Node::Disc(disc_node)) => {
+                if let Some(Node::Kern(kern_node)) = disc_node.no_break.last() {
+                    LastNodeInfo::Kern(kern_node.width)
+                } else {
+                    LastNodeInfo::Other
                 }
-                Node::Glue(glue_node) => {
-                    if let GlueType::MuGlue = glue_node.subtype {
-                        LastNodeInfo::MuGlue(glue_node.glue_spec.clone())
-                    } else {
-                        LastNodeInfo::Glue(glue_node.glue_spec.clone())
-                    }
-                }
-                _ => LastNodeInfo::Other,
             }
-        } else {
-            LastNodeInfo::Other
+            Some(Node::Glue(glue_node)) => {
+                if let GlueType::MuGlue = glue_node.subtype {
+                    LastNodeInfo::MuGlue(glue_node.glue_spec.clone())
+                } else {
+                    LastNodeInfo::Glue(glue_node.glue_spec.clone())
+                }
+            }
+            _ => {
+                if let LastNodeInfo::Other = self.last_node_info {
+                    return;
+                }
+                LastNodeInfo::Other
+            }
         };
+        self.last_node_info = new_info;
     }
 }
 
