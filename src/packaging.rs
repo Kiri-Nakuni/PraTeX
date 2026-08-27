@@ -56,6 +56,16 @@ pub fn hpack(hlist: Vec<Node>, spec: TargetSpec, eqtb: &mut Eqtb, logger: &mut L
 /// of the reduced hlist and the adjust material.
 /// See 651. and 655.
 pub fn split_adjust_material_off(hlist: &mut Vec<Node>) -> Vec<Node> {
+    // NOTE: This runs for every line of every paragraph, and almost no line carries
+    // adjustment material. Deciding that with a plain iterator first keeps the common
+    // case free of the bounds checks and of the shifting that `Vec::remove` would do.
+    if !hlist
+        .iter()
+        .any(|node| matches!(node, Node::Ins(_) | Node::Mark(_) | Node::Adjust(_)))
+    {
+        return Vec::new();
+    }
+
     let mut adjust_material = Vec::new();
     // NOTE Consider using Vec::drain_filter/extract_if once it's stable.
     let mut i = 0;

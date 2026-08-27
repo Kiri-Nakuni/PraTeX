@@ -40,6 +40,10 @@ use crate::token::Token;
 use crate::vertical_mode::VerticalMode;
 use crate::{norm_min, round};
 
+/// 段落の節点列に最初から確保しておく要素数。
+/// 一行あたりおよそ 60 節点なので、数行分に相当する。
+const PARAGRAPH_LIST_CAPACITY: usize = 256;
+
 use std::rc::Rc;
 
 /// See 1071.
@@ -661,7 +665,11 @@ pub fn new_graf(
     };
     nest.push_nest(
         RichMode::Horizontal(HorizontalMode {
-            list: Vec::new(),
+            // NOTE: A paragraph collects one node per character, so growing from
+            // empty reallocates and copies 80-byte nodes about ten times before it
+            // settles. A paragraph shorter than this is cheap either way, so the
+            // reservation costs nothing that matters.
+            list: Vec::with_capacity(PARAGRAPH_LIST_CAPACITY),
             subtype: HorizontalModeType::Unrestricted {
                 clang: hyphenator.cur_lang as u16,
                 lang_data,
