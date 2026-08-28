@@ -1699,4 +1699,3 @@ pub fn show_box(list_node: &ListNode, eqtb: &Eqtb, logger: &mut Logger) {
     show_list_node(list_node, b"", max_depth, max_breadth, eqtb, logger);
     logger.print_ln();
 }
-
