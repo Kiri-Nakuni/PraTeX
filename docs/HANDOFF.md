@@ -23,7 +23,8 @@
 
 - **`claude1/perf-integration` と `claude1/tex82-perf` は Claude が作った性能枝である。**
   利用者の明示指示により、通常は Codex が持つ `src/` `docs/` `tools/` を触っている。
-  どちらも未 push で、`full` へも `codex3/*` へも merge していない。
+  どちらも `origin` へ push 済みである（`github` remote は鍵が無く push できていない）。
+  `full` へも `codex3/*` へも merge していない。
   一次資料は [`benchmarks/claude1-startup-and-hash-20260828.md`](benchmarks/claude1-startup-and-hash-20260828.md)
   と、`claude1/tex82-perf` 側の `docs/knuth-tex-gap.md` である。
   - `claude1/perf-integration` は `codex3/roadmap-integration` の `36af0ee` から分岐した。
