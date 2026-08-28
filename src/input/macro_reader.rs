@@ -51,6 +51,11 @@ impl MacroArguments {
         self.tokens = std::mem::take(scanner_argument);
     }
 
+    /// 溜めた領域を取り出す。読み終えた呼び出しからの回収に使う。
+    pub fn into_tokens(self) -> Vec<Token> {
+        self.tokens
+    }
+
     pub fn has_references(&self) -> bool {
         self.has_references
     }

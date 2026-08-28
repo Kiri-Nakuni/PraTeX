@@ -32,6 +32,8 @@ pub struct InputStack {
     line_number: usize,
     /// Stores the line number of all but the most recent input file (and the terminal input).
     line_number_stack: Vec<usize>,
+    /// 読み終えたマクロ呼び出しから回収した、引数用の領域。
+    spare_argument_tokens: Vec<Token>,
     /// This is set by an \endinput command and means the current line is
     /// the last line that will be fetched from the current file.
     /// See 361.
@@ -129,6 +131,7 @@ impl InputStack {
             max_in_stack: 0,
             line_number: 0,
             line_number_stack: Vec::new(),
+            spare_argument_tokens: Vec::new(),
             force_eof: false,
             first_line,
             virtual_input_bytes_live: 0,
@@ -209,7 +212,39 @@ impl InputStack {
             self.virtual_input_bytes_live = self.virtual_input_bytes_live.saturating_sub(*charge);
         }
         let prev_source = self.stack.pop().expect("`pop_input` called on empty stack");
-        self.cur_source = prev_source;
+        let finished = std::mem::replace(&mut self.cur_source, prev_source);
+        self.reclaim_argument_tokens(finished);
+    }
+
+    /// 読み終えたマクロ呼び出しから、引数を溜めていた領域を回収する。
+    ///
+    /// NOTE: `MacroArguments::finish_scanning` は scanner の作業用領域をそのまま
+    /// 受け取る。返さないと、次のマクロ呼び出しは空の `Vec` から育て直すことになり、
+    /// 呼び出しごとに確保と解放が一組ずつ増える。読み終えた呼び出しの領域は
+    /// もう誰も見ていないので、控えとして持っておいて次へ回す。
+    /// 引数を差し込んでいる途中の source が残っていれば参照が一つではないので、
+    /// その場合は普通に捨てる。
+    fn reclaim_argument_tokens(&mut self, finished: InputSource) {
+        let InputSource::MacroCall { reader } = finished else {
+            return;
+        };
+        let Some(parameters) = reader.parameters else {
+            return;
+        };
+        let Ok(parameters) = Rc::try_unwrap(parameters) else {
+            return;
+        };
+        let tokens = parameters.into_tokens();
+        if tokens.capacity() > self.spare_argument_tokens.capacity() {
+            self.spare_argument_tokens = tokens;
+        }
+    }
+
+    /// 控えの領域を空にして貸し出す。無ければ新しく作る。
+    pub fn take_spare_argument_tokens(&mut self) -> Vec<Token> {
+        let mut tokens = std::mem::take(&mut self.spare_argument_tokens);
+        tokens.clear();
+        tokens
     }
 
     /// See 323.

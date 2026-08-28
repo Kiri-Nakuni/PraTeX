@@ -79,6 +79,9 @@ pub fn macro_expand(
         }
         if parameters.has_references() {
             parameters.finish_scanning(&mut scanner.argument);
+            // 作業用領域は今の呼び出しへ渡した。読み終えた呼び出しから回収した
+            // 控えを受け取り、次の走査を空から育て直さない。
+            scanner.argument = scanner.input_stack.take_spare_argument_tokens();
         } else {
             debug_assert!(scanner.argument.is_empty());
         }
