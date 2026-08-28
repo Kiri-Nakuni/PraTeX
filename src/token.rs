@@ -427,125 +427,124 @@ impl Token {
     }
 }
 
-impl Dumpable for Token {
-    fn dump(&self, target: &mut impl Write) -> Result<(), std::io::Error> {
-        match self {
-            Self::LeftBrace(c) => {
-                writeln!(target, "LeftBrace")?;
-                c.dump(target)?;
-            }
-            Self::RightBrace(c) => {
-                writeln!(target, "RightBrace")?;
-                c.dump(target)?;
-            }
-            Self::MathShift(c) => {
-                writeln!(target, "MathShift")?;
-                c.dump(target)?;
-            }
-            Self::TabMark(c) => {
-                writeln!(target, "TabMark")?;
-                c.dump(target)?;
-            }
-            Self::MacParam(c) => {
-                writeln!(target, "MacParam")?;
-                c.dump(target)?;
-            }
-            Self::SuperMark(c) => {
-                writeln!(target, "SuperMark")?;
-                c.dump(target)?;
-            }
-            Self::SubMark(c) => {
-                writeln!(target, "SubMark")?;
-                c.dump(target)?;
-            }
-            Self::Spacer(c) => {
-                writeln!(target, "Spacer")?;
-                c.dump(target)?;
-            }
-            Self::Letter(c) => {
-                writeln!(target, "Letter")?;
-                c.dump(target)?;
-            }
-            Self::OtherChar(c) => {
-                writeln!(target, "OtherChar")?;
-                c.dump(target)?;
-            }
-            Self::LatinUcsChar(token) => {
-                writeln!(target, "LatinUcsChar")?;
-                token.dump(target)?;
-            }
-            Self::CjkChar(token) => {
-                writeln!(target, "CjkChar")?;
-                token.dump(target)?;
-            }
-            Self::Null => writeln!(target, "Null")?,
-            Self::CSToken { cs } => {
-                writeln!(target, "CSToken")?;
-                cs.dump(target)?;
-            }
-        }
-        Ok(())
+/// fmt で `Token` を表す一行の符号。
+///
+/// NOTE: 変種名と値を別の行に書くと、`latex.fmt` では token 一個につき二行以上
+/// になり、行数の大きな部分を占める。読む側も変種名を文字列比較で振り分ける。
+/// 文字系の変種は「種別 * 256 + 文字コード」で一つの数に収まるので、一行の
+/// 整数にまとめる。残りの四種は数のあとに従来どおり中身を続ける。
+mod token_code {
+    /// 文字系変種の個数。`LeftBrace` から `OtherChar` まで。
+    pub(super) const CHAR_KINDS: u32 = 10;
+    pub(super) const NULL: u32 = CHAR_KINDS * 256;
+    pub(super) const LATIN_UCS: u32 = NULL + 1;
+    pub(super) const CJK: u32 = NULL + 2;
+    pub(super) const CS: u32 = NULL + 3;
+    /// `MacroToken` はこれより大きい符号を自分の変種へ使う。
+    pub(super) const MAX: u32 = NULL + 3;
+}
+
+impl Token {
+    /// `MacroToken` が符号を先に読んでから中身を組み立てるための入口。
+    pub(crate) const MAX_DUMP_CODE: u32 = token_code::MAX;
+
+    /// この token を表す一行の符号を返す。文字系はここで値まで畳み込む。
+    fn dump_code(&self) -> u32 {
+        let kind = match self {
+            Self::LeftBrace(_) => 0,
+            Self::RightBrace(_) => 1,
+            Self::MathShift(_) => 2,
+            Self::TabMark(_) => 3,
+            Self::MacParam(_) => 4,
+            Self::SuperMark(_) => 5,
+            Self::SubMark(_) => 6,
+            Self::Spacer(_) => 7,
+            Self::Letter(_) => 8,
+            Self::OtherChar(_) => 9,
+            Self::Null => return token_code::NULL,
+            Self::LatinUcsChar(_) => return token_code::LATIN_UCS,
+            Self::CjkChar(_) => return token_code::CJK,
+            Self::CSToken { .. } => return token_code::CS,
+        };
+        let character = match *self {
+            Self::LeftBrace(c)
+            | Self::RightBrace(c)
+            | Self::MathShift(c)
+            | Self::TabMark(c)
+            | Self::MacParam(c)
+            | Self::SuperMark(c)
+            | Self::SubMark(c)
+            | Self::Spacer(c)
+            | Self::Letter(c)
+            | Self::OtherChar(c) => c,
+            _ => unreachable!("文字系の変種だけがここへ来る"),
+        };
+        kind * 256 + character as u32
     }
 
-    fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
-        let variant = lines.next().ok_or(FormatError::IncompleteFile)?;
-        match variant {
-            "LeftBrace" => {
-                let c = u8::undump(lines)?;
-                Ok(Self::LeftBrace(c))
-            }
-            "RightBrace" => {
-                let c = u8::undump(lines)?;
-                Ok(Self::RightBrace(c))
-            }
-            "MathShift" => {
-                let c = u8::undump(lines)?;
-                Ok(Self::MathShift(c))
-            }
-            "TabMark" => {
-                let c = u8::undump(lines)?;
-                Ok(Self::TabMark(c))
-            }
-            "MacParam" => {
-                let c = u8::undump(lines)?;
-                Ok(Self::MacParam(c))
-            }
-            "SuperMark" => {
-                let c = u8::undump(lines)?;
-                Ok(Self::SuperMark(c))
-            }
-            "SubMark" => {
-                let c = u8::undump(lines)?;
-                Ok(Self::SubMark(c))
-            }
-            "Spacer" => {
-                let c = u8::undump(lines)?;
-                Ok(Self::Spacer(c))
-            }
-            "Letter" => {
-                let c = u8::undump(lines)?;
-                Ok(Self::Letter(c))
-            }
-            "OtherChar" => {
-                let c = u8::undump(lines)?;
-                Ok(Self::OtherChar(c))
-            }
-            "LatinUcsChar" => {
+    /// 符号のあとに続く中身を書く。文字系は符号に畳み込んであるので何も書かない。
+    pub(crate) fn dump_after_code(&self, target: &mut impl Write) -> Result<(), std::io::Error> {
+        match self {
+            Self::LatinUcsChar(token) => token.dump(target),
+            Self::CjkChar(token) => token.dump(target),
+            Self::CSToken { cs } => cs.dump(target),
+            _ => Ok(()),
+        }
+    }
+
+    /// 読み終えた符号から token を組み立てる。
+    pub(crate) fn undump_from_code<'a>(
+        code: u32,
+        lines: &mut impl Iterator<Item = &'a str>,
+    ) -> Result<Self, FormatError> {
+        match code {
+            token_code::NULL => Ok(Self::Null),
+            token_code::LATIN_UCS => {
                 let token = LatinUcsToken::undump(lines)?;
+                // 生の文字 token になり得る catcode だけを受ける。fmt は信用しない。
                 if token.has_raw_token_cat_code() {
                     Ok(Self::LatinUcsChar(token))
                 } else {
                     Err(FormatError::ParseError)
                 }
             }
-            "CjkChar" => Ok(Self::CjkChar(CjkToken::undump(lines)?)),
-            "Null" => Ok(Self::Null),
-            "CSToken" => {
-                let cs = ControlSequence::undump(lines)?;
-                Ok(Self::CSToken { cs })
+            token_code::CJK => Ok(Self::CjkChar(CjkToken::undump(lines)?)),
+            token_code::CS => Ok(Self::CSToken {
+                cs: ControlSequence::undump(lines)?,
+            }),
+            _ => {
+                let kind = code / 256;
+                let character = (code % 256) as u8;
+                match kind {
+                    0 => Ok(Self::LeftBrace(character)),
+                    1 => Ok(Self::RightBrace(character)),
+                    2 => Ok(Self::MathShift(character)),
+                    3 => Ok(Self::TabMark(character)),
+                    4 => Ok(Self::MacParam(character)),
+                    5 => Ok(Self::SuperMark(character)),
+                    6 => Ok(Self::SubMark(character)),
+                    7 => Ok(Self::Spacer(character)),
+                    8 => Ok(Self::Letter(character)),
+                    9 => Ok(Self::OtherChar(character)),
+                    _ => Err(FormatError::ParseError),
+                }
             }
-            _ => Err(FormatError::ParseError),
         }
+    }
+}
+
+impl Dumpable for Token {
+    fn dump(&self, target: &mut impl Write) -> Result<(), std::io::Error> {
+        writeln!(target, "{}", self.dump_code())?;
+        self.dump_after_code(target)
+    }
+
+    fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
+        let code = u32::undump(lines)?;
+        if code > token_code::MAX {
+            return Err(FormatError::ParseError);
+        }
+        Self::undump_from_code(code, lines)
     }
 }
 
@@ -634,9 +633,10 @@ mod tests {
     #[test]
     fn 和文字句の壊れたformatを拒否する() {
         for input in [
-            "CjkChar\n12354\n15\n",
-            "CjkChar\n12354\n21\n",
-            "CjkChar\n1114112\n18\n",
+            // `2562` は `CjkChar` の符号である。
+            "2562\n12354\n15\n",
+            "2562\n12354\n21\n",
+            "2562\n1114112\n18\n",
         ] {
             assert!(matches!(
                 Token::undump(&mut input.lines()),
@@ -644,7 +644,7 @@ mod tests {
             ));
         }
 
-        for input in ["CjkChar\n", "CjkChar\n12354\n"] {
+        for input in ["2562\n", "2562\n12354\n"] {
             assert!(matches!(
                 Token::undump(&mut input.lines()),
                 Err(FormatError::IncompleteFile)
@@ -662,12 +662,13 @@ mod tests {
         assert!(LatinUcsToken::new(0x2E80, CatCode::OtherChar).is_none());
 
         for input in [
-            "LatinUcsChar\n127\nLetter\n",
-            "LatinUcsChar\n11904\nLetter\n",
-            "LatinUcsChar\n223\nnot-a-catcode\n",
-            "LatinUcsChar\n223\nEscape\n",
-            "LatinUcsChar\n223\nActiveChar\n",
-            "LatinUcsChar\n223\nInvalidChar\n",
+            // `2561` は `LatinUcsChar` の符号である。
+            "2561\n127\nLetter\n",
+            "2561\n11904\nLetter\n",
+            "2561\n223\nnot-a-catcode\n",
+            "2561\n223\nEscape\n",
+            "2561\n223\nActiveChar\n",
+            "2561\n223\nInvalidChar\n",
         ] {
             assert!(Token::undump(&mut input.lines()).is_err());
         }

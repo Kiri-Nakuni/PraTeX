@@ -4,7 +4,7 @@
 use crate::command::{FontCharDimension, PrefixableCommand, UnexpandableCommand};
 use crate::dimension::Dimension;
 use crate::eqtb::{ControlSequence, Eqtb, FontIndex, FontVariable, IntegerVariable, NULL_FONT};
-use crate::format::{Dumpable, FormatError};
+use crate::format::{dump_run_lengths, undump_run_lengths, Dumpable, FormatError};
 use crate::input::Scanner;
 use crate::integer::{Integer, IntegerExt};
 use crate::logger::Logger;
@@ -969,13 +969,15 @@ impl Dumpable for FontInfo {
         self.bchar.dump(target)?;
         self.false_bchar.dump(target)?;
         self.char_infos.dump(target)?;
-        self.widths.dump(target)?;
-        self.heights.dump(target)?;
-        self.depths.dump(target)?;
-        self.italics.dump(target)?;
+        // NOTE: 寸法の並びは同じ値が続きやすい。特に expl3 の catcode table は
+        // `\fontdimen` を 65,536 個まで伸ばし、その中身は全て零である。
+        dump_run_lengths(&self.widths, target)?;
+        dump_run_lengths(&self.heights, target)?;
+        dump_run_lengths(&self.depths, target)?;
+        dump_run_lengths(&self.italics, target)?;
         self.lig_kerns.dump(target)?;
         self.extens.dump(target)?;
-        self.params.dump(target)?;
+        dump_run_lengths(&self.params, target)?;
         Ok(())
     }
 
@@ -995,13 +997,13 @@ impl Dumpable for FontInfo {
         let bchar = Option::undump(lines)?;
         let false_bchar = Option::undump(lines)?;
         let char_infos = Vec::undump(lines)?;
-        let widths = Vec::undump(lines)?;
-        let heights = Vec::undump(lines)?;
-        let depths = Vec::undump(lines)?;
-        let italics = Vec::undump(lines)?;
+        let widths = undump_run_lengths(lines)?;
+        let heights = undump_run_lengths(lines)?;
+        let depths = undump_run_lengths(lines)?;
+        let italics = undump_run_lengths(lines)?;
         let lig_kerns = Vec::undump(lines)?;
         let extens = Vec::undump(lines)?;
-        let params = Vec::undump(lines)?;
+        let params = undump_run_lengths(lines)?;
         Ok(Self {
             check,
             size,

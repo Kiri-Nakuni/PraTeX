@@ -537,6 +537,73 @@ fn hex_digit(byte: u8) -> Result<u8, FormatError> {
     }
 }
 
+/// 数の並びを、同じ値が続く区間ごとに一行で書く。
+///
+/// NOTE: expl3 の catcode table は font の `\fontdimen` を 65,536 個まで伸ばす。
+/// `latex.fmt` にはこの形の全零配列が七本あり、一値一行で書くと 458,752 行、
+/// つまり fmt の四分の一になっていた。区間ごとに「個数 値」を一行で書くと、
+/// 全零の 65,536 個は二行で済む。値が散らばっていても一値一行より増えない。
+pub fn dump_run_lengths(values: &[i32], target: &mut impl Write) -> Result<(), std::io::Error> {
+    let mut runs: Vec<(usize, i32)> = Vec::new();
+    for &value in values {
+        match runs.last_mut() {
+            Some((count, last)) if *last == value => *count += 1,
+            _ => runs.push((1, value)),
+        }
+    }
+    writeln!(target, "{}", runs.len())?;
+    for (count, value) in runs {
+        writeln!(target, "{count} {value}")?;
+    }
+    Ok(())
+}
+
+/// `dump_run_lengths` が書いた並びを読み戻す。
+pub fn undump_run_lengths<'a>(
+    lines: &mut impl Iterator<Item = &'a str>,
+) -> Result<Vec<i32>, FormatError> {
+    let run_count: usize = undump_unsigned(lines)?;
+    if run_count > MAX_RUN_LENGTH_RUNS {
+        return Err(FormatError::AllocationFailed);
+    }
+    let mut values = Vec::new();
+    for _ in 0..run_count {
+        let line = lines.next().ok_or(FormatError::IncompleteFile)?;
+        let (count, value) = line.split_once(' ').ok_or(FormatError::ParseError)?;
+        let count: usize = decimal_digits(count.as_bytes())?
+            .try_into()
+            .map_err(|_| FormatError::ParseError)?;
+        let value = parse_decimal_signed(value)?;
+        // 申告された総数が上限を越えていないかを、確保の前に検査する。
+        if count == 0 || values.len().saturating_add(count) > MAX_RUN_LENGTH_VALUES {
+            return Err(FormatError::AllocationFailed);
+        }
+        values
+            .try_reserve(count)
+            .map_err(|_| FormatError::AllocationFailed)?;
+        values.extend(std::iter::repeat_n(value, count));
+    }
+    Ok(values)
+}
+
+/// fmt は信用しない入力なので、区間の個数と総数に上限を置く。
+/// expl3 の catcode table は 65,536 個なので、その十六倍を上限にする。
+const MAX_RUN_LENGTH_RUNS: usize = 1 << 20;
+const MAX_RUN_LENGTH_VALUES: usize = 1 << 20;
+
+fn parse_decimal_signed(text: &str) -> Result<i32, FormatError> {
+    let bytes = text.as_bytes();
+    let (negative, digits) = match bytes.split_first() {
+        Some((b'-', rest)) => (true, rest),
+        Some((b'+', rest)) => (false, rest),
+        _ => (false, bytes),
+    };
+    let magnitude = decimal_digits(digits)?;
+    let value = i64::try_from(magnitude).map_err(|_| FormatError::ParseError)?;
+    let value = if negative { -value } else { value };
+    i32::try_from(value).map_err(|_| FormatError::ParseError)
+}
+
 pub trait Dumpable {
     fn dump(&self, target: &mut impl Write) -> Result<(), std::io::Error>;
     fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError>

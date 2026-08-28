@@ -284,12 +284,18 @@ impl Trie {
             }
         }
 
+        let mut maximum_depth_seen = vec![DEPTH_UNSEEN; self.nodes.len()];
         for lang in 0..256 {
             match self.nodes[lang + 1].chr {
                 None => {}
                 Some(c) => {
                     if usize::from(c) != lang
-                        || !self.language_patterns_are_valid(lang + 1, lang, &families)
+                        || !self.language_patterns_are_valid(
+                            lang + 1,
+                            lang,
+                            &families,
+                            &mut maximum_depth_seen,
+                        )
                     {
                         return false;
                     }
@@ -304,12 +310,13 @@ impl Trie {
         language_node: usize,
         lang: usize,
         families: &[Vec<usize>],
+        maximum_depth_seen: &mut [u8],
     ) -> bool {
-        // NOTE: 鍵は節点の番号であり、fmt を読むたびに言語ごとへ trie 全体を辿る。
-        // 既定の SipHash は意図的な衝突に強いが、ここは整数を鍵にした一時表なので
-        // 乗算と回転の hash で足りる。profile では fmt 読み込みの hash 計算が
-        // 起動全体の二割を占めていた。
-        let mut maximum_depth_seen = crate::fx_hash::FxHashMap::default();
+        // NOTE: 鍵は節点の番号であり、`self.nodes` の添字そのものである。表ではなく
+        // 節点数ぶんの配列で足りる。fmt を読むたびに言語ごとへ trie 全体を辿るので、
+        // 言語ごとに確保し直さず、呼び出し側の一本を洗い直して使う。深さは直後の
+        // 検査で 63 以下に限られるため、未踏を表す番兵と重ならない。
+        maximum_depth_seen.fill(DEPTH_UNSEEN);
         let mut stack = vec![(language_node, 0usize)];
         while let Some((index, depth)) = stack.pop() {
             if depth > 63
@@ -319,13 +326,11 @@ impl Trie {
             {
                 return false;
             }
-            if maximum_depth_seen
-                .get(&index)
-                .is_some_and(|&previous| previous >= depth)
-            {
+            let previous = maximum_depth_seen[index];
+            if previous != DEPTH_UNSEEN && usize::from(previous) >= depth {
                 continue;
             }
-            maximum_depth_seen.insert(index, depth);
+            maximum_depth_seen[index] = depth as u8;
             let Some(base) = self.nodes[index].link else {
                 continue;
             };
@@ -1353,6 +1358,9 @@ impl Hyphenator {
         self.trie = Some(self.pre_trie.to_trie_mut());
     }
 }
+
+/// `language_patterns_are_valid` で未踏の節点を表す。深さは 63 以下なので重ならない。
+const DEPTH_UNSEEN: u8 = u8::MAX;
 
 const BINARY_NONE_U16: u16 = u16::MAX;
 const BINARY_NONE_U32: u32 = u32::MAX;

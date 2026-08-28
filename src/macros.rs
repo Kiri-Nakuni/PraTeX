@@ -259,33 +259,28 @@ mod latin_ucs_tests {
     }
 }
 
+/// `OutParam` の符号は `Token` の符号域の外へ置く。`Normal` は包んだ `Token` の
+/// 符号をそのまま使うので、`Normal` を表す行が要らなくなる。
+const OUT_PARAM_CODE_BASE: u32 = Token::MAX_DUMP_CODE + 1;
+
 impl Dumpable for MacroToken {
     fn dump(&self, target: &mut impl Write) -> Result<(), std::io::Error> {
+        // NOTE: マクロ本体は `latex.fmt` の行数の大きな部分を占める。`Normal` を
+        // 別の行に書くと token 一個につき一行増えるので、包んだ token の符号を
+        // そのまま使い、`OutParam` だけ符号域の外へ逃がす。
         match self {
-            Self::Normal(token) => {
-                writeln!(target, "Normal")?;
-                token.dump(target)?;
-            }
-            Self::OutParam(c) => {
-                writeln!(target, "OutParam")?;
-                c.dump(target)?;
-            }
+            Self::Normal(token) => token.dump(target),
+            Self::OutParam(c) => writeln!(target, "{}", OUT_PARAM_CODE_BASE + *c as u32),
         }
-        Ok(())
     }
 
     fn undump<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<Self, FormatError> {
-        let variant = lines.next().ok_or(FormatError::IncompleteFile)?;
-        match variant {
-            "Normal" => {
-                let token = Token::undump(lines)?;
-                Ok(Self::Normal(token))
-            }
-            "OutParam" => {
-                let c = u8::undump(lines)?;
-                Ok(Self::OutParam(c))
-            }
-            _ => Err(FormatError::ParseError),
+        let code = u32::undump(lines)?;
+        if code <= Token::MAX_DUMP_CODE {
+            return Ok(Self::Normal(Token::undump_from_code(code, lines)?));
         }
+        let parameter = code - OUT_PARAM_CODE_BASE;
+        let parameter = u8::try_from(parameter).map_err(|_| FormatError::ParseError)?;
+        Ok(Self::OutParam(parameter))
     }
 }
