@@ -87,8 +87,14 @@ fn format_for_kind(kind: FileKind) -> KpathseaFormat {
 /// 監査対象はLinuxのsystem library境界だけである。このcheckpointでは依存自体を
 /// Linuxへ閉じ、Windows、WASM、その他Unixは明示的にsafe resolverへ戻す。
 pub(super) struct KpathseaFastPath {
+    /// NOTE: `None` はまだ初期化していないことを表す。linked Kpathsea の初期化は
+    /// `texmf.cnf` を読み、四つの `ls-R` を全件取り込んで hash を作る。TeX Live 2026 の
+    /// `texmf-dist/ls-R` だけで 5.6 MB あり、profile では起動全体のおよそ四分の一を
+    /// 占めていた。局所 path で解決できる run（plain、TRIP、`--ini`、入力が手元に
+    /// 揃っている run）はこの費用を払う必要がない。外部探索が実際に要求された
+    /// 時点で初めて作る。
     #[cfg(all(feature = "system-kpathsea", target_os = "linux"))]
-    state: NativeState,
+    state: Option<NativeState>,
 }
 
 #[cfg(all(feature = "system-kpathsea", target_os = "linux"))]
@@ -102,19 +108,27 @@ impl KpathseaFastPath {
     fn new() -> Self {
         #[cfg(all(feature = "system-kpathsea", target_os = "linux"))]
         {
-            let state = match kpathsea::Kpaths::new_in_process_with_program_name("pratex") {
+            return Self { state: None };
+        }
+
+        #[cfg(not(all(feature = "system-kpathsea", target_os = "linux")))]
+        Self {}
+    }
+
+    /// 初回の外部探索で linked Kpathsea を作る。二度目以降は同じ handle を返す。
+    /// 一 TeX run につき一個だけ持つという契約は変えない。
+    #[cfg(all(feature = "system-kpathsea", target_os = "linux"))]
+    fn state(&mut self) -> &NativeState {
+        self.state.get_or_insert_with(|| {
+            match kpathsea::Kpaths::new_in_process_with_program_name("pratex") {
                 Ok(kpaths) => NativeState::Ready(kpaths),
                 Err(error) => match classify_path_error(error) {
                     FastPathLookup::UseSafeResolver(reason) => NativeState::UseSafeResolver(reason),
                     FastPathLookup::Failed(reason) => NativeState::Failed(reason),
                     FastPathLookup::Found(_) | FastPathLookup::Missing => unreachable!(),
                 },
-            };
-            return Self { state };
-        }
-
-        #[cfg(not(all(feature = "system-kpathsea", target_os = "linux")))]
-        Self {}
+            }
+        })
     }
 }
 
@@ -128,7 +142,7 @@ impl FastFileResolver for KpathseaFastPath {
     fn resolve(&mut self, kind: FileKind, logical_name: &LogicalFileName) -> FastPathLookup {
         #[cfg(all(feature = "system-kpathsea", target_os = "linux"))]
         {
-            return match &self.state {
+            return match self.state() {
                 NativeState::Ready(kpaths) => match kpaths.find_file_path_with_format(
                     logical_name.as_os_str(),
                     format_for_kind(kind).value(),
