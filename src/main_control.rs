@@ -765,7 +765,7 @@ pub fn main_control(
                     // Do nothing.
                 }
                 UnexpandableCommand::LeftBrace(_) | UnexpandableCommand::LatinUcsLeftBrace(_) => {
-                    mmode.append_node(Node::Noad(Noad::Normal(NormalNoad::new())), eqtb);
+                    mmode.append_node(Node::Noad(Box::new(Noad::Normal(NormalNoad::new()))), eqtb);
                     scanner.back_input(token, eqtb, logger);
                     scan_subformula_enclosed_in_braces(
                         SubformulaType::Nucleus,
@@ -1011,9 +1011,9 @@ pub fn main_control(
                         noad.noad_type = noad_type;
                         if let Some(noad_field) = scan_math_char(scanner, eqtb, logger) {
                             noad.nucleus = Some(Box::new(noad_field));
-                            mmode.append_node(Node::Noad(Noad::Normal(noad)), eqtb);
+                            mmode.append_node(Node::Noad(Box::new(Noad::Normal(noad))), eqtb);
                         } else {
-                            mmode.append_node(Node::Noad(Noad::Normal(noad)), eqtb);
+                            mmode.append_node(Node::Noad(Box::new(Noad::Normal(noad))), eqtb);
                             scan_subformula_enclosed_in_braces(
                                 SubformulaType::Nucleus,
                                 nest,
@@ -1031,9 +1031,9 @@ pub fn main_control(
                         };
                         if let Some(noad_field) = scan_math_char(scanner, eqtb, logger) {
                             noad.nucleus = Some(Box::new(noad_field));
-                            mmode.append_node(Node::Noad(Noad::Under(noad)), eqtb);
+                            mmode.append_node(Node::Noad(Box::new(Noad::Under(noad))), eqtb);
                         } else {
-                            mmode.append_node(Node::Noad(Noad::Under(noad)), eqtb);
+                            mmode.append_node(Node::Noad(Box::new(Noad::Under(noad))), eqtb);
                             scan_subformula_enclosed_in_braces(
                                 SubformulaType::Nucleus,
                                 nest,
@@ -1051,9 +1051,9 @@ pub fn main_control(
                         };
                         if let Some(noad_field) = scan_math_char(scanner, eqtb, logger) {
                             noad.nucleus = Some(Box::new(noad_field));
-                            mmode.append_node(Node::Noad(Noad::Over(noad)), eqtb);
+                            mmode.append_node(Node::Noad(Box::new(Noad::Over(noad))), eqtb);
                         } else {
-                            mmode.append_node(Node::Noad(Noad::Over(noad)), eqtb);
+                            mmode.append_node(Node::Noad(Box::new(Noad::Over(noad))), eqtb);
                             scan_subformula_enclosed_in_braces(
                                 SubformulaType::Nucleus,
                                 nest,
@@ -1549,7 +1549,7 @@ fn its_all_over(
         scanner.back_input(token, eqtb, logger);
         let mut hbox = ListNode::new_empty_hbox();
         hbox.width = eqtb.dimen(DimensionVariable::Hsize);
-        nest.tail_push(Node::List(hbox), eqtb);
+        nest.tail_push(Node::List(Box::new(hbox)), eqtb);
         nest.tail_push(Node::Glue(GlueNode::new(GlueSpec::fill_glue())), eqtb);
         nest.tail_push(Node::Penalty(PenaltyNode::new(-0o100_0000_0000)), eqtb);
         page_builder.build_page(output, nest, scanner, eqtb, logger);

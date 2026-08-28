@@ -329,7 +329,7 @@ mod tests {
         let list = vec![
             boundary(MathNodeKind::Begin(TextDirection::RightToLeft)),
             kern(1),
-            Node::Disc(disc),
+            Node::Disc(Box::new(disc)),
             kern(4),
             boundary(MathNodeKind::End(TextDirection::RightToLeft)),
         ];

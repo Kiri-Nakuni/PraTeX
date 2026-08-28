@@ -369,7 +369,7 @@ impl Preamble {
                 shrink: HigherOrderDimension::default(),
                 span_count: 0,
             };
-            template_list.push(Node::Unset(column_template));
+            template_list.push(Node::Unset(Box::new(column_template)));
             let right_glue = cur_record.right_glue.clone();
             template_list.push(Node::Glue(right_glue));
         }
@@ -788,7 +788,7 @@ impl Alignment {
             }
             unset_node.span_count = 0;
         }
-        nest.tail_push(Node::Unset(unset_node), eqtb);
+        nest.tail_push(Node::Unset(Box::new(unset_node)), eqtb);
     }
 
     /// Returns the number of columns spanned minus one.
@@ -836,7 +836,7 @@ impl Alignment {
                 let vlist = vmode.list;
                 let list_node = vpack(vlist, TargetSpec::Natural, eqtb, logger);
                 let unset_node = UnsetNode::from_list_node(list_node);
-                nest.tail_push(Node::Unset(unset_node), eqtb);
+                nest.tail_push(Node::Unset(Box::new(unset_node)), eqtb);
                 let RichMode::Horizontal(hmode) = nest.mode_mut() else {
                     panic!("We expect to be back in horizontal mode here");
                 };
@@ -969,12 +969,12 @@ fn set_glue_in_all_unset_boxes_of_current_list(
     // the rows, and any material that has been inserted using \noalign.
     for node in nodes {
         let packed_node = match node {
-            Node::Unset(row) => Node::List(set_row_and_unset_boxes_in_it(
+            Node::Unset(row) => Node::List(Box::new(set_row_and_unset_boxes_in_it(
                 &template_box,
-                row,
+                *row,
                 indent,
                 nest,
-            )),
+            ))),
             Node::Rule(rule_node) => {
                 adapt_rule_dimensions_to_alignment(&template_box, rule_node, indent, eqtb, logger)
             }
@@ -1011,7 +1011,7 @@ fn adapt_rule_dimensions_to_alignment(
             logger,
         );
         boxed_rule.shift_amount = indent;
-        Node::List(boxed_rule)
+        Node::List(Box::new(boxed_rule))
     } else {
         Node::Rule(rule_node)
     }
@@ -1098,23 +1098,23 @@ fn set_glue_node_and_change_it_from_unset_node(
     }
     let cell = match std::mem::replace(
         &mut row.list[*cell_index],
-        Node::List(ListNode::new_empty_hbox()),
+        Node::List(Box::new(ListNode::new_empty_hbox())),
     ) {
         Node::Unset(cell) => cell,
         _ => panic!("Should not happen"),
     };
     let packed_cell = if let RichMode::Vertical(_) = nest.mode() {
         make_unset_node_into_hlist_node(
-            cell,
+            *cell,
             row.height,
             row.depth,
             inner_cell_size,
             outer_cell_size,
         )
     } else {
-        make_unset_node_into_vlist_node(cell, row.width, inner_cell_size, outer_cell_size)
+        make_unset_node_into_vlist_node(*cell, row.width, inner_cell_size, outer_cell_size)
     };
-    row.list[*cell_index] = Node::List(packed_cell);
+    row.list[*cell_index] = Node::List(Box::new(packed_cell));
     if !appendix.is_empty() {
         for node in appendix {
             *cell_index += 1;
@@ -1170,7 +1170,7 @@ fn append_tabskip_glue_and_empty_box_to_list(
         empty_box.list = HlistOrVlist::Vlist(Vec::new());
         empty_box.height = next_cell.width;
     }
-    appendix.push(Node::List(empty_box));
+    appendix.push(Node::List(Box::new(empty_box)));
 }
 
 /// See 810.

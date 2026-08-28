@@ -7,7 +7,6 @@ use crate::token::{print_uptex_code_point, push_uptex_utf8};
 
 use crate::format::{dump_byte_string, undump_byte_string};
 use crate::fx_hash::FxHashMap;
-use std::collections::HashMap;
 use std::io::Write;
 
 type CommandStoreEntry = (Command, Vec<u8>);

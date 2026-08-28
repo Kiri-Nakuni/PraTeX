@@ -18,7 +18,7 @@ use crate::eqtb::{Eqtb, FontIndex, SkipVariable};
 use crate::japanese_fonts::JapaneseFontIndex;
 use crate::nodes::{
     AutomaticJapaneseGlue, GlueNode, GlueSpec, GlueType, HlistOrVlist, JfmBoundaryBefore, KernNode,
-    KernSubtype, LigatureNode, ListNode, Node, PenaltyNode, PenaltySubtype, WideCharNode,
+    KernSubtype, LigatureNode, Node, PenaltyNode, PenaltySubtype, WideCharNode,
 };
 
 use std::rc::Rc;
@@ -660,12 +660,10 @@ fn observe_glyph_boundary(node: &Node, eqtb: &Eqtb) -> Option<ObservedBoundary> 
 /// 公式binaryで、先頭の空hboxは読み飛ばす一方、先頭kernはedgeを遮ることを確認した。
 /// 未観測nodeを推測で透明にはせず、glyphまたはunshifted hboxだけを再帰する。
 fn observe_unshifted_hbox_edges(node: &Node, eqtb: &Eqtb) -> Option<ObservedHboxEdges> {
-    let Node::List(ListNode {
-        shift_amount: 0,
-        list: HlistOrVlist::Hlist(nodes),
-        ..
-    }) = node
-    else {
+    let Node::List(list_node) = node else {
+        return None;
+    };
+    let (0, HlistOrVlist::Hlist(nodes)) = (list_node.shift_amount, &list_node.list) else {
         return None;
     };
     Some(ObservedHboxEdges {
@@ -686,11 +684,10 @@ fn scan_hbox_edge(nodes: &[Node], eqtb: &Eqtb, reverse: bool) -> HboxEdgeScan {
             return HboxEdgeScan::Found(boundary);
         }
         match node {
-            Node::List(ListNode {
-                shift_amount: 0,
-                list: HlistOrVlist::Hlist(nested),
-                ..
-            }) => scan_hbox_edge(nested, eqtb, reverse),
+            Node::List(list_node) => match (list_node.shift_amount, &list_node.list) {
+                (0, HlistOrVlist::Hlist(nested)) => scan_hbox_edge(nested, eqtb, reverse),
+                _ => HboxEdgeScan::Blocked,
+            },
             _ => HboxEdgeScan::Blocked,
         }
     };

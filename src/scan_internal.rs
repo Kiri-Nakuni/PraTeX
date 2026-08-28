@@ -844,7 +844,7 @@ fn scan_expr_term(
     }
     if num != 1 || den != 1 {
         let max = expr_max(kind);
-        let mut apply = |x: i32, o: &mut bool| -> i32 {
+        let apply = |x: i32, o: &mut bool| -> i32 {
             match mult_and_add(x as i64, num, den, max) {
                 Ok(v) => v as i32,
                 Err(()) => {

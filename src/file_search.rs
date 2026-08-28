@@ -442,7 +442,7 @@ pub(crate) struct KpsewhichResolver<E = ProcessCommandExecutor> {
 
 impl Default for KpsewhichResolver<ProcessCommandExecutor> {
     fn default() -> Self {
-        let mut options =
+        let options =
             ResolverOptions::default().with_filename_database_search(FilenameDatabaseSearch::Auto);
         #[cfg(windows)]
         {

@@ -5,7 +5,7 @@ use crate::eqtb::{
 use crate::input::Scanner;
 use crate::line_breaking::{AWFUL_BAD, EJECT_PENALTY, INF_PENALTY};
 use crate::logger::Logger;
-use crate::nodes::{DimensionOrder, GlueNode, HlistOrVlist, ListNode, Node, RuleNode};
+use crate::nodes::{DimensionOrder, GlueNode, HlistOrVlist, ListNode, Node};
 use crate::packaging::{vpack, vpackage, GlueCollector, TargetSpec};
 use crate::print::Printer;
 use crate::scaled::{calculate_badness, Scaled, INF_BAD};
@@ -116,7 +116,12 @@ fn prune_page_top_impl(
     let mut found_box_or_rule = false;
     for node in vlist {
         match node {
-            Node::List(ListNode { height, .. }) | Node::Rule(RuleNode { height, .. }) => {
+            Node::List(_) | Node::Rule(_) => {
+                let height = match &node {
+                    Node::List(list_node) => list_node.height,
+                    Node::Rule(rule_node) => rule_node.height,
+                    _ => unreachable!("直前の腕で絞ってある"),
+                };
                 if !found_box_or_rule {
                     let split_top_skip = eqtb.skips.get(SkipVariable::SplitTopSkip);
                     let d = if split_top_skip.width > height {
@@ -236,9 +241,14 @@ fn update_height_and_depth(
     logger: &mut Logger,
 ) {
     match node {
-        Node::List(ListNode { height, depth, .. }) | Node::Rule(RuleNode { height, depth, .. }) => {
-            dimens.height += dimens.depth + *height;
-            dimens.depth = *depth;
+        Node::List(_) | Node::Rule(_) => {
+            let (height, depth) = match node {
+                Node::List(list_node) => (list_node.height, list_node.depth),
+                Node::Rule(rule_node) => (rule_node.height, rule_node.depth),
+                _ => unreachable!("直前の腕で絞ってある"),
+            };
+            dimens.height += dimens.depth + height;
+            dimens.depth = depth;
         }
         Node::Glue(glue_node) => {
             if glue_node.glue_spec.shrink.is_infinite() {

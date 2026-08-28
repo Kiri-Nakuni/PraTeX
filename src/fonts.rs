@@ -13,7 +13,6 @@ use crate::os_str_to_bytes;
 use crate::print::Printer;
 use crate::scaled::{xn_over_d, Scaled, UNITY};
 
-use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;

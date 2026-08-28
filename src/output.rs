@@ -13,8 +13,7 @@ use crate::input::Scanner;
 use crate::japanese_fonts::JapaneseFontIndex;
 use crate::logger::{job_output_path, Logger};
 use crate::nodes::{
-    show_box, CharNode, DimensionOrder, GlueNode, GlueSign, GlueType, HlistOrVlist, LeaderKind,
-    LigatureNode, ListNode, Node, OpenNode, RuleNode, SpecialNode, WhatsitNode, WideCharNode,
+    show_box, CharNode, DimensionOrder, GlueNode, GlueSign, GlueType, HlistOrVlist, LeaderKind, ListNode, Node, OpenNode, RuleNode, SpecialNode, WhatsitNode, WideCharNode,
     WriteNode,
 };
 use crate::print::stream::StreamPrinter;
@@ -660,12 +659,7 @@ impl<B: ShipoutBackend> Document<B> {
                 width,
                 ..
             })
-            | &Node::Ligature(LigatureNode {
-                font_index,
-                character,
-                width,
-                ..
-            }) = node
+            = node
             {
                 // NOTE: 620. keeps a run of character nodes inside a tight inner loop
                 // and only leaves it for other node types. Characters make up most of
@@ -718,15 +712,22 @@ impl<B: ShipoutBackend> Document<B> {
                 width,
                 ..
             })
-            | &Node::Ligature(LigatureNode {
-                font_index,
-                character,
-                width,
-                ..
-            }) => {
+            => {
                 self.synch_h();
                 self.synch_v();
                 self.output_char(font_index, character, width, eqtb);
+                self.dvi_h = self.cur_h;
+            }
+            // NOTE: 箱へ入れた変種は pattern の中で分解できないので、別の腕にする。
+            Node::Ligature(ligature_node) => {
+                self.synch_h();
+                self.synch_v();
+                self.output_char(
+                    ligature_node.font_index,
+                    ligature_node.character,
+                    ligature_node.width,
+                    eqtb,
+                );
                 self.dvi_h = self.cur_h;
             }
             &Node::WideChar(WideCharNode {
@@ -775,10 +776,10 @@ impl<B: ShipoutBackend> Document<B> {
                 self.output_rule_in_hlist(rule_node, rule_node.width, this_box, base_line);
             }
             Node::Whatsit(whatsit_node) => {
-                if let WhatsitNode::Special(special_node) = whatsit_node {
+                if let WhatsitNode::Special(special_node) = &**whatsit_node {
                     self.special_out(special_node, eqtb);
                 } else {
-                    whatsit_list.push(whatsit_node.clone());
+                    whatsit_list.push((**whatsit_node).clone());
                 }
             }
             Node::Penalty(_) => {}
@@ -1163,10 +1164,10 @@ impl<B: ShipoutBackend> Document<B> {
                 self.output_rule_in_vlist(rule_node, height, this_box);
             }
             Node::Whatsit(whatsit_node) => {
-                if let WhatsitNode::Special(special_node) = whatsit_node {
+                if let WhatsitNode::Special(special_node) = &**whatsit_node {
                     self.special_out(special_node, eqtb);
                 } else {
-                    whatsit_list.push(whatsit_node.clone());
+                    whatsit_list.push((**whatsit_node).clone());
                 }
             }
             Node::Glue(glue_node) => {

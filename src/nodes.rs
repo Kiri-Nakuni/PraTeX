@@ -83,22 +83,22 @@ mod glue_ratio_tests {
 pub enum Node {
     Char(CharNode),
     WideChar(WideCharNode),
-    List(ListNode),
+    List(Box<ListNode>),
     Rule(RuleNode),
-    Ins(InsNode),
+    Ins(Box<InsNode>),
     Mark(MarkNode),
     Adjust(AdjustNode),
-    Ligature(LigatureNode),
-    Disc(DiscNode),
-    Whatsit(WhatsitNode),
+    Ligature(Box<LigatureNode>),
+    Disc(Box<DiscNode>),
+    Whatsit(Box<WhatsitNode>),
     Math(MathNode),
     Glue(GlueNode),
     Kern(KernNode),
     Penalty(PenaltyNode),
-    Unset(UnsetNode),
+    Unset(Box<UnsetNode>),
     Style(StyleNode),
-    Choice(ChoiceNode),
-    Noad(Noad),
+    Choice(Box<ChoiceNode>),
+    Noad(Box<Noad>),
 }
 
 impl Node {
@@ -123,10 +123,12 @@ impl Node {
     pub(crate) fn contains_horizontal_japanese_glyph(&self) -> bool {
         match self {
             Self::WideChar(_) => true,
-            Self::List(ListNode {
-                list: HlistOrVlist::Hlist(nodes),
-                ..
-            }) => nodes.iter().any(Self::contains_horizontal_japanese_glyph),
+            Self::List(list_node) => match &list_node.list {
+                HlistOrVlist::Hlist(nodes) => {
+                    nodes.iter().any(Self::contains_horizontal_japanese_glyph)
+                }
+                HlistOrVlist::Vlist(_) => false,
+            },
             Self::Disc(disc) => disc
                 .pre_break
                 .iter()
@@ -1697,3 +1699,4 @@ pub fn show_box(list_node: &ListNode, eqtb: &Eqtb, logger: &mut Logger) {
     show_list_node(list_node, b"", max_depth, max_breadth, eqtb, logger);
     logger.print_ln();
 }
+

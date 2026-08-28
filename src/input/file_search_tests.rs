@@ -445,7 +445,7 @@ fn 欧文和文fontのdvi用areaは論理pathの区切りを失わない() {
     fs::write(&latin_physical_path, minimal_tfm()).unwrap();
     fs::write(&japanese_physical_path, minimal_jfm()).unwrap();
 
-    let mut logical_pairs = vec![
+    let logical_pairs = vec![
         (
             PathBuf::from(format!("./{}", unique_name("latin-dot"))),
             PathBuf::from(format!("./{}", unique_name("japanese-dot"))),

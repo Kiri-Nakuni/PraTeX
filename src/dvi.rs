@@ -747,7 +747,7 @@ mod test {
 
     #[test]
     fn dvi_font定義のareaとnameを連結すると論理pathへ戻る() {
-        let mut logical_paths = vec![
+        let logical_paths = vec![
             Path::new("upjisr-h"),
             Path::new("./upjisr-h"),
             Path::new("metrics/upjisr-h"),

@@ -13,7 +13,7 @@ use crate::line_breaking::{AWFUL_BAD, EJECT_PENALTY, INF_PENALTY};
 use crate::logger::Logger;
 use crate::nodes::{
     show_box, show_box_content, DimensionOrder, GlueNode, HlistOrVlist, InsNode, KernNode,
-    ListNode, MarkNode, Node, RuleNode,
+    ListNode, MarkNode, Node,
 };
 use crate::output::Output;
 use crate::packaging::{measure_vlist, vpack, vpackage, GlueCollector, TargetSpec};
@@ -342,7 +342,13 @@ impl PageBuilder {
         logger: &mut Logger,
     ) {
         match node {
-            Node::List(ListNode { height, .. }) | Node::Rule(RuleNode { height, .. }) => {
+            Node::List(_) | Node::Rule(_) => {
+                // NOTE: 箱へ入れた変種は pattern の中で分解できないので、束縛してから読む。
+                let height = match &node {
+                    Node::List(list_node) => list_node.height,
+                    Node::Rule(rule_node) => rule_node.height,
+                    _ => unreachable!("直前の腕で絞ってある"),
+                };
                 self.initialize_current_page(node, height, contributions, eqtb, logger);
             }
             Node::Ins(ref mut ins_node) => {
@@ -400,8 +406,12 @@ impl PageBuilder {
         logger: &mut Logger,
     ) {
         match node {
-            &mut Node::List(ListNode { height, depth, .. })
-            | &mut Node::Rule(RuleNode { height, depth, .. }) => {
+            Node::List(_) | Node::Rule(_) => {
+                let (height, depth) = match &*node {
+                    Node::List(list_node) => (list_node.height, list_node.depth),
+                    Node::Rule(rule_node) => (rule_node.height, rule_node.depth),
+                    _ => unreachable!("直前の腕で絞ってある"),
+                };
                 eqtb.page_dims.height += eqtb.page_dims.depth + height;
                 eqtb.page_dims.depth = depth;
             }
@@ -854,7 +864,7 @@ impl PageBuilder {
             if let Node::Ins(ins_node) = node {
                 if eqtb.integer(IntegerVariable::HoldingInserts) <= 0 {
                     self.either_insert_material_or_hold_for_next_page(
-                        ins_node,
+                        *ins_node,
                         &mut hold_list,
                         eqtb,
                         logger,
@@ -986,7 +996,7 @@ impl PageBuilder {
         let mut boks = eqtb.boxes.set(BoxVariable(register), None).unwrap();
         // We already encountered the last InsNode that still makes it onto the page.
         if page_ins.best_ins_count == 0 {
-            hold_list.push(Node::Ins(ins_node));
+            hold_list.push(Node::Ins(Box::new(ins_node)));
             eqtb.insert_penalties += 1;
         } else {
             // This is the last InsNode that still makes it onto the page.
@@ -1046,7 +1056,7 @@ impl PageBuilder {
                     let measurement = measure_vlist(&ins_node.insertion);
                     ins_node.size = measurement.height + measurement.depth;
 
-                    hold_list.push(Node::Ins(ins_node));
+                    hold_list.push(Node::Ins(Box::new(ins_node)));
                     eqtb.insert_penalties += 1;
                 }
             } else {

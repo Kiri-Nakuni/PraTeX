@@ -19,8 +19,8 @@ pub enum MathBoundary {
 impl MathBoundary {
     fn into_node(self) -> Node {
         match self {
-            Self::Middle(noad) => Node::Noad(Noad::Middle(noad)),
-            Self::Right(noad) => Node::Noad(Noad::Right(noad)),
+            Self::Middle(noad) => Node::Noad(Box::new(Noad::Middle(noad))),
+            Self::Right(noad) => Node::Noad(Box::new(Noad::Right(noad))),
         }
     }
 }
@@ -62,17 +62,20 @@ impl MathMode {
                 panic!("math boundary");
             }
             let inner_list = fraction_noad.numerator.split_off(1);
-            let Node::Noad(Noad::Left(left_noad)) = fraction_noad.numerator.remove(0) else {
+            let Node::Noad(noad) = fraction_noad.numerator.remove(0) else {
+                panic!("math boundary");
+            };
+            let Noad::Left(left_noad) = *noad else {
                 panic!("math boundary");
             };
             fraction_noad.numerator = inner_list;
             vec![
-                Node::Noad(Noad::Left(left_noad)),
-                Node::Noad(Noad::Fraction(fraction_noad)),
+                Node::Noad(Box::new(Noad::Left(left_noad))),
+                Node::Noad(Box::new(Noad::Fraction(fraction_noad))),
                 boundary.into_node(),
             ]
         } else {
-            vec![Node::Noad(Noad::Fraction(fraction_noad))]
+            vec![Node::Noad(Box::new(Noad::Fraction(fraction_noad)))]
         }
     }
 

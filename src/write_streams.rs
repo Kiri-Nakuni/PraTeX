@@ -19,7 +19,7 @@ pub fn do_open_out(
     eqtb: &mut Eqtb,
     logger: &mut Logger,
 ) {
-    let node = Node::Whatsit(WhatsitNode::Open(implement_openout(scanner, eqtb, logger)));
+    let node = Node::Whatsit(Box::new(WhatsitNode::Open(implement_openout(scanner, eqtb, logger))));
     nest.tail_push(node, eqtb);
 }
 
@@ -31,9 +31,9 @@ pub fn do_write(
     eqtb: &mut Eqtb,
     logger: &mut Logger,
 ) {
-    let node = Node::Whatsit(WhatsitNode::Write(implement_write(
+    let node = Node::Whatsit(Box::new(WhatsitNode::Write(implement_write(
         token, scanner, eqtb, logger,
-    )));
+    ))));
     nest.tail_push(node, eqtb);
 }
 
@@ -44,9 +44,9 @@ pub fn do_close_out(
     eqtb: &mut Eqtb,
     logger: &mut Logger,
 ) {
-    let node = Node::Whatsit(WhatsitNode::Close(implement_closeout(
+    let node = Node::Whatsit(Box::new(WhatsitNode::Close(implement_closeout(
         scanner, eqtb, logger,
-    )));
+    ))));
     nest.tail_push(node, eqtb);
 }
 

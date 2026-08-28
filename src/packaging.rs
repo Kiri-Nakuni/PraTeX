@@ -4,7 +4,7 @@ use crate::input::Scanner;
 use crate::logger::Logger;
 use crate::nodes::{
     make_glue_ratio, short_display, show_box, AdjustNode, CharNode, DimensionOrder, GlueNode,
-    GlueSign, GlueType, HigherOrderDimension, HlistOrVlist, KernNode, LigatureNode, ListNode,
+    GlueSign, GlueType, HigherOrderDimension, HlistOrVlist, KernNode, ListNode,
     MathNode, Node, RuleNode, UnsetNode,
 };
 use crate::print::Printer;
@@ -121,22 +121,10 @@ pub fn measure_hlist(hlist: &Vec<Node>) -> Measurement {
                 depth,
                 ..
             })
-            | &Node::Ligature(LigatureNode {
-                width,
-                height,
-                depth,
-                ..
-            })
             | &Node::Rule(RuleNode {
                 width,
                 height,
                 depth,
-            })
-            | &Node::Unset(UnsetNode {
-                width,
-                height,
-                depth,
-                ..
             }) => {
                 total_width += width;
                 if height > max_height {
@@ -146,19 +134,32 @@ pub fn measure_hlist(hlist: &Vec<Node>) -> Measurement {
                     max_depth = depth;
                 }
             }
-            Node::List(ListNode {
-                width,
-                height,
-                depth,
-                shift_amount,
-                ..
-            }) => {
-                total_width += width;
-                if height - shift_amount > max_height {
-                    max_height = height - shift_amount;
+            // NOTE: 箱へ入れた変種は pattern の中で分解できないので、束縛してから読む。
+            Node::Ligature(ligature_node) => {
+                total_width += ligature_node.width;
+                if ligature_node.height > max_height {
+                    max_height = ligature_node.height;
                 }
-                if depth + shift_amount > max_depth {
-                    max_depth = depth + shift_amount;
+                if ligature_node.depth > max_depth {
+                    max_depth = ligature_node.depth;
+                }
+            }
+            Node::Unset(unset_node) => {
+                total_width += unset_node.width;
+                if unset_node.height > max_height {
+                    max_height = unset_node.height;
+                }
+                if unset_node.depth > max_depth {
+                    max_depth = unset_node.depth;
+                }
+            }
+            Node::List(list_node) => {
+                total_width += list_node.width;
+                if list_node.height - list_node.shift_amount > max_height {
+                    max_height = list_node.height - list_node.shift_amount;
+                }
+                if list_node.depth + list_node.shift_amount > max_depth {
+                    max_depth = list_node.depth + list_node.shift_amount;
                 }
             }
             Node::Ins(_) | Node::Mark(_) | Node::Adjust(_) => {
@@ -173,18 +174,17 @@ pub fn measure_hlist(hlist: &Vec<Node>) -> Measurement {
                 stretch_collector.add_dimen(glue_spec.stretch);
                 shrink_collector.add_dimen(glue_spec.shrink);
                 if let GlueType::Leaders { leader_node, .. } = subtype {
-                    match **leader_node {
-                        // NOTE ListNodes in leaders always have zero shift amount.
-                        Node::List(ListNode { height, depth, .. })
-                        | Node::Rule(RuleNode { height, depth, .. }) => {
-                            if height > max_height {
-                                max_height = height;
-                            }
-                            if depth > max_depth {
-                                max_depth = depth;
-                            }
-                        }
+                    // NOTE ListNodes in leaders always have zero shift amount.
+                    let (height, depth) = match &**leader_node {
+                        Node::List(list_node) => (list_node.height, list_node.depth),
+                        Node::Rule(rule_node) => (rule_node.height, rule_node.depth),
                         _ => panic!("Should not happen"),
+                    };
+                    if height > max_height {
+                        max_height = height;
+                    }
+                    if depth > max_depth {
+                        max_depth = depth;
                     }
                 }
             }
@@ -239,12 +239,6 @@ fn measure_disc_internal_node(
             depth,
             ..
         })
-        | &Node::Ligature(LigatureNode {
-            width,
-            height,
-            depth,
-            ..
-        })
         | &Node::Rule(RuleNode {
             width,
             height,
@@ -258,13 +252,23 @@ fn measure_disc_internal_node(
                 *max_depth = depth;
             }
         }
-        Node::List(ListNode {
-            width,
-            height,
-            depth,
-            shift_amount,
-            ..
-        }) => {
+        // NOTE: 箱へ入れた変種は pattern の中で分解できないので、束縛してから読む。
+        Node::Ligature(ligature_node) => {
+            *total_width += ligature_node.width;
+            if ligature_node.height > *max_height {
+                *max_height = ligature_node.height;
+            }
+            if ligature_node.depth > *max_depth {
+                *max_depth = ligature_node.depth;
+            }
+        }
+        Node::List(list_node) => {
+            let (width, height, depth, shift_amount) = (
+                list_node.width,
+                list_node.height,
+                list_node.depth,
+                list_node.shift_amount,
+            );
             // From 653.
             *total_width += width;
             if height - shift_amount > *max_height {
@@ -511,29 +515,30 @@ pub fn measure_vlist(vlist: &Vec<Node>) -> Measurement {
     let mut shrink_collector = GlueCollector::new();
     for node in vlist {
         match node {
-            &Node::List(ListNode {
-                width,
-                height,
-                depth,
-                shift_amount,
-                ..
-            }) => {
+            Node::List(list_node) => {
+                let (width, height, depth, shift_amount) = (
+                    list_node.width,
+                    list_node.height,
+                    list_node.depth,
+                    list_node.shift_amount,
+                );
                 total_height += last_depth + height;
                 last_depth = depth;
                 if width + shift_amount > max_width {
                     max_width = width + shift_amount;
                 }
             }
+            Node::Unset(unset_node) => {
+                total_height += last_depth + unset_node.height;
+                last_depth = unset_node.depth;
+                if unset_node.width > max_width {
+                    max_width = unset_node.width;
+                }
+            }
             &Node::Rule(RuleNode {
                 width,
                 height,
                 depth,
-            })
-            | &Node::Unset(UnsetNode {
-                width,
-                height,
-                depth,
-                ..
             }) => {
                 total_height += last_depth + height;
                 last_depth = depth;
@@ -555,14 +560,14 @@ pub fn measure_vlist(vlist: &Vec<Node>) -> Measurement {
                 stretch_collector.add_dimen(spec.stretch);
                 shrink_collector.add_dimen(spec.shrink);
                 if let GlueType::Leaders { leader_node, .. } = subtype {
-                    match **leader_node {
-                        // NOTE ListNodes in leaders always have zero shift amount.
-                        Node::List(ListNode { width, .. }) | Node::Rule(RuleNode { width, .. }) => {
-                            if width > max_width {
-                                max_width = width;
-                            }
-                        }
+                    // NOTE ListNodes in leaders always have zero shift amount.
+                    let width = match &**leader_node {
+                        Node::List(list_node) => list_node.width,
+                        Node::Rule(rule_node) => rule_node.width,
                         _ => panic!("Should not happen"),
+                    };
+                    if width > max_width {
+                        max_width = width;
                     }
                 }
             }
