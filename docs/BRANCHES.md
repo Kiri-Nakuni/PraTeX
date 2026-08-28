@@ -47,7 +47,7 @@ end-to-end比はupLaTeX比1.615624（paired中央値）で、性能gate未達の
 | `codex3/perf-integration` | 性能停止点 `bee8724`、code `8e0e543` | vertical discard、run-local compiled spacing dispatcher、最小横組`prjlreq`を統合。型付きfmt、寸法・糊handoff、未展開tokenのcommand非所有化と不正token境界まで採用。全release 941 passed / 0 failed / 11 ignored、公式TRIP維持。三engine再測定はupLaTeX比1.615624で未達、性能調整は一時停止 |
 | `codex3/roadmap-integration` | 現在の機能統合枝、code `09e1eca` | 性能停止点からJLReq `\inhibitglue` / `\disinhibitglue`、e-TeX `\showifs`、Type 1 at-size共有を統合。全release 950 passed / 0 failed / 11 ignored。公式TRIP固定comment DVIは公式2,920 byteへ完全一致 |
 | `codex3/jlreq-list-edge-class0` | 未統合WIP `4572918`、両remoteへpush済み | 横組direct hbox/段落のclass 0端点。planner 20/20、日本語spacing 23/24。字下げ段落末尾glueの観測1件が未解決で、全release・TRIP未実施。解決まで統合禁止 |
-| `claude1/perf-integration` | 未統合、push なし | `codex3/roadmap-integration`から分岐。fmtの行分割とtrie検証のhash、lig/kern表、列の容量、`panic = "abort"`を直した。299頁paired wall比は1.615624から**1.4689**（幾何平均1.4429）、命令数−15.99%。DVIはbyte一致、release 953 passed / 0 failed / 11 ignored。公式TRIPは通過（固定commentのDVIが公式2,920 byteとbyte一致）。gateの1.3は未達 |
+| `claude1/perf-integration` | 未統合、push なし | `codex3/roadmap-integration`から分岐。fmtの行分割とtrie検証のhash、lig/kern表、列の容量、`panic = "abort"`を直した。299頁paired wall比は分岐点と背中合わせで**1.5793から1.2835**（幾何平均1.5916→1.2858）、命令数−25.78%、peak RSS−17%。**upTeX系比1.3未満のroadmap再開条件を満たす。** DVIはbyte一致、release 953 passed / 0 failed / 11 ignored、公式TRIPは固定commentのDVIが公式2,920 byteとbyte一致 |
 | `claude1/tex82-perf` | 未統合、push なし | `main`から分岐した素のTeX82。Knuth TeXとの比を回帰で起動費と分けた。本文一つあたり1.782から**1.535**（命令）、1.681から**1.334**（時間）。DVI命令1,306,596個がKnuth TeXと一致。1.1未達で、到達には節点保持方式の作り替えが要る |
 
 R0は組版localeの状態、group/global/fmt、表示だけであり、まだJFM、文字間隔、禁則、

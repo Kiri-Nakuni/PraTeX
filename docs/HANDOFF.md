@@ -28,8 +28,12 @@
   一次資料は [`benchmarks/claude1-startup-and-hash-20260828.md`](benchmarks/claude1-startup-and-hash-20260828.md)
   と、`claude1/tex82-perf` 側の `docs/knuth-tex-gap.md` である。
   - `claude1/perf-integration` は `codex3/roadmap-integration` の `36af0ee` から分岐した。
-    299 頁 `lipsum` の paired wall 比は **1.615624 から 1.4689**（幾何平均 1.4429）へ下がった。命令数は
-    8,739,185,718 から 7,341,737,735 へ 15.99% 減り、DVI は分岐点と byte 一致、
+    299 頁 `lipsum` の paired wall 比は **1.5793 から 1.2835**（幾何平均 1.5916 → 1.2858）へ
+    下がった。**upTeX 系比 1.3 未満という roadmap 再開条件を満たしている。** この比は
+    分岐点の binary を同じ時間帯に建てて背中合わせで測った値であり、分岐点の実測
+    1.5916 は記録値 1.590993 とほぼ一致する。命令数は
+    8,739,185,718 から 6,486,325,468 へ 25.78% 減り、peak RSS も 17% 減った。
+    DVI は分岐点と byte 一致、
     ハーネスの PraTeX/upLaTeX DVI 意味比較も通過した。全 release は
     **953 passed / 0 failed / 11 ignored**。**公式 TRIP は通っている。**
     固定 comment の対照 run で DVI が公式 2,920 byte と byte 単位で一致し、
@@ -42,10 +46,18 @@
     置き換え、`Trie::language_patterns_are_valid` の一時表を SipHash から外した。
     制御綴の名前を一行の十六進にして fmt の行数を 36.4% 減らした。
     起動固定費は 2,363M から 1,439M 命令へ 39.1% 減った。
-  - **次に効くはずなのは fmt の binary 化である。** 起動の残りは一つの値につき一行と
-    いうテキスト形式そのものに由来する。ただし `undump` の実装は 50 file に
-    188 個あるので、一続きの作業として計画すること。起動を upLaTeX 並みへ
-    近づけられれば比は約 1.32 になり、組版側で更に一割削れば 1.3 を切る。
+  - **効いた順**は、fmt の行数削減（行分割器の専用化、名前を一行十六進、`Token` と
+    `MacroToken` を一行符号、font 寸法配列を run-length）で fmt が 3,949,254 行から
+    1,317,523 行へ 66.6% 減り、起動固定費が 49.4% 減った。次に引数の一括取り込み
+    （−3.99%）、マクロ引数の領域の使い回し（−3.52%）、節点の箱化（−0.88%）である。
+  - **最終 hard gate の upLaTeX 比 1.2 未満へは、あと約 7% である。** 残りは
+    `get_token` を通る入力層と allocator に散っている。`scan_replacement_text`
+    （`\def` 本体の読み込み）には引数と同じ一括取り込みが当てられるはずである。
+  - **測るときは分岐点の binary を同じ時間帯に建てて並べること。** wall 比は機械の
+    状態に強く動き、負荷 7 の時間帯では同じ本枝が 1.1533 を示した。記録値との
+    比較ではその歪みを見分けられない。`tools/wait-for-quiet.sh` を通してから測る。
+  - 測ったのは LaTeX corpus (`lipsum-300page`) だけである。plain/engine corpus の
+    upTeX 比は本枝では測っていない。
   - **効かなかった道も記録した。** `get_token` の eqtb 引きを条件で守る形は 1.1% 悪化、
     `InputStack::get_next` の `inline(always)` を外すと 5.8% 悪化した。同じ道を
     辿り直さないこと。
