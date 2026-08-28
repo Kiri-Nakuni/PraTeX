@@ -67,6 +67,8 @@ pub struct Scanner {
     pub macro_def: Macro,
     /// The current token list under construction. Corresponds to def_ref in TeX82.
     pub def_ref: Vec<Token>,
+    /// `\csname` が名前を組み立てる作業用の領域。呼び出しごとに確保し直さない。
+    pub cs_name_buffer: Vec<u8>,
     /// The current argument token list under construction. This is done by temp_head in TeX82.
     pub argument: Vec<Token>,
     /// Start of the current parameter within the invocation-wide argument buffer.
@@ -160,6 +162,7 @@ impl Scanner {
             warning_index: ControlSequence::Undefined,
             macro_def: Macro::default(),
             def_ref: Vec::new(),
+            cs_name_buffer: Vec::new(),
             argument: Vec::new(),
             argument_start: 0,
             template: Vec::new(),

@@ -27,6 +27,24 @@ impl ManufacturedCsName {
         Self::Bytes(Vec::new())
     }
 
+    /// 使い回しの領域から始める。
+    ///
+    /// NOTE: `\csname` は expl3 が多用する。名前ごとに `Vec` を確保し直すと、
+    /// 一つにつき確保と解放が一組ずつ増える。中身は毎回捨てて良いので、
+    /// scanner の一本を空にして貸し出す。
+    pub(super) fn from_buffer(mut buffer: Vec<u8>) -> Self {
+        buffer.clear();
+        Self::Bytes(buffer)
+    }
+
+    /// 貸し出した領域を返す。Unicode を含む名前へ昇格していたら返せない。
+    pub(super) fn into_buffer(self) -> Option<Vec<u8>> {
+        match self {
+            Self::Bytes(bytes) => Some(bytes),
+            Self::Wide(_) => None,
+        }
+    }
+
     pub(super) fn push_byte(&mut self, byte: u8) {
         match self {
             Self::Bytes(bytes) => bytes.push(byte),
@@ -301,7 +319,7 @@ fn manufacture_control_sequence_name(
     logger: &mut Logger,
 ) {
     // Collect the token in `name`.
-    let mut cs_name = ManufacturedCsName::new();
+    let mut cs_name = ManufacturedCsName::from_buffer(std::mem::take(&mut scanner.cs_name_buffer));
     // Consume all char tokens after expansion.
     let (finishing_command, finishing_token) = loop {
         let (command, token) = get_x_token(scanner, eqtb, logger);
@@ -343,6 +361,10 @@ fn manufacture_control_sequence_name(
         Some(n) => Some(eqtb.control_sequences.intern_namespace(n)),
     };
     let created = cs_name.lookup_or_create(namespace, eqtb);
+    // 借りた領域を返す。以降 `cs_name` は使わない。
+    if let Some(buffer) = cs_name.into_buffer() {
+        scanner.cs_name_buffer = buffer;
+    }
     let Ok(cs) = created else {
         overflow(
             "hash size",
