@@ -30,9 +30,12 @@
     299 頁 `lipsum` の paired wall 比は **1.615624 から 1.4689**（幾何平均 1.4429）へ下がった。命令数は
     8,739,185,718 から 7,341,737,735 へ 15.99% 減り、DVI は分岐点と byte 一致、
     ハーネスの PraTeX/upLaTeX DVI 意味比較も通過した。全 release は
-    **953 passed / 0 failed / 11 ignored**。**公式 TRIP は未実施である。** 資材が
-    同梱されておらず CTAN からの取得が要るため、利用者の許可を得てから行う。
-    統合前に TRIP を通すこと。
+    **953 passed / 0 failed / 11 ignored**。**公式 TRIP は通っている。**
+    固定 comment の対照 run で DVI が公式 2,920 byte と byte 単位で一致し、
+    生成 TFM も公式 `trip.tfm` と byte 一致、`tripos.tex` も一致した。
+    log の残差 72 行は banner とメモリ使用量表示の既知二種だけである。
+    手順は [`trip-testing.md`](trip-testing.md) の 2026-08-28 節、runner は
+    PowerShell の無い環境向けに書いた `tools/run-trip-linux.sh` である。
   - 効いたのは fmt 読み込みだった。`latex.fmt` は 21.5 MB に 3,949,254 行あり、
     一つの値につき一行という形である。`str::lines` の一般機構を専用の反復子へ
     置き換え、`Trie::language_patterns_are_valid` の一時表を SipHash から外した。

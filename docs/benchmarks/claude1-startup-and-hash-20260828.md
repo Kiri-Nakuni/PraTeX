@@ -136,6 +136,7 @@ hash の鍵と `escaped` で二度、それぞれ一 byte 一行になってい�
 
 ## 未実施
 
-- **公式 TRIP は走らせていない。** 資材は同梱されておらず、CTAN からの取得が要る。
-  取得は利用者の許可を得てから行う。
 - 日本語 corpus、縦組、`prjlreq` での再測定。
+
+公式 TRIP は通っている。詳細は [`../trip-testing.md`](../trip-testing.md) の
+2026-08-28 節。固定 comment の対照 run で DVI が公式 2,920 byte と byte 一致した。
