@@ -20,7 +20,9 @@ import subprocess
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-BIN = ROOT / "target" / "release" / "rtex"
+# 配布する実行 file は `dist` profile で作る。`release` は gate の
+# `cargo test --release` を壊さないために `panic = "abort"` を持たない。
+BIN = ROOT / "target" / "dist" / "rtex"
 RUN = pathlib.Path("/tmp/claude-1000/prun")
 STORE = ROOT / "bench-results"
 FIXTURE = "bench"

@@ -10,8 +10,20 @@ default-run = "pratex"
 [profile.release]
 lto = true
 debug = 1
-panic = "abort"
 codegen-units = 1
+
+# 配布する実行 file 用。`release` に `panic = "abort"` を足すだけである。
+#
+# NOTE: `panic = "abort"` を `release` へ直接置くと `cargo test --release` が
+# 落ちる。設定は path 依存の `vaak` にも伝わるが、`vaak` は `rlib` と `cdylib` を
+# 同じ base 名で出すため、試験用の unwind 版と配布用の abort 版が同じ file を
+# 奪い合う (cargo #6313)。gate の `cargo test --release --locked --no-fail-fast` を
+# 壊さないため、profile を分ける。この engine は TeX の error 回復を自前で持ち、
+# panic を制御流路として使っていないので、配布物で巻き戻しを持つ必要はない。
+# 299 頁 `lipsum` の命令数で 2.3% の差がある。
+[profile.dist]
+inherits = "release"
+panic = "abort"
 
 [features]
 default = ["stats", "bundled-kpathsea"]
