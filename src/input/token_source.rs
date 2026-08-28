@@ -65,6 +65,17 @@ impl TokenListReader {
         }
     }
 
+    /// これから読む token の並び。
+    pub fn upcoming(&self) -> &[Token] {
+        let tokens = self.as_slice();
+        &tokens[self.pos.min(tokens.len())..]
+    }
+
+    /// `upcoming` の先頭から `count` 個を読んだことにする。
+    pub fn advance(&mut self, count: usize) {
+        self.pos += count;
+    }
+
     pub fn is_finished(&self) -> bool {
         self.pos >= self.as_slice().len()
     }

@@ -605,9 +605,15 @@ fn contribute_entire_group_to_current_parameter(
     eqtb: &mut Eqtb,
     logger: &mut Logger,
 ) -> Result<(), MacroCallError> {
+    // 群がまるごと現在の入力源の中にあるなら、そこまでを一度に写す。
+    // 取れなければ何も起きていないので、下の従来経路がそのまま続く。
+    scanner.argument.push(input_token);
+    if scanner.contribute_balanced_group_fast(eqtb) {
+        return Ok(());
+    }
+
     let mut unbalance = 1;
     loop {
-        scanner.argument.push(input_token);
         input_token = scanner.get_token(eqtb, logger);
         if input_token == eqtb.par_token && scanner.long_state != LongState::LongCall {
             return Err(report_runaway_argument(
@@ -618,6 +624,7 @@ fn contribute_entire_group_to_current_parameter(
                 logger,
             ));
         }
+        scanner.argument.push(input_token);
         if input_token.is_left_brace() {
             unbalance += 1;
         } else if input_token.is_right_brace() {
@@ -627,7 +634,6 @@ fn contribute_entire_group_to_current_parameter(
             }
         }
     }
-    scanner.argument.push(input_token);
     Ok(())
 }
 

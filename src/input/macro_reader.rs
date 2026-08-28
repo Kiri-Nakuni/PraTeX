@@ -91,6 +91,12 @@ pub struct MacroReader {
 }
 
 impl MacroReader {
+    /// これから読む本体の並び。
+    pub fn upcoming(&self) -> &[MacroToken] {
+        let text = &self.macro_def.replacement_text;
+        &text[self.pos.min(text.len())..]
+    }
+
     /// Get the next token from the macro.
     /// See 357.
     pub fn get_next_token(&mut self) -> Option<MacroToken> {

@@ -672,6 +672,93 @@ impl Scanner {
         }
     }
 
+    /// 引数として取り込む群が現在の入力源の中で閉じているなら、そこまでを一度に写す。
+    ///
+    /// NOTE: `get_token` は token 一つにつき入力 stack の分岐と `NextResult` の
+    /// 組み立てを行う。引数の収集は展開を伴わない (399.) ので、現在の入力源に
+    /// 並んでいる token 列はこの間まったく動かない。rtex はその列を連続領域に
+    /// 持っているので、釣り合う閉じ括弧までが同じ源の中にあるなら一度に写せる。
+    /// TeX82 は連結 list なのでこの近道を取れない。
+    ///
+    /// 次のいずれかに当たったら**何も消費せず** `false` を返す。呼び出し側は従来どおり
+    /// 一 token ずつ読み、診断も回復もそちらがそのまま出す。
+    ///
+    /// * 閉じ括弧が現在の源の中に無い
+    /// * 引数差し込みなど、素の token でないものが現れた
+    /// * `\par` が現れ、かつ `\long` でない
+    /// * `\outer` の制御綴か `\endtemplate` が現れた
+    /// * `align_state` が 0 以下へ届く。alignment の内側では括弧の数え方と
+    ///   `align_state` がずれ得るので、`get_token` が持つ alignment 終端の判定を
+    ///   飛ばして良いとは言えない
+    pub(super) fn contribute_balanced_group_fast(&mut self, eqtb: &Eqtb) -> bool {
+        let forbid_par = self.long_state != LongState::LongCall;
+        let check_outer = self.scanner_status != ScannerStatus::Normal;
+        let par_token = eqtb.par_token;
+
+        let Some((count, align_state)) = ({
+            let Some(upcoming) = self.input_stack.upcoming_tokens() else {
+                return false;
+            };
+            let mut align_state = self.align_state;
+            let mut unbalance: usize = 1;
+            let mut found = None;
+            for index in 0..upcoming.len() {
+                let Some(token) = upcoming.get(index) else {
+                    break;
+                };
+                if let Token::Null = token {
+                    break;
+                }
+                if forbid_par && token == par_token {
+                    break;
+                }
+                if check_outer {
+                    if let Token::CSToken { cs } = token {
+                        if matches!(
+                            eqtb.control_sequences.get(cs),
+                            Command::Expandable(
+                                ExpandableCommand::Macro(MacroCall { outer: true, .. })
+                                    | ExpandableCommand::EndTemplate
+                            )
+                        ) {
+                            break;
+                        }
+                    }
+                }
+                align_state += token.alignment_delta();
+                if align_state <= 0 {
+                    break;
+                }
+                if token.is_left_brace() {
+                    unbalance += 1;
+                } else if token.is_right_brace() {
+                    unbalance -= 1;
+                    if unbalance == 0 {
+                        found = Some((index + 1, align_state));
+                        break;
+                    }
+                }
+            }
+            found
+        }) else {
+            return false;
+        };
+
+        {
+            let upcoming = self
+                .input_stack
+                .upcoming_tokens()
+                .expect("走査で見せた源のままである");
+            for index in 0..count {
+                let token = upcoming.get(index).expect("走査で確かめてある");
+                self.argument.push(token);
+            }
+        }
+        self.align_state = align_state;
+        self.input_stack.advance_current_source(count);
+        true
+    }
+
     /// Puts the given Token list back on the input stack.
     /// See 323.
     pub fn back_list(&mut self, token_list: Vec<Token>, eqtb: &Eqtb, logger: &mut Logger) {

@@ -45,6 +45,32 @@ pub struct InputStack {
 /// An input source. It can either provide characters or tokens
 /// depending on the type.
 #[derive(Debug)]
+/// `InputStack::upcoming_tokens` が見せる、これから読む token の並び。
+pub(crate) enum UpcomingTokens<'a> {
+    Plain(&'a [Token]),
+    Macro(&'a [MacroToken]),
+}
+
+impl UpcomingTokens<'_> {
+    pub(crate) fn len(&self) -> usize {
+        match self {
+            Self::Plain(tokens) => tokens.len(),
+            Self::Macro(tokens) => tokens.len(),
+        }
+    }
+
+    /// 添字 `index` の token。引数差し込みなど素の token でないものは `None`。
+    pub(crate) fn get(&self, index: usize) -> Option<Token> {
+        match self {
+            Self::Plain(tokens) => tokens.get(index).copied(),
+            Self::Macro(tokens) => match tokens.get(index) {
+                Some(MacroToken::Normal(token)) => Some(*token),
+                _ => None,
+            },
+        }
+    }
+}
+
 pub(crate) enum InputSource {
     /// A [`TextSource`].
     TextSource {
@@ -112,6 +138,35 @@ impl InputStack {
     /// Returns a reference to the currently used input source.
     pub(crate) fn current_source(&self) -> &InputSource {
         &self.cur_source
+    }
+
+    /// 現在の入力源に並んでいる token を、そのまま続きとして見せる。
+    ///
+    /// NOTE: 引数の収集は展開を伴わない (399.)。したがって現在の入力源の token 列は
+    /// 収集の間ずっと動かない。rtex はこの列を連続領域に持っているので、一 token ずつ
+    /// 入力 stack の分岐と `NextResult` の組み立てを繰り返す代わりに、まとめて写せる。
+    /// TeX82 は連結 list なのでこの近道を取れない。
+    ///
+    /// text 源はまだ字句化していないので見せない。
+    pub(crate) fn upcoming_tokens(&self) -> Option<UpcomingTokens<'_>> {
+        match &self.cur_source {
+            InputSource::TokenSource { reader, .. } => {
+                Some(UpcomingTokens::Plain(reader.upcoming()))
+            }
+            InputSource::MacroCall { reader } => Some(UpcomingTokens::Macro(reader.upcoming())),
+            InputSource::TextSource { .. } | InputSource::DontExpand { .. } => None,
+        }
+    }
+
+    /// `upcoming_tokens` が見せた先頭から `count` 個を読んだことにする。
+    pub(crate) fn advance_current_source(&mut self, count: usize) {
+        match &mut self.cur_source {
+            InputSource::TokenSource { reader, .. } => reader.advance(count),
+            InputSource::MacroCall { reader } => reader.pos += count,
+            InputSource::TextSource { .. } | InputSource::DontExpand { .. } => {
+                panic!("見せていない入力源を進めることはない")
+            }
+        }
     }
 
     /// Returns a mutable reference to the currently used input source.
