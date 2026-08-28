@@ -192,7 +192,7 @@ fn get_last_box(
         if let Some(last_node) = last_node {
             if let Node::List(mut list_node) = last_node {
                 list_node.shift_amount = 0;
-                Some(list_node)
+                Some(*list_node)
             } else {
                 nest.tail_push(last_node, eqtb);
                 None
@@ -336,7 +336,7 @@ pub fn box_end(
         BoxContext::Leaders(leader_kind) => {
             if let Some(list_node) = cur_box {
                 append_new_leader_node(
-                    Node::List(list_node),
+                    Node::List(Box::new(list_node)),
                     leader_kind,
                     nest,
                     scanner,
@@ -375,12 +375,12 @@ fn append_box_cur_box_to_current_list_shifted(
             }
             RichMode::Horizontal(hmode) => {
                 hmode.set_space_factor(1000, eqtb);
-                nest.tail_push(Node::List(list_node), eqtb);
+                nest.tail_push(Node::List(Box::new(list_node)), eqtb);
             }
             RichMode::Math(_) => {
                 let mut noad = NormalNoad::new();
                 noad.nucleus = Some(Box::new(NoadField::SubBox { list_node }));
-                nest.tail_push(Node::Noad(Noad::Normal(noad)), eqtb);
+                nest.tail_push(Node::Noad(Box::new(Noad::Normal(noad))), eqtb);
             }
         }
     }

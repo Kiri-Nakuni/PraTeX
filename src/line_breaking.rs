@@ -480,10 +480,11 @@ impl LineBreaker {
     fn get_node_width(node: &Node) -> Dimension {
         match node {
             &Node::Char(CharNode { width, .. })
-            | &Node::Ligature(LigatureNode { width, .. })
-            | &Node::List(ListNode { width, .. })
             | &Node::Rule(RuleNode { width, .. })
             | &Node::Kern(KernNode { width, .. }) => width,
+            // NOTE: 箱へ入れた変種は pattern の中で分解できないので、束縛してから読む。
+            Node::Ligature(ligature_node) => ligature_node.width,
+            Node::List(list_node) => list_node.width,
             _ => panic!("disc1"),
         }
     }
@@ -1135,10 +1136,11 @@ impl LineBreaker {
     fn width_of_node(node: &Node) -> Dimension {
         match node {
             &Node::Char(CharNode { width, .. })
-            | &Node::Ligature(LigatureNode { width, .. })
-            | &Node::List(ListNode { width, .. })
             | &Node::Rule(RuleNode { width, .. })
             | &Node::Kern(KernNode { width, .. }) => width,
+            // NOTE: 箱へ入れた変種は pattern の中で分解できないので、束縛してから読む。
+            Node::Ligature(ligature_node) => ligature_node.width,
+            Node::List(list_node) => list_node.width,
             _ => panic!("disc3"),
         }
     }
@@ -1147,11 +1149,16 @@ impl LineBreaker {
     fn add_width_of_node_to_act_width(&mut self, node: &Node) {
         match node {
             &Node::Char(CharNode { width, .. })
-            | &Node::Ligature(LigatureNode { width, .. })
-            | &Node::List(ListNode { width, .. })
             | &Node::Rule(RuleNode { width, .. })
             | &Node::Kern(KernNode { width, .. }) => {
                 self.delta.width += width;
+            }
+            // NOTE: 箱へ入れた変種は pattern の中で分解できないので、束縛してから読む。
+            Node::Ligature(ligature_node) => {
+                self.delta.width += ligature_node.width;
+            }
+            Node::List(list_node) => {
+                self.delta.width += list_node.width;
             }
             _ => panic!("disc4"),
         }
@@ -1276,7 +1283,7 @@ impl LineBreaker {
                 if let Node::Disc(disc_node) = node {
                     // We push an empty DiscNode onto the current line.
                     // This is done solely to preserve compatibility with TeX.
-                    line.push(Node::Disc(DiscNode::new()));
+                    line.push(Node::Disc(Box::new(DiscNode::new())));
 
                     // Transplant pre-break nodes
                     for node in disc_node.pre_break {
@@ -1558,9 +1565,9 @@ fn calculate_natural_width(just_box: &ListNode, eqtb: &Eqtb) -> Dimension {
 fn determine_visibility_and_width(node: &Node) -> (bool, Dimension) {
     match node {
         &Node::Char(CharNode { width, .. })
-        | &Node::Ligature(LigatureNode { width, .. })
-        | &Node::List(ListNode { width, .. })
         | &Node::Rule(RuleNode { width, .. }) => (true, width),
+        Node::Ligature(ligature_node) => (true, ligature_node.width),
+        Node::List(list_node) => (true, list_node.width),
         &Node::Kern(KernNode { width, .. }) | &Node::Math(MathNode { width, .. }) => (false, width),
         Node::Glue(glue_node) => {
             if let GlueType::Leaders { .. } = glue_node.subtype {

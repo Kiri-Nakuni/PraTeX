@@ -165,7 +165,7 @@ fn overbar(
         Node::Kern(top_kern),
         Node::Rule(bar),
         Node::Kern(inner_kern),
-        Node::List(boks),
+        Node::List(Box::new(boks)),
     ];
     vpack(vlist, TargetSpec::Natural, eqtb, logger)
 }
@@ -343,19 +343,19 @@ fn create_extensible_character_vbox(
     let mut list = Vec::new();
     let rep = ext.rep;
     if let Some(top) = ext.top {
-        list.push(Node::List(char_box(font, font_index, top)));
+        list.push(Node::List(Box::new(char_box(font, font_index, top))));
     }
     if let Some(mid) = ext.mid {
         for _ in 1..=reps {
-            list.push(Node::List(char_box(font, font_index, rep)));
+            list.push(Node::List(Box::new(char_box(font, font_index, rep))));
         }
-        list.push(Node::List(char_box(font, font_index, mid)));
+        list.push(Node::List(Box::new(char_box(font, font_index, mid))));
     }
     for _ in 1..=reps {
-        list.push(Node::List(char_box(font, font_index, rep)));
+        list.push(Node::List(Box::new(char_box(font, font_index, rep))));
     }
     if let Some(bot) = ext.bot {
-        list.push(Node::List(char_box(font, font_index, bot)));
+        list.push(Node::List(Box::new(char_box(font, font_index, bot))));
     }
     // Set the box height to the height of the topmost component.
     b.height = if let Some(Node::List(top_node)) = list.first() {
@@ -422,7 +422,7 @@ fn rebox(mut b: ListNode, w: Scaled, eqtb: &mut Eqtb, logger: &mut Logger) -> Li
             hlist
         }
         HlistOrVlist::Vlist(_) => {
-            vec![Node::List(b)]
+            vec![Node::List(Box::new(b))]
         }
     };
 
@@ -491,24 +491,24 @@ fn clean_box(
     let mut q = Vec::new();
     match field {
         math_char @ NoadField::MathChar { .. } => {
-            let noad = Node::Noad(Noad::Normal(NormalNoad {
+            let noad = Node::Noad(Box::new(Noad::Normal(NormalNoad {
                 noad_type: NoadType::Ord,
                 nucleus: Some(Box::new(math_char)),
                 subscript: None,
                 superscript: None,
-            }));
+            })));
             let mlist = vec![noad];
 
             q = mlist_to_hlist(mlist, style, false, scanner, eqtb, logger);
         }
         NoadField::SubBox { list_node } => {
-            q.push(Node::List(list_node));
+            q.push(Node::List(Box::new(list_node)));
         }
         NoadField::SubMlist { list: mlist } => {
             q = mlist_to_hlist(mlist, style, false, scanner, eqtb, logger);
         }
         _ => {
-            q.push(Node::List(ListNode::new_empty_hbox()));
+            q.push(Node::List(Box::new(ListNode::new_empty_hbox())));
         }
     }
     // found:
@@ -517,13 +517,13 @@ fn clean_box(
         match q {
             // Don't pack a single hlist or vlist node (with a shift amount of 0) again.
             Node::List(list_node) if list_node.shift_amount == 0 => list_node,
-            _ => hpack(vec![q], TargetSpec::Natural, eqtb, logger),
+            _ => Box::new(hpack(vec![q], TargetSpec::Natural, eqtb, logger)),
         }
     } else {
-        hpack(q, TargetSpec::Natural, eqtb, logger)
+        Box::new(hpack(q, TargetSpec::Natural, eqtb, logger))
     };
     simplify_trivial_box(&mut x);
-    x
+    *x
 }
 
 /// Remove an italic correction if the box contains only a char followed by a kern.
@@ -712,7 +712,7 @@ fn do_first_pass_processing(
     let delta = 0;
     let noad_type;
     match node {
-        Node::Noad(noad) => match noad {
+        Node::Noad(noad) => match *noad {
             Noad::Normal(mut normal_noad) => {
                 match normal_noad.noad_type {
                     NoadType::Ord => {
@@ -784,7 +784,7 @@ fn do_first_pass_processing(
             Noad::Fraction(fraction_noad) => {
                 let list_node = make_fraction(fraction_noad, *cur_style, scanner, eqtb, logger);
                 // We treat a FractionNoad as an Ord Noad.
-                FirstPassNode::DoneNoad(vec![Node::List(list_node)], NoadType::Ord)
+                FirstPassNode::DoneNoad(vec![Node::List(Box::new(list_node))], NoadType::Ord)
             }
             Noad::Accent(accent_noad) => {
                 let hlist = make_math_accent(accent_noad, *cur_style, scanner, eqtb, logger);
@@ -820,7 +820,7 @@ fn do_first_pass_processing(
             FirstPassNode::StyleNode(style_node)
         }
         Node::Choice(choice_node) => {
-            let style_node = make_choice(choice_node, mlist_stack, *cur_style);
+            let style_node = make_choice(*choice_node, mlist_stack, *cur_style);
             FirstPassNode::StyleNode(style_node)
         }
         node @ (Node::Ins(_)
@@ -955,7 +955,7 @@ fn make_under(
     let x_height = x.height;
     let p = KernNode::new(3 * eqtb.default_rule_thickness(style.cur_size()));
     let rule = fraction_rule(eqtb.default_rule_thickness(style.cur_size()));
-    let vlist = vec![Node::List(x), Node::Kern(p), Node::Rule(rule)];
+    let vlist = vec![Node::List(Box::new(x)), Node::Kern(p), Node::Rule(rule)];
     let mut y = vpack(vlist, TargetSpec::Natural, eqtb, logger);
     let delta = y.height + y.depth + eqtb.default_rule_thickness(style.cur_size());
     y.height = x_height;
@@ -1034,7 +1034,7 @@ fn make_radical(
     }
     radical_symbol.shift_amount = -(nucleus.height + clearance);
     let overlined_nucleus = overbar(nucleus, clearance, radical_symbol.height, eqtb, logger);
-    let hlist = vec![Node::List(radical_symbol), Node::List(overlined_nucleus)];
+    let hlist = vec![Node::List(Box::new(radical_symbol)), Node::List(Box::new(overlined_nucleus))];
 
     let packed_nucleus = hpack(hlist, TargetSpec::Natural, eqtb, logger);
 
@@ -1202,7 +1202,7 @@ fn make_char_accent(
     y.width = 0;
     let kern = KernNode::new(-delta);
     let x_width = x.width;
-    let vlist = vec![Node::List(y), Node::Kern(kern), Node::List(x)];
+    let vlist = vec![Node::List(Box::new(y)), Node::Kern(kern), Node::List(Box::new(x))];
     y = vpack(vlist, TargetSpec::Natural, eqtb, logger);
     y.width = x_width;
     if y.height < h {
@@ -1245,7 +1245,7 @@ fn make_other_accent(
     y.shift_amount = half(w - y.width);
     y.width = 0;
     let kern = KernNode::new(-delta);
-    let vlist = vec![Node::List(y), Node::Kern(kern), Node::List(x)];
+    let vlist = vec![Node::List(Box::new(y)), Node::Kern(kern), Node::List(Box::new(x))];
     y = vpack(vlist, TargetSpec::Natural, eqtb, logger);
     y.width = w;
     if y.height < h {
@@ -1328,7 +1328,7 @@ fn swap_scripts_into_box(
         superscript,
     };
     let new_nucleus = NoadField::SubMlist {
-        list: vec![Node::Noad(Noad::Normal(inner_noad))],
+        list: vec![Node::Noad(Box::new(Noad::Normal(inner_noad)))],
     };
     let x = clean_box(new_nucleus, style, scanner, eqtb, logger);
     *delta += x.height - *h;
@@ -1493,7 +1493,7 @@ fn construct_vlist_box_for_fraction(
     let depth = z.depth + shift_down;
     let list = if thickness == 0 {
         let kern = KernNode::new((shift_up - x.depth) - (z.height - shift_down));
-        vec![Node::List(x), Node::Kern(kern), Node::List(z)]
+        vec![Node::List(Box::new(x)), Node::Kern(kern), Node::List(Box::new(z))]
     } else {
         let y = fraction_rule(thickness);
         let bottom_kern =
@@ -1501,11 +1501,11 @@ fn construct_vlist_box_for_fraction(
         let top_kern =
             KernNode::new((shift_up - x.depth) - (eqtb.axis_height(style.cur_size()) + delta));
         vec![
-            Node::List(x),
+            Node::List(Box::new(x)),
             Node::Kern(top_kern),
             Node::Rule(y),
             Node::Kern(bottom_kern),
-            Node::List(z),
+            Node::List(Box::new(z)),
         ]
     };
     ListNode {
@@ -1537,7 +1537,7 @@ fn put_fraction_into_box_with_delimiters(
     }
     let x = var_delimiter(left_delimiter, style.cur_size(), delta, eqtb);
     let z = var_delimiter(right_delimiter, style.cur_size(), delta, eqtb);
-    let hlist = vec![Node::List(x), Node::List(v), Node::List(z)];
+    let hlist = vec![Node::List(Box::new(x)), Node::List(Box::new(v)), Node::List(Box::new(z))];
     hpack(hlist, TargetSpec::Natural, eqtb, logger)
 }
 
@@ -1597,7 +1597,7 @@ fn make_op(
     if limit_type == LimitType::Limits {
         let list_node =
             construct_box_with_limits_above_and_below(op_noad, delta, style, scanner, eqtb, logger);
-        vec![Node::List(list_node)]
+        vec![Node::List(Box::new(list_node))]
     } else {
         convert_nucleus_to_hlist_and_attach_sub_superscripts(
             op_noad.nucleus,
@@ -1680,7 +1680,7 @@ fn attach_limits_and_adjust_height_and_depth(
 ) {
     let mut vlist;
     if !superscript_exists {
-        vlist = vec![Node::List(y)];
+        vlist = vec![Node::List(Box::new(y))];
     } else {
         let mut shift_up = eqtb.big_op_spacing3(style.cur_size()) - x.depth;
         if shift_up < eqtb.big_op_spacing1(style.cur_size()) {
@@ -1691,9 +1691,9 @@ fn attach_limits_and_adjust_height_and_depth(
         v.height += eqtb.big_op_spacing5(style.cur_size()) + x.height + x.depth + shift_up;
         vlist = vec![
             Node::Kern(top_kern),
-            Node::List(x),
+            Node::List(Box::new(x)),
             Node::Kern(sup_kern),
-            Node::List(y),
+            Node::List(Box::new(y)),
         ];
     }
     if subscript_exists {
@@ -1705,7 +1705,7 @@ fn attach_limits_and_adjust_height_and_depth(
         let bottom_kern = KernNode::new(eqtb.big_op_spacing5(style.cur_size()));
         v.depth += eqtb.big_op_spacing5(style.cur_size()) + z.height + z.depth + shift_down;
         vlist.push(Node::Kern(sub_kern));
-        vlist.push(Node::List(z));
+        vlist.push(Node::List(Box::new(z)));
         vlist.push(Node::Kern(bottom_kern));
     }
     v.list = HlistOrVlist::Vlist(vlist);
@@ -1738,11 +1738,18 @@ fn make_ord(
             _ => break,
         };
         let next_noad = match next_node {
-            Node::Noad(Noad::Normal(noad @ NormalNoad { noad_type, .. }))
-                if noad_type != NoadType::Inner =>
-            {
-                noad
-            }
+            // NOTE: 箱へ入れた変種は pattern の中で分解できないので、中身へ移してから見る。
+            Node::Noad(boxed_noad) => match *boxed_noad {
+                Noad::Normal(noad @ NormalNoad { noad_type, .. })
+                    if noad_type != NoadType::Inner =>
+                {
+                    noad
+                }
+                other => {
+                    mlist_stack.push(Node::Noad(Box::new(other)));
+                    break;
+                }
+            },
             _ => {
                 mlist_stack.push(next_node);
                 break;
@@ -1752,12 +1759,12 @@ fn make_ord(
             Some(noad_field) => match noad_field.as_ref() {
                 &NoadField::MathChar { fam, character } if fam == cur_fam => character,
                 _ => {
-                    mlist_stack.push(Node::Noad(Noad::Normal(next_noad)));
+                    mlist_stack.push(Node::Noad(Box::new(Noad::Normal(next_noad))));
                     break;
                 }
             },
             _ => {
-                mlist_stack.push(Node::Noad(Noad::Normal(next_noad)));
+                mlist_stack.push(Node::Noad(Box::new(Noad::Normal(next_noad))));
                 break;
             }
         };
@@ -1766,7 +1773,7 @@ fn make_ord(
                 Some(font_index) => (font_index, cur_char),
                 None => {
                     ord_noad.nucleus = None;
-                    mlist_stack.push(Node::Noad(Noad::Normal(next_noad)));
+                    mlist_stack.push(Node::Noad(Box::new(Noad::Normal(next_noad))));
                     break;
                 }
             };
@@ -1777,7 +1784,7 @@ fn make_ord(
         let _lig_kern = match eqtb.fonts[cur_font_index as usize].tag(cur_c) {
             CharTag::Lig(lig_index) => &eqtb.fonts[cur_font_index as usize].lig_kerns[lig_index],
             _ => {
-                mlist_stack.push(Node::Noad(Noad::Normal(next_noad)));
+                mlist_stack.push(Node::Noad(Box::new(Noad::Normal(next_noad))));
                 break;
             }
         };
@@ -1831,7 +1838,7 @@ fn if_instruction_is_kern(
     let lig_kern = &eqtb.fonts[cur_font_index as usize].lig_kerns[lig_index];
     match lig_kern.get(next_char) {
         Some(LigKernCommand::Kern(w)) => {
-            mlist_stack.push(Node::Noad(Noad::Normal(next_noad)));
+            mlist_stack.push(Node::Noad(Box::new(Noad::Normal(next_noad))));
             mlist_stack.push(Node::Kern(KernNode::new(w)));
             true
         }
@@ -1850,7 +1857,7 @@ fn if_instruction_is_kern(
                         fam,
                         character: ligature,
                     }));
-                    mlist_stack.push(Node::Noad(Noad::Normal(next_noad)));
+                    mlist_stack.push(Node::Noad(Box::new(Noad::Normal(next_noad))));
                 }
                 // |:=, |:=>
                 (false, true) => {
@@ -1858,11 +1865,11 @@ fn if_instruction_is_kern(
                         fam,
                         character: ligature,
                     }));
-                    mlist_stack.push(Node::Noad(Noad::Normal(next_noad)));
+                    mlist_stack.push(Node::Noad(Box::new(Noad::Normal(next_noad))));
                 }
                 // |:=|, |:=|>, |:=|>>
                 (false, false) => {
-                    mlist_stack.push(Node::Noad(Noad::Normal(next_noad)));
+                    mlist_stack.push(Node::Noad(Box::new(Noad::Normal(next_noad))));
                     let nucleus = if moves < 2 {
                         Some(Box::new(NoadField::MathChar {
                             fam,
@@ -1880,7 +1887,7 @@ fn if_instruction_is_kern(
                         subscript: None,
                         superscript: None,
                     };
-                    mlist_stack.push(Node::Noad(Noad::Normal(inserted_noad)));
+                    mlist_stack.push(Node::Noad(Box::new(Noad::Normal(inserted_noad))));
                 }
                 (true, true) => {
                     // Preserve scripts.
@@ -1911,7 +1918,7 @@ fn if_instruction_is_kern(
             false
         }
         None => {
-            mlist_stack.push(Node::Noad(Noad::Normal(next_noad)));
+            mlist_stack.push(Node::Noad(Box::new(Noad::Normal(next_noad))));
             true
         }
     }
@@ -1936,11 +1943,11 @@ fn convert_nucleus_to_hlist_and_attach_sub_superscripts(
             NoadField::MathTextChar { fam, character } => create_character_node_for_nucleus(
                 fam, character, &mut delta, true, &subscript, style, scanner, eqtb, logger,
             ),
-            NoadField::SubBox { list_node } => vec![Node::List(list_node)],
+            NoadField::SubBox { list_node } => vec![Node::List(Box::new(list_node))],
             NoadField::SubMlist { list: mlist } => {
                 let hlist = mlist_to_hlist(mlist, style, false, scanner, eqtb, logger);
                 let hbox = hpack(hlist, TargetSpec::Natural, eqtb, logger);
-                vec![Node::List(hbox)]
+                vec![Node::List(Box::new(hbox))]
             }
         }
     } else {
@@ -2043,7 +2050,7 @@ fn make_scripts(
             logger,
         )
     };
-    hlist.push(Node::List(sub_sup_box));
+    hlist.push(Node::List(Box::new(sub_sup_box)));
     hlist
 }
 
@@ -2139,7 +2146,7 @@ fn construct_subscript_superscript_combination(
     }
     supscr_box.shift_amount = delta;
     let p = KernNode::new((shift_up - supscr_box.depth) - (y.height - shift_down));
-    let vlist = vec![Node::List(supscr_box), Node::Kern(p), Node::List(y)];
+    let vlist = vec![Node::List(Box::new(supscr_box)), Node::Kern(p), Node::List(Box::new(y))];
     let mut vbox = vpack(vlist, TargetSpec::Natural, eqtb, logger);
     vbox.shift_amount = shift_down;
     vbox
@@ -2182,14 +2189,14 @@ fn make_second_pass_over_mlist(
                 let noad_type = NoadType::Open;
                 append_inter_element_spacing(r_type, noad_type, &mut hlist, cur_style, eqtb);
                 let left = make_left_right(left_noad.delimiter, orig_style, max_d, max_h, eqtb);
-                hlist.push(Node::List(left));
+                hlist.push(Node::List(Box::new(left)));
                 r_type = Some(noad_type);
             }
             FirstPassNode::Right(right_noad) => {
                 let noad_type = NoadType::Close;
                 append_inter_element_spacing(r_type, noad_type, &mut hlist, cur_style, eqtb);
                 let right = make_left_right(right_noad.delimiter, orig_style, max_d, max_h, eqtb);
-                hlist.push(Node::List(right));
+                hlist.push(Node::List(Box::new(right)));
                 r_type = Some(noad_type);
             }
             FirstPassNode::DoneNoad(new_hlist, noad_type) => {
@@ -2984,15 +2991,15 @@ fn append_display_and_perhaps_equation_number(
         let hlist = if kind == MathShiftKind::LeftEqNo {
             *d = 0;
             vec![
-                Node::List(eqno),
+                Node::List(Box::new(eqno)),
                 Node::Kern(kern_node),
-                Node::List(packed_formula),
+                Node::List(Box::new(packed_formula)),
             ]
         } else {
             vec![
-                Node::List(packed_formula),
+                Node::List(Box::new(packed_formula)),
                 Node::Kern(kern_node),
-                Node::List(eqno),
+                Node::List(Box::new(eqno)),
             ]
         };
         hpack(hlist, TargetSpec::Natural, eqtb, logger)
@@ -3122,7 +3129,7 @@ pub fn math_left(
         eqtb,
         logger,
     );
-    nest.tail_push(Node::Noad(Noad::Left(left_noad)), eqtb);
+    nest.tail_push(Node::Noad(Box::new(Noad::Left(left_noad))), eqtb);
 }
 
 /// See 1191.
@@ -3145,7 +3152,7 @@ pub fn math_right(
         let mut inner_noad = NormalNoad::new();
         inner_noad.noad_type = NoadType::Inner;
         inner_noad.nucleus = Some(Box::new(NoadField::SubMlist { list: mlist }));
-        nest.tail_push(Node::Noad(Noad::Normal(inner_noad)), eqtb);
+        nest.tail_push(Node::Noad(Box::new(Noad::Normal(inner_noad))), eqtb);
     } else {
         try_to_recover_from_mismatched_right(token, scanner, eqtb, logger);
     }
@@ -3228,9 +3235,9 @@ fn superscript_dummy_noad(
     let mut noad = NormalNoad::new();
     if let Some(noad_field) = scan_math_char(scanner, eqtb, logger) {
         noad.superscript = Some(Box::new(noad_field));
-        nest.tail_push(Node::Noad(Noad::Normal(noad)), eqtb);
+        nest.tail_push(Node::Noad(Box::new(Noad::Normal(noad))), eqtb);
     } else {
-        nest.tail_push(Node::Noad(Noad::Normal(noad)), eqtb);
+        nest.tail_push(Node::Noad(Box::new(Noad::Normal(noad))), eqtb);
         scan_subformula_enclosed_in_braces(
             SubformulaType::Superscript,
             nest,
@@ -3293,9 +3300,9 @@ fn subscript_dummy_noad(
     let mut noad = NormalNoad::new();
     if let Some(noad_field) = scan_math_char(scanner, eqtb, logger) {
         noad.subscript = Some(Box::new(noad_field));
-        nest.tail_push(Node::Noad(Noad::Normal(noad)), eqtb);
+        nest.tail_push(Node::Noad(Box::new(Noad::Normal(noad))), eqtb);
     } else {
-        nest.tail_push(Node::Noad(Noad::Normal(noad)), eqtb);
+        nest.tail_push(Node::Noad(Box::new(Noad::Normal(noad))), eqtb);
         scan_subformula_enclosed_in_braces(SubformulaType::Subscript, nest, scanner, eqtb, logger);
     }
 }
@@ -3313,7 +3320,7 @@ pub fn append_choices(
         script_mlist: Box::default(),
         script_script_mlist: Box::default(),
     };
-    nest.tail_push(Node::Choice(choice_node), eqtb);
+    nest.tail_push(Node::Choice(Box::new(choice_node)), eqtb);
     push_math(
         GroupType::MathChoice { t: 0 },
         nest,
@@ -3391,9 +3398,9 @@ pub fn math_ac(
 
     if let Some(noad_field) = scan_math_char(scanner, eqtb, logger) {
         accent_noad.nucleus = Some(Box::new(noad_field));
-        nest.tail_push(Node::Noad(Noad::Accent(accent_noad)), eqtb);
+        nest.tail_push(Node::Noad(Box::new(Noad::Accent(accent_noad))), eqtb);
     } else {
-        nest.tail_push(Node::Noad(Noad::Accent(accent_noad)), eqtb);
+        nest.tail_push(Node::Noad(Box::new(Noad::Accent(accent_noad))), eqtb);
         scan_subformula_enclosed_in_braces(SubformulaType::Nucleus, nest, scanner, eqtb, logger);
     }
 }
@@ -3415,9 +3422,9 @@ pub fn math_radical(
 
     if let Some(noad_field) = scan_math_char(scanner, eqtb, logger) {
         radical_noad.nucleus = Some(Box::new(noad_field));
-        nest.tail_push(Node::Noad(Noad::Radical(radical_noad)), eqtb);
+        nest.tail_push(Node::Noad(Box::new(Noad::Radical(radical_noad))), eqtb);
     } else {
-        nest.tail_push(Node::Noad(Noad::Radical(radical_noad)), eqtb);
+        nest.tail_push(Node::Noad(Box::new(Noad::Radical(radical_noad))), eqtb);
         scan_subformula_enclosed_in_braces(SubformulaType::Nucleus, nest, scanner, eqtb, logger);
     }
 }
@@ -3506,7 +3513,7 @@ pub fn set_math_char(mmode: &mut MathMode, c: u16, eqtb: &mut Eqtb) {
     } else {
         NoadType::from((c / 0o10000) as u8)
     };
-    mmode.append_node(Node::Noad(Noad::Normal(noad)), eqtb);
+    mmode.append_node(Node::Noad(Box::new(Noad::Normal(noad))), eqtb);
 }
 
 /// See 1159.

@@ -31,7 +31,7 @@ impl MathMode {
         if let Some(fraction_noad) = self.incompleat_noad {
             cur_list = MathMode::compleat_incompleat_noad(fraction_noad, cur_list, right_noad)
         } else if let Some(right_noad) = right_noad {
-            cur_list.push(Node::Noad(Noad::Right(right_noad)));
+            cur_list.push(Node::Noad(Box::new(Noad::Right(right_noad))));
         };
         cur_list
     }
@@ -48,17 +48,21 @@ impl MathMode {
                 panic!("right");
             }
             let inner_list = fraction_noad.numerator.split_off(1);
-            let Node::Noad(Noad::Left(left_noad)) = fraction_noad.numerator.remove(0) else {
+            // NOTE: 箱へ入れた変種は pattern の中で分解できないので、中身へ移してから見る。
+            let Node::Noad(boxed_noad) = fraction_noad.numerator.remove(0) else {
+                panic!("right");
+            };
+            let Noad::Left(left_noad) = *boxed_noad else {
                 panic!("right");
             };
             fraction_noad.numerator = inner_list;
             vec![
-                Node::Noad(Noad::Left(left_noad)),
-                Node::Noad(Noad::Fraction(fraction_noad)),
-                Node::Noad(Noad::Right(right_noad)),
+                Node::Noad(Box::new(Noad::Left(left_noad))),
+                Node::Noad(Box::new(Noad::Fraction(fraction_noad))),
+                Node::Noad(Box::new(Noad::Right(right_noad))),
             ]
         } else {
-            vec![Node::Noad(Noad::Fraction(fraction_noad))]
+            vec![Node::Noad(Box::new(Noad::Fraction(fraction_noad)))]
         }
     }
 

@@ -96,7 +96,7 @@ impl Dumpable for Node {
             }
             "List" => {
                 let list_node = ListNode::undump(lines)?;
-                Ok(Self::List(list_node))
+                Ok(Self::List(Box::new(list_node)))
             }
             "Rule" => {
                 let rule_node = RuleNode::undump(lines)?;
@@ -104,7 +104,7 @@ impl Dumpable for Node {
             }
             "Ins" => {
                 let ins_node = InsNode::undump(lines)?;
-                Ok(Self::Ins(ins_node))
+                Ok(Self::Ins(Box::new(ins_node)))
             }
             "Mark" => {
                 let mark_node = MarkNode::undump(lines)?;
@@ -116,15 +116,15 @@ impl Dumpable for Node {
             }
             "Ligature" => {
                 let ligature_node = LigatureNode::undump(lines)?;
-                Ok(Self::Ligature(ligature_node))
+                Ok(Self::Ligature(Box::new(ligature_node)))
             }
             "Disc" => {
                 let disc_node = DiscNode::undump(lines)?;
-                Ok(Self::Disc(disc_node))
+                Ok(Self::Disc(Box::new(disc_node)))
             }
             "Whatsit" => {
                 let whatsit_node = WhatsitNode::undump(lines)?;
-                Ok(Self::Whatsit(whatsit_node))
+                Ok(Self::Whatsit(Box::new(whatsit_node)))
             }
             "Math" => {
                 let math_node = MathNode::undump(lines)?;
@@ -144,7 +144,7 @@ impl Dumpable for Node {
             }
             "Unset" => {
                 let unset_node = UnsetNode::undump(lines)?;
-                Ok(Self::Unset(unset_node))
+                Ok(Self::Unset(Box::new(unset_node)))
             }
             "Style" => {
                 let style_node = StyleNode::undump(lines)?;
@@ -152,11 +152,11 @@ impl Dumpable for Node {
             }
             "Choice" => {
                 let choice_node = ChoiceNode::undump(lines)?;
-                Ok(Self::Choice(choice_node))
+                Ok(Self::Choice(Box::new(choice_node)))
             }
             "Noad" => {
                 let noad = Noad::undump(lines)?;
-                Ok(Self::Noad(noad))
+                Ok(Self::Noad(Box::new(noad)))
             }
             _ => Err(FormatError::ParseError),
         }
@@ -812,7 +812,7 @@ mod tests {
             depth: -3,
             italic: 0,
         });
-        let list = Node::List(ListNode {
+        let list = Node::List(Box::new(ListNode {
             width: 1,
             height: 2,
             depth: 3,
@@ -828,13 +828,13 @@ mod tests {
             glue_set: 0.999999,
             glue_sign: GlueSign::Shrinking,
             glue_order: DimensionOrder::Fill,
-        });
+        }));
         let rule = Node::Rule(RuleNode {
             width: 5,
             height: 6,
             depth: -1,
         });
-        let ins = Node::Ins(InsNode {
+        let ins = Node::Ins(Box::new(InsNode {
             number: 1,
             size: 2,
             split_max_depth: 3,
@@ -845,7 +845,7 @@ mod tests {
                 depth: -1,
             })],
             float_cost: -1234,
-        });
+        }));
         let mark = Node::Mark(MarkNode {
             mark: std::rc::Rc::new(vec![
                 Token::LeftBrace(1),
@@ -858,7 +858,7 @@ mod tests {
         let adjust = Node::Adjust(AdjustNode {
             adjustment: Vec::new(),
         });
-        let ligature = Node::Ligature(LigatureNode {
+        let ligature = Node::Ligature(Box::new(LigatureNode {
             font_index: 12,
             character: 43,
             width: 1,
@@ -868,8 +868,8 @@ mod tests {
             left_boundary: false,
             right_boundary: true,
             lig: vec![45, 89],
-        });
-        let disc = Node::Disc(DiscNode {
+        }));
+        let disc = Node::Disc(Box::new(DiscNode {
             pre_break: Vec::new(),
             post_break: vec![
                 Node::Char(CharNode {
@@ -890,11 +890,11 @@ mod tests {
                 }),
             ],
             no_break: Vec::new(),
-        });
-        let whatsit = Node::Whatsit(WhatsitNode::Open(OpenNode {
+        }));
+        let whatsit = Node::Whatsit(Box::new(WhatsitNode::Open(OpenNode {
             write_stream: 12,
             path: PathBuf::from("../.\x0012asdf/..asd.t"),
-        }));
+        })));
         let math = Node::Math(MathNode {
             kind: MathNodeKind::Before,
             width: 12345,
@@ -908,7 +908,7 @@ mod tests {
             width: -1,
         });
         let penalty = Node::Penalty(PenaltyNode { penalty: -123 });
-        let unset = Node::Unset(UnsetNode {
+        let unset = Node::Unset(Box::new(UnsetNode {
             width: 1,
             height: 2,
             depth: 3,
@@ -939,21 +939,21 @@ mod tests {
                 value: 34,
             },
             span_count: 12,
-        });
+        }));
         let style = Node::Style(StyleNode {
             style: MathStyle::Display { cramped: false },
         });
-        let choice = Node::Choice(ChoiceNode {
+        let choice = Node::Choice(Box::new(ChoiceNode {
             display_mlist: Box::new(Vec::new()),
             text_mlist: Box::new(Vec::new()),
             script_mlist: Box::new(Vec::new()),
             script_script_mlist: Box::new(Vec::new()),
-        });
-        let noad = Node::Noad(Noad::Over(OverNoad {
+        }));
+        let noad = Node::Noad(Box::new(Noad::Over(OverNoad {
             nucleus: None,
             subscript: None,
             superscript: None,
-        }));
+        })));
 
         let mut file = Vec::new();
         chr.dump(&mut file).unwrap();

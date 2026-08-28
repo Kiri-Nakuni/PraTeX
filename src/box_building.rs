@@ -166,7 +166,7 @@ pub fn handle_right_brace(
                     split_top_skip,
                     float_cost: floating_penalty,
                 };
-                nest.tail_push(Node::Ins(ins_node), eqtb);
+                nest.tail_push(Node::Ins(Box::new(ins_node)), eqtb);
             // If this is a \vadjust
             } else {
                 let adjust_node = AdjustNode { adjustment: vlist };
@@ -223,7 +223,7 @@ pub fn handle_right_brace(
                 subscript: None,
                 superscript: None,
             };
-            nest.tail_push(Node::Noad(Noad::Vcenter(vcenter_noad)), eqtb);
+            nest.tail_push(Node::Noad(Box::new(Noad::Vcenter(vcenter_noad))), eqtb);
         }
         // From 1173.
         GroupType::MathChoice { t } => build_choices(t, nest, scanner, eqtb, logger),
@@ -237,37 +237,43 @@ pub fn handle_right_brace(
             let mut mlist = mmode.fin_mlist(None);
             let noad_field = if mlist.len() == 1 {
                 let node = mlist.pop().unwrap();
+                // NOTE: 箱へ入れた変種は pattern の中で分解できないので、中身へ移してから見る。
                 match node {
-                    Node::Noad(Noad::Normal(NormalNoad {
-                        noad_type: NoadType::Ord,
-                        subscript: None,
-                        superscript: None,
-                        nucleus,
-                    })) => {
-                        // This Ord noad only contains a nucleus. So we effectively replace the
-                        // entire noad with just the nucleus.
-                        nucleus
-                    }
-                    Node::Noad(Noad::Accent(accent_noad))
-                        if subformula_type == SubformulaType::Nucleus =>
-                    {
-                        if let Some(
-                            last_noad @ Noad::Normal(NormalNoad {
-                                noad_type: NoadType::Ord,
-                                ..
-                            }),
-                        ) = nest.last_noad_mut()
-                        {
-                            // This Accent is the nucleus of a fresh Ord noad. So we effectively
-                            // replace the Ord noad with the Accent noad.
-                            *last_noad = Noad::Accent(accent_noad);
-                            return;
-                        } else {
-                            Some(Box::new(NoadField::SubMlist {
-                                list: vec![Node::Noad(Noad::Accent(accent_noad))],
-                            }))
+                    Node::Noad(boxed_noad) => match *boxed_noad {
+                        Noad::Normal(NormalNoad {
+                            noad_type: NoadType::Ord,
+                            subscript: None,
+                            superscript: None,
+                            nucleus,
+                        }) => {
+                            // This Ord noad only contains a nucleus. So we effectively replace
+                            // the entire noad with just the nucleus.
+                            nucleus
                         }
-                    }
+                        Noad::Accent(accent_noad)
+                            if subformula_type == SubformulaType::Nucleus =>
+                        {
+                            if let Some(
+                                last_noad @ Noad::Normal(NormalNoad {
+                                    noad_type: NoadType::Ord,
+                                    ..
+                                }),
+                            ) = nest.last_noad_mut()
+                            {
+                                // This Accent is the nucleus of a fresh Ord noad. So we
+                                // effectively replace the Ord noad with the Accent noad.
+                                *last_noad = Noad::Accent(accent_noad);
+                                return;
+                            } else {
+                                Some(Box::new(NoadField::SubMlist {
+                                    list: vec![Node::Noad(Box::new(Noad::Accent(accent_noad)))],
+                                }))
+                            }
+                        }
+                        other => Some(Box::new(NoadField::SubMlist {
+                            list: vec![Node::Noad(Box::new(other))],
+                        })),
+                    },
                     _ => Some(Box::new(NoadField::SubMlist { list: vec![node] })),
                 }
             } else {
@@ -482,7 +488,8 @@ fn readjust_height_and_depth(cur_box: &mut ListNode) {
         HlistOrVlist::Vlist(list) => list,
     };
     let h = match list.first() {
-        Some(&Node::List(ListNode { height, .. }) | &Node::Rule(RuleNode { height, .. })) => height,
+        Some(Node::List(list_node)) => list_node.height,
+        Some(Node::Rule(rule_node)) => rule_node.height,
         _ => 0,
     };
 
@@ -683,7 +690,7 @@ pub fn new_graf(
     if is_indented {
         let mut hbox = ListNode::new_empty_hbox();
         hbox.width = eqtb.dimen(DimensionVariable::ParIndent);
-        nest.tail_push(Node::List(hbox), eqtb);
+        nest.tail_push(Node::List(Box::new(hbox)), eqtb);
     }
     if let Some(every_par) = eqtb.token_lists.get(TokenListVariable::EveryPar) {
         scanner.input_stack.begin_token_list(
@@ -703,7 +710,7 @@ pub fn indent_in_hmode(hmode: &mut HorizontalMode, eqtb: &mut Eqtb) {
     let mut list_node = ListNode::new_empty_hbox();
     list_node.width = eqtb.dimen(DimensionVariable::ParIndent);
     hmode.set_space_factor(1000, eqtb);
-    hmode.append_node(Node::List(list_node), eqtb);
+    hmode.append_node(Node::List(Box::new(list_node)), eqtb);
 }
 
 /// See 1093.
@@ -712,7 +719,7 @@ pub fn indent_in_mmode(mmode: &mut MathMode, eqtb: &mut Eqtb) {
     list_node.width = eqtb.dimen(DimensionVariable::ParIndent);
     let mut noad = NormalNoad::new();
     noad.nucleus = Some(Box::new(NoadField::SubBox { list_node }));
-    mmode.append_node(Node::Noad(Noad::Normal(noad)), eqtb);
+    mmode.append_node(Node::Noad(Box::new(Noad::Normal(noad))), eqtb);
 }
 
 /// See 1095.
@@ -954,9 +961,13 @@ pub fn unpackage(
 /// See 1113.
 pub fn append_italic_correction(hmode: &mut HorizontalMode, eqtb: &mut Eqtb) {
     if let Some(last_node) = hmode.list.last() {
-        if let &Node::Char(CharNode { italic, .. }) | &Node::Ligature(LigatureNode { italic, .. }) =
-            last_node
-        {
+        // NOTE: 箱へ入れた変種は pattern の中で分解できないので、束縛してから読む。
+        let italic = match last_node {
+            &Node::Char(CharNode { italic, .. }) => Some(italic),
+            Node::Ligature(ligature_node) => Some(ligature_node.italic),
+            _ => None,
+        };
+        if let Some(italic) = italic {
             let mut kern_node = KernNode::new(italic);
             kern_node.subtype = KernSubtype::Explicit;
             hmode.append_node(Node::Kern(kern_node), eqtb);
@@ -974,7 +985,7 @@ pub fn hyphen_discretionary(eqtb: &Eqtb, logger: &mut Logger) -> Node {
             None => Vec::new(),
         };
     }
-    Node::Disc(disc_node)
+    Node::Disc(Box::new(disc_node))
 }
 
 /// See 1117.
@@ -984,7 +995,7 @@ pub fn append_discretionary(
     eqtb: &mut Eqtb,
     logger: &mut Logger,
 ) {
-    nest.tail_push(Node::Disc(DiscNode::new()), eqtb);
+    nest.tail_push(Node::Disc(Box::new(DiscNode::new())), eqtb);
     eqtb.new_save_level(
         GroupType::Disc {
             typ: DiscGroupType::PreBreak,
@@ -1093,7 +1104,7 @@ fn append_accent_with_appropriate_kerns(
             logger,
         );
         shifted_accent.shift_amount = accent_x_height - next_char.height;
-        Node::List(shifted_accent)
+        Node::List(Box::new(shifted_accent))
     } else {
         Node::Char(accent_char)
     };

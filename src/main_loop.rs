@@ -348,7 +348,7 @@ impl WordScanner {
                 );
                 if character as i32 == self.hyphen_char {
                     if let HorizontalModeType::Unrestricted { .. } = hmode.subtype {
-                        hmode.append_node(Node::Disc(DiscNode::new()), eqtb);
+                        hmode.append_node(Node::Disc(Box::new(DiscNode::new())), eqtb);
                     }
                 }
             }
@@ -364,7 +364,7 @@ impl WordScanner {
                 let right_boundary = self.right_hit && self.lig_stack.is_empty();
                 let dimensions = font.dimensions(lig_item.character);
                 hmode.append_node(
-                    Node::Ligature(LigatureNode {
+                    Node::Ligature(Box::new(LigatureNode {
                         font_index: self.font_index,
                         character: lig_item.character,
                         width: dimensions.width,
@@ -374,13 +374,13 @@ impl WordScanner {
                         lig: lig_item.consumed_chars,
                         left_boundary,
                         right_boundary,
-                    }),
+                    })),
                     eqtb,
                 );
                 if let Some(chr) = last_char {
                     if chr as i32 == self.hyphen_char {
                         if let HorizontalModeType::Unrestricted { .. } = hmode.subtype {
-                            hmode.append_node(Node::Disc(DiscNode::new()), eqtb);
+                            hmode.append_node(Node::Disc(Box::new(DiscNode::new())), eqtb);
                         }
                     }
                 }
@@ -504,7 +504,7 @@ fn fix_language(hmode: &mut HorizontalMode, eqtb: &mut Eqtb) {
                     left_hyphen_min: norm_min(eqtb.integer(IntegerVariable::LeftHyphenMin)),
                     right_hyphen_min: norm_min(eqtb.integer(IntegerVariable::RightHyphenMin)),
                 };
-                hmode.append_node(Node::Whatsit(WhatsitNode::Language(language_node)), eqtb);
+                hmode.append_node(Node::Whatsit(Box::new(WhatsitNode::Language(language_node))), eqtb);
             }
         }
     }

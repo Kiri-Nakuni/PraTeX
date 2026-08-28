@@ -97,7 +97,13 @@ pub fn prune_page_top(vlist: Vec<Node>, eqtb: &Eqtb) -> Vec<Node> {
     let mut found_box_or_rule = false;
     for node in vlist {
         match node {
-            Node::List(ListNode { height, .. }) | Node::Rule(RuleNode { height, .. }) => {
+            Node::List(_) | Node::Rule(_) => {
+                // NOTE: 箱へ入れた変種は pattern の中で分解できないので、束縛してから読む。
+                let height = match &node {
+                    Node::List(list_node) => list_node.height,
+                    Node::Rule(rule_node) => rule_node.height,
+                    _ => unreachable!("直前の腕で絞ってある"),
+                };
                 if !found_box_or_rule {
                     let split_top_skip = eqtb.skips.get(SkipVariable::SplitTopSkip);
                     let d = if split_top_skip.width > height {
@@ -215,9 +221,14 @@ fn update_height_and_depth(
     logger: &mut Logger,
 ) {
     match node {
-        Node::List(ListNode { height, depth, .. }) | Node::Rule(RuleNode { height, depth, .. }) => {
-            dimens.height += dimens.depth + *height;
-            dimens.depth = *depth;
+        Node::List(_) | Node::Rule(_) => {
+            let (height, depth) = match node {
+                Node::List(list_node) => (list_node.height, list_node.depth),
+                Node::Rule(rule_node) => (rule_node.height, rule_node.depth),
+                _ => unreachable!("直前の腕で絞ってある"),
+            };
+            dimens.height += dimens.depth + height;
+            dimens.depth = depth;
         }
         Node::Glue(glue_node) => {
             if glue_node.glue_spec.shrink.is_infinite() {

@@ -12,7 +12,6 @@ use crate::nodes::{CharNode, GlueSpec};
 use crate::print::Printer;
 use crate::scaled::{xn_over_d, Scaled, UNITY};
 
-use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;

@@ -65,7 +65,7 @@ impl VerticalMode {
             self.append_node(Node::Glue(interline_glue), eqtb);
         }
         self.set_prev_depth(list_node.depth, eqtb);
-        self.append_node(Node::List(list_node), eqtb);
+        self.append_node(Node::List(Box::new(list_node)), eqtb);
     }
 
     /// See 679.
@@ -81,7 +81,7 @@ impl VerticalMode {
             self.append_node(Node::Glue(interline_glue), eqtb);
         }
         self.set_prev_depth(unset_node.depth, eqtb);
-        self.append_node(Node::Unset(unset_node), eqtb);
+        self.append_node(Node::Unset(Box::new(unset_node)), eqtb);
     }
 
     /// See 219.

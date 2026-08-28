@@ -232,12 +232,10 @@ impl WordHyphenator {
                         break (node, font_index, character);
                     }
                 }
-                Node::Ligature(LigatureNode {
-                    font_index,
-                    ref lig,
-                    ..
-                }) => {
-                    if let Some(&character) = lig.first() {
+                // NOTE: 箱へ入れた変種は pattern の中で分解できないので、束縛してから読む。
+                Node::Ligature(ref ligature_node) => {
+                    let font_index = ligature_node.font_index;
+                    if let Some(&character) = ligature_node.lig.first() {
                         let lc_code = eqtb.lc_code(character as usize);
                         if lc_code != 0 {
                             break (node, font_index, character);
@@ -504,14 +502,11 @@ impl WordHyphenator {
                 self.prefix.pop();
                 Some(LeftNode::Char(character))
             }
-        } else if let Some(&mut Node::Ligature(LigatureNode {
-            font_index,
-            character,
-            ref mut lig,
-            left_boundary,
-            ..
-        })) = self.prefix.last_mut()
-        {
+        } else if let Some(Node::Ligature(ligature_node)) = self.prefix.last_mut() {
+            let font_index = ligature_node.font_index;
+            let character = ligature_node.character;
+            let left_boundary = ligature_node.left_boundary;
+            let lig = &mut ligature_node.lig;
             if font_index != hyph_font_index {
                 Some(LeftNode::None)
             } else {
@@ -533,10 +528,7 @@ impl WordHyphenator {
                     }))
                 }
             }
-        } else if let Node::Ligature(LigatureNode {
-            left_boundary: true,
-            ..
-        }) = self.word[0]
+        } else if matches!(&self.word[0], Node::Ligature(ligature_node) if ligature_node.left_boundary)
         {
             // The initial left node is a normal word boundary.
             Some(LeftNode::None)
@@ -1125,7 +1117,7 @@ impl<'a> Cursor<'a> {
                     false
                 };
                 let dimensions = font.dimensions(lig_item.character);
-                self.cut_prefix.push(Node::Ligature(LigatureNode {
+                self.cut_prefix.push(Node::Ligature(Box::new(LigatureNode {
                     font_index: self.font_index,
                     character: lig_item.character,
                     width: dimensions.width,
@@ -1135,7 +1127,7 @@ impl<'a> Cursor<'a> {
                     lig: lig_item.consumed_chars,
                     left_boundary: lig_item.left_boundary,
                     right_boundary,
-                }));
+                })));
             }
             LeftNode::Char(character) => {
                 let dimensions = font.dimensions(character);
@@ -1208,6 +1200,6 @@ fn move_point_to_end_of_current_list(
             post_break,
             no_break: major_tail,
         };
-        s.push(Node::Disc(disc_node));
+        s.push(Node::Disc(Box::new(disc_node)));
     }
 }

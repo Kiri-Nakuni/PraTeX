@@ -343,9 +343,9 @@ pub fn do_special(
     eqtb: &mut Eqtb,
     logger: &mut Logger,
 ) {
-    let node = Node::Whatsit(WhatsitNode::Special(implement_special(
+    let node = Node::Whatsit(Box::new(WhatsitNode::Special(implement_special(
         token, scanner, eqtb, logger,
-    )));
+    ))));
     nest.tail_push(node, eqtb);
 }
 
@@ -357,7 +357,7 @@ pub fn set_language(
     logger: &mut Logger,
 ) {
     if let Some(language_node) = implement_setlanguage(nest, scanner, eqtb, logger) {
-        let node = Node::Whatsit(WhatsitNode::Language(language_node));
+        let node = Node::Whatsit(Box::new(WhatsitNode::Language(language_node)));
         nest.tail_push(node, eqtb);
     }
 }

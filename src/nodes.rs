@@ -21,22 +21,22 @@ pub type GlueRatio = f64;
 #[cfg_attr(test, derive(PartialEq))]
 pub enum Node {
     Char(CharNode),
-    List(ListNode),
+    List(Box<ListNode>),
     Rule(RuleNode),
-    Ins(InsNode),
+    Ins(Box<InsNode>),
     Mark(MarkNode),
     Adjust(AdjustNode),
-    Ligature(LigatureNode),
-    Disc(DiscNode),
-    Whatsit(WhatsitNode),
+    Ligature(Box<LigatureNode>),
+    Disc(Box<DiscNode>),
+    Whatsit(Box<WhatsitNode>),
     Math(MathNode),
     Glue(GlueNode),
     Kern(KernNode),
     Penalty(PenaltyNode),
-    Unset(UnsetNode),
+    Unset(Box<UnsetNode>),
     Style(StyleNode),
-    Choice(ChoiceNode),
-    Noad(Noad),
+    Choice(Box<ChoiceNode>),
+    Noad(Box<Noad>),
 }
 
 impl Node {
