@@ -115,6 +115,36 @@ log / terminal transcript には、e-TeX拡張レジスタの範囲、追加単�
 実装していないこと、入力promptの整形などの診断差が残る。runner はこれらを許容差へ
 隠さず `different` として保存するため、DVIの意味一致とlogの未解消差を混同しないこと。
 
+## 2026-08-28 `claude1/perf-integration` の再実行
+
+code checkpoint `b923e95` を Linux 上で走らせた。この環境には PowerShell 7 が
+ないため、`tools/run-trip.ps1` に固定された byte 入力と引数を同じ順で実行する
+[`tools/run-trip-linux.sh`](../tools/run-trip-linux.sh) を書いた。隔離領域は
+`/tmp/pratex-trip-claude1` である。fmt の書き方（制御綴の名前の十六進化、
+`PreTrie` の build cache を書かない）と hash（制御綴索引と trie 検証）を
+変えたので、組版意味が動いていないことを確かめるのが目的である。
+
+- 公式 archive SHA-256:
+  `1d419b1bd7efa575ead0174e47d542a0099a73e0e4deb5031980d109e8c3c645`
+  （2026-08-25 の記録と同一の資材）
+- manifest の十資材は全件 SHA-256 一致。
+- `CARGO_BUILD_JOBS=1 cargo build --release --features trip --locked` は exit 0。
+  実行 file SHA-256 は
+  `16705b6c6b5345fb49f0a0a1ffb8e0345f1e661373a9183c36b02498c6dbb394`。
+- Appendix A step 1 の PLtoTF → TFtoPL は往復 PL が公式 `trip.pl` と一致し、
+  生成 TFM の SHA-256 は `2c94bdba9c769e885f357823a183aaa5d2267731075f040f2a03cf6442a26181`
+  で公式 `trip.tfm` と **byte 一致**した。
+- Stage 1 / Stage 2 はともに exit 0。`8terminal.tex` は 0 byte、
+  `tripos.tex` は公式と byte 一致した。
+- `-output-comment= TeX output 1776.07.04:1200` を与えた対照 run の DVI は
+  2,920 byte、SHA-256 `09802695e330d34acec9192c15debe2de65e34fcbd3f947db9c8924240b1fe0a`
+  で、**公式 DVI と byte 単位で完全一致**した。
+- log の残差は既知の二種だけである。banner の engine 名・版・日付と、
+  `Memory usage before: ...` に対する `Memory usage display not supported`。
+  `trip.log` 7,306 行のうち差分は 72 行で、すべてこの二種に属する。
+
+したがって、fmt の書き方と hash の変更は組版意味を動かしていない。
+
 ## 2026-08-25 `codex3/perf-integration`の再測定
 
 文書checkpoint `89e1d25`（code checkpoint `a2765c7`）をLinux上で一coreの隔離targetへbuildした。
